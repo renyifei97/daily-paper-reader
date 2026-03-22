@@ -1,0 +1,827 @@
+Title: NetSpatial: Spatially Conditional Traffic Generation for Cellular Planning and Operations
+
+URL Source: https://arxiv.org/pdf/2603.13839v1
+
+Published Time: Tue, 17 Mar 2026 01:32:51 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# NetSpatial: Spatially Conditional Traffic Generation for Cellular Planning and Operations 
+
+# Shiyuan Zhang 
+
+The University of Hong Kong, Hong Kong, China shiyuanzhang@connect.hku.hk 
+
+# Jiale Du 
+
+The University of Hong Kong, Hong Kong, China u3650171@connect.hku.hk 
+
+# Yuanwei Liu 
+
+The University of Hong Kong, Hong Kong, China yuanwei@hku.hk 
+
+# Kaibin Huang 
+
+The University of Hong Kong, Hong Kong, China huangkb@hku.hk 
+
+# Hongyang Du ∗
+
+The University of Hong Kong, Hong Kong, China duhy@hku.hk 
+
+Abstract 
+
+Base station (BS) deployment and operation are fundamental to network performance, yet they require accurate demand understanding, which remains difficult for operators. Cel-lular traffic in dense urban regions is well measured but highly dynamic, which undermines prediction-based man-agement, whereas the scarcity of traffic measurements in emerging regions limits informed deployment decisions. Ex-isting approaches therefore either depend on manual plan-ning heuristics or use autoregressive predictors that fail to capture stochastic traffic variation. We present NetSpatial, a unified system for cellular planning and operation through spatially conditional traffic generation. NetSpatial exploits multimodal urban context, including satellite imagery and point of interest (POI) distributions, to learn how physical environment and functional semantics shape BS demand. It uses a multi-level flow-matching architecture that separates periodic structure from residual dynamics, enabling direct generation of long-horizon traffic sequences. NetSpatial sup-ports two complementary decision scenarios, i.e., what-if analysis for deployment planning, which ranks candidate sites using generated traffic profiles, and what-to-do sup-port for network operation, which uses generated traffic forecasts to guide BS sleep scheduling and load balancing. Experiments on real-world cellular traffic data show that NetSpatial reduces Jensen–Shannon Divergence (JSD) by 29.44% over the strongest baseline, generalizes across cities in zero-shot experiments, and enables up to 16.8% energy savings while maintaining over 80% quality of experience. 
+
+CCS Concepts 
+
+• Networks → Network simulations ; • Computing method-ologies → Modeling and simulation ; • Information sys-tems → Spatial-temporal systems .
+
+> ∗Corresponding author.
+
+Figure 1: BS density and traffic volume in Shanghai. Left: Spatial distribution of BSs shows dense deploy-ment in urban centers, while suburban and newly de-veloped areas lack coverage. Right: Traffic utilization analysis reveals significant capacity waste in densely deployed regions, where many BSs operate far below their capacity. 
+
+Keywords 
+
+Cellular traffic, Generative AI, Earth Observation 
+
+1 Introduction 
+
+Fifth generation (5G) cellular networks are expected to sup-port emerging applications such as autonomous driving, in-dustrial automation, and smart city services [ 22 , 27 ]. These applications impose strict requirements on network capac-ity and coverage reliability in highly urban environments with dynamic traffic demand and complex propagation con-ditions [ 3 , 10 , 48 ]. Meeting these requirements at scale re-quires a city-level understanding of network behavior and urban dynamics, where base station (BS) deployment and operation interact with spatial structure, traffic patterns, and environmental factors [56]. Despite the rapid deployment of 5G networks, manag-ing city-scale cellular systems remains challenging due to the complex interaction between spatial deployment and dynamic traffic demand. To ground the discussion in real-world evidence, we analyze 5,326 BSs across Shanghai [ 56 ],  
+
+> arXiv:2603.13839v1 [cs.CE] 14 Mar 2026 Conference’26, , Shiyuan Zhang, Jiale Du, Yuanwei Liu, Kaibin Huang, and Hongyang Du
+
+one of the largest and most densely populated metropolitan areas, as shown in Figure 1. The figure reveals two interre-lated phenomena. First, spatial deployment is highly uneven. BSs are concentrated in established urban centers, while suburban and newly developed areas face coverage gaps. In practice, limited traffic visibility in emerging regions forces operators to rely on heuristics that favor established com-mercial districts, leaving fast-growing regions underserved. Second, even within densely deployed regions, substantial capacity waste persists. A significant fraction of stations op-erate far below their designed capacity for extended periods, while others experience periodic overload. This spatial and temporal mismatch stems from the lack of real-time traffic prediction, which could enable dynamic load balancing and energy-saving sleep scheduling, resulting in static operation, avoidable energy waste, and inefficient resource utilization. Traditional cellular network planning relies on expert-driven site selection and radio-propagation simulations [ 5,7 , 12 , 17 , 53 ]. These approaches are effective for localized coverage optimization but difficult to scale to city-wide de-ployments and often fail to capture fine-grained demand heterogeneity. To enhance planning efficiency, data-driven demand modeling has been introduced, using historical traf-fic patterns, demographic data, points of interest (POIs), and mobility traces to estimate or forecast traffic demand [ 4 , 52 ]. However, existing approaches depend heavily on abundant historical traffic measurements, making them inapplicable to newly developed areas without prior data [ 44 ]. Further-more, even for existing networks, autoregressive forecasting models accumulate errors over long horizons and struggle to capture stochastic aperiodic fluctuations, limiting their util-ity for long-term planning and real-time operation [35, 43]. A practical opportunity lies in the rich spatial context that urban environments inherently contain. Satellite imagery and POI data collectively encode urban semantics from physi-cal infrastructure to functional activity patterns that strongly correlate with communication demand [ 11 , 21 , 36 , 42 , 57 ]. Motivated by this observation, we aim to learn a direct map-ping from the multi-modal urban context to traffic demand. Such a mapping enables demand-aware deployment in re-gions where historical traffic measurements are unavailable, while also supporting accurate traffic prediction for exist-ing networks. This unified modeling system enables long-term planning and real-time operation within a consistent demand modeling paradigm, supporting decisions such as demand-aware site selection, dynamic sleep scheduling, and load balancing. Realizing this city-level demand intelligence requires addressing several technical challenges. 
+
+• Heterogeneous Context Representation. Urban de-mand is shaped by diverse signals varying in modality, reso-lution, and noise. Effectively leveraging such data requires aligning heterogeneous signals across geographic space and modeling their cross-modal interactions that predict traffic demand. The learned representation must remain robust to missing, sparse, or imperfect modalities that commonly arise, while capturing stable, transferable patterns that generalize across different urban environments. 
+
+• Long-Horizon Demand Synthesis Under Uncer-tainty. BS deployment is inherently a long-term decision depending on realistic demand evolution. This requires syn-thesizing demand trajectories that preserve both periodic structure and stochastic aperiodic variations, while avoiding error accumulation that commonly affects autoregressive models [ 46 , 47 ]. The synthesized demand should capture key spatio-temporal statistics and support reliable long-horizon what-if analysis. 
+
+• Real-Time Operational Optimization. Beyond long-term planning, operators require real-time strategies for ex-isting networks. The inference engine must produce accurate traffic predictions within millisecond-level latency while re-maining consistent with the long-horizon model used for planning, so that operational what-to-do decisions align with deployment assumptions. We introduce NetSpatial, a unified system that addresses both network planning and operation through multimodal spatial context-conditional traffic generation. NetSpatial learns a multimodal encoder to align heterogeneous spatial signals, capturing the complex association between urban semantics and communication demand. Employing a multi-level flow matching architecture, NetSpatial generates complete 672-hour traffic sequences directly, separately modeling periodic trends and stochastic residuals to mitigate error compound-ing while preserving realistic variability. The same gener-ative framework supports dual decision scenarios: what-if analysis ranks candidate sites based on deployment -aware utility to support deployment planning, and what-to-do de-cisions use real-time traffic forecasts to guide BS sleep sched-uling and load balancing for operational optimization. The contributions of our work can be summarized as follows. 
+
+• We design a multimodal spatial context alignment mod-ule that integrates physical environment and functional se-mantics into a unified spatial representation. Specifically, satellite imagery captures the physical urban structure while POI distributions encode functional activity patterns. By aligning these heterogeneous signals into a shared repre-sentation, the module establishes transferable associations between urban semantics and cellular demand. 
+
+• We propose a multi-level flow matching generative ar-chitecture for long-horizon traffic synthesis that effectively reduces error accumulation. 
+
+• We show that the same generative backbone supports both deployment utility-aware site ranking for deployment NetSpatial: Spatially Conditional Traffic Generation for Cellular Planning and Operations Conference’26, , 
+
+planning and real-time traffic forecasting for sleep schedul-ing and load balancing, with no architectural modification between the two modes. 
+
+• We evaluate NetSpatial on real-world datasets. The pro-posed system reduces JSD by over 29.44% compared with the strongest baseline, generalizes across cities in zero-shot experiments, and enables up to 16.8% energy reduction while maintaining over 80% quality of experience (QoE) in down-stream operational simulations. The system has been de-ployed as an online platform for BS planning. 
+
+2 Preliminaries 2.1 Traffic Signal Decomposition 
+
+Cellular traffic exhibits strong temporal regularities driven by human activity, with clear daily and weekly patterns widely observed in mobile network measurements [ 12 ]. Let 𝑥 (𝑡 )
+
+denote the traffic volume of a BS at time 𝑡 . We decompose the signal into a structured periodic component and a residual component as 
+
+𝑥 (𝑡 ) = 𝑝 (𝑡 ) + 𝑟 (𝑡 ), (1) where 𝑝 (𝑡 ) captures regular temporal patterns and 𝑟 (𝑡 ) cap-tures non-periodic fluctuations. The periodic component contains regularities at multiple time scales. As shown in Fig. 2(b) and (c), we first consider a daily pattern over hours of the day. Let 𝜏 ∈ [ 0, 24 ) denote the hour within a day. To reflect behavioral differences between weekdays and week-ends, we introduce two daily patterns, i.e., a weekday pattern 
+
+𝑑 𝑤 (𝜏 ) and a weekend pattern 𝑑 𝑒 (𝜏 ), which patterns typically show daytime peaks and nighttime troughs. We then build a comprehensive weekly template spanning 168 hours by combining five weekday patterns followed by two weekend patterns, 
+
+𝑤 (𝑡 ) =
+
+(
+
+𝑑 𝑤 (𝑡 mod 24 ), if  𝑡 
+
+> 24
+
+ mod 7 < 5,𝑑 𝑒 (𝑡 mod 24 ), otherwise . (2) We obtain the periodic component directly by repeating the weekly template, 
+
+𝑝 (𝑡 ) = 𝑤 (𝑡 mod 168 ). (3) The residual component is precisely the remainder after removing periodicity, 
+
+𝑟 (𝑡 ) = 𝑥 (𝑡 ) − 𝑝 (𝑡 ), (4) which captures non-periodic fluctuations arising from sto-chastic events, anomalies, and short-term variations that are not explained by regular temporal structures. As shown in Figure 2, this decomposition effectively separates determin-istic periodic behavior from residual dynamics, which moti-vates a multi-level modeling approach that treats periodic structure and residual uncertainty differently in subsequent traffic generation. 
+
+2.2 Spatial and Temporal Characteristics of Cellular Traffic 
+
+Cellular traffic patterns are strongly influenced by the sur-rounding urban environment [ 12 , 56 ]. BSs located in different functional regions, such as office, commercial, residential, and entertainment areas, exhibit distinctive temporal usage patterns, while BSs in similar environments tend to show comparable traffic patterns. The physical environment in the city shapes how traffic demand evolves over time. To illustrate this relationship, we examine representative BSs located in different functional areas of Shanghai. As shown in Figure 3, clear differences ap-pear in peak timing and weekday–weekend contrast across these regions. These observations indicate that urban seman-tics is a key driver of spatial heterogeneity in traffic demand. Beyond the physical environment, the functional seman-tics of an area also affect traffic variability. Human activity tends to follow more regular patterns in central districts, leading to relatively stable traffic demand. In outer districts, demand varies more sharply, with larger fluctuations. These differences arise from the types of activities occurring in each area, as reflected in the distribution of nearby POIs. Formally, let c𝑖 = [e𝑖 ; z𝑖 ] denote the spatial context at location 𝑖 , where e𝑖 represents the physical environment features extracted from satellite imagery, and z𝑖 represents the functional semantics derived from the surrounding POI distribution. We express the site traffic at location 𝑖 as 
+
+x1: 𝑇 𝑖 = p1: 𝑇 𝑖 + r1: 𝑇 𝑖 = 𝑓 1 (c𝑖 ) + 𝑓 2 (c𝑖 ) (5) where x1: 𝑇 𝑖 = {𝑥 𝑖 (𝑡 )} 𝑇 𝑡 =1 represents the complete time series for base station 𝑖 over 𝑇 time steps, p1: 𝑇 𝑖 and r1: 𝑇 𝑖 represent the predictable and residual components respectively, and 
+
+𝑓 1 (c𝑖 ) and 𝑓 2 (c𝑖 ) are functions conditioned on the spatial context c𝑖 .
+
+2.3 From Measured BSs to Feasible Candidate Sites 
+
+Our training data provides traffic traces only at deployed base stations, while deployment planning requires evaluat-ing many candidate locations. We bridge this gap by mod-eling traffic as a location-conditional site-traffic potential function. During training, each deployed BS provides a la-beled sample consisting of the surrounding spatial context 
+
+c as input and the measured traffic time series as the cor-responding label. The model learns a conditional genera-tor 𝐺 𝜃 : c𝑖 ↦ → 𝑃 (x𝑖 | c𝑖 ) that maps spatial context to a distribution over traffic sequences. During inference, let 
+
+C = {1, . . . , 𝑀 } denote the set of 𝑀 feasible grid cells that satisfy basic engineering constraints. For each cell 𝑗 ∈ C , we extract its spatial context s𝑗 and generate a monthly traffic sequence ˆx𝑗 = [ ˆ𝑥 𝑗 (1), . . . , ˆ𝑥 𝑗 (𝑇 )] , interpreted as the traffic Conference’26, , Shiyuan Zhang, Jiale Du, Yuanwei Liu, Kaibin Huang, and Hongyang Du Day 1 Day 8 Day 15 Day 22 Day 28              
+
+> Time (days)
+> 0.0
+> 0.1
+> 0.2
+> Traffic
+> (a) Original Traffic Signal (672 hours, 28 days)
+> 0612 18 23
+> Hour of Day
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> Traffic
+> (b) Daily Pattern
+> Weekday
+> Weekend
+> Mon Tue Wed Thu Fri Sat Sun
+> Day of Week
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> Traffic
+> (c) Weekly Pattern (168 hours)
+> W1 W2 W3 W4
+> Time
+> 0.0
+> 0.1
+> 0.2
+> Residual
+> Var: 77.4%
+> (d) Residual Signal
+
+Figure 2: Decomposition of BS traffic into periodic and non-periodic components. (a) Original 28-day traffic signal at hourly granularity. (b) Daily patterns for weekdays and weekends. (c) Weekly template over 168 hours. (d) Residual signal captures non-periodic fluctuations. Morning peak,                           
+
+> weekday-dominant
+> Evening peak Weekend-dominant
+> Noon peak, weekend-high
+> Mon Tue Wed Thu Fri Sat Sun
+> Mon Tue Wed Thu Fri Sat Sun Mon Tue Wed Thu Fri Sat Sun
+> Mon Tue Wed Thu Fri Sat Sun
+> 0.08
+> 0.06
+> 0.04
+> 0.02
+> 0.00
+> Traffic Traffic
+> Traffic  Traffic
+
+Figure 3: Spatial influence on BS traffic patterns. BSs from different functional areas exhibit distinct weekly profiles. Office areas show weekday-dominant daytime peaks, commercial areas show noon peaks with higher weekend activity, residential areas show evening peaks, and entertainment areas show weekend-dominant traffic. 
+
+a BS would carry if deployed at cell 𝑗 . Because the genera-tor produces a complete traffic sequence for each candidate location, the downstream site-ranking objective can be de-fined flexibly to suit different planning goals. For example, operators may prioritize locations with high demand, high peak load, or potential revenue. As an illustrative example, we introduce a simple Load Stability Index (LSI) that favors locations with relatively stable traffic patterns over time. Such stability is desirable in practical deployment scenarios where operators prefer locations with consistently high traf-fic volume rather than highly volatile demand that may lead to frequent over-provisioning or congestion. Formally, we define the LSI as 
+
+LSI 𝑗 = 1
+
+𝜎 ( ˆx𝑗 ) + 𝜖 , (6) where 𝜎 ( ˆx𝑗 ) is the temporal standard deviation of the gener-ated sequence and 𝜖 = 10 −6. Given a budget of 𝐾 new sites, we select 
+
+S∗ = arg max 
+
+S ⊆ C , | S | =𝐾 ∑︁ 𝑗 ∈ S 
+
+LSI 𝑗 , (7) which reduces to sorting by LSI and retaining the top 𝐾 
+
+entries due to the objective’s modularity. Importantly, the traffic generator and the ranking objec-tive are decoupled. Since the model produces a full traffic NetSpatial: Spatially Conditional Traffic Generation for Cellular Planning and Operations Conference’26, , 
+
+sequence for each candidate location, alternative deployment utilities can be applied directly without retraining. 
+
+3 System Overview 
+
+This section presents NetSpatial, a unified system for cel-lular network planning and operation based on spatially conditional traffic generation. The core of NetSpatial is a multi-level conditional generative model that fuses satellite imagery and POI distributions to map spatial context to long-term site traffic sequences, enabling both what-if analysis for BS deployment planning and what-to-do decisions for real-time network operation. 
+
+3.1 Problem Setting and Outputs 
+
+For BSs with traffic measurements, each station forms a la-beled training sample. The label is an hourly traffic sequence over a 28-day window with a length of 672. The input is the spatial multimodal context around the station, derived from satellite imagery and POI distributions. The model learns to generate a 672-hour site traffic sequence conditioned on this spatial context. 
+
+Inference on candidate locations. For candidate loca-tions that lack traffic data, namely potential deployment sites, NetSpatial evaluates a set of feasible candidates derived from grid cells after applying deployability constraints. For each feasible candidate location, NetSpatial extracts spatial multi-modal context using the same pipeline as in training and generates a 672-hour hourly traffic sequence. We interpret this sequence as the traffic load that a base station would carry if deployed at that candidate location. 
+
+Real-time inference on existing BSs. For BSs already in operation, the generative model performs real-time traffic prediction using satellite imagery and POI data to capture spatial context, and periodic patterns derived from Equa-tions (2) and (3) to capture temporal dynamics. These pre-dictions enable dynamic operational decisions, including BS sleep scheduling for energy saving during low-traffic periods and load balancing across neighboring stations to optimize network resource utilization. 
+
+Decision output. NetSpatial delivers two distinct cate-gories of decision outputs, 
+
+• For network planning, it computes LSI for each candidate site based on its generated monthly traffic sequence, ranks all the sites by this index, and then finally selects the top-𝐾 
+
+optimal locations. 
+
+• For network operations, it provides accurate, real-time traffic forecasts that inform dynamic BS on-off switching and efficient inter-station load redistribution decisions. Multi -Modality Alignment  
+
+> Time series
+> Visual Textual
+> Spatio -Temporal Semantic Encoder
+> Traffic Generation
+> Daily Pattern
+> Generation
+> (Weekday/Weekend)
+> Weekly Pattern
+> Generation
+> Residual Pattern
+> Generation
+> System Deployment
+> ➢
+> what -if simulation
+> ➢
+> what -to -do decision
+> Spatial
+> Context
+> Embedding Fig .5
+> Fig .6
+
+Figure 4: System overview of NetSpatial. 
+
+3.2 Design Overview 
+
+Fig. 4 provides an overview of the end-to-end workflow of NetSpatial, which comprises three modules: multimodal data alignment, multi-level conditional generation, and decision support for planning and operation. The first module in-gests heterogeneous spatial data sources, including satel-lite imagery and POI distributions, and aligns them into a unified spatial representation using a multimodal encoder. The second module takes the aligned multimodal context as input. It generates a 672-hour traffic sequence ˆ𝑥 𝑗 (𝑡 ) for 
+
+𝑡 ∈ { 1, . . . , 672 } via a multi-level flow matching architecture that separately models periodic trends and stochastic resid-uals. The third module supports two decision scenarios. In what-if analysis for network planning, candidate sites are ranked by the Load Stability Index (Eq. (6) ) computed from their generated traffic profiles, and the top-𝐾 locations with the most temporally stable demand are selected for deploy-ment. In what-to-do decisions for network operation, the same generator provides real-time traffic forecasts to inform BS sleep scheduling and load balancing. 
+
+4 Methodology 4.1 Multi-Modal Representation Learning 
+
+As shown in Fig. 5, we propose a multi-modal framework that produces a unified spatial embedding C ∈ R𝑑 for each location ℓ. The input consists of a geo-referenced satellite image patch x𝐼 ∈ R𝐻 ×𝑊 ×3 and a set of nearby POIs P ( ℓ) =
+
+{𝑝 𝑖 }𝐾 𝑖 =1 within a fixed radius ( 𝐾 may be zero). The framework captures dense visual cues from imagery and sparse symbolic semantics from POIs while handling variable POI density, including complete absence. 
+
+4.1.1 Multi-modal Perception We employ frozen pretrained encoders for stable and transferable feature extraction. 
+
+Visual modality. A ViT-based encoder 𝑓 𝐼 processes the satellite patch and produces a visual embedding v ∈ R𝑑 (fol-lowed by ℓ2-normalization, all embeddings presented below are likewise normalized before being used). 
+
+Textual modality. For each POI 𝑝 𝑖 we construct an ad-dress prompt 𝑇 𝐴 𝑖 and a surrounding-context prompt 𝑇 𝑆 𝑖 . A Conference’26, , Shiyuan Zhang, Jiale Du, Yuanwei Liu, Kaibin Huang, and Hongyang Du Image Encoder  
+
+> split
+> ...
+> Linear
+> Projection
+> 0
+> 1
+> 9
+> Patch + Position
+> Embedding
+> ...
+> Embedd
+> Patches
+> ...
+> Norm
+> Multi -Head
+> Attention
+> MLP
+> Norm
+> L×
+> Text Encoder
+> MASK
+> Encoder Encoder
+> Cross -
+> modality
+> Encoder
+> Cross -
+> modality
+> Encoder
+> Reconstruction Geography view
+> LLM
+> LLM
+> prompt1
+> prompt2
+> Linear
+> Concat
+> LeakyReLU
+> L:inear
+> SoftMax
+> Multimodal Perception
+> Multimodal Fusion
+> 21
+
+Figure 5: Overview of the proposed multi-modal per-ception and fusion framework. It consists of two stages. (1) Multi-modal Perception. Dedicated frozen encoders process satellite imagery and POI data to ex-tract modality-specific features. (2) Multi-modal Fu-sion. A mask-based generative mechanism integrates the features into a unified representation that is robust to missing modalities. 
+
+frozen LLM llama-3.1-8b [ 39 ] 𝐻 extracts embeddings e𝐴 𝑖 , e𝑆 𝑖 ∈
+
+R𝐷 , which are fused by a lightweight scoring network, 
+
+[𝛼 𝐴 𝑖 , 𝛼 𝑆 𝑖 ] = softmax  𝑠 𝜃 (e𝐴 𝑖 ∥e𝑆 𝑖 ), e𝑖 = 𝛼 𝐴 𝑖 e𝐴 𝑖 + 𝛼 𝑆 𝑖 e𝑆 𝑖 , (8) where ∥ denotes concatenation. Each fused embedding is linearly projected into the shared 𝑑 -dimensional space to obtain p𝑖 .To handle variable 𝐾 , we aggregate {p𝑖 }𝐾 𝑖 =1 directly via attention pooling, 
+
+𝛽 𝑖 = softmax 𝑖 
+
+ 𝑎 𝜑 (p𝑖 ), p = Í𝐾 𝑖 =1 𝛽 𝑖 p𝑖 ∈ R𝑑 . (9) When 𝐾 = 0, the POI modality is treated as missing. 
+
+4.1.2 Multi-modal Fusion We fuse v and p with a generative mask-modeling strategy that encourages cross-modal inter-action and robustness to missing modalities. Two learnable mask tokens vmask , pmask ∈ R𝑑 and a fusion token t𝐹 ∈ R𝑑 
+
+are introduced. During training we sample a binary mask (𝑚 𝐼 , 𝑚 𝑃 ) with 
+
+𝑚 𝐼 + 𝑚 𝑃 = 1 and consistently replace the masked modality with its mask token, 
+
+˜v = (1 −𝑚 𝐼 ) v +𝑚 𝐼 vmask , ˜p = (1 −𝑚 𝑃 ) p +𝑚 𝑃 pmask . (10) This constraint keeps only one modality visible and the other masked at each training step, forcing the model to recon-struct the masked modality from the visible one. A lightweight Transformer T𝜃 processes the three-token sequence [t𝐹 ; ˜v; ˜p] and returns hidden states [h𝐹 , h𝑣 , h𝑝 ].The unified spatial embedding is read from the fusion token, 
+
+z = norm (W𝑧 h𝐹 ) ∈ R𝑑 . (11) Cross-modal alignment is enforced by reconstructing the masked modality from its corresponding hidden state via lin-ear heads. The training objective maximizes cosine similarity between the reconstruction and the original as, 
+
+Lgen = E𝑚 𝐼 ,𝑚 𝑃 
+
+h
+
+𝑚 𝐼 (1 − ˆv⊤v) + 𝑚 𝑃 (1 − ˆp⊤p)
+
+i
+
+. (12) In the inference phase, when POIs are absent ( 𝐾 = 0), we set 𝑚 𝑃 = 1, allowing the model to degrade to visual-only semantics gracefully. Only the fusion module parameters are trained, encoders 𝑓 𝐼 and 𝐻 remain frozen. 
+
+4.2 Multi-level Conditional Model for Monthly Traffic Generation 
+
+The multimodal perception and fusion module produces a shared spatial representation 𝐶 ∈ R𝑑 . We use 𝐶 as a cross-level spatial prior and obtain level-specific conditions 
+
+𝑐 1, 𝑐 2, 𝑐 3 via lightweight multiscale projections. A peak hour classifier built on 𝐶 produces a distribution over 24 hours and identifies the peak index ℎ★. This module corresponds to the Position Encoder in Figure 6, it locates where major traffic peaks and valleys occur over the monthly horizon. The resulting ℎ★ is injected as an explicit condition into the residual level, anchoring the generated long-term pattern to the correct peak placement. The generator decomposes a monthly sequence of length 𝑇 = 672 with 𝑆 = 24 hours per day into a daily template 𝑑 , a weekly pattern 𝑤 , a periodic component 𝑢 , and a residual 𝑟 𝑑 = 𝐺 1 (𝑧 1, 𝑐 1), 𝑤 = 𝐺 2 (𝑧 2, 𝑑, 𝑐 2), 𝑢 = Rep (𝑤 ),𝑟 = 𝐺 3 (𝑧 3, 𝑢, 𝑑, 𝑤, 𝑐 3, ℎ ★), ˆ𝑥 = clippos (𝑢 + 𝑟 ). (13) Here 𝑧 1, 𝑧 2, 𝑧 3 ∼ N ( 0, 𝐼 ) are level specific noise inputs, 𝐺 1, 𝐺 2, 𝐺 3
+
+are the conditional generators for the daily template, weekly pattern, and residual, respectively, Rep repeats 𝑤 to length 
+
+𝑇 , and clippos (𝑥 ) = max (𝑥, 0) enforces nonnegative traffic. Each level is trained with flow matching to regress the target velocity field 
+
+Lℓ𝑓 𝑚 = E 𝑣 ℓ𝜃 (𝑥 𝑡 , 𝑡, 𝑐 ℓ , ·) − 𝑣 ★ 22 . (14) We sample 𝑥 0 ∼ N ( 0, 𝐼 ) and 𝑡 ∼ U ( 0, 1), set 𝑥 𝑡 = 𝑡𝑥 1 + ( 1 −
+
+𝑡 )𝑥 0 and 𝑣 ★ = 𝑥 1 −𝑥 0, and 𝑣 ℓ𝜃 denotes the level ℓ velocity field. Auxiliary losses enforce nonnegativity, temporal smoothness, daily and weekly periodic consistency, mean bias correction, peak hour classification, and correlation alignment. The ob-jective is the weighted sum 
+
+L =
+
+> 3
+
+∑︁ 
+
+> ℓ=1
+
+𝜆 ℓ Lℓ𝑓 𝑚 +∑︁  
+
+> 𝑝 ∈ P
+
+𝜆 𝑝 L𝑝 (15) where P = {bnd , tmp , per , bias , peak , corr }, L𝑝 denotes the corresponding auxiliary loss [ 18 ], and all 𝜆 ∗ are strictly non-negative weights. NetSpatial: Spatially Conditional Traffic Generation for Cellular Planning and Operations Conference’26, , 1
+
+> Weekly
+> Pattern
+> Generator
+> Real
+> Weekly
+> Pattern
+> Position
+> Encoder  Residual
+> Pattern
+> Generator
+> Daily
+> Pattern
+> Generator
+> loss2
+> loss1
+> loss3
+> Real
+> Residual
+> Pattern
+> Real Daily
+> Pattern
+> Spatial
+> Context
+> Embedding
+
+Figure 6: Architecture of the multi-level conditional model for monthly traffic generation. Guided by the context embedding, the framework progressively gen-erates the complete monthly-period traffic through hierarchical refinement. 
+
+4.3 Generator Algorithm and Inference Efficiency 
+
+Algorithms 1 and 2 detail the training and inference proce-dures. Both operate on a shared spatial embedding 𝐶 ∈ R𝑑 ,from which level-specific conditions 𝑐 1, 𝑐 2, 𝑐 3 are derived via learned projections. A linear peak classifier produces 
+
+𝑞 = softmax (𝑊 𝐶 𝐶 ) and extracts the peak hour index ℎ★ =
+
+arg max ℎ 𝑞 ℎ , which anchors the residual level to the correct diurnal peak. 
+
+Hierarchical target decomposition. Given a real traffic se-quence 𝑥 ∈ R𝑇 spanning 𝑊 =4 weeks ( 𝑇 =𝐷 ×𝑆 , 𝐷 =28 days, 
+
+𝑆 =24 hours), we decompose it into three targets of increasing temporal resolution. (1) Daily target 𝑑 tar = [𝑑 wk 𝑑 we ] ∈ R2𝑆 , the average hourly profile for weekdays and weekends respectively. (2) Weekly target 𝑤 tar ∈ R7𝑆 , the average hourly profile for each day of the week, computed across the 𝑊 weeks. (3) Residual target 𝑟 tar = 𝑥 − 𝑢 tar ∈ R𝑇 , the deviation from the periodic component 𝑢 tar = Rep (𝑤 tar ), where Rep (·) 
+
+tiles a weekly pattern to length 𝑇 .Each level learns to generate a target conditional on the outputs of all coarser levels, preventing errors from accumu-lating across scales. 
+
+Generation and post-processing. All three levels share the same Euler integration scheme with 𝑁 ℓ steps and step size 
+
+Δ𝑡 ℓ = 1/𝑁 ℓ . After each step we apply clipsym (· , 𝑏 ℓ ), which clips values to [− 𝑏 ℓ , 𝑏 ℓ ], to keep intermediate states within a physically plausible range. Level 3 initializes from scaled noise 𝑥 ∼ 0.1 N ( 0, 𝐼 ) rather than unit Gaussian, reflecting the smaller magnitude of residual fluctuations relative to the periodic component. The final output is assembled as Equation (13). 
+
+Algorithm 1 Hierarchical flow-matching training 
+
+Require: real sequence 𝑥 ∈ R𝑇 , spatial embedding 𝐶 
+
+Ensure: total loss L
+
+// Shared preparation  
+
+> 1:
+
+𝑞 = softmax (𝑊 𝐶 𝐶 ); ℎ★ = arg max ℎ 𝑞 ℎ ; 𝑐 1, 𝑐 2, 𝑐 3 ←
+
+project (𝐶 ) 
+
+> 2:
+
+Compute targets 𝑑 tar , 𝑤 tar , 𝑢 tar , 𝑟 tar from 𝑥  
+
+> 3:
+
+Sample 𝑡 ∼ U ( 0, 1)
+
+// Level 1: daily pattern  
+
+> 4:
+
+𝑧 1 ∼ N ( 0, 𝐼 ); 𝑥 𝑡 =𝑡 𝑑 tar + ( 1−𝑡 ) 𝑧 1; 𝑣 ★ =𝑑 tar − 𝑧 1 
+
+> 5:
+
+L1 
+
+> 𝑓 𝑚
+
+← ∥ 𝐺 1 (𝑥 𝑡 , 𝑡, 𝑐 1) − 𝑣 ★∥2 ⊲ Eq. (14) 
+
+// Level 2: weekly pattern  
+
+> 6:
+
+𝑧 2 ∼ N ( 0, 𝐼 ); 𝑥 𝑡 =𝑡 𝑤 tar + ( 1−𝑡 ) 𝑧 2; 𝑣 ★ =𝑤 tar − 𝑧 2 
+
+> 7:
+
+L2 
+
+> 𝑓 𝑚
+
+← ∥ 𝐺 2 (𝑥 𝑡 , 𝑡, 𝑐 2, 𝑑 tar ) − 𝑣 ★∥2
+
+// Level 3: residual  
+
+> 8:
+
+𝑧 3 ∼ N ( 0, 𝐼 ); 𝑥 𝑡 =𝑡 𝑟 tar + ( 1−𝑡 ) 𝑧 3; 𝑣 ★ =𝑟 tar − 𝑧 3 
+
+> 9:
+
+L3 
+
+> 𝑓 𝑚
+
+← ∥ 𝐺 3 (𝑥 𝑡 , 𝑡, 𝑐 3, 𝑑 tar , 𝑤 tar , 𝑢 tar , ℎ ★) − 𝑣 ★∥2
+
+// Auxiliary losses  
+
+> 10:
+
+Generate ˆ𝑥 via Algorithm 2  
+
+> 11:
+
+Compute {L 𝑝 }𝑝 ∈ P (boundary, temporal, periodic, bias, peak, correlation)  
+
+> 12:
+
+return L = Í3 
+
+> ℓ=1
+
+𝜆 ℓ Lℓ𝑓 𝑚 + Í𝑝 ∈ P 𝜆 𝑝 L𝑝 ⊲ Eq. (15) 
+
+5 Experiments 5.1 Experimental Settings 
+
+We evaluate NetSpatial on real-world cellular traffic datasets by comparing it with state-of-the-art baselines, demonstrat-ing both what-if and what-to-do decision scenarios, and conducting ablation studies. 
+
+5.1.1 Dataset. We collected a large-scale cellular traffic dataset from Shanghai, covering 5,326 BSs, gathered over one month in 2021 with hourly traffic information for each station. 
+
+5.1.2 Baselines. We compare our proposed model with the following six baselines. Notably, we evaluate each model with two different kinds of inputs: 1) noise vectors only, 2) noise vectors and multimodal fusion representation 𝐶 .
+
+Time-series GAN [51 ]. Time-series GAN combines an LSTM in both the generator and the discriminator to generate time-series data. 
+
+Trans-GAN [15 ]. TransGAN is a transformer-based gen-erative adversarial network (GAN) that combines a multi-scale discriminator to capture low-level textures and seman-tic contexts with a generator using transformer blocks. We adjust the transformer block sizes for network traffic data generation in our case. 
+
+TCN-GAN [ 24 ]. TCN-GAN is a GAN that consists of a generator and a discriminator, both of which use temporal Conference’26, , Shiyuan Zhang, Jiale Du, Yuanwei Liu, Kaibin Huang, and Hongyang Du 
+
+Algorithm 2 Hierarchical flow-matching inference 
+
+Require: spatial embedding 𝐶 , step counts 𝑁 1, 𝑁 2, 𝑁 3
+
+Ensure: generated sequence ˆ𝑥 ∈ R𝑇  
+
+> 1:
+
+𝑞 = softmax (𝑊 𝐶 𝐶 ); ℎ★ = arg max ℎ 𝑞 ℎ ; 𝑐 1, 𝑐 2, 𝑐 3 ←
+
+project (𝐶 )
+
+// Level 1: daily pattern ( R2𝑆 ) 
+
+> 2:
+
+𝑥 ∼ N ( 0, 𝐼 ) 
+
+> 3:
+
+for 𝑘 = 1, . . . , 𝑁 1 do  
+
+> 4:
+
+𝑥 ← clipsym  𝑥 + 1 
+
+> 𝑁 1
+
+𝐺 1 (𝑥, 𝑘 𝑁 1 , 𝑐 1), 𝑏 1
+
+ 
+
+> 5:
+
+end for  
+
+> 6:
+
+𝑑 ← 𝑥 
+
+// Level 2: weekly pattern ( R7𝑆 ) 
+
+> 7:
+
+𝑥 ∼ N ( 0, 𝐼 ) 
+
+> 8:
+
+for 𝑘 = 1, . . . , 𝑁 2 do  
+
+> 9:
+
+𝑥 ← clipsym  𝑥 + 1 
+
+> 𝑁 2
+
+𝐺 2 (𝑥, 𝑘 𝑁 2 , 𝑐 2, 𝑑 ), 𝑏 2
+
+ 
+
+> 10:
+
+end for  
+
+> 11:
+
+𝑤 ← 𝑥 ; 𝑢 ← Rep (𝑤 )
+
+// Level 3: residual ( R𝑇 ) 
+
+> 12:
+
+𝑥 ∼ 0.1 N ( 0, 𝐼 ) ⊲ scaled noise  
+
+> 13:
+
+for 𝑘 = 1, . . . , 𝑁 3 do  
+
+> 14:
+
+𝑥 ← clipsym  𝑥 + 1 
+
+> 𝑁 3
+
+𝐺 3 (𝑥, 𝑘 𝑁 3 , 𝑐 3, 𝑑, 𝑤, 𝑢, ℎ ★), 𝑏 3
+
+ 
+
+> 15:
+
+end for  
+
+> 16:
+
+𝑟 ← 𝑥  
+
+> 17:
+
+return ˆ𝑥 ⊲ Eq. (13) convolutional networks (TCNs) for the generation of net-work traffic data. 
+
+KeGAN [56 ]. A hierarchical GAN that utilizes a self-constructed urban knowledge graph (UKG) to explicitly incorporate ur-ban features during the forecasting process. 
+
+CSDI [37 ]. A conditional diffusion model incorporating 2D attention to capture complex dependencies in structured inputs for precise conditional generation. 
+
+DiT [26 ]. A novel diffusion model utilizes a transformer backbone to process latent image patches instead of the traditional U-Net architecture. 
+
+5.1.3 Evaluation Metrics We assess our model using the following set of metrics. 
+
+Root Mean Squared Error (RMSE). RMSE is the square root of MSE, providing an interpretable error metric in the same unit as the target variable. RMSE =
+
+vt 1
+
+𝑛 
+
+> 𝑛
+
+∑︁ 
+
+> 𝑖 =1
+
+(𝑦 𝑖 − ˆ𝑦 𝑖 )2. (16) 
+
+Mean Absolute Error (MAE). MAE measures the aver-age magnitude of errors without considering their direction. A smaller value indicates better performance. MAE = 1
+
+𝑛 
+
+> 𝑛
+
+∑︁ 
+
+> 𝑖 =1
+
+|𝑦 𝑖 − ˆ𝑦 𝑖 |. (17) 
+
+Jensen–Shannon Divergence (JSD). JSD [ 9] is a com-monly used metric to describe the similarity between two distributions, which is defined as,                
+
+> 𝐽 𝑆𝐷 (ˆX,X)=√︄ 𝐾𝐿 (X∥ˆX) + 𝐾𝐿 (ˆX∥X)
+> 2,(18)
+
+where X represents the real data, ˆX represents the generated data, and KL (·) is the Kullback-Leibler divergence. A lower JSD implies a better generation model since the distribution of the generated data is more similar to the real data. 
+
+First-order Difference. To evaluate the variation be-tween every two adjacent generated traffic point, we com-pute the first-order difference of time series, denoted by 
+
+ˆX𝑑 = ˆ𝑥 𝑡 +1 − ˆ𝑥 𝑡 . We then compute the JSD between the first-order differences of generated datasets and their correspond-ing real dataset. 
+
+5.2 Traffic Generation Performance 
+
+Table 1 shows the experimental results of the proposed model and the baseline model on the task of cellular traffic gener-ation. Models without ’+ 𝐶 ’ take only noise as input, while ’+ 𝐶 ’ indicates that the model is additionally conditioned on the multimodal spatial representation. All ‘+ 𝐶 ’ condi-tional models shared the same train epochs (i.e., 100) for fair comparison. We can observe that NetSpatial achieves the lowest values for JSD, RMSE, and MAE, indicating that the generated traffic sequences are closer to the real data distri-bution and more accurate in absolute traffic magnitude. Al-though some diffusion-based models, such as DiT and CSDI, achieve slightly better results on JSD_DIFF, this metric re-flects short-term fluctuations between adjacent time steps rather than long-term temporal structure. NetSpatial instead models daily and weekly periodic patterns explicitly and separates them from stochastic residual dynamics through a hierarchical generation process, which better reflects the temporal characteristics of cellular traffic. Another observation from Table 1 is that the effect of spatial conditioning varies across different baseline architec-tures. The multimodal spatial representation contains useful information about the relationship between urban context and traffic demand, but its utility depends on the generation framework. For baselines not originally designed to incorpo-rate hierarchical semantic conditions, simply concatenating the spatial embedding with the input noise does not necessar-ily yield consistent improvements. Under the fixed training budget of 100 epochs used in our experiments, the added condition may improve distribution-level similarity while not always reducing pointwise errors such as RMSE or MAE, a pattern that can be observed in models such as RNN-GAN and several other baselines. In contrast, models whose archi-tectures already integrate urban semantic information tend NetSpatial: Spatially Conditional Traffic Generation for Cellular Planning and Operations Conference’26, , 
+
+Table 1: Overall comparison. Δ: relative improvement of Ours over each method; Δ𝑐 : improvement from adding conditioning (+C). Lower is better for all metrics. Cell color encodes Δ magnitude: green = Ours is better; red = Ours is worse.                                                                                                                                                                                  
+
+> Method JSD JSD_DIFF RMSE MAE
+> Val ΔΔ𝑐 Val ΔΔ𝑐 Val ΔΔ𝑐 Val ΔΔ𝑐
+> RNN-GAN 0.8326 93.33% 17.75% 0.3040 88.86% -0.61% 0.3875 94.23% -95.73% 0.3866 95.86% -69.45% +𝐶 0.6848 91.89% –0.3058 88.93% –0.7585 97.05% –0.6552 97.56% –TCN-GAN 0.6931 91.99% 0.00% 0.3040 88.86% 5.02% 0.4601 95.14% -1.79% 0.4500 96.45% -2.97% +𝐶 0.6931 91.99% –0.2887 88.28% –0.4683 95.23% –0.4634 96.55% –Trans.-GAN 0.2978 81.36% 49.53% 0.0493 31.29% 37.58% 0.0300 25.36% -6.74% 0.0255 37.27% 8.13% +𝐶 0.1503 63.06% –0.0308 -10.07% –0.0320 30.08% –0.0234 31.72% –DiT 0.1268 56.22% 37.95% 0.0198 -70.86% -241.63% 0.0291 23.30% -13.28% 0.0233 31.37% -13.72% +𝐶 0.0787 29.44% –0.0677 49.99% –0.0330 32.29% –0.0265 39.65% –CSDI 0.1119 50.36% 2.15% 0.2198 84.60% -1.85% 0.0755 70.39% -2.12% 0.0531 69.90% -3.06% +𝐶 0.1094 49.27% –0.2238 84.88% –0.0771 71.01% –0.0548 70.79% –keGAN 0.6895 91.95% 41.18% 0.0660 48.69% -76.21% 0.3281 93.19% 91.88% 0.3217 95.03% 93.15%
+> +𝐶 0.4056 86.31% –0.1162 70.88% –0.0266 16.08% –0.0220 27.36% –
+> Ours 0.0555 ––0.0338 ––0.0224 ––0.0160 ––
+
+to benefit more from additional spatial conditions. For exam-ple, keGAN incorporates an urban knowledge graph to model hierarchical urban features, making its design more compat-ible with external spatial representations and resulting in larger improvements in RMSE and MAE when conditioning information is introduced. We also conduct a case study within the corresponding spatial functional zones, selecting six functional regions, i.e., central business district (CBD), residential area, commercial area, university area, industrial area, and mixed area, and compare the generated traffic and the real one across dif-ferent functional regions. As shown in Figures 7 and 8, we observe clear daily and monthly temporal patterns in the generated traffic data. This verifies that the multimodal spa-tial semantics are successfully synthesized into high-fidelity traffic patterns across heterogeneous urban zones, demon-strating the effectiveness of the multimodal perception and fusion architecture and the multimodal conditional genera-tion mechanism. 
+
+5.3 Visualization Platform for Cellular Planning and Operations 
+
+We develop a visualization platform for NetSpatial, built on Mapbox, with selected functions integrated into a web-based application for demonstration. The demonstration video is available at https://anonymous.4open.science/r/Traffic-
+
+Figure 7: Visualization of generated BS traffic at a monthly granularity. 
+
+Flow-Predictor-Demo. The system features BS analytics, en-abling traffic visualization and site selection. 
+
+5.3.1 What-if Planning Under Spatial Dynamics. Our plat-form presents the BS siting capability from a spatial context perspective, offering an interactive experience. As illustrated in Figure 9, users can explore a 3 km × 3 km urban space where our conditional generative model estimates the traf-fic sequence associated with each feasible grid if a BS were Conference’26, , Shiyuan Zhang, Jiale Du, Yuanwei Liu, Kaibin Huang, and Hongyang Du 
+
+Figure 8: Visualization of generated BS traffic at a daily granularity. 
+
+Figure 9: User interface of our BS Analytics Module. 
+
+deployed there. The platform is designed to support differ-ent deployment objectives by scoring and ranking candidate grids according to the selected utility. In the current demon-stration, we use the LSI as the example, which highlights locations with relatively high and temporally stable traffic demand. To make the decision process more transparent, the system further leverages a large language model to generate situational explanatory rationales. Beyond siting, the plat-form also supports switching between 2D and 3D views for multi-angle visualization of BS traffic distribution. 
+
+5.3.2 What-to-Do Operations Under Volatility. We evaluate the system’s ability to make what-to-do decisions for energy control at the BS. At each station, the system identifies high-volatility intervals and activates only the generated targets within those windows, while preserving observed traffic else-where. As shown in Fig. 10, the top row visualizes observed load, the control target, and the generated signal used during volatile periods. The bottom row shows the corresponding power adjustment signal, highlighting energy reduction and increase segments. Let 𝜌 obs  
+
+> 𝑡
+
+and 𝜌 ctrl  
+
+> 𝑡
+
+denote the normalized traffic load at time slot 𝑡 without and with control, respectively. Following the EARTH linear power model [ 1 ], the idle power cancels in relative comparisons, yielding the energy saving ratio 
+
+𝜂 = 1 −∑︁ 𝑇 𝑡 =1 𝜌 ctrl 
+
+> 𝑡
+
+∑︁ 𝑇 𝑡 =1 𝜌 obs  
+
+> 𝑡
+
+. (19) Service quality is measured by the demand-weighted satis-faction ratio [ 25 ], which only penalises under-provisioning, 
+
+QoE = 1 −∑︁ 𝑇 𝑡 =1 [𝜌 obs  
+
+> 𝑡
+
+− 𝜌 ctrl  
+
+> 𝑡
+
+]+ ∑︁ 𝑇 𝑡 =1 𝜌 obs  
+
+> 𝑡
+
+, (20) where [·] + = max (· , 0).The results indicate that the platform makes consistent and interpretable what to do decisions, activating generated control only when volatility is high and maintaining stable behavior elsewhere. Under this selective activation strategy, the model achieves up to 16.8% energy savings while re-taining over 80% QoE, demonstrating an effective trade-off between energy efficiency and service quality. 
+
+5.4 Cross-City Robustness Testing 
+
+To evaluate robustness and generalization, we conduct cross-city zero-shot transfer experiments where the model trained on Shanghai is directly applied to Beijing and Nanjing with-out fine-tuning. Evaluation is performed on 50 BSs in Beijing covering diverse urban regions, and 50 BSs in Nanjing span-ning Urban Core and Mixed districts. Figure 11 shows four randomly selected BSs as examples for visualization. For Bei-jing BSs, the model achieves a best correlation of 0.5738 and a mean MAE of 0.1071, successfully capturing weekly peri-odicity, daily fluctuations, and peak characteristics aligned with ground truth. For Nanjing BSs, the model maintains consistent zero-shot generation with a mean MAE of 0.0210 across 50 BSs, demonstrating accurate traffic volume estima-tion and robustness across different urban characteristics. Importantly, following the evaluation framework from prior cross-city traffic prediction studies [ 56 ], our zero-shot ap-proach enables direct deployment in new cities using only satellite imagery and geographic information without re-quiring historical traffic data, showing that NetSpatial learns generalizable spatiotemporal representations rather than city-specific patterns. 
+
+5.5 Ablation Study 
+
+We next conduct ablation studies to evaluate the effectiveness of the position encoder within the multi-level conditional generation model and of multimodal representation learning for cellular traffic generation. 
+
+Effect of the position encoder . Our model employs a three-layer conditional generation structure to explicitly model time series with different characteristics, including NetSpatial: Spatially Conditional Traffic Generation for Cellular Planning and Operations Conference’26, , 
+
+Figure 10: Decision-centric control visualization for four BSs. Top row: observed load, control target, and generated signals used only during high-volatility windows. Bottom row: power adjustment signal showing regions of energy reduction and increase. Beijing                                     
+
+> Residential
+> Beijing
+> Residential
+> Nanjing
+> Urban Core
+> Nanjing
+> Mixed
+> 0100 200 300 400 500 600
+> Hour
+> 0100 200 300 400 500 600
+> Hour
+> 0100 200 300 400 500 600
+> Hour
+> 0100 200 300 400 500 600
+> Hour
+> Week 1 Week 2 Week 3 Week 4
+> Week 1 Week 2 Week 3 Week 4
+> Week 1 Week 2 Week 3 Week 4
+> Week 1 Week 2 Week 3 Ground Truth
+> Generated
+
+Figure 11: Cross City Zero Shot Transfer Results. 
+
+periodic and non - periodic components, and leverages multi-modal spatial representations to guide cellular traffic gener-ation. To test the effect of introducing a position encoder to capture non -periodic fluctuations, meaning the timing of the fluctuations and their corresponding amplitudes, from multi-modal spatial representations, we conduct an ablation study by removing the position encoder, allowing the lowest-layer module to generate cellular traffic without this non - periodic information. The experimental results are shown in Table 2. We observe that removing the position encoder reliably de-grades our model’s performance across all metrics, with some metrics dropping by more than 50%. 
+
+Effect of the multimodal representation learning . We adopt a generative mask-modeling strategy for multimodal representation learning. To assess its contribution to spatial embeddings, we perform two ablation studies, i.e., removing the conditioning and replacing it with embeddings obtained via a CLIP-based approach. The experimental results are shown in Table 2. We observe that both ablation variants degrade our model’s performance across most metrics, with some metrics dropping by over 65%. 
+
+Sensitivity of training data size . We test how NetSpa-tial ’s performance changes with training data size by vary-ing the proportion of BSs. As shown in Figure 12, perfor-mance improves consistently as more data becomes avail-able. Notably, gains are most dramatic when increasing from 20% to 40%, followed by a plateau, and then a renewed im-provement beyond 80%. These findings indicate that our unsupervised temporal clustering generalizes well without overfitting. Practically, if collecting >80% of data is infeasible, targeting ∼40% offers the best cost-effectiveness. Conference’26, , Shiyuan Zhang, Jiale Du, Yuanwei Liu, Kaibin Huang, and Hongyang Du 
+
+Table 2: Ablation study. Δ: relative improvement of Ours over each variant. Lower is better. Cell color: green = Ours better; red = Ours worse.                                                
+
+> Method JSD JSD_D RMSE MAE T/ms
+> Val ΔVal ΔVal ΔVal ΔVal Δ
+> w/o pos. 0.1801 69.17% 0.0718 52.86% 0.1459 84.67% 0.1026 84.40% 86.70 -1.57% w/o cond. 0.0799 30.53% 0.0058 -486.54% 0.0516 56.72% 0.0404 60.40% 89.80 1.94% clip cond. 0.1626 65.86% 0.0239 -41.84% 0.0274 18.33% 0.0194 17.46% 93.60 5.92%
+> Ours 0.0555 –0.0338 –0.0224 –0.0160 –88.06 –20 40 60 80 100
+> Training data proportion (%)
+> 0.025
+> 0.030
+> 0.035
+> 0.040
+> 0.045
+> 0.050
+> RMSE
+> (lower is better)
+> 57.8%
+> RMSE
+> 20 40 60 80 100
+> Training data proportion (%)
+> 0.015
+> 0.020
+> 0.025
+> 0.030
+> 0.035
+> 0.040
+> 0.045
+> MAE
+> (lower is better)
+> 64.4%
+> MAE
+> 20 40 60 80 100
+> Training data proportion (%)
+> 0.050
+> 0.075
+> 0.100
+> 0.125
+> 0.150
+> 0.175
+> 0.200
+> 0.225
+> JSD
+> (lower is better)
+> 75.0%
+> JSD
+> 20 40 60 80 100
+> Training data proportion (%)
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> 0.12
+> 0.14
+> JSD_DIFF
+> (lower is better)
+> 74.9%
+> JSD_DIFF
+
+Figure 12: Performance Sensitivity to Training Data Size. 
+
+6 Related Work 
+
+Network Traffic Generation. Early traffic generation re-lied on mathematical models such as Poisson processes and Markov chains [ 38 , 40 , 54 ], while later autoregressive mod-els [ 2 , 45 ] were introduced to capture temporal dependencies. GANs have been widely adopted for this task. PcapGAN [ 6]generates packet-level traces, while DoppelGANger [ 19 , 50 ]jointly models attributes and time series to improve fidelity. Diffusion probabilistic models have recently emerged as an alternative generative paradigm [ 49 ]. NetDiffusion [ 14 ] and NetDiffus [ 32 ] apply diffusion models to protocol-constrained packet trace synthesis. For spatio-temporal traffic modeling, DiffSTG [ 41 ] extends denoising diffusion to spatio-temporal graphs, and DiffUFlow [ 58 ] combines spatio-temporal and se-mantic features for urban flow inference. However, these ap-proaches have notable limitations for city-level cellular traffic generation. Packet-level methods [ 6, 14 , 30 , 55 ] do not scale beyond individual BSs. Forecasting and super-resolution methods [ 41 , 58 ] require existing observations and cannot generate traffic from scratch. Moreover, none of these meth-ods incorporates multimodal spatial conditioning, limiting their applicability to spatially aware synthesis for network planning and what-if analysis. 
+
+Cellular Planning and Operations. Traditional cellu-lar network planning relies on empirical propagation mod-els [ 28 , 29 ] and optimization-based approaches for BS place-ment [ 11 , 16 , 33 , 34 ]. Recent works apply machine learning to predict radio maps from building geometry and aerial images [ 8, 13 ]. Digital twin frameworks [ 20 , 23 , 31 ] integrate simulation with real-world data for network planning and what-if analysis. However, existing tools cannot synthesize realistic city-scale traffic distributions conditioned on spa-tial context, limiting their utility for greenfield deployments where ground-truth observations are unavailable. 
+
+7 Discussion 
+
+NetSpatial provides a unified system that links network plan-ning and operation through spatially conditioned traffic gen-eration. By leveraging multimodal spatial context, the system enables scenario-based analysis of cellular networks and can estimate traffic demand under different deployment and oper-ational conditions. This generative capability supports both deployment planning, by evaluating candidate locations us-ing spatial context, and network operation, by producing traffic forecasts that guide strategies such as sleep scheduling and load balancing. Despite these advantages, several limitations remain. First, the current system relies on static spatial features such as satellite imagery and POI distributions, while dynamic fac-tors including mobility patterns and special events may also influence traffic demand. Second, the model generates traffic conditioned on spatial context but does not explicitly model interactions among neighboring base stations, which may affect load redistribution in dense deployments. Future work could incorporate mobility data and network topology infor-mation to further improve demand modeling and operational decision support. 
+
+8 Conclusion 
+
+We presented NetSpatial , a spatially conditional system for cellular traffic generation that supports both cellular plan-ning and operation. By leveraging multimodal spatial con-text, NetSpatial enables the generation of realistic traffic patterns under diverse spatial scenarios, allowing operators to evaluate candidate deployments and support operational decisions such as traffic forecasting and load management. Experiments on real-world cellular datasets demonstrate that the proposed system effectively captures spatial-temporal NetSpatial: Spatially Conditional Traffic Generation for Cellular Planning and Operations Conference’26, , 
+
+traffic characteristics and provides a practical tool for data-driven planning and optimization. Future work will focus on extending NetSpatial along three directions. First, incor-porating richer spatial signals and urban structural informa-tion could improve spatial semantics and traffic representa-tion. Second, evaluating the model across broader multi-city datasets would help study generalization and regional vari-ability. Third, integrating additional network measurements and developing online modeling capabilities could further support dynamic and service-aware network management. 
+
+References 
+
+[1] Gunther Auer, Vito Giannini, Claude Desset, Istvan Godor, Per Skiller-mark, Magnus Olsson, Muhammad Ali Imran, Dario Sabella, Manuel J Gonzalez, Oliver Blume, et al . 2011. How much energy is needed to run a wireless network? IEEE wireless communications 18, 5 (2011), 40–49. [2] Alisson Assis Cardoso and Flávio Henrique Teles Vieira. 2019. Gen-eration of Synthetic Network Traffic Series Using a Transformed Au-toregressive Model Based Adaptive Algorithm. IEEE Latin America Transactions 17, 08 (2019), 1268–1275. [3] Stefano Carrese, Ernesto Cipriani, Livia Mannini, and Marialisa Nigro. 2017. Dynamic demand estimation and prediction for traffic urban networks adopting new data sources. Transportation Research Part C: Emerging Technologies 81 (2017), 83–98. [4] Haoye Chai, Shiyuan Zhang, Xiaoqian Qi, Baohua Qiu, and Yong Li. 2025. Uomo: A universal model of mobile traffic forecasting for wireless network optimization. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2 . 4308–4319. [5] Guoxuan Chi, Zheng Yang, Chenshu Wu, Jingao Xu, Yuchong Gao, Yunhao Liu, and Tony Xiao Han. 2024. RF-diffusion: Radio signal generation via time-frequency diffusion. In Proceedings of the 30th Annual International Conference on Mobile Computing and Networking .77–92. [6] Baik Dowoo, Yujin Jung, and Changhee Choi. 2019. PcapGAN: Packet Capture File Generator by Style-Based Generative Adversarial Net-works. In 2019 18th IEEE International Conference On Machine Learning And Applications (ICMLA) . IEEE, 1149–1154. [7] Simon Erni, Martin Kotuliak, Patrick Leu, Marc Roeschlin, and Srdjan Capkun. 2022. Adaptover: adaptive overshadowing attacks in cellular networks. In Proceedings of the 28th Annual International Conference on Mobile Computing And Networking . 743–755. [8] Bin Feng, Meng Zheng, Wei Liang, and Lei Zhang. 2025. A recent survey on radio map estimation methods for wireless networks. Elec-tronics 14, 8 (2025), 1564. [9] Bent Fuglede and Flemming Topsoe. 2004. Jensen-Shannon divergence and Hilbert space embedding. In International symposium onInforma-tion theory, 2004. ISIT 2004. Proceedings. IEEE, 31. [10] Ushasi Ghosh, Azuka Chiejina, Nathan Stephenson, Vijay K Shah, Srini-vas Shakkottai, and Dinesh Bharadia. 2024. SPARC: Spatio-Temporal Adaptive Resource Control for Multi-site Spectrum Management in NextG Cellular Networks. Proceedings of the ACM on Networking 2, CoNEXT4 (2024), 1–18. [11] Sheikh Salman Hassan, Yu Min Park, Yan Kyaw Tun, Walid Saad, Zhu Han, and Choong Seon Hong. 2024. SpaceRIS: LEO satellite coverage maximization in 6G sub-THz networks by MAPPO DRL and whale optimization. IEEE Journal on Selected Areas in Communications 42, 5 (2024), 1262–1278. [12] Shuodi Hui, Huandong Wang, Tong Li, Xinghao Yang, Xing Wang, Junlan Feng, Lin Zhu, Chao Deng, Pan Hui, Depeng Jin, et al . 2023. Large-scale urban cellular traffic generation via knowledge-enhanced GANs with multi-periodic patterns. In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining . 4195– 4206. [13] Xinyue Jiang, Tong Li, Zhu Xiao, Ke Chen, Shuai Ma, Zhaocheng Wang, and Keqin Li. 2025. UniRM: A Universal Large Model for Multi-band 3D Radio Map Construction. IEEE Journal on Selected Areas in Communications (2025). [14] Xi Jiang, Shinan Liu, Aaron Gember-Jacobson, Arjun Nitin Bhagoji, Paul Schmitt, Francesco Bronzino, and Nick Feamster. 2024. Netdiffu-sion: Network data augmentation through protocol-constrained traffic generation. Proceedings of the ACM on Measurement and Analysis of Conference’26, , Shiyuan Zhang, Jiale Du, Yuanwei Liu, Kaibin Huang, and Hongyang Du 
+
+Computing Systems 8, 1 (2024), 1–32. [15] Yifan Jiang, Shiyu Chang, and Zhangyang Wang. 2021. Transgan: Two pure transformers can make one strong gan, and that can scale up. 
+
+Advances in Neural Information Processing Systems 34 (2021), 14745– 14758. [16] Elham Kalantari, Sergey Loyka, and Halim Yanikomeroglu. 2024. Op-timal Location of Cellular Base Stations via Convex Optimization: An Analytical Framework and Numerical Algorithms. IEEE Access 12 (2024), 75180–75198. [17] Dongheon Lee, Sheng Zhou, Xiaofeng Zhong, Zhisheng Niu, Xuan Zhou, and Honggang Zhang. 2014. Spatial modeling of the traffic density in cellular networks. IEEE Wireless Communications 21, 1 (2014), 80–88. [18] Tong Li, Shuodi Hui, Shiyuan Zhang, Huandong Wang, Yuheng Zhang, Pan Hui, Depeng Jin, and Yong Li. 2024. Mobile user traffic generation via multi-scale hierarchical GAN. ACM Transactions on Knowledge Discovery from Data 18, 8 (2024), 1–19. [19] Zinan Lin, Alankar Jain, Chen Wang, Giulia Fanti, and Vyas Sekar. 2020. Using GANs for Sharing Networked Time Series Data: Challenges, Initial Promise, and Open Questions. Proceedings of the ACM Internet Measurement Conference , 464–483. [20] Haoqiang Liu, Weikang Su, Tong Li, Wenzhen Huang, and Yong Li. 2024. Digital twin enhanced multi-agent reinforcement learning for large-scale mobile network coverage optimization. ACM Transactions on Knowledge Discovery from Data 19, 1 (2024), 1–23. [21] Yilai Liu, Shiyuan Zhang, and Hongyang Du. 2025. Poster: Enhancing Mobile Traffic Data Generation through Spatio-temporal Correlation Imaging. In Proceedings of the 31st Annual International Conference on Mobile Computing and Networking . 1377–1379. [22] Evangelos Lykakis, Ioannis O Vardiambasis, and Evangelos Kokkinos. 2025. Data Traffic Prediction for 5G and Beyond: Emerging Trends, Challenges, and Future Directions: A Scoping Review. Electronics 14, 23 (2025), 4611. [23] Yuyin Ma, Fei Song, Giovanni Pau, Ilsun You, and Hongke Zhang. 2023. Adaptive service provisioning for dynamic resource allocation in network digital twin. IEEE Network 38, 1 (2023), 61–68. [24] Olof Mogren. 2016. Continuous recurrent neural networks with ad-versarial training. arXiv preprint arXiv:1611.09904 (2016). [25] Eunsung Oh, Kyuho Son, and Bhaskar Krishnamachari. 2013. Dynamic base station switching-on/off strategies for green cellular networks. 
+
+IEEE transactions on wireless communications 12, 5 (2013), 2126–2136. [26] William Peebles and Saining Xie. 2023. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF International Conference on Computer Vision . 4195–4205. [27] Wajid Rafique, Joyeeta Rani Barai, Abraham O Fapojuwo, and Diwakar Krishnamurthy. 2024. A survey on beyond 5g network slicing for smart cities applications. IEEE Communications Surveys & Tutorials 27, 1 (2024), 595–628. [28] Theodore S Rappaport. 2010. Wireless communications: Principles and practice, 2/E . Pearson Education India. [29] Theodore S Rappaport, Yunchou Xing, George R MacCartney, An-dreas F Molisch, Evangelos Mellios, and Jianhua Zhang. 2017. Overview of millimeter wave communications for fifth-generation (5G) wireless networks—With a focus on propagation models. IEEE Transactions on antennas and propagation 65, 12 (2017), 6213–6230. [30] Markus Ring, Daniel Schlör, Dieter Landes, and Andreas Hotho. 2019. Flow-based network traffic generation using generative adversarial networks. Computers & Security 82 (2019), 156–172. [31] Mario Sanz Rodrigo, Diego Rivera, José Ignacio Moreno, Manuel Alvarez-Campana, and Diego R López. 2023. Digital twins for 5g networks: A modeling and deployment methodology. IEEE Access 11 (2023), 38112–38126. [32] Nirhoshan Sivaroopan, Dumindu Bandara, Chamara Madarasingha, Guillaume Jourjon, Anura P Jayasumana, and Kanchana Thilakarathna. 2024. Netdiffus: Network traffic generation by diffusion models through time-series imaging. Computer Networks 251 (2024), 110616. [33] Weikang Su, Tong Li, Wenzhen Huang, Zihan Huang, and Yong Li. 2025. GenNet: A Generative AI-Driven Mobile Network Simulator for Multi-Objective Network Optimization With RL. IEEE Transactions on Mobile Computing (2025). [34] Weikang Su, Haoqiang Liu, Tong Li, Xingzai Lv, Hua Rui, Wenzhen Huang, Zhaocheng Wang, and Yong Li. 2025. Jointly optimizing deploy-ment and antenna of base stations using hierarchical reinforcement learning. ACM Transactions on Knowledge Discovery from Data 20, 1 (2025), 1–25. [35] Chuanhao Sun, Kai Xu, Gianni Antichi, and Mahesh K Marina. 2024. NetGSR: towards efficient and reliable network monitoring with gen-erative super resolution. Proceedings of the ACM on Networking 2, CoNEXT4 (2024), 1–27. [36] Chuanhao Sun, Yu Zhang, Bill Tao, Deepak Vasisht, and Mahesh Ma-rina. 2025. DeepSpace: Super Resolution Powered Efficient and Reliable Satellite Image Data Acquistion. In Proceedings of the ACM SIGCOMM 2025 Conference . 311–328. [37] Yusuke Tashiro, Jiaming Song, Yang Song, and Stefano Ermon. 2021. Csdi: Conditional score-based diffusion models for probabilistic time series imputation. Advances in Neural Information Processing Systems 
+
+34 (2021), 24804–24816. [38] Kashi Venkatesh Vishwanath and Amin Vahdat. 2009. Swing: Realistic and responsive network traffic generation. IEEE/ACM Transactions on Networking 17, 3 (2009), 712–725. [39] Sajana Weerawardhena, Paul Kassianik, Blaine Nelson, Baturay Saglam, Anu Vellore, Aman Priyanshu, Supriti Vijay, Massimo Aufiero, Arthur Goldblatt, Fraser Burch, et al . 2025. Llama-3.1-foundationai-securityllm-8b-instruct technical report. arXiv preprint arXiv:2508.01059 (2025). [40] Michele C Weigle, Prashanth Adurthi, Félix Hernández-Campos, Kevin Jeffay, and F Donelson Smith. 2006. Tmix: a tool for generating real-istic TCP application workloads in ns-2. ACM SIGCOMM Computer Communication Review 36, 3 (2006), 65–76. [41] Haomin Wen, Youfang Lin, Yutong Xia, Huaiyu Wan, Qingsong Wen, Roger Zimmermann, and Yuxuan Liang. 2023. Diffstg: Probabilistic spatio-temporal graph forecasting with denoising diffusion models. In Proceedings of the 31st ACM international conference on advances in geographic information systems . 1–12. [42] Zhu Xiao, Rui Wang, Jing Bai, Tong Li, Shiyuan Zhang, Keqin Li, and Zhu Han. 2025. An LLM-Enhanced Conditional Diffusion Model for Mobile Traffic Prediction. IEEE Communications Magazine 63, 9 (2025), 60–67. [43] Chengcheng Xu, Zhibin Li, and Wei Wang. 2016. Short-term traffic flow prediction using a methodology based on autoregressive integrated moving average and genetic programming. Transport 31, 3 (2016), 343–358. [44] Kai Xu, Rajkarn Singh, Marco Fiore, Mahesh K Marina, Hakan Bilen, Muhammad Usama, Howard Benn, and Cezary Ziemlicki. 2021. Spec-tragan: Spectrum based generation of city scale spatiotemporal mobile network traffic data. In Proceedings of the 17th International Conference on Emerging Networking EXperiments and Technologies . 243–258. [45] Shengzhe Xu, Manish Marwah, and Naren Ramakrishnan. 2020. STAN: Synthetic Network Traffic Generation using Autoregressive Neural Models. arXiv preprint arXiv:2009.12740 (2020). [46] Shuona Xu and Biqing Zeng. 2014. Network traffic prediction model based on auto-regressive moving average. Journal of Networks 9, 3 (2014), 653. NetSpatial: Spatially Conditional Traffic Generation for Cellular Planning and Operations Conference’26, , 
+
+[47] Xuecai Xu, Xiaofei Jin, Daiquan Xiao, Changxi Ma, and Sze Chun Wong. 2023. A hybrid autoregressive fractionally integrated moving average and nonlinear autoregressive neural network model for short-term traffic flow prediction. Journal of Intelligent Transportation Systems 27, 1 (2023), 1–18. [48] Xiaowen Xu, Xiaosi Liu, Zhidan Liu, Zhenjiang Li, and Kaishun Wu. 2025. Poster: Diffusion-Driven Spatio-Temporal Modeling of Cellular Traffic Generation. In Proceedings of the 31st Annual International Conference on Mobile Computing and Networking . 1326–1328. [49] Yiyuan Yang, Ming Jin, Haomin Wen, Chaoli Zhang, Yuxuan Liang, Lintao Ma, Yi Wang, Chenghao Liu, Bin Yang, Zenglin Xu, Jiang Bian, Shirui Pan, and Qingsong Wen. 2024. A Survey on Diffusion Models for Time Series and Spatio-Temporal Data. arXiv preprint arXiv:2404.01928 
+
+(2024). [50] Yucheng Yin, Zinan Lin, Minhao Jin, Giulia Fanti, and Vyas Sekar. 2022. Practical gan-based synthetic ip header trace generation using netshare. In Proceedings of the ACM SIGCOMM 2022 Conference . 458– 472. [51] Jinsung Yoon, Daniel Jarrett, and Mihaela Van der Schaar. 2019. Time-series generative adversarial networks. Advances in neural information processing systems 32 (2019). [52] Yuan Yuan, Jingtao Ding, Jie Feng, Depeng Jin, and Yong Li. 2024. Unist: A prompt-empowered universal model for urban spatio-temporal pre-diction. In Proceedings of the 30th ACM SIGKDD conference on knowl-edge discovery and data mining . 4095–4106. [53] Chaoyun Zhang, Marco Fiore, Cezary Ziemlicki, and Paul Patras. 2020. Microscope: mobile service traffic decomposition for network slicing as a service. In Proceedings of the 26th Annual International Conference on Mobile Computing and Networking . 1–14. [54] Junhui Zhang, Jiqiang Tang, Xu Zhang, Wen Ouyang, and Dongbin Wang. 2015. A survey of network traffic generation. (2015). [55] Shiyuan Zhang, Haoye Chai, Yong Li, Baohua Qiu, Lei Yue, and Raoyuan Pan. 2025. PacketDiff: A flow guided diffusion model for net-work packet trace generation. IEEE Internet of Things Journal (2025). [56] Shiyuan Zhang, Tong Li, Shuodi Hui, Guangyu Li, Yanping Liang, Li Yu, Depeng Jin, and Yong Li. 2023. Deep transfer learning for city-scale cellular traffic generation through urban knowledge graph. In 
+
+Proceedings of the 29th ACM SIGKDD conference on knowledge discovery and data mining . 4842–4851. [57] Shiyuan Zhang, Tong Li, Zhu Xiao, Hongyang Du, and Kaibin Huang. 2025. LSDM: LLM-Enhanced Spatio-temporal Diffusion Model for Service-Level Mobile Traffic Prediction. arXiv preprint arXiv:2507.17795 
+
+(2025). [58] Yuhao Zheng, Lian Zhong, Senzhang Wang, Yu Yang, Weixi Gu, Junbo Zhang, and Jianxin Wang. 2023. Diffuflow: Robust fine-grained urban flow inference with denoising diffusion model. In Proceedings of the 32nd ACM International Conference on Information and Knowledge Management . 3505–3513.

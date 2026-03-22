@@ -6,79 +6,79 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-02-21 ~ 2026-03-22
-- 运行时间：2026-03-22 11:36:35 UTC
+- 最新运行日期：2026-03-22
+- 运行时间：2026-03-22 19:25:20 UTC
 - 运行状态：成功
 - 本次总论文数：19
 - 精读区：7
 - 速读区：12
 
 ### 今日简报（AI）
-本期深度研读 19 篇交通 AI 论文，聚焦高铁数据安全共享、地铁行程预测及城市时空大模型等前沿领域。
-重点推荐结合 Shapley 激励的联邦学习框架以保障高铁数据安全，以及应对地铁突发干扰的贝叶斯行程预测模型。
-建议关注城市时空大模型（UrbanFM）的扩展潜力，以及多智能体强化学习在车路协同优化中的最新进展。
-- 详情：[/20260221-20260322/README](/20260221-20260322/README)
+今日深度解析 19 篇交通与时空预测前沿成果，涵盖公交网络全局优化与密集人群轨迹预测等核心突破。
+重点推荐通过几何规划实现公交系统全局最优设计，以及利用动态聚类大幅提升复杂场景下人群预测效率的研究。
+建议关注边缘云协同及频域建模在城市级实时交通分析中的落地潜力。
+- 详情：[/202603/22/README](/202603/22/README)
 
 ### 精读区论文标签
-1. [SI-ChainFL: Shapley-Incentivized Secure Federated Learning for High-Speed Rail Data Sharing](/20260221-20260322/2603.07992v1-si-chainfl-shapley-incentivized-secure-federated-learning-for-high-speed-rail-data-sharing)  
-   标签：评分：10.0/10、query:urt-pf
-   evidence：用于高铁客流预测的联邦学习框架
-2. [A Bayesian Framework for Post-disruption Travel Time Prediction in Metro Networks](/20260221-20260322/2602.19952v1-a-bayesian-framework-for-post-disruption-travel-time-prediction-in-metro-networks)  
-   标签：评分：9.0/10、query:urt-pf
-   evidence：地铁网络旅行时间预测的时空建模
-3. [Positional-aware Spatio-Temporal Network for Large-Scale Traffic Prediction](/20260221-20260322/2602.22274v1-positional-aware-spatio-temporal-network-for-large-scale-traffic-prediction)  
-   标签：评分：9.0/10、query:urt-pf
-   evidence：用于大规模交通流预测的时空网络
-4. [A Hyperbolic Transport Model for Passenger Flow on Tram Networks](/20260221-20260322/2602.23081v1-a-hyperbolic-transport-model-for-passenger-flow-on-tram-networks)  
-   标签：评分：9.0/10、query:urt-pf
-   evidence：城市有轨电车网络客流的双曲传输模型
-5. [Phys-3D: Physics-Constrained Real-Time Crowd Tracking and Counting on Railway Platforms](/20260221-20260322/2602.23177v1-phys-3d-physics-constrained-real-time-crowd-tracking-and-counting-on-railway-platforms)  
+1. [Design of Transit Networks: Global Optimization of Continuous Approximation Models via Geometric Programming](/202603/22/2603.16710v1-design-of-transit-networks-global-optimization-of-continuous-approximation-models-via-geometric-programming)  
    标签：评分：9.0/10、query:urt-c
-   evidence：用于安全管理的铁路站台实时人群计数
-6. [SDMixer: Sparse Dual-Mixer for Time Series Forecasting](/20260221-20260322/2602.23581v1-sdmixer-sparse-dual-mixer-for-time-series-forecasting)  
-   标签：评分：9.0/10、query:urt-pf
-   evidence：用于交通领域多变量时间序列预测的双流稀疏Mixer
-7. [Time Series Foundation Models as Strong Baselines in Transportation Forecasting: A Large-Scale Benchmark Analysis](/20260221-20260322/2602.24238v1-time-series-foundation-models-as-strong-baselines-in-transportation-forecasting-a-large-scale-benchmark-analysis)  
-   标签：评分：9.0/10、query:urt-pf
-   evidence：包含交通流在内的交通预测基础模型
+   evidence：公交网络设计的全局优化
+2. [Efficient Dense Crowd Trajectory Prediction Via Dynamic Clustering](/202603/22/2603.18166v1-efficient-dense-crowd-trajectory-prediction-via-dynamic-clustering)  
+   标签：评分：9.0/10、query:urt-c
+   evidence：用于管理的高密度人群轨迹预测
+3. [Learning from Yesterday's Error: An Efficient Online Learning Method for Traffic Demand Prediction](/202603/22/2602.21757v1-learning-from-yesterdays-error-an-efficient-online-learning-method-for-traffic-demand-prediction)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：短时交通需求预测的在线学习方法
+4. [Column Generation for the Micro-Transit Zoning Problem](/202603/22/2603.07821v1-column-generation-for-the-micro-transit-zoning-problem)  
+   标签：评分：8.0/10、query:urt-c
+   evidence：列生成算法用于微循环公交分区与规划
+5. [A Grid-Based Framework for E-Scooter Demand Representation and Temporal Input Design for Deep Learning: Evidence from Austin, Texas](/202603/22/2603.13609v1-a-grid-based-framework-for-e-scooter-demand-representation-and-temporal-input-design-for-deep-learning-evidence-from-austin-texas)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：用于需求预测和时间输入设计的时空深度学习
+6. [Low-Data Predictive Maintenance of Railway Station Doors and Elevators Using Bayesian Proxy Flow Modeling](/202603/22/2603.14384v1-low-data-predictive-maintenance-of-railway-station-doors-and-elevators-using-bayesian-proxy-flow-modeling)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：车站图结构上的贝叶斯客流建模
+7. [RE-SAC: Disentangling aleatoric and epistemic risks in bus fleet control: A stable and robust ensemble DRL approach](/202603/22/2603.18396v1-re-sac-disentangling-aleatoric-and-epistemic-risks-in-bus-fleet-control-a-stable-and-robust-ensemble-drl-approach)  
+   标签：评分：8.0/10、query:urt-c
+   evidence：用于公交车队驻留控制和乘客需求的集成深度强化学习
 
 ### 速读区论文标签
-1. [HONEST-CAV: Hierarchical Optimization of Network Signals and Trajectories for Connected and Automated Vehicles with Multi-Agent Reinforcement Learning](/20260221-20260322/2602.18740v1-honest-cav-hierarchical-optimization-of-network-signals-and-trajectories-for-connected-and-automated-vehicles-with-multi-agent-reinforcement-learning)  
+1. [TEFL: Prediction-Residual-Guided Rolling Forecasting for Multi-Horizon Time Series](/202603/22/2602.22520v1-tefl-prediction-residual-guided-rolling-forecasting-for-multi-horizon-time-series)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：交通领域多步时间序列的滚动预测
+2. [DWAFM: Dynamic Weighted Graph Structure Embedding Integrated with Attention and Frequency-Domain MLPs for Traffic Forecasting](/202603/22/2603.00997v1-dwafm-dynamic-weighted-graph-structure-embedding-integrated-with-attention-and-frequency-domain-mlps-for-traffic-forecasting)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：用于时空交通预测的动态加权图结构
+3. [Scaling Real-Time Traffic Analytics on Edge-Cloud Fabrics for City-Scale Camera Networks](/202603/22/2603.05217v1-scaling-real-time-traffic-analytics-on-edge-cloud-fabrics-for-city-scale-camera-networks)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：利用时空图神经网络进行城市规模交通短期预测
+4. [Simulation-in-the-Reasoning (SiR): A Conceptual Framework for Empirically Grounded AI in Autonomous Transportation](/202603/22/2603.10294v1-simulation-in-the-reasoning-sir-a-conceptual-framework-for-empirically-grounded-ai-in-autonomous-transportation)  
    标签：评分：8.0/10、query:urt-c
-   evidence：使用多智能体强化学习的层级网络级交通流控制
-2. [Learning from Complexity: Exploring Dynamic Sample Pruning of Spatio-Temporal Training](/20260221-20260322/2602.19113v1-learning-from-complexity-exploring-dynamic-sample-pruning-of-spatio-temporal-training)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：交通领域的时空预测效率与动态样本剪枝
-3. [UrbanFM: Scaling Urban Spatio-Temporal Foundation Models](/20260221-20260322/2602.20677v1-urbanfm-scaling-urban-spatio-temporal-foundation-models)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：用于城市系统和人类移动性的时空基础模型
-4. [UrbanFM: Scaling Urban Spatio-Temporal Foundation Models](/20260221-20260322/2602.20677v2-urbanfm-scaling-urban-spatio-temporal-foundation-models)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：用于城市计算和人类移动性的时空基础模型
-5. [Network-Level Travel Time Prediction Considering The Effects of Weather and Seasonality](/20260221-20260322/2602.19351v1-network-level-travel-time-prediction-considering-the-effects-of-weather-and-seasonality)  
+   evidence：智能交通系统的推理中模拟框架
+5. [Routing Channel-Patch Dependencies in Time Series Forecasting with Graph Spectral Decomposition](/202603/22/2603.13702v1-routing-channel-patch-dependencies-in-time-series-forecasting-with-graph-spectral-decomposition)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：利用机器学习进行长短期旅行时间预测
-6. [All Cities are Equal: A Unified Human Mobility Generation Model Enabled by LLMs](/20260221-20260322/2602.19694v1-all-cities-are-equal-a-unified-human-mobility-generation-model-enabled-by-llms)  
+   evidence：时间序列预测中的通道-补丁依赖建模
+6. [NetSpatial: Spatially Conditional Traffic Generation for Cellular Planning and Operations](/202603/22/2603.13839v1-netspatial-spatially-conditional-traffic-generation-for-cellular-planning-and-operations)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：城市系统的统一人类流动性生成
-7. [PFGNet: A Fully Convolutional Frequency-Guided Peripheral Gating Network for Efficient Spatiotemporal Predictive Learning](/20260221-20260322/2602.20537v1-pfgnet-a-fully-convolutional-frequency-guided-peripheral-gating-network-for-efficient-spatiotemporal-predictive-learning)  
+   evidence：城市区域空间条件交通生成与需求理解
+7. [Distributed Acoustic Sensing for Urban Traffic Monitoring: Spatio-Temporal Attention in Recurrent Neural Networks](/202603/22/2603.13903v1-distributed-acoustic-sensing-for-urban-traffic-monitoring-spatio-temporal-attention-in-recurrent-neural-networks)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：基于全卷积频率引导网络的时空预测学习
-8. [Learning Recursive Multi-Scale Representations for Irregular Multivariate Time Series Forecasting](/20260221-20260322/2602.21498v1-learning-recursive-multi-scale-representations-for-irregular-multivariate-time-series-forecasting)  
-   标签：评分：7.0/10、query:urt-pf
-   evidence：不规则间隔的多变量时间序列预测
-9. [Robust Exploration in Directed Controller Synthesis via Reinforcement Learning with Soft Mixture-of-Experts](/20260221-20260322/2602.19244v1-robust-exploration-in-directed-controller-synthesis-via-reinforcement-learning-with-soft-mixture-of-experts)  
+   evidence：用于城市交通监测的循环神经网络时空注意力机制
+8. [Capacitated Spatiotemporal Matching](/202603/22/2603.14226v1-capacitated-spatiotemporal-matching)  
+   标签：评分：7.0/10、query:urt-c
+   evidence：容量限制下需求与站点的时空匹配
+9. [MR-GNF: Multi-Resolution Graph Neural Forecasting on Ellipsoidal Meshes for Efficient Regional Weather Prediction](/202603/22/2603.13563v1-mr-gnf-multi-resolution-graph-neural-forecasting-on-ellipsoidal-meshes-for-efficient-regional-weather-prediction)  
+   标签：评分：6.0/10、query:urt-pf
+   evidence：针对时空物理系统的多分辨率图神经预测
+10. [Locally Linear Continual Learning for Time Series based on VC-Theoretical Generalization Bounds](/202603/22/2603.13674v1-locally-linear-continual-learning-for-time-series-based-on-vc-theoretical-generalization-bounds)  
+   标签：评分：6.0/10、query:urt-pf
+   evidence：非平稳环境下的时间序列预测
+11. [Exploiting temporal parallelism for LSTM Autoencoder acceleration on FPGA](/202603/22/2603.13982v1-exploiting-temporal-parallelism-for-lstm-autoencoder-acceleration-on-fpga)  
+   标签：评分：6.0/10、query:urt-pf
+   evidence：用于时间序列处理的LSTM自编码器FPGA加速
+12. [LLM-Guided Safe Reinforcement Learning for Energy System Topology Reconfiguration](/202603/22/2603.14018v1-llm-guided-safe-reinforcement-learning-for-energy-system-topology-reconfiguration)  
    标签：评分：6.0/10、query:urt-c
-   evidence：用于有向控制器综合与泛化的强化学习
-10. [TrajGPT-R: Generating Urban Mobility Trajectory with Reinforcement Learning-Enhanced Generative Pre-trained Transformer](/20260221-20260322/2602.20643v1-trajgpt-r-generating-urban-mobility-trajectory-with-reinforcement-learning-enhanced-generative-pre-trained-transformer)  
-   标签：评分：6.0/10、query:urt-pf
-   evidence：使用强化学习增强的Transformer生成城市移动轨迹
-11. [Bikelution: Federated Gradient-Boosting for Scalable Shared Micro-Mobility Demand Forecasting](/20260221-20260322/2602.20671v1-bikelution-federated-gradient-boosting-for-scalable-shared-micro-mobility-demand-forecasting)  
-   标签：评分：6.0/10、query:urt-pf
-   evidence：基于联邦学习的共享出行时空需求预测
-12. [Benchmarking State Space Models, Transformers, and Recurrent Networks for US Grid Forecasting](/20260221-20260322/2602.21415v1-benchmarking-state-space-models-transformers-and-recurrent-networks-for-us-grid-forecasting)  
-   标签：评分：6.0/10、query:urt-pf
-   evidence：时间序列预测深度学习架构的基准测试
+   evidence：用于系统拓扑重构的安全强化学习
 
 
 <div class="dpr-home-promo-card">
