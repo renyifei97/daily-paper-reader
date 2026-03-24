@@ -6,79 +6,67 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-03-23
-- 运行时间：2026-03-23 20:36:16 UTC
+- 最新运行日期：2026-03-15 ~ 2026-03-24
+- 运行时间：2026-03-24 05:28:48 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：7
+- 本次总论文数：15
+- 精读区：3
 - 速读区：12
 
 ### 今日简报（AI）
-今日深挖 19 篇时空预测前沿，重点攻克交通流建模与大规模数据蒸馏难题。
-核心突破在于利用双维压缩提升预测效率，并引入 EnTransformer 强化多变量概率预测的生成能力。
-建议优先关注数据集蒸馏技术，这是在资源受限下实现城市动态系统精准建模的关键路径。
-- 详情：[/202603/23/README](/202603/23/README)
+本期精选 15 篇前沿成果，深度聚焦时序预测的解释性增强与城市交通控制的鲁棒性优化。
+重点关注 RE-SAC 算法对公交调度风险的解耦处理，以及 MLOW 模型通过低秩频率分解实现的高精度时序建模。
+建议读者从文本驱动推理和零样本预测入手，探索多模态信息与外部变量在复杂时序场景下的应用潜力。
+- 详情：[/20260315-20260324/README](/20260315-20260324/README)
 
 ### 精读区论文标签
-1. [Effective Dataset Distillation for Spatio-Temporal Forecasting with Bi-dimensional Compression](/202603/23/2603.10410v1-effective-dataset-distillation-for-spatio-temporal-forecasting-with-bi-dimensional-compression)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：时空交通预测的数据集蒸馏
-2. [Deep Learning Network-Temporal Models For Traffic Prediction](/202603/23/2603.11475v1-deep-learning-network-temporal-models-for-traffic-prediction)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：学习时间模式和网络拓扑相关性的深度学习模型
-3. [VisiFold: Long-Term Traffic Forecasting via Temporal Folding Graph and Node Visibility](/202603/23/2603.11816v1-visifold-long-term-traffic-forecasting-via-temporal-folding-graph-and-node-visibility)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：通过时间折叠图和时空依赖进行长期交通预测
-4. [The impact of machine learning forecasting on strategic decision-making for Bike Sharing Systems](/202603/23/2603.14901v1-the-impact-of-machine-learning-forecasting-on-strategic-decision-making-for-bike-sharing-systems)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：机器学习预测共享单车站点的客流
-5. [Evaluating the Robustness of Reinforcement Learning based Adaptive Traffic Signal Control](/202603/23/2603.15283v1-evaluating-the-robustness-of-reinforcement-learning-based-adaptive-traffic-signal-control)  
+1. [RE-SAC: Disentangling aleatoric and epistemic risks in bus fleet control: A stable and robust ensemble DRL approach](/20260315-20260324/2603.18396v2-re-sac-disentangling-aleatoric-and-epistemic-risks-in-bus-fleet-control-a-stable-and-robust-ensemble-drl-approach)  
    标签：评分：8.0/10、query:urt-c
-   evidence：基于强化学习的自适应交通信号控制
-6. [GeMA: Learning Latent Manifold Frontiers for Benchmarking Complex Systems](/202603/23/2603.16729v1-gema-learning-latent-manifold-frontiers-for-benchmarking-complex-systems)  
-   标签：评分：8.0/10、query:urt-c
-   evidence：对铁路网络等复杂系统进行基准测试
-7. [Long-Horizon Traffic Forecasting via Incident-Aware Conformal Spatio-Temporal Transformers](/202603/23/2603.16857v1-long-horizon-traffic-forecasting-via-incident-aware-conformal-spatio-temporal-transformers)  
+   evidence：用于公交车队控制和客流需求的集成深度强化学习
+2. [MLOW: Interpretable Low-Rank Frequency Magnitude Decomposition of Multiple Effects for Time Series Forecasting](/20260315-20260324/2603.18432v1-mlow-interpretable-low-rank-frequency-magnitude-decomposition-of-multiple-effects-for-time-series-forecasting)  
    标签：评分：8.0/10、query:urt-pf
-   evidence：通过时空Transformer进行长周期交通预测
+   evidence：用于时间序列预测的可解释频率分解
+3. [Collision-Free Velocity Scheduling for Multi-Agent Systems on Predefined Routes via Inexact-Projection ADMM](/20260315-20260324/2603.21913v1-collision-free-velocity-scheduling-for-multi-agent-systems-on-predefined-routes-via-inexact-projection-admm)  
+   标签：评分：8.0/10、query:urt-c
+   evidence：预定路径上多智能体系统的速度调度
 
 ### 速读区论文标签
-1. [EnTransformer: A Deep Generative Transformer for Multivariate Probabilistic Forecasting](/202603/23/2603.11909v1-entransformer-a-deep-generative-transformer-for-multivariate-probabilistic-forecasting)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：用于交通网络多变量概率预测的深度生成式Transformer
-2. [A Convex Formulation of the Multi-Commodity Dynamic Traffic Assignment](/202603/23/2603.17981v1-a-convex-formulation-of-the-multi-commodity-dynamic-traffic-assignment)  
-   标签：评分：8.0/10、query:urt-c
-   evidence：动态交通分配被公式化为网络流控制问题
-3. [Discovering Governing Spatial Interaction Mechanisms in Dynamic Urban Systems](/202603/23/2603.19537v1-discovering-governing-spatial-interaction-mechanisms-in-dynamic-urban-systems)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：预测动态城市时空现象的控制方程
-4. [Deep Autocorrelation Modeling for Time-Series Forecasting: Progress and Prospects](/202603/23/2603.19899v1-deep-autocorrelation-modeling-for-time-series-forecasting-progress-and-prospects)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：深度时间序列预测与自相关建模的全面综述
-5. [Latent Dynamics-Aware OOD Monitoring for Trajectory Prediction with Provable Guarantees](/202603/23/2603.14603v1-latent-dynamics-aware-ood-monitoring-for-trajectory-prediction-with-provable-guarantees)  
+1. [Unlocking the Value of Text: Event-Driven Reasoning and Multi-Level Alignment for Time Series Forecasting](/20260315-20260324/2603.15452v1-unlocking-the-value-of-text-event-driven-reasoning-and-multi-level-alignment-for-time-series-forecasting)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：交通场景中轨迹预测的离群检测监控
-6. [Cross-RAG: Zero-Shot Retrieval-Augmented Time Series Forecasting via Cross-Attention](/202603/23/2603.14709v1-cross-rag-zero-shot-retrieval-augmented-time-series-forecasting-via-cross-attention)  
+   evidence：基于事件驱动推理的多模态时间序列预测
+2. [Time-Aware Prior Fitted Networks for Zero-Shot Forecasting with Exogenous Variables](/20260315-20260324/2603.15802v1-time-aware-prior-fitted-networks-for-zero-shot-forecasting-with-exogenous-variables)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：零样本检索增强时间序列预测框架
-7. [Video Detector: A Dual-Phase Vision-Based System for Real-Time Traffic Intersection Control and Intelligent Transportation Analysis](/202603/23/2603.14861v1-video-detector-a-dual-phase-vision-based-system-for-real-time-traffic-intersection-control-and-intelligent-transportation-analysis)  
+   evidence：包含交通指标等外部变量的零样本预测
+3. [Data-driven generalized perimeter control: Zürich case study](/20260315-20260324/2603.16599v1-data-driven-generalized-perimeter-control-zrich-case-study)  
    标签：评分：7.0/10、query:urt-c
-   evidence：实时交通路口控制与行为分析
-8. [Spatio-temporal probabilistic forecast using MMAF-guided learning](/202603/23/2603.15055v1-spatio-temporal-probabilistic-forecast-using-mmaf-guided-learning)  
+   evidence：数据驱动的城市交通拥堵预测控制
+4. [Constructing Deployment Scenarios for Reserve Deliverability via Adaptive Robust Optimization](/20260315-20260324/2603.16752v1-constructing-deployment-scenarios-for-reserve-deliverability-via-adaptive-robust-optimization)  
+   标签：评分：7.0/10、query:urt-c
+   evidence：针对网络拥塞和调度的自适应鲁棒优化
+5. [The Phasor Transformer: Resolving Attention Bottlenecks on the Unit Circle](/20260315-20260324/2603.17433v1-the-phasor-transformer-resolving-attention-bottlenecks-on-the-unit-circle)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：使用神经网络进行时空概率预测
-9. [Graph-Based Deep Learning for Intelligent Detection of Energy Losses, Theft, and Operational Inefficiencies in Oil & Gas Production Networks](/202603/23/2603.14406v1-graph-based-deep-learning-for-intelligent-detection-of-energy-losses-theft-and-operational-inefficiencies-in-oil--gas-production-networks)  
+   evidence：用于长上下文时间序列预测的高效Transformer
+6. [TimeAPN: Adaptive Amplitude-Phase Non-Stationarity Normalization for Time Series Forecasting](/20260315-20260324/2603.17436v1-timeapn-adaptive-amplitude-phase-non-stationarity-normalization-for-time-series-forecasting)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：具有非平稳归一化的多元长期时间序列预测
+7. [Structure-Dependent Regret and Constraint Violation Bounds for Online Convex Optimization with Time-Varying Constraints](/20260315-20260324/2603.14319v1-structure-dependent-regret-and-constraint-violation-bounds-for-online-convex-optimization-with-time-varying-constraints)  
    标签：评分：6.0/10、query:urt-pf
-   evidence：基于时空图深度学习的网络异常检测
-10. [EcoFair-CH-MARL: Scalable Constrained Hierarchical Multi-Agent RL with Real-Time Emission Budgets and Fairness Guarantees](/202603/23/2603.14625v1-ecofair-ch-marl-scalable-constrained-hierarchical-multi-agent-rl-with-real-time-emission-budgets-and-fairness-guarantees)  
-   标签：评分：6.0/10、query:urt-c
-   evidence：用于物流和路径规划的受限分层多智能体强化学习
-11. [A Score Filter Enhanced Data Assimilation Framework for Data-Driven Dynamical Systems](/202603/23/2603.14863v1-a-score-filter-enhanced-data-assimilation-framework-for-data-driven-dynamical-systems)  
+   evidence：针对日变交通模式的在线凸优化
+8. [Interpretable Classification of Time Series Using Euler Characteristic Surfaces](/20260315-20260324/2603.15079v1-interpretable-classification-of-time-series-using-euler-characteristic-surfaces)  
    标签：评分：6.0/10、query:urt-pf
-   evidence：动力系统预测的数据同化方法
-12. [CycleRL: Sim-to-Real Deep Reinforcement Learning for Robust Autonomous Bicycle Control](/202603/23/2603.15013v1-cyclerl-sim-to-real-deep-reinforcement-learning-for-robust-autonomous-bicycle-control)  
+   evidence：时间序列的时空特征表示
+9. [Safe Flow Q-Learning: Offline Safe Reinforcement Learning with Reachability-Based Flow Policies](/20260315-20260324/2603.15136v1-safe-flow-q-learning-offline-safe-reinforcement-learning-with-reachability-based-flow-policies)  
    标签：评分：6.0/10、query:urt-c
-   evidence：用于城市出行中自动驾驶车辆控制的深度强化学习
+   evidence：用于实时控制的离线安全强化学习
+10. [NavThinker: Action-Conditioned World Models for Coupled Prediction and Planning in Social Navigation](/20260315-20260324/2603.15359v1-navthinker-action-conditioned-world-models-for-coupled-prediction-and-planning-in-social-navigation)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：结合强化学习与世界模型的预测与规划耦合
+11. [Fast Relax-and-Round Unit Commitment with Economic Horizons](/20260315-20260324/2603.15934v1-fast-relax-and-round-unit-commitment-with-economic-horizons)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：机组组合与长周期调度优化
+12. [Real-time optimal delay minimization algorithms for aircraft on a same runway and dual runways](/20260315-20260324/2603.16071v1-real-time-optimal-delay-minimization-algorithms-for-aircraft-on-a-same-runway-and-dual-runways)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：运输运营中减少延误的调度算法
 
 
 <div class="dpr-home-promo-card">

@@ -1,0 +1,1356 @@
+Title: RE-SAC: Disentangling aleatoric and epistemic risks in bus fleet control: A stable and robust ensemble DRL approach
+
+URL Source: https://arxiv.org/pdf/2603.18396v2
+
+Published Time: Tue, 24 Mar 2026 00:40:38 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# RE-SAC: Disentangling aleatoric and epistemic risks in bus fleet control: A stable and robust ensemble DRL approach ∗
+
+## Yifan Zhang † Liang Zheng ‡
+
+Abstract 
+
+Bus holding control remains a persistent challenge in urban transit systems due to the inher-ent stochasticity of traffic conditions and passenger demand. While deep reinforcement learning (DRL) has shown promise for dynamic holding decisions, standard actor-critic algorithms fre-quently suffer from Q-value instability in highly volatile environments. A key yet underexplored source of this instability is the conflation of two structurally distinct uncertainties: aleatoric 
+
+uncertainty, arising from irreducible environmental noise, and epistemic uncertainty, arising from data insufficiency in the replay buffer. Treating these as a single risk leads to patholog-ical underestimation in well-explored but noisy states, ultimately causing catastrophic value collapse. In this paper, we propose a robust ensemble soft actor-critic (RE-SAC) framework that ex-plicitly disentangles and addresses both sources of uncertainty. Our approach applies Integral Probability Metric (IPM)-based weight regularization to the critic network to hedge against aleatoric risk, providing a smooth analytical lower bound for the robust Bellman operator with-out requiring expensive inner-loop state perturbations. To address epistemic risk, a diversified 
+
+Q-ensemble penalizes overconfident value estimates in sparsely covered regions of the state-action space. This dual mechanism prevents the ensemble variance from misidentifying inherent noise as a data gap, a failure mode that causes complete policy collapse in our ablation study. Empirically, experiments in a realistic bidirectional bus corridor simulation demonstrate that RE-SAC achieves the highest and most stable cumulative reward (approximately −0.4 ×
+
+10 6) among all baselines, compared to −0.55 × 10 6 for vanilla SAC and −1.2 × 10 6 for the epistemic-only ablation. The Mahalanobis rareness analysis further confirms that RE-SAC reduces Oracle Q-value estimation error by up to 62% in rare out-of-distribution states relative to SAC (average Oracle MAE of 1647 vs. 4343), demonstrating superior worst-case robustness under high traffic variability. Our theoretical analysis further reveals that the frozen-parameter design (target networks, held-fixed critic weights) is not merely a practical stabilisation heuristic but a structurally necessary condition for Bellman operator contractiveness under multi-penalty regularisation—an insight with implications beyond transit control. 
+
+Keywords: bus bunching; robust reinforcement learning; ensemble; uncertainty decomposition; bus holding control. 
+
+# 1 Introduction 
+
+Bus bunching—the phenomenon where multiple buses on the same route cluster together—remains a well-known challenge in urban transit systems. This instability is driven by a positive feedback loop: a slight delay at a stop increases passenger accumulation, which extends dwell time, further slowing the leading bus while the trailing bus speeds up due to reduced demand [1, 2]. To break this cycle, various holding control strategies have been developed, transitioning from classical schedule-based optimization to deep reinforcement learning (DRL) paradigms [3]. However, despite the promising performance of DRL in controlled simulations, these models often exhibit fragile behavior when deployed in realistic, high-variance transit environments. 
+
+> ∗
+
+Code available at https://github.com/erzhu419/RE-SAC 
+
+> †
+
+Central South University, erzhu419@gmail.com, 204201048@csu.edu.cn 
+
+> ‡
+
+Central South University, zhengliang@csu.edu.cn 
+
+1
+
+> arXiv:2603.18396v2 [cs.LG] 21 Mar 2026
+
+A critical, yet frequently overlooked bottleneck in applying Actor-Critic methods to transit con-trol is what we term “ Q-value poisoning.” In public transportation, stochasticity is not a transient disturbance but a deeply ingrained feature; fluctuations in passenger arrival rates and road traffic speeds are often irreducible. In such highly volatile environments, standard off-policy algorithms like Soft Actor-Critic (SAC) frequently suffer from pathological value estimation degradation. As training progresses, the Q-function may become “poisoned” by environmental noise, leading to severe underestimation of successful past interventions or wild oscillations in unvisited state-action regions. This phenomenon, consistent with the “value collapse” identified by recent studies [4], effectively par-alyzes the agent’s policy, causing it to fall into an under-exploitation trap where it fails to maintain regularity despite having encountered optimal trajectories in its experience buffer. 
+
+Definition 1.1 (Q-value Poisoning) . Let Q∗ be the optimal Q-function and Qt be the learned Q-function after t gradient steps. Let σ2(s, a ) := Var P [Vt(s′) | s, a ] denote the local aleatoric variance at (s, a ). We say the learning process suffers from Q-value poisoning if there exist a threshold σ20 > 0
+
+and a non-vanishing set of state-action pairs Pt ⊆ S × A such that: (i) Selective underestimation in high-variance regions: Qt(s, a ) < Q ∗(s, a ) for all (s, a ) ∈Pt with σ2(s, a ) ≥ σ20 ; and (ii) Accurate estimation in low-variance regions: |Qt(s, a ) − Q∗(s, a )| ≤ ϵ for (s, a ) /∈ P t
+
+with σ2(s, a ) < σ 20 .This pattern—accurate in low-noise states, poisoned in high-noise states—is structurally distinct 
+
+from classical overestimation bias ( Qt ≥ Q∗ uniformly) and from the Deadly Triad (divergence of 
+
+∥Qt∥∞ → ∞ ); see Appendix H. 
+
+We argue that this instability is deeply rooted in the entanglement of dual uncertainties within the transit system. Following the taxonomy established by Depeweg et al. [5] and Clements et al. [6], we categorize these risks as: 1. Aleatoric Uncertainty: The inherent and irreducible randomness of the traffic system, such as stochastic signal timings and bursty passenger surges at stations [7]. 2. Epistemic Uncertainty: The lack of model knowledge in regions of the state-action space poorly covered by the experience buffer, often exacerbated by the data imbalance inherent in offline or long-tail transit scenarios [8]. In vanilla DRL, these two risks are conflated [9]. An agent might over-penalize a state due to inherent aleatoric noise or show dangerous optimism in epistemic-deficient regions due to function approximation errors [10]. To mitigate Q-value poisoning, a theoretically rigorous approach is to model the uncertainty dis-tribution using Bayesian methods [11, 5]. However, maintaining full posterior beliefs (e.g., Dirichlet distributions) for every state-action pair is intractable in high-dimensional continuous control. To circumvent this, we pivot to the framework of Robust Markov Decision Process (MDP) [12], which seeks a policy optimal against a worst-case uncertainty set. Building on the insights of Osogami [13] and Xu et al. [14, 15], we treat this robust objective as mathematically equivalent to regularization in function space. This allows us to hedge against aleatoric risk by introducing an IPM-based network weight regularization term [16, 17], acting as a structural prior to suppress aleatoric-induced oscil-lations [18]. Yet, regularization alone is a uniform prior; it cannot detect the “unknown unknowns.” Therefore, for epistemic risk, we complement this with a diversified Q-ensemble [8, 19] to penalize data insufficiency. Building upon our previous work on single-agent robust control for bus fleets [20], this paper in-troduces the RE-SAC framework. More broadly, our results suggest that contraction in regularised reinforcement learning is not a generic property of penalised Bellman operators , but depends crit-ically on whether the penalty term is fixed or value-function-dependent during each backup step. Making this structural assumption explicit—and verifying it formally—is essential for a correct the-oretical understanding of modern deep RL algorithms. Our contributions are summarized as follows: 2• Theoretical disentanglement: We provide a formal motivation for decoupling aleatoric and epistemic risks in transit control, bridging the gap between risk-sensitive RL [13] and bus service reliability. 
+
+• Structural stability characterisation: We identify a sharp boundary for contraction in multi-penalty Bellman operators: penalties that are fixed per backup step (frozen critic weights, target networks) preserve γ-contraction, while Q-dependent penalties provably break it. Both the positive and negative results are machine-verified in Lean 4 with no sorry (Proof.lean ,
+
+Counterproof.lean ). This reveals a necessary design condition for stability in regularised RL—the frozen-parameter architecture used in practice (DQN, SAC, TD3) is not merely con-venient but structurally required. 
+
+• Analytic robustness: We incorporate an IPM-based weight regularization [16] as a compu-tationally efficient alternative to conservative smoothing [21], preventing Q-value collapse in stochastic environments. 
+
+• Empirical stability: Through extensive simulations in bidirectional corridors, we demon-strate that our approach prevents the underestimation pitfall [4] and maintains superior service regularity compared to baseline algorithms including SAC, DSAC, and BAC. 
+
+# 2 Related work 
+
+## 2.1 Bus fleet control and reinforcement learning 
+
+Bus holding control has transitioned from classical theoretical models—such as headway-based ex-ponential models [1] and linear control for schedule reliability [22]—to data-driven optimization strategies. In recent years, DRL has emerged as a powerful tool for dynamic holding decisions [3]. While many studies explore Multi-Agent Reinforcement Learning (MARL) to handle the coupling between vehicles, these systems often struggle with non-stationarity and the high computational cost of coordination [23, 24, 25]. Building upon our previous work, which demonstrated that a single-agent architecture can achieve robust bus fleet control through categorical embeddings [20], this study focuses on the fundamental stability of value estimation in such stochastic environments. 
+
+## 2.2 Uncertainty quantification in RL: from Bayesian and risk-sensitive to robust methods 
+
+The handling of uncertainty in RL has evolved through two main lineages: Bayesian distributional modeling and risk-sensitive optimization. Bayesian approaches [5, 11] theoretically resolve epistemic uncertainty by maintaining posteriors over system dynamics. Parallel to this, risk-sensitive RL op-timizes tail risk measures like Conditional Value at Risk (CVaR) [26, 27], a line of work further advanced by distributional RL [28, 29]. However, both paradigms face significant hurdles: Bayesian methods struggle with the intractability of posterior updates in high dimensions, while direct risk optimization often incurs prohibitive sampling complexity, as Fei et al. [30] demonstrated that risk-sensitive regret bounds scale significantly worse than standard RL (see Appendix A). To circumvent these barriers, the field has turned to Robust Markov Decision Processes (RMDPs) [12, 31], where uncertainty is enclosed within a static set. The unification of these views came when Osogami [13] linked robust objectives to risk-sensitive MDPs, bridging worst-case optimization and risk aver-sion. Complementing this, Geist et al. [32] showed a key insight: regularization in MDPs effectively imposes a prior distribution on the policy or value function, so that a regularized update can be interpreted as a quasi-Bayesian posterior estimation (see Appendix C). This justifies network regu-larization as a scalable proxy for handling inherent system stochasticity (aleatoric risk). 32.3 Disentangling aleatoric and epistemic risks 
+
+Relying solely on regularization acts as a uniform prior, effectively smoothing the policy against aleatoric noise but failing to identify regions of data insufficiency (Epistemic Risk). To address this, we adopt the decomposition framework of Clements et al. [6] and Depeweg et al. [5]. We employ a diversified Q-ensemble [8, 19] to quantify epistemic uncertainty through predictive variance, penalizing over-optimism in sparsely sampled regions. Simultaneously, we use IPM-based weight regularization [16] to enforce local Lipschitz continuity [18], providing a tight lower bound against aleatoric perturbations. This dual approach leverages the efficiency of regularization for aleatoric risk and the sensitivity of ensembles for epistemic risk, preventing the value collapse typically observed in high-variance transit environments [4]. 
+
+## 2.4 Stability and the underestimation trap 
+
+Function approximation errors are a well-known source of instability in Actor-Critic methods, typ-ically leading to overestimation bias [33, 10]. While SAC utilizes maximum entropy to improve exploration [34], it remains vulnerable to “value collapse” when local batches fail to represent the true high-variance distribution. Recent broad studies suggest that excessive pessimism—often used in offline RL [21, 35]—can lead to an “underestimation trap” in online settings where the agent ignores high-value trajectories [4]. Our work synthesizes these insights to maintain value estimation stability without succumbing to the pathological degradation often seen in vanilla robust implementations. 
+
+# 3 Preliminaries 
+
+## 3.1 Maximum entropy MDP 
+
+We formulate the bus holding problem as an MDP, characterized by the tuple (S, A, P, R, γ ). In the Maximum Entropy Reinforcement Learning framework [34], the agent’s objective is to jointly max-imize the expected cumulative return and the policy’s entropy. This objective is formally expressed as: 
+
+J(π) = Eπ,P 
+
+" ∞X
+
+> t=0
+
+γt (R(st, a t) + αH(π(·| st))) 
+
+#
+
+, (1) where H(π(·| st)) denotes the Shannon entropy of the policy, and α is the temperature parameter controlling the exploration-exploitation trade-off. The corresponding soft state value function V π (s)
+
+and soft action-value function Qπ (s, a ) are related by: 
+
+V π (s) = Ea∼π [Qπ (s, a ) − α log π(a|s)] . (2) The Soft Bellman Operator T π acts on Q-functions as T π Q(s, a ) = R(s, a )+ γEs′∼P [V π (s′)] , forming a contraction mapping that guarantees convergence to the optimal soft Q-function. 
+
+## 3.2 Robust Markov decision process 
+
+A Robust MDP (RMDP) generalizes the standard MDP by replacing the fixed transition kernel 
+
+P with an uncertain set of transition probabilities Ps,a for each state-action pair (s, a ) [31, 12]. The agent seeks a policy that maximizes the worst-case expected return over this set. The Robust Bellman Operator T R is defined as: 
+
+T RV (s) = max  
+
+> π
+
+Ea∼π
+
+
+
+R(s, a ) + γ inf 
+
+> p∈P s,a
+
+Es′∼p[V (s′)] 
+
+
+
+. (3) Iyengar [31] showed that if the uncertainty set satisfies the rectangularity property (i.e., the un-certainty at each state-action pair is independent), then T R is a γ-contraction in the L∞ norm, guaranteeing convergence to a unique robust value function. 44 Methodology 
+
+## 4.1 Theoretical formulation: Robustness via regularization 
+
+Building on the RMDP formalism introduced in Section 3.2, a key challenge is defining a meaningful uncertainty set Ps,a . Traditional approaches using KL-divergence balls often yield overly conservative policies. Following recent advances [16], we employ the IPM to define the uncertainty set. The IPM distance between a nominal distribution p◦ and a perturbed distribution q is defined with respect to a function class F:
+
+dF (p◦, q ) = sup  
+
+> f∈F
+
+|Es′∼p◦ [f (s′)] − Es′∼q [f (s′)] | . (4) This formulation allows us to bypass the complexity of finding the worst-case distribution p by directly penalizing the function space complexity, akin to the correspondence between robustness and regularization shown in support vector machines [15] (see Appendix B). When F is the set of 1-Lipschitz functions, dF coincides with the 1-Wasserstein distance. Leveraging the convex duality of IPMs, the inner minimization problem in the Robust Bellman Operator admits a tractable closed-form lower bound. For a value function Vθ parameterized by a neural network, if we constrain the uncertainty set to be a ball Ps,a = {q | dF (q, p ◦) ≤ δ}, the robust update satisfies: 
+
+inf 
+
+> q∈P s,a
+
+Eq [Vθ (s′)] ≥ Ep◦ [Vθ (s′)] − δ · Lip (Vθ ), (5) where Lip (Vθ ) is the Lipschitz constant of the value network. Since the Lipschitz constant of a deep network is upper-bounded by the product of the spectral norms of its weight matrices, i.e., Lip (Vθ ) ≤ Q 
+
+> l
+
+∥Wl∥2, robustness against aleatoric perturbations can be achieved by regularizing the critic network weights. In practice, we use the ℓ1-norm as a computationally efficient surro-gate. For the L∞ perturbation model relevant to bounded traffic states, the per-layer sensitivity satisfies ∥Wlδ∥∞ ≤ ∥ Wl∥∞→∞ ∥δ∥∞ ≤ ∥ vec (Wl)∥1∥δ∥∞, so penalizing P 
+
+> l
+
+∥Wl∥1 directly controls the worst-case L∞ sensitivity of the network (see Appendix E for a machine-verified contraction proof in finite state-action spaces, with the Lean 4 files Proof.lean establishing contractivity and 
+
+Counterproof.lean establishing that Q-dependent penalties strictly break it, plus a continuous-space extension via the Banach Fixed-Point Theorem). 
+
+## 4.2 Disentangling epistemic and aleatoric risks 
+
+The fundamental challenge in bus fleet control is that the transition kernel P (s′|s, a ) is never truly "nominal." Even with massive historical data, the system faces a dual-layer uncertainty: (i) the inherent traffic stochasticity that exists even in high-data regimes, and (ii) the lack of samples for extreme bunching scenarios or rare traffic incidents. Following the taxonomy of [6, 5], we define the total uncertainty set Ps,a as a composition of Aleatoric and Epistemic components. In vanilla robust RL, a single uncertainty budget δ is typically used to cover all deviations. How-ever, as observed in our experiments (the catastrophic collapse of the Epistemic-Only ablation, cf. Fig. 1), a monolithic penalty often leads to pathological underestimation [4]. This conflation creates a pathological asymmetry: the agent becomes excessively pessimistic regarding well-explored but stochastic transitions (mistaking inherent noise for uncertainty) while remaining overly optimistic about unvisited states (due to function approximation bias). High environmental stochasticity exac-erbates this misalignment, driving the policy to abandon optimal, high-variance behaviors in favor of effectively random exploration, ultimately triggering value collapse. To prevent this, we reformulate the Robust Bellman Operator T R by decomposing the worst-case expected value into two distinct penalty terms (we call this the Robust-Ensemble Value (REV) operator): 
+
+T REV (s, a ) = R(s, a ) + γ
+
+Es′∼p◦ [V (s′)] − λepi · Γepi (s, a )
+
+| {z }
+
+> Epistemic Penalty
+
+− λale · Γale (V )
+
+| {z }
+
+> Aleatoric Penalty
+
+ , (6) 5where p◦ is the nominal transition estimated from the experience buffer, and λepi , λ ale > 0 are coefficients scaling the two types of risk. 
+
+1. Epistemic risk ( Γepi ): This term accounts for the uncertainty arising from the finite nature of the replay buffer D. In regions where data is sparse (e.g., severe headway deviations), the variance of the value estimate is high. By penalizing this variance, we enforce a "pessimism in the face of the unknown" [8], ensuring the agent remains within the support of the training data. 
+
+2. Aleatoric risk ( Γale ): This term accounts for the irreducible noise in the environment (e.g., stochastic passenger arrivals). Based on the IPM duality proven in [16], this risk is controlled by the Lipschitz constant of the value function: Γale (V ) = ε · Lip( Vθ ), where Vθ is parameterized by the current critic weights θ. A non-smooth V with large Lipschitz constants is highly sensitive to aleatoric perturbations. As established in Eq. (5), bounding Lip (Vθ ) via weight norm regularization (∥W ∥1) provides structural robustness to inherent noise. Crucially, during each Bellman backup the weights θ are held fixed (updated only afterward via gradient descent), so the aleatoric penalty collapses to a fixed scalar κ = λale 
+
+P 
+
+> l
+
+∥W (θ) 
+
+> l
+
+∥1 that is independent of the Q-function being evaluated (see Appendix E). According to the correspondence theory of Osogami [13] (detailed in Appendix B), this additive decomposition corresponds to an uncertainty set Ps,a that is the intersection of a data-density-based set and a function-class-based IPM set. This disentanglement allows the agent to maintain high Q-values in noisy but well-explored states, thereby avoiding the underestimation trap while maintaining structural robustness. A formal justification that the two penalties target genuinely distinct sources of uncertainty—including a proof that Γepi → 0 as data coverage grows while κ remains bounded away from zero—is provided in Appendix F. 
+
+## 4.3 Aleatoric risk mitigation via IPM regularization 
+
+The aleatoric risk in bus transit arises from the inherent stochasticity of the environment, such as random traffic delays and fluctuating passenger demand. As established in Eq. (5), this risk can be mitigated by bounding the Lipschitz constant of the value network Lip (Vθ ). In practice, we use the 
+
+ℓ1-norm of the critic network weights as a tractable proxy, since ℓ1-regularization promotes sparse, smooth weight structures that bound the network’s sensitivity to input perturbations [14]. The resulting robust update for the Q-function is: 
+
+Tale Q(s, a ) ≥ R(s, a ) + γ Es′∼p◦ [V (s′)] − λale LX
+
+> l=1
+
+∥Wl∥1
+
+!
+
+, 1 (7) where λale is the aleatoric uncertainty budget and ∥Wl∥1 is the ℓ1-norm of the weights in layer l.
+
+Implementation logic in loss function: While the robust operator Tale subtracts the norm term to obtain a pessimistic lower bound, in the training loss, the regularization appears as an additive penalty: 
+
+L(ϕ) = E(s,a )∼D 
+
+
+
+Qϕ(s, a ) − T ale ˆQ(s, a )
+
+2
+
++ λale 
+
+X
+
+> l
+
+∥Wl∥1. (8) This regularization suppresses the growth of the network weights, keeping the Q-network smooth (low Lipschitz constant) and realizing the robust lower bound defined by the IPM uncertainty set. Unlike RORL [21], which requires an expensive inner-loop maximization over state perturbations, our approach obtains robustness analytically via a single penalty term. 
+
+## 4.4 Epistemic risk mitigation via Q-ensemble 
+
+While the IPM-based regularization described in the previous section ensures robustness against inherent environmental noise (aleatoric risk), it is insufficient for handling the distribution shifts       
+
+> 1This inequality defines the robust lower bound derived from the IPM duality. In the implementation (Eq. (11)), the aleatoric penalty enters the critic loss LQrather than the Bellman target, for the reasons discussed in the footnote to §4.4.1. The contraction proof (Appendix E) covers both conventions since κis a fixed scalar.
+
+6inherent in offline-to-online reinforcement learning. In bus transit scenarios, certain states—such as extreme headway deviations or unusual passenger surges—are sparsely represented in the historical data D. In these regions, the value function Vϕ may produce over-optimistic estimates due to function approximation artifacts rather than true expected rewards. This "lack of knowledge" constitutes the epistemic risk. To quantify and mitigate this risk, we adopt an ensemble-based pessimism approach [19, 8]. We maintain a set of K independent Q-networks {Qϕk }Kk=1 , each initialized randomly. Following the principle that diversified models will agree in high-density data regions but diverge in unvisited regions [8], the variance across the ensemble serves as a proxy for epistemic uncertainty. The epistemic penalty term is defined as: 
+
+Γepi (s, a ) = Var ({Qϕk (s, a )}Kk=1 ) = 1
+
+K − 1
+
+> K
+
+X
+
+> k=1
+
+(Qϕk (s, a ) − ¯Q(s, a )) 2, (9) where ¯Q(s, a ) is the mean prediction of the ensemble. Crucially, Γepi is computed from the frozen target networks ˆQϕ′ 
+
+> k
+
+, not the online networks being updated . It is therefore a fixed function of (s, a ) during each Bellman backup, independent of the Q-function being evaluated— exactly the structural property required for contraction (Appendix E.1, S3). In the robust Bellman update, we incorporate this variance to realize "pessimism in the face of the unknown": 
+
+Tepi Q(s, a ) = R(s, a ) + γEs′∼p◦ [ ¯Q(s′, a ′)] − γ λ epi Γepi (s, a ). (10) By subtracting the variance, the agent is discouraged from selecting actions that lead to states where the ensemble’s predictions are inconsistent, effectively constraining the policy to remain within the "trusted" regions of the state space. 
+
+Synergy between disentangled uncertainties: The synergy between the Q-ensemble and IPM regularization is the key to preventing Q-value poisoning. As shown in our experiments, using the ensemble alone often fails in high-variance transit environments because it treats aleatoric noise as epistemic gaps, leading to excessive pessimism in well-explored but noisy states. Conversely, using only weight regularization fails to detect OOD regions. By disentangling these two, the ensemble captures the data-density-based risk, while the IPM regularization handles the local-perturbation-based risk. This combined defense ensures that the Q-value remains stable and accurately reflects the worst-case scenario without falling into the underestimation trap identified by [4]. A formal condition on the penalty coefficients ( λale , λepi ) guaranteeing that the fixed point Q∗ 
+
+> robust
+
+remains strictly positive—and thus the policy avoids degeneration—is given in Appendix G. 
+
+## 4.5 RE-SAC algorithm implementation 
+
+The RE-SAC algorithm integrates the disentangled uncertainty framework into the Soft Actor-Critic (SAC) architecture [34]. To handle the high-dimensional state space and stochastic nature of bus corridors, we maintain an ensemble of K Q -networks {Qϕk }Kk=1 and a policy network πθ .
+
+4.5.1 Critic objective with disentangled penalties 
+
+The core of RE-SAC lies in the robust target calculation. For each transition (s, a, r, s ′) sampled from the replay buffer D, the robust target y is computed by subtracting the epistemic penalty from the ensemble’s mean prediction: 
+
+y = r + γ Ea′∼πθ
+
+"
+
+1
+
+K
+
+> K
+
+X
+
+> k=1
+
+ˆQϕk (s′, a ′) − λepi · Γepi (s′, a ′)
+
+#
+
+− α log πθ (a′|s′)
+
+!
+
+, (11) where ˆQϕk denotes the target Q-networks and Γepi (s′, a ′) is the epistemic penalty (ensemble variance, Eq. (9)). Aleatoric risk is mitigated not by subtracting κ from the Bellman target—which would 7push already-negative bus-holding rewards further negative, violating the feasibility condition of Appendix G—but by penalising large weight norms in the critic loss LQ (see below). 2
+
+Γepi (s′, a ′) = 1
+
+K − 1
+
+> K
+
+X
+
+> k=1
+
+ ˆQϕk (s′, a ′) − 1
+
+K
+
+> K
+
+X
+
+> j=1
+
+ˆQϕj (s′, a ′)
+
+
+
+> 2
+
+. (12) To mitigate aleatoric risk, we incorporate the IPM-derived weight regularization into the critic loss. Additionally, to penalize large disagreements among ensemble members in out-of-distribution regions, we add the ensemble’s cross-critic standard deviation as an OOD penalty. The loss function for each Q-network ϕk is: 
+
+LQ(ϕk) = E(s,a )∼D 
+
+h
+
+(Qϕk (s, a ) − y)2i
+
++ λale LX
+
+> l=1
+
+∥W (k) 
+
+> l
+
+∥1 + βood · σens (s, a ), (13) where ∥W (k) 
+
+> l
+
+∥1 is the ℓ1-norm of the weights in the l-th layer, ensuring Lipschitz continuity (see Appendix E for a contraction proof and Appendix D for a theoretical comparison with SAC’s ro-bustness). The term σens (s, a ) = Std ({Qϕk (s, a )}Kk=1 ) penalizes large ensemble disagreement during training. 
+
+Remark 4.1 (Scope of the contraction guarantee) . The contraction result applies to the operator under the frozen-parameter interpretation (target networks for Γepi , held-fixed critic weights for κ)and does not imply convergence of the full learning dynamics. Contraction is preserved when penalties are fixed per backup step; it provably fails when penalties depend on the value function being updated (demonstrated in Counterproof.lean ). We use an upper bound on the aleatoric penalty as surrogate (Appendix E.1, S2): this is conservative but does not affect the existence or uniqueness of the fixed point. 
+
+Remark 4.2 (Scope of the contraction guarantee) . The contraction result applies to the operator under the frozen-parameter interpretation (target networks for Γepi , held-fixed critic weights for κ)and does not imply convergence of the full learning dynamics. Contraction is preserved when penalties are fixed per backup; it may fail when penalties depend on the value function being updated—an impossibility demonstrated in Counterproof.lean . We analyze a surrogate operator using an upper bound on the original aleatoric penalty (cf. Appendix E.1, S2); this is conservative but does not affect the existence or uniqueness of the fixed point. 
+
+4.5.2 Actor objective and categorical embeddings 
+
+The policy network πθ is updated to maximize the expected robust value. To promote pessimism in epistemic-uncertain regions, the actor uses a Lower Confidence Bound (LCB) objective, penalizing actions with high ensemble disagreement: 
+
+Lπ (θ) = Es∼D ,a ∼πθ
+
+α log πθ (a|s) −   ¯Q(s, a ) + βlcb · σens (s, a ) , (14) where ¯Q(s, a ) = 1
+
+> K
+
+PKk=1 Qϕk (s, a ) is the ensemble mean and σens (s, a ) is the ensemble standard deviation. Since βlcb < 0, this objective favors actions with low ensemble disagreement (well-explored regions), while the entropy term α log πθ prevents the agent from collapsing to the underestimation trap identified by Ji et al. [4]. Following our previous work [20], we utilize categorical embeddings to represent discrete transit features. The state s is augmented as: 
+
+s = [ scont ⊕ Emb (StopID ) ⊕ Emb (BusID )] , (15) where ⊕ denotes the concatenation of continuous states and d-dimensional embedding vectors. This representation is vital for epistemic uncertainty estimation: since different StopIDs and BusIDs have varying sampling frequencies in D, the ensemble variance Γepi naturally scales with the data density of specific categorical entities.       
+
+> 2Concretely, the implementation adds +λale κto the target Q-values (equivalent to a signed intrinsic reward that incentivises Lipschitz-smooth critics), and also adds +λale κin the actor’s LCB objective, ensuring joint consistency. The contraction proof is unaffected: κis still a fixed scalar per Bellman backup.
+
+84.5.3 Algorithm pseudocode 
+
+The complete RE-SAC training procedure is summarized in Algorithm 1. 
+
+Algorithm 1 Robust-Ensemble Soft Actor-Critic (RE-SAC) 
+
+Initialize: Ensemble Q-networks {Qϕ1 , . . . , Q ϕK }, Actor πθ , Replay Buffer D.
+
+Initialize: Target networks ϕ′ 
+
+> k
+
+← ϕk, coefficients λale , λ epi .
+
+for each training episode do for each environment step t do 
+
+Observe st (including Categorical IDs); Sample at ∼ πθ (·| st).Execute at, store (st, a t, r t, s t+1 ) in D.Sample mini-batch from D.
+
+// Critic Update with Disentangled Risks 
+
+Compute a′ ∼ πθ (·| st+1 ).
+
+Γepi = Var ({Qϕ′ 
+
+> k
+
+(st+1 , a ′)}).
+
+y = rt + γ
+
+
+
+Mean (Qϕ′ 
+
+> k
+
+(st+1 , a ′)) − λepi Γepi − α log πθ (a′|st+1 )
+
+
+
+. // aleatoric reg. in LQ
+
+below 
+
+for k = 1 . . . K do 
+
+Update ϕk by minimizing LQ(ϕk) with ℓ1 weight reg λale ∥W ∥1 + βood σens .
+
+end for 
+
+// Actor and Temperature Update 
+
+Update θ by minimizing Lπ (θ) using LCB: ¯Q + βlcb · σens .Update temperature α to maintain target entropy Htarget .
+
+// Soft Target Sync 
+
+ϕ′ 
+
+> k
+
+← τ ϕ k + (1 − τ )ϕ′
+
+> k
+
+.
+
+end for end for 
+
+# 5 Experiments 
+
+In this section, we empirically evaluate RE-SAC on the high-fidelity transit simulation environment. We aim to answer the following questions: (1) Can RE-SAC outperform baseline DRL algorithms in terms of cumulative reward and service regularity? (2) Does the disentanglement of epistemic and aleatoric risks prevent catastrophic Q-value collapse? (3) How accurate is the Q-value estimation of RE-SAC under rare, out-of-distribution (OOD) states compared to existing methods? We note that our reward function is explicitly designed to encode headway regularity (see Section 5.1.1); hence cumulative reward directly reflects service quality, and we additionally report Q-value stability and OOD robustness as complementary metrics. 
+
+## 5.1 Experimental setup 
+
+5.1.1 Simulation environment 
+
+We evaluate all algorithms on the bidirectional bus corridor simulation developed in our previous work [20]. The environment models a realistic timetabled bus line with 22 stops (including two terminals) operating over a 13-hour service window (06:00–19:00). Buses are dispatched every 360 seconds from both terminals with a 180-second directional offset. Upon completing a trip, each vehicle becomes idle at its terminal and is available for reassignment according to the timetable, thereby modeling dynamic fleet sizing. 
+
+Passenger demand is specified by an hourly origin-destination (OD) matrix. For each pair of stations and each time period, passenger arrivals are sampled from a Poisson distribution with the corresponding time-varying rate. Traffic conditions are modeled as stochastic inter-stop travel 9speeds sampled from Gaussian distributions with hourly varying means and a fixed standard devia-tion of σ = 1 .5 m/s, capturing realistic congestion fluctuations. 
+
+MDP formulation. The holding control problem is formulated as an event-driven MDP [20]. Decisions are triggered after all passenger boarding/alighting activities have completed at each stop. The state st consists of categorical features (Bus ID, Station ID, Direction, Time Period) and continuous features (forward headway hf , backward headway hb, current segment speed v). The 
+
+action at ∈ [0 , H max ] specifies the additional holding time at the current stop. The reward follows the ridge-shaped function designed in [20], which simultaneously incentivizes headway regularity (hf ≈ hb ≈ τ ) and penalizes extreme deviations from the scheduled headway τ .
+
+5.1.2 Network architecture and hyperparameters 
+
+All algorithms are implemented in PyTorch. The K critic networks are implemented as a single vectorized module (VectorizedCritic) for computational efficiency, each consisting of a 4-layer MLP with hidden dimensions [64 , 64 , 64] and ReLU activations. The actor network is a separate 4-layer MLP with the same hidden dimension, outputting mean and log-standard-deviation for a squashed Gaussian policy. Following [20], categorical features (Bus ID, Station ID, Direction, Time Period) are encoded via learnable embedding layers with dimension d = min(50 , ⌊Ni/2⌋), where Ni is the number of unique categories. The embedded representations are concatenated with continuous state features (forward headway, backward headway, segment speed) to form the input vector. Key hyperparameters are summarized as follows: 
+
+• Ensemble size: K ∈ { 2, 5, 10 , 20 , 40 } (default K = 10 unless otherwise specified); 
+
+• Learning rate: 1 × 10 −5 for critic, actor, and temperature (Adam optimizer); 
+
+• Batch size: 2048; 
+
+• Replay buffer size: 1 × 10 6 transitions; 
+
+• Discount factor: γ = 0 .99 ;
+
+• Target network smoothing coefficient: τ = 0 .01 ;
+
+• Aleatoric regularization coefficient: λale = 0 .01 (ℓ1 weight penalty in critic target and loss; cf. Eq. 8); 
+
+• Actor LCB weight: βlcb = −2 (applied as ¯Q + βlcb · σens in the actor objective; cf. Eq. 14); 
+
+• OOD penalty coefficient: βood = 0 .01 (penalizes ensemble standard deviation in critic loss; cf. Eq. 12); 
+
+• Entropy temperature α: automatically tuned via dual gradient descent with target entropy 
+
+Htarget = − dim( A), capped at αmax = 0 .6;
+
+• Gradient clipping: max norm = 1 .0;
+
+• Critic-to-actor update ratio: 2 : 1 .All baseline algorithms (SAC, DSAC, BAC) share the same network architecture, learning rate, and buffer configuration for fair comparison. Each experiment is trained for 500 episodes with training updates triggered every 5 environment steps, and evaluation metrics are averaged over 10 independent rollouts. 10 5.2 Baselines and ablations 
+
+To comprehensively evaluate our proposed method, we compare RE-SAC against state-of-the-art baselines and perform ablation studies to isolate the impact of our risk disentanglement. 
+
+• Vanilla SAC [34]: The standard Soft Actor-Critic algorithm without explicit robust regular-ization or ensemble pessimism. 
+
+• DSAC [36]: Distributional Soft Actor-Critic, a risk-sensitive variant that learns the continuous return distribution to handle environmental stochasticity. 
+
+• BAC [4]: BEE Actor-Critic [4], an off-policy actor-critic that exploits past successful expe-riences via the Blended Exploitation and Exploration (BEE) operator to avoid catastrophic value underestimation. We abbreviate it BAC (BEE Actor-Critic) throughout for brevity. 
+
+• Epistemic only (ablation) : A variant of RE-SAC that only applies the ensemble variance penalty Γepi , omitting the aleatoric weight regularization. 
+
+• Aleatoric only (ablation) : A variant that only applies the IPM-based weight regularization 
+
+Γale , omitting the ensemble. For RE-SAC, we also evaluate the effect of the ensemble size K ∈ { 2, 5, 10 , 20 , 40 }.
+
+## 5.3 Overall performance and learning stability 
+
+Fig. 1 displays the smoothed cumulative rewards over training. Vanilla SAC and the Aleatoric-Only ablation suffer from suboptimal convergence, plateauing around a reward of −0.55 × 10 6. The purely distributional baseline, DSAC-v1, performs slightly better but still falls short of the proposed method. Notably, the Epistemic-Only variant experiences a complete catastrophic collapse mid-training, dropping to −1.2 × 10 6. This confirms our hypothesis: relying solely on ensemble variance in a highly stochastic environment misidentifies inherent noise as missing data, leading to runaway pessimism and policy degradation. By successfully disentangling the uncertainties, RE-SAC (particularly with moderate ensemble sizes K = 5 , 10 , 20 ) achieves the highest and most stable final reward (around −0.4×10 6). Excessively large ensembles ( K = 40 ) show a slight performance degradation: with 40 parallel critics, the accumulated variance penalty λepi Γepi becomes more sensitive to transient disagreements during early training, inducing a conservative bias that persists and slightly suppresses the final reward. This is consistent with the known over-pessimism of large ensembles in online settings [8]. The BAC baseline, designed to avoid underestimation by exploiting past successes, performs relatively well but exhibits higher variance during training compared to RE-SAC, settling at a slightly lower final reward than the best RE-SAC variants. This suggests that while maintaining optimistic estimates of past serendipitous events helps avoid complete policy collapse in stochastic environments, explicitly disentangling and regularizing against aleatoric and epistemic risks provides a more stable and robust policy improvement path. 
+
+## 5.4 Q-value estimation stability 
+
+The catastrophic drop in the Epistemic-Only policy is directly correlated with extreme value underes-timation. As shown in Fig. 2, the estimated Q-values for the Epistemic-Only ablation plummet deep into negative values (passing −3000 ) with a massive 2σ variance band, corroborating the “underes-timation trap”. In contrast, RE-SAC variants and baseline SAC maintain relatively stable Q-value ranges. The disentangled penalties in RE-SAC prevent the variance penalty from overwhelming the nominal expected return. 11 Fig. 1: Learning curves of cumulative reward for RE-SAC variants, SAC, DSAC-v1, BAC, and ablations. 
+
+Fig. 2: Comparative analysis of estimated Q-Values (Mean ± 2σ) over training. 12 5.5 Robustness in rare states (Mahalanobis rareness) 
+
+While the preceding Q-value analysis tracks estimation stability over training episodes , a robust optimization perspective demands a complementary view: at the same level of state rarity, does the algorithm produce smaller estimation errors than baselines? This distinction is essential because robust policies are valued not for their average-case accuracy, but for their ability to maintain bounded estimation errors in the worst-case regions of the state space. To formalize this, we define Mahalanobis rareness . The key design choices are as follows. First, we condition on each spatial-directional group (Station ID × Direction), because different stops exhibit fundamentally different nominal headway distributions—for example, departure head-ways at terminals are tightly constrained by the timetable, whereas mid-route headways are subject to cumulative disturbances. A single global distribution would conflate structurally different oper-ating regimes. For each group, we fit a 2D Gaussian to the observed continuous features (Forward Headway, Backward Headway), estimating the empirical mean μ and covariance Σ. Second, we use the Mahalanobis distance rather than a simple Euclidean norm because the two headway features have different scales and are correlated (e.g., a very large forward headway typically co-occurs with a small backward headway in a bunching event). Euclidean distance is sensitive to these scale dif-ferences and ignores feature correlations, whereas the Mahalanobis distance p(x − μ)T Σ−1(x − μ)
+
+naturally normalizes by the feature covariance, so that equally likely headway combinations receive equal rareness scores regardless of their direction in feature space. Intuitively, a state with high Mahalanobis rareness is one whose headway configuration the agent has rarely encountered at that stop during training—precisely the kind of state where epistemic risk is highest. Fig. 3 bins the Mean Absolute Error (MAE) between each algorithm’s Q-value estimates and the ground-truth Monte Carlo return QM C (s, a ) by Mahalanobis rareness. Here, QM C is computed offline from the recorded evaluation trajectories as the discounted cumulative reward from each de-cision point onward: QM C (st, a t) = PT −tk=0 γkrt+k, providing a model-free ground truth independent of any learned value function. Since different algorithms learn Q-values at different absolute scales, direct comparison of raw prediction errors would be misleading. We therefore apply a per-algorithm z-score alignment that rescales each algorithm’s predictions to match the mean and standard deviation of QM C before computing the error. Additionally, for ensemble-based algorithms, we report the Oracle MAE : for each state, we select the ensemble head whose aligned prediction is closest to QM C , and compute the MAE over these best-head predictions. This oracle serves as a favorable upper bound on the ensemble’s representational capacity—it measures how well the ensemble could estimate the true return if paired with an ideal head-selection mechanism. As states become increasingly rare (moving left to right on the x-axis), the estimation errors for Vanilla SAC and DSAC-v1 escalate significantly, confirming that their value networks extrapolate unreliably outside the training distribution. In contrast, RE-SAC (Ensemble) consistently demon-strates the lowest Oracle MAE across all rareness bins (overall average of 1647, compared to SAC’s 4343 and DSAC’s 5945). The tight error bands around the RE-SAC predictions confirm that the disentangled regularization structurally bounds the value network, preventing wild extrapolations in OOD regions and yielding superior worst-case guarantees. 13 Fig. 3: Oracle Q-Error (MAE) banded by Mahalanobis Rareness. RE-SAC maintains accurate estimates even in highly rare/OOD states. 14 6 Conclusion 
+
+This paper presents the RE-SAC framework, a robust single-agent reinforcement learning approach for bus fleet holding control that explicitly disentangles aleatoric and epistemic uncertainties. Grounded in the theoretical correspondence between risk-sensitivity and robustness established by Osogami [13], our method employs two complementary mechanisms: IPM-based weight regularization to enforce Lipschitz continuity of the value function against inherent environmental stochasticity, and a di-versified Q-ensemble to penalize overconfident estimates in data-sparse regions of the state-action space. Our theoretical analysis identifies a sharp structural boundary for contraction in multi-penalty Bellman operators: the frozen-parameter design (target networks for epistemic variance, held-fixed critic weights for aleatoric penalty) is both sufficient for γ-contraction and necessary —Q-dependent penalties provably break it. Both results are machine-verified in Lean 4 with no sorry , and a verifiable feasibility condition on the penalty coefficients guarantees policy non-degeneration (Ap-pendix G). This structural insight—that the standard deep RL architecture of frozen target networks is not merely a stabilisation heuristic but a required condition for operator contractiveness—may inform the design of future multi-penalty RL algorithms beyond the transit domain. Empirically, experiments on a realistic bidirectional bus simulation confirm that RE-SAC achieves the highest and most stable cumulative reward among all baselines, including vanilla SAC, DSAC, and BAC. The ablation studies reveal that relying solely on ensemble variance (Epistemic-Only) leads to catas-trophic value collapse in high-variance transit environments, while using only weight regularization (Aleatoric-Only) fails to detect out-of-distribution states. The Mahalanobis rareness analysis further confirms that RE-SAC maintains accurate Q-value estimates even under highly rare traffic states, exhibiting superior worst-case robustness. In future work, we plan to extend this framework to multi-line transit networks with transfer coordination, investigate adaptive scheduling of the uncertainty coefficients λale and λepi during training, and explore the integration of distributional RL methods with our disentangled robustness framework to further improve tail-risk management in urban transit systems. 
+
+# Acknowledgments 
+
+This work was supported by the National Natural Science Foundation of China (Grant No. 72371251), the Natural Science Foundation for Distinguished Young Scholars of Hunan Province (Grant No. 2024JJ2080), and the Key Research and Development Program of Hunan Province of China (Grant No. 2024JK2007). 
+
+# References 
+
+[1] Daganzo Carlos F., “A headway-based approach to eliminate bus bunching: Systematic analysis and comparisons,” Transportation Research Part B: Methodological , vol. 43, no. 10, pp. 913–921, 2009. [2] Xuan Yiguang, Argote Juan, and Daganzo Carlos F., “Dynamic bus holding strategies for schedule reliability: Optimal linear control and performance analysis,” Transportation Research Part B: Methodological , vol. 45, no. 10, pp. 1831–1845, 2011. [3] Wang Jiawei and Sun Lijun, “Dynamic holding control to avoid bus bunching: A multi-agent deep reinforcement learning framework,” Transportation Research Part C: Emerging Technolo-gies , vol. 116, p. 102661, 2020. [4] Ji Tianying, Luo Yu, Sun Fuchun, Zhan Xianyuan, Zhang Jianwei, and Xu Huazhe, “Seizing serendipity: Exploiting the value of past success in off-policy actor-critic,” in International Conference on Machine Learning (ICML) , 2024, pp. 21 672–21 718. 15 [5] Depeweg Stefan, Hernández-Lobato José Miguel, Doshi-Velez Finale, and Udluft Steffen, “De-composition of uncertainty in bayesian deep learning for efficient and risk-sensitive learning,” in International Conference on Machine Learning (ICML) , 2018, pp. 1184–1193. [6] Clements William R., Robaglia Benoît-Marie, van Delft Bastien, Slaoui Reda Bahi, and Toth Sébastien, “Estimating risk and uncertainty in deep reinforcement learning,” arXiv preprint arXiv:1905.09638 , 2019. [7] Hüllermeier Eyke and Waegeman Willem, “Aleatoric and epistemic uncertainty in machine learning: An introduction to concepts and methods,” Machine Learning , vol. 110, no. 3, pp. 457–506, 2021. [8] An Gaon, Moon Seungyong, Kim Jang-Hyun, and Song Hyun Oh, “Uncertainty-based offline reinforcement learning with diversified q-ensemble,” in Advances in Neural Information Pro-cessing Systems (NeurIPS) , vol. 34, 2021, pp. 7436–7447. [9] Kendall Alex and Gal Yarin, “What uncertainties do we need in bayesian deep learning for computer vision?” in Advances in Neural Information Processing Systems (NIPS) , vol. 30, 2017, pp. 5580–5590. [10] Fujimoto Scott, van Hoof Herke, and Meger David, “Addressing function approximation error in actor-critic methods,” in International Conference on Machine Learning (ICML) , 2018, pp. 1587–1596. [11] Derman Esther, Mankowitz Daniel J., and Mannor Shie, “A bayesian approach to robust rein-forcement learning,” in Uncertainty in Artificial Intelligence (UAI) , 2019, pp. 648–658. [12] Wiesemann Wolfram, Kuhn Daniel, and Rustem Berç, “Robust markov decision processes,” 
+
+Mathematics of Operations Research , vol. 38, no. 1, pp. 153–183, 2013. [13] Osogami Takayuki, “Robustness and risk-sensitivity in markov decision processes,” in Advances in Neural Information Processing Systems (NIPS) , vol. 25, 2012, pp. 233–241. [14] Xu Huan, Caramanis Constantine, and Mannor Shie, “Robust regression and lasso,” in Advances in Neural Information Processing Systems (NIPS) , vol. 21, 2008, pp. 1801–1808. [15] Xu Huan, Caramanis Constantine, “Robustness and regularization of support vector machines,” 
+
+Journal of Machine Learning Research , vol. 10, no. 7, pp. 1485–1510, 2009. [16] Zhou Ruida, Liu Tao, Cheng Min, Kalathil Dileep, Kumar P. R., and Tian Chao, “Natural actor-critic for robust reinforcement learning with function approximation,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 36, 2023, pp. 30 424–30 438. [17] Panaganti Kishan, Wierman Adam, and Mazumdar Eric, “Model-free robust ϕ-divergence rein-forcement learning using both offline and online data,” in International Conference on Machine Learning (ICML) , 2024, pp. 39 389–39 459. [18] Asadi Kavosh, Misra Dipendra, and Littman Michael L., “Lipschitz continuity in model-based reinforcement learning,” in International Conference on Machine Learning (ICML) , 2018, pp. 264–273. [19] Osband Ian, Blundell Charles, Pritzel Alexander, and Van Roy Benjamin, “Deep exploration via bootstrapped dqn,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 29, 2016, pp. 4026–4034. [20] Zhang Yifan and Zheng Liang, “Single agent robust deep reinforcement learning for bus fleet control,” arXiv preprint , 2025. 16 [21] Yang Rui, Bai Chenjia, Ma Xiaoteng, Wang Zhen, Zhang Chongjie, and Han Li, “Rorl: Robust offline reinforcement learning via conservative smoothing,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 35, 2022, pp. 26 613–26 624. [22] Xuan Yiguang and Daganzo Carlos F., “Dynamic bus holding strategies for schedule reliability: Optimal linear control and performance analysis,” Transportation Research Part B: Method-ological , vol. 45, pp. 1831–1845, 2011. [23] Gronauer Sven and Diepold Klaus, “Multi-agent deep reinforcement learning: a survey,” Arti-ficial Intelligence Review , vol. 55, no. 2, pp. 895–943, 2022. [24] Papoudakis Georgios, Christianos Filippos, Rahman Arrasy, and Albrecht Stefano V., “Dealing with non-stationarity in multi-agent deep reinforcement learning,” arXiv preprint arXiv:1906.04737 , 2019. [25] Vinyals Oriol, Babuschkin Igor, Czarnecki Wojciech M., Mathieu Michaël, Dudzik Andrew, Chung Junyoung, Choi David H., Powell Richard, Ewalds Timo, Georgiev Petko et al. , “Grand-master level in starcraft ii using multi-agent reinforcement learning,” Nature , vol. 575, no. 7782, pp. 350–354, 2019. [26] Chow Yinlam and Ghavamzadeh Mohammad, “Algorithms for cvar optimization in mdps,” in 
+
+Advances in Neural Information Processing Systems (NeurIPS) , vol. 27, 2014, pp. 3509–3517. [27] Chow Yinlam, Tamar Aviv, Mannor Shie, and Pavone Marco, “Risk-sensitive and robust decision-making: A cvar optimization approach,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 28, 2015, pp. 1522–1530. [28] Bellemare Marc G., Dabney Will, and Munos Rémi, “A distributional perspective on reinforce-ment learning,” in International Conference on Machine Learning (ICML) , 2017, pp. 449–458. [29] Dabney Will, Rowland Mark, Bellemare Marc G., and Munos Rémi, “Distributional reinforce-ment learning with quantile regression,” in AAAI Conference on Artificial Intelligence , vol. 32, no. 1, 2018, pp. 2892–2901. [30] Fei Yingjie, Yang Zhuoran, Chen Yudong, Wang Zhaoran, and Xie Qiaomin, “Risk-sensitive reinforcement learning: Near-optimal risk-sample tradeoff in regret,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 33, 2020, pp. 22 384–22 395. [31] Iyengar Garud N., “Robust dynamic programming,” Mathematics of Operations Research ,vol. 30, no. 2, pp. 257–280, 2005. [32] Geist Matthieu, Scherrer Bruno, and Pietquin Olivier, “A theory of regularized markov decision processes,” in International Conference on Machine Learning (ICML) , 2019, pp. 2160–2169. [33] Van Hasselt Hado, “Double q-learning,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 23, 2010, pp. 2613–2621. [34] Haarnoja Tuomas, Zhou Aurick, Abbeel Pieter, and Levine Sergey, “Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor,” in International Conference on Machine Learning (ICML) , 2018, pp. 1861–1870. [35] Kumar Aviral, Zhou Aurick, Tucker George, and Levine Sergey, “Conservative q-learning for of-fline reinforcement learning,” in Advances in Neural Information Processing Systems (NeurIPS) ,vol. 33, 2020, pp. 1179–1191. [36] Ma Xiaoteng, Chen Junyao, Xia Li, Yang Jun, Zhao Qianchuan, and Zhou Zhengyuan, “Dsac: Distributional soft actor-critic for risk-sensitive reinforcement learning,” Journal of Artificial Intelligence Research , vol. 83, pp. 1–28, 2025, article 4. [37] C. Villani, Optimal transport: old and new . Springer, 2009, vol. 338. 17 [38] Eysenbach Benjamin and Levine Sergey, “Maximum entropy rl (provably) solves some robust rl problems,” in International Conference on Learning Representations (ICLR) , 2022. [39] D. Blackwell, “Discounted dynamic programming,” The Annals of Mathematical Statistics ,vol. 36, no. 1, pp. 226–235, 1965. [40] Mnih Volodymyr, Kavukcuoglu Koray, Silver David, Rusu Andrei A., Veness Joel, Bellemare Marc G., Graves Alex, Riedmiller Martin, Fidjeland Andreas K., Ostrovski Georg et al. ,“Human-level control through deep reinforcement learning,” Nature , vol. 518, no. 7540, pp. 529–533, 2015. [41] van Hasselt Hado, Doron Yotam, Strub Florian, Hessel Matteo, Sonnerat Nicolas, and Modayil Joseph, “Deep reinforcement learning and the deadly triad,” in NeurIPS 2018 Workshop on Deep Reinforcement Learning , 2018. 18 Appendix: Theoretical foundations and derivations A Sample complexity analysis 
+
+We compare the theoretical sample complexity (data efficiency) of Risk-Sensitive RL against our Robust-Regularized approach. 
+
+## A.1 Risk-Sensitive RL: The exponential barrier 
+
+Optimizing risk measures like the Exponential Utility ( E[exp( β P r)] ) faces a fundamental statistical barrier. As established by Fei et al. [30], the regret lower bound for any algorithm learning a risk-sensitive policy is exponential in the risk parameter β and horizon H:Regret RS (T ) ≥ Ω(exp( |β|H) · √S2AT ). (16) 
+
+Corollary (Sample complexity): Although Fei et al. prove the regret bound directly, the sample complexity Tϵ follows as a standard corollary. 
+
+Proof Sketch: The average pseudo-regret after T episodes is ∆( T ) = Regret (T )/T . To find an 
+
+ϵ-optimal policy, we require ∆( T ) ≤ ϵ. Substituting the lower bound: 
+
+Ω(exp( |β|H)√S2AT )
+
+T ≤ ϵ
+
+Ω exp( |β|H)√S2A
+
+√T
+
+!
+
+≤ ϵ
+
+=⇒ √T ≥ Ω exp( |β|H)√S2Aϵ
+
+!
+
+. (17) Squaring both sides yields the sample complexity lower bound: 
+
+T RS ϵ ≥ Ω
+
+ exp(2 |β|H)S2Aϵ2
+
+
+
+. (18) This confirms that the "Exponential Barrier" is unavoidable for direct risk-sensitive optimization. 
+
+## A.2 RE-SAC: A heuristic argument for polynomial scaling 
+
+Why might RE-SAC avoid the exponential barrier? The key observation is that its penalty terms are deterministic functions of the network weights (for κ) or the frozen target ensemble (for Γepi ), rather than statistics of the return distribution. Directly Optimizing E[exp( βR )] (Risk-Sensitive) requires accurate estimation of the tail distri-bution, which is statistically expensive (hence exp( H)). However, RE-SAC leverages the structural correspondence shown by Xu et al. (Appendix B), which maps IPM-based robustness to weight-norm regularization. Robust Objective ≈ E[R] − λ∥W ∥2 
+
+> F
+
+. (19) This transformation converts the “Hard” Risk-Sensitive problem into a “Standard” Risk-Neutral MDP with augmented reward ˜R(s, a ) = R(s, a ) − λ∥W ∥2.
+
+Informal argument. If the penalties are treated as fixed (which they are per Bellman backup; see §E), the RE-SAC operator acts on a standard shifted-reward MDP whose tabular regret scales as 
+
+˜O(√H3S2AT ), polynomial in the horizon H—in contrast to the exponential exp( |β|H) dependence of risk-sensitive approaches. 
+
+Important caveat. This comparison is an informal motivation , not a formal regret theorem for RE-SAC, for two reasons: 19 1. The penalties κ and Γepi change across training iterations as the network weights and target ensemble evolve. A rigorous regret analysis would need to account for this non-stationarity (cf. the per-step discussion in §E.1). 2. The shifted reward ˜R may have a different range than R, affecting the constants in the bound. The conceptual takeaway is that by replacing tail-distribution estimation (which requires exponential samples) with a deterministic structural penalty (which requires no additional samples), RE-SAC 
+
+sidesteps the mechanism that causes the exponential barrier. 
+
+# B The correspondence chain: From risk to regularization 
+
+Here we detail the mathematical "Golden Thread" connecting Risk-Sensitivity, Robustness, and Regularization. 
+
+## B.1 Risk-sensitivity ⇐⇒ Robustness (Osogami [13]) 
+
+We provide the rigorous derivation linking Iterated Risk Measures to Robust MDPs. Unlike single-step risk measures, Osogami deals with the dynamic consistency of risk over time. 
+
+Definition (Iterated entropic risk): Osogami defines the risk-sensitive value function recur-sively using the entropic risk measure ρβ :
+
+Jπβ (s) = r(s, π (s)) + γρ β (Jπβ (S′)) , (20) where ρβ (X) = − 1 
+
+> β
+
+log E[exp( −βX )] .
+
+Theorem (Bellman equivalence): The Bellman operator for this risk-sensitive objective is Tβ V (s) = max a(r + γρ β (V (s′))) . Using the duality of the log-exponential function (Donsker-Varadhan), we can rewrite the single-step risk as: 
+
+ρβ (V (s′)) = min 
+
+> p∈∆( S)
+
+
+
+Es′∼p[V (s′)] + 1
+
+β KL (p∥p◦(·| s, a )) 
+
+
+
+. (21) The term 1 
+
+> β
+
+KL (p∥p◦) acts as a penalty for deviating from the nominal transition p◦. This allows us to rewrite the Risk-Sensitive Bellman operator exactly as a Robust Bellman Operator with a penalty-based uncertainty set: 
+
+Trisk V (s) ≡ max  
+
+> a
+
+min 
+
+> p
+
+
+
+Ep[r + γV (s′)] + γβ KL (p∥p◦)
+
+
+
+. (22) This proves that optimizing the Iterated Entropic Risk is mathematically isomorphic to solving a Robust MDP with soft KL-constraints. 
+
+## B.2 Robustness ⇐⇒ Regularization (Xu et al. [15]) 
+
+Xu et al. (2009) provide the fundamental link between robust optimization and regularization. They prove this equivalence for Support Vector Machines (Hinge Loss) and Lasso (Regression). We extend their logic to general function approximation. 
+
+Theorem (Xu et al.): Consider a supervised learning problem min w
+
+P 
+
+> i
+
+ℓ(yi, w T xi) + λ∥w∥.Xu et al. prove that for specific loss functions, this regularized problem is equivalent to a robust formulation min w max δ∈U 
+
+P 
+
+> i
+
+ℓ(yi, w T (xi + δ)) .
+
+• SVM (Hinge Loss): Robustness against ℓ2-norm perturbation sets {δ : ∥δ∥2 ≤ ϵ} is equiva-lent to standard ℓ2-regularization (SVM). 
+
+• Lasso (Linear): Robustness against ℓ∞-norm perturbation sets is equivalent to ℓ1-regularization (Lasso). 20 Extension to squared error (Our Case): For the squared error loss ℓ(y, ˆy) = ( y − ˆy)2 used in Q-learning, adding robustness against ℓ2 perturbations ∥δ∥2 ≤ ϵ leads to: 
+
+min  
+
+> w
+
+max 
+
+> ∥δ∥≤ ϵ
+
+(y − wT (x + δ)) 2 = min 
+
+> w
+
+ |y − wT x| + ϵ∥w∥2
+
+2 . (23) Expanding this yields: 
+
+(y − wT x)2 + 2 ϵ|y − wT x|∥ w∥2 + ϵ2∥w∥22. (24) While not identical to simple Ridge Regression ( (y − wT x)2 + λ∥w∥22), it strictly enforces a penalty on the weight norm ∥w∥2. In RE-SAC, we adopt the standard ℓ1 regularization λ P 
+
+> l
+
+∥Wl∥1 as a computationally efficient surrogate for this robust objective. This surrogate relationship is an 
+
+inequality (pessimistic upper bound on the robustness penalty), not an exact equivalence; see §E.1, point (S2) for a discussion of the approximation gap. The core insight remains: imposing limitations on the weight norm creates explicit robustness against input (state) perturbations. 
+
+## B.3 Connection to distributional RL 
+
+Algorithms like C51 [28] and QR-DQN [29] explicitly model the return distribution Z(s, a ) to manage risk (e.g., optimizing CVaR on Z). While Osogami’s result implies these methods could be robust, they require complex distributional projections. Our method uses Xu’s result to bypass distribution modeling entirely, achieving the same robust effect via simple regularization. 
+
+# C Regularization as a unified semi-Bayesian prior 
+
+We provide a unified view showing how our Regularized-Robust framework is grounded in Bayesian Uncertainty Quantification. 
+
+## C.1 The intractability of full Bayesian modeling 
+
+A fully Bayesian approach to uncertainty would ideally maintain a posterior distribution over the transition dynamics P (s′|s, a ). For tabular MDPs, this corresponds to maintaining a Dirichlet Distribution for every state-action pair: 
+
+P (·| s, a ) ∼ Dirichlet (α1, α 2, . . . , α S ). (25) While theoretically elegant, this "Naive" Bayesian approach faces insurmountable computational hurdles in high-dimensional continuous control (like bus fleets): 
+
+• Explosion of Belief Space: The state of the system is no longer just the physical state s,but the entire belief state (the parameters α of the Dirichlet). The problem transforms into a POMDP where the belief space dimension is O(S2A). For a bus network with S ≈ 10 3, the parameter space exceeds 10 6, rendering exact planning intractable. 
+
+• Computational Complexity: Updating the posterior requires integrating over the simplexes of transition probabilities. As noted by Derman et al., finding the optimal policy in this full Bayesian setting is NP-hard. This necessitates a tractable approximation that captures the essence of Bayesian uncertainty with-out the computational burden of full belief planning. 
+
+## C.2 Bayesian robustness via uncertainty decomposition 
+
+To make the problem tractable, we adopt a Bayesian Robust approach (Derman et al. [11]), which replaces the complex integration over the posterior with an optimization over "Credible Sets." This first requires creating a tractable posterior proxy, which we achieve via Uncertainty Decomposition (Depeweg et al. [5]). 21 1. Decomposition (Depeweg et al.): We distinguish between reducible and irreducible uncertainty: 
+
+H[p(s′|s, a )] 
+
+| {z }
+
+> Total Uncertainty
+
+= Eq(w)[H(p(s′|s, a, w))] 
+
+| {z }
+
+> Aleatoric (Expected Data Noise)
+
++ I(s′; w)
+
+| {z }
+
+> Epistemic (Mutual Information)
+
+, (26) where I(s′; w) is the Mutual Information between the weights and the prediction. 
+
+• Epistemic Risk: Corresponds to the spread of the posterior q(w). Instead of full Dirichlet tracking, we approximate this using the Ensemble Variance of Q-functions. 
+
+• Aleatoric Risk: Corresponds to the inherent noise in the system transition P (s′|s, a ). We handle this via Robust Regularization (as proved in Appendix B). 
+
+2. Robustness as Bayesian proxy (Derman et al.): Derman et al. show that optimizing for the worst-case model within a Bayesian "Credible Set" (Ambiguity Set U) is a lower bound on the true Bayesian optimal value: 
+
+VBayes (s) ≥ max  
+
+> π
+
+min  
+
+> P∈U α
+
+E[R]. (27) This justifies our approach: we use the Ensemble to define the Credible Set (where the model might be), and we optimize a lower bound (LCB) to act robustly with respect to this Bayesian uncertainty. 
+
+## C.3 Regularization as the optimal Bayesian update (Geist et al. [32]) 
+
+Finally, Geist et al. unify these concepts by proving that the Regularized Bellman Operator is not merely a heuristic, but the exact solution to a convex dual problem involving the prior. The regularized Bellman update is defined as: 
+
+TΩV (s) = max  
+
+> π
+
+(⟨Q, π ⟩ − Ω( π)) . (28) Using the Fenchel-Rockafellar duality, the convex conjugate Ω∗(Q) = max π (⟨Q, π ⟩ − Ω( π)) gives the value function directly. Crucially, if we choose the regularizer Ω( π) to be the KL-divergence from a prior π0 (i.e., Ω( π) = αKL (π∥π0)), the optimal policy update takes the explicit closed form: 
+
+πk+1 (a|s) ∝ π0(a|s) exp 
+
+ Qk(s, a )
+
+α
+
+
+
+. (29) This is exactly a Bayesian Posterior Update where: 
+
+• π0 is the Prior (historical or base policy). 
+
+• exp( Q/α ) is the Likelihood of the action being optimal. 
+
+• πk+1 is the Posterior policy. Geist et al. further prove that this regularized operator TΩ enjoys a strictly tighter contraction factor 
+
+γ′ = γ+μα  
+
+> 1+ μα
+
+(where μ is the smoothness modulus) compared to the standard operator. Conclusion: 
+
+Our RE-SAC framework is a principled uncertainty-aware pipeline that draws on Bayesian intuitions at each level. The Ensemble captures the Epistemic posterior (Depeweg), the regularized reward handles the Robust Aleatoric risk (Derman/Xu), and the KL-regularized update ensures the policy evolution follows the optimal Bayesian transport (Geist). 
+
+# D Theoretical comparison: Policy robustness vs. dynamics robustness 
+
+We rigorously distinguish the type of robustness provided by standard SAC (Maximum Entropy) versus our RE-SAC (IPM Regularization), demonstrating why the former is insufficient for the dual-uncertainty bus control problem. 22 D.1 Theoretical Foundation: The Kantorovich-Rubinstein duality 
+
+A core theoretical component of our robust framework is the equivalence between the Wasserstein distance (Optimal Transport) and the IPM over Lipschitz functions. This duality allows us to convert the intractable "Transport Minimal Cost" problem into a tractable "Function Maximization" problem. 
+
+Theorem (Kantorovich-Rubinstein Duality [37]): Let P and Q be two probability mea-sures on a metric space (S, d ). The 1-Wasserstein distance is defined as the minimum cost to transport mass from P to Q:
+
+W1(P, Q ) = inf  
+
+> γ∈Π( P,Q )
+
+E(x,y )∼γ [d(x, y )] , (30) where Π( P, Q ) is the set of all joint distributions (couplings) with marginals P and Q. For the standard cost function d(x, y ) = ∥x − y∥, the Kantorovich-Rubinstein theorem states that this infimum is exactly equal to the supremum over 1-Lipschitz functions: 
+
+W1(P, Q ) = sup   
+
+> f:∥f∥L≤1
+
+(Ex∼P [f (x)] − Ey∼Q[f (y)]) . (31) 
+
+Implication for RE-SAC: In our Robust Bus Control, we define risk as the worst-case transition within a Wasserstein ball of radius ϵ. Using this duality, the robust Bellman regularizer becomes: 
+
+max   
+
+> ∆P:W1(∆ P, 0) ≤ϵ
+
+E∆P [V ] = sup   
+
+> f:∥f∥L≤1
+
+ϵ · ∥∇ V ∥ = ϵ · Lip (V ). (32) This derivation proves that controlling the Lipschitz constant of the Critic (via Weight Regulariza-tion) is mathematically equivalent to minimizing the worst-case parameter shift in the Wasserstein sense. 
+
+## D.2 SAC: Policy robustness (Eysenbach & Levine, 2021) 
+
+Eysenbach and Levine [38] proved that Maximum Entropy RL optimizes a robust objective against adversarial perturbations to the rewards or policy execution . Specifically, maximizing the entropy-regularized objective: 
+
+JM axEnt (π) = Eπ
+
+"X
+
+> t
+
+r(st, a t) + αH(π(·| st)) 
+
+#
+
+(33) is equivalent to maximizing the worst-case reward under an adversarial perturbation q(a|s) that is close to the policy π(a|s) in terms of KL divergence: 
+
+max  
+
+> π
+
+min  
+
+> q:DKL (q∥π)≤ϵ
+
+Eq [X
+
+> t
+
+r(st, a t)] . (34) 
+
+Limitation: This form of robustness protects against "Action Noise" (e.g., driver error). However, the derivation relies on Jensen’s inequality, providing only a loosely theoretical lower bound. More critically, it assumes fixed system dynamics P (s′|s, a ). It does not explicitly penalize sensitivity to state perturbations or model mismatch (Aleatoric/Epistemic risk). 
+
+## D.3 RE-SAC: Dynamics Robustness (Zhou et al., 2023) 
+
+In contrast, our RE-SAC utilizes IPM-based regularization on the Critic, which matches the frame-work of Natural Actor-Critic for robust RL proposed by Zhou et al. [16]. They show that for a Robust MDP with an uncertainty set defined by the IPM (which includes the Wasserstein distance used in transport problems), the robust value function has an exact dual form: 
+
+V πRobust (s) = T π V (s) − δ∥w∥p, (35) 23 where ∥w∥ is the norm of the critic network weights. Advantage: Unlike the inequality bound in MaxEnt RL, this is an Exact Duality. By penalizing the weight norm, RE-SAC directly restricts the Lipschitz constant of the Q-function with respect to the state s:
+
+|Q(s, a ) − Q(s + ∆ , a )| ≤ LQ∥∆∥. (36) This ensures Dynamics Robustness: if the traffic state s jumps unexpectedly (Aleatoric) or drifts to OOD regions (Epistemic), the value estimate Q remains stable. 
+
+## D.4 Sensitivity analysis conclusion 
+
+• SAC (Policy Robustness): Smooths the policy π(a|s) to handle action execution errors. This defends against driver imperfections but ignores traffic chaos. 
+
+• BEE Operator [4] (Buffer-Based): Mitigates value collapse by retrieving historical optimal actions from the external replay buffer to mechanically "lift" Q-values. While effective, it relies on the coverage of historical success. 
+
+• RE-SAC (Dynamics Robustness): Stabilizes Q-values internally via weight-space regu-larization. By limiting the sensitivity of Q to state perturbations ( ∇sQ), our method directly addresses the inherent stochasticity of traffic dynamics. This "Dynamics Robustness" is par-ticularly vital for bus fleet control, where the core challenge is the irreducible randomness of the traffic flow ( s → s′), not just the variance in policy execution. 
+
+# E Formal contraction proof via Blackwell’s sufficiency condi-tions 
+
+We provide a self-contained, machine-verified proof that the RE-SAC operator T REV is a γ-contraction in the L∞ norm. The proof is fully mechanized in Lean 4 / Mathlib (supplementary material) and follows Blackwell’s classical route [39]. 
+
+Convention on the aleatoric term. The operator defined below includes −κ explicitly for theoretical completeness. In the implementation (§4.4.1, Eq. (11)), the aleatoric term enters the critic loss rather than the Bellman target, as subtracting κ from already-negative bus-holding rewards violates the feasibility condition and causes non-convergence. Because κ is a fixed scalar independent of Q, the contraction proof is valid under either convention: κ cancels identically in T REV Q1 −T REV Q2.
+
+Key observation: both penalties are fixed scalars per training step. In RE-SAC, the aleatoric penalty λale 
+
+P 
+
+> l
+
+∥W (θ) 
+
+> l
+
+∥1 is computed from the current critic weights θ, which are held fixed during one policy-evaluation sweep and updated only afterward. It therefore reduces to a constant: 
+
+κ = λale 
+
+P 
+
+> l
+
+∥W (θ) 
+
+> l
+
+∥1 ∈ R. (37) Likewise, the epistemic penalty Γepi (s, a ) = Var ({Qϕ′ 
+
+> k
+
+(s, a )}) is computed from the target networks 
+
+ϕ′
+
+> k
+
+, which are also frozen during the Bellman backup. Hence both κ and Γepi are independent of which Q-function we apply T REV to, and cancel exactly in the difference T REV Q1 − T REV Q2.
+
+Setup. Let S and A be finite, non-empty state and action spaces (required for the maximum to be well-defined), and let Q = {Q : S ×A → R} be equipped with the sup-norm ∥Q∥∞ = max s,a |Q(s, a )|.The REV operator with fixed penalties κ and Γepi is: 
+
+T REV κ Q(s, a ) = R(s, a ) + γ
+
+X 
+
+> s′
+
+P (s′|s, a ) V Q(s′) − λepi Γepi (s, a ) − κ
+
+
+
+, (38) where V Q(s′) = max a′ Q(s′, a ′). We require three conditions: 24 (A0) (Discount factor) 0 ≤ γ < 1.
+
+(A1) (Non-negative transitions) P (s′|s, a ) ≥ 0 for all s, a, s ′.
+
+(A2) (Probability kernel) P 
+
+> s′
+
+P (s′|s, a ) = 1 for all s, a .And one standard property of the max operator (proven in Lean as max_over_a_nonexpansive ): 
+
+(P) (1-Lipschitz of V Q) |V Q1 (s) − V Q2 (s)| ≤ ∥ Q1 − Q2∥∞ for all s.
+
+Lemma E.1 (Monotonicity) . If Q1 ≤ Q2 pointwise, then T REV κ Q1 ≤ T REV κ Q2 pointwise. Proof. Fix (s, a ). Since Q1 ≤ Q2 implies V Q1 (s′) ≤ V Q2 (s′) for all s′ (max is monotone), and each 
+
+P (s′|s, a ) ≥ 0 by (A1): 
+
+X
+
+> s′
+
+P (s′|s, a ) V Q1 (s′) ≤ X
+
+> s′
+
+P (s′|s, a ) V Q2 (s′). (39) The κ and Γepi terms are identical on both sides and cancel. Multiplying by γ ≥ 0 (by A0) gives the claim. 
+
+Lemma E.2 (Discounting) . For any Q ∈ Q and constant c ∈ R, T REV κ (Q + c) = T REV κ Q + γc .Proof. Here V Q+c(s′) ≜ max a′ (Q + c)( s′, a ′) denotes the greedy value induced by the shifted Q-function Q + c. Since the constant c is added uniformly across all actions, the argmax is unchanged and V Q+c(s′) = V Q(s′) + c. With κ and Γepi also unchanged: 
+
+T REV κ (Q + c)( s, a ) = R(s, a ) + γ
+
+P 
+
+> s′
+
+P (s′|s, a ) V Q(s′) + c − λepi Γepi (s, a ) − κ
+
+
+
+= T REV κ Q(s, a ) + γc · P 
+
+> s′
+
+P (s′|s, a )
+
+| {z } 
+
+> = 1 by (A2)
+
+= T REV κ Q(s, a ) + γc. 
+
+Theorem E.3 (RE-SAC Contraction) . Under (A0)–(A2), T REV κ is a γ-contraction on (Q, ∥ · ∥ ∞)
+
+with a unique fixed point Q∗
+
+> robust
+
+.Proof. By Blackwell’s Theorem [39], Lemmas E.1–E.2 suffice. We also give the direct bound (which the Lean proof follows): let ε = ∥Q1 − Q2∥∞. Since κ is the same for both Q1 and Q2, it cancels exactly: 
+
+T REV κ Q1(s, a ) − T REV κ Q2(s, a ) = γ X
+
+> s′
+
+P (s′|s, a ) V Q1 (s′) − V Q2 (s′). (40) Therefore: 
+
+T REV κ Q1(s, a ) − T REV κ Q2(s, a )
+
+≤ γ X
+
+> s′
+
+P (s′|s, a ) |V Q1 (s′) − V Q2 (s′)| (triangle inequality + A1) 
+
+≤ γ X
+
+> s′
+
+P (s′|s, a ) · ε (by (P): |V Q1 − V Q2 | ≤ ε)
+
+= γε. (by (A2): X
+
+> s′
+
+P = 1 )
+
+Theorem E.4 (Continuous-Space Extension) . Let S ⊆ Rds and A ⊆ Rda be compact and non-empty. Let Q be the Banach space of bounded measurable functions Q : S × A → R equipped with the sup-norm ∥Q∥∞ = sup (s,a ) |Q(s, a )|. Under the following conditions: 
+
+25 (C0) 0 ≤ γ < 1.
+
+(C1) P (· | s, a ) is a probability kernel on S, and (s, a ) 7 → R f dP (· | s, a ) is measurable for every bounded measurable f .
+
+(C2) R : S × A → R is bounded and measurable. 
+
+(C3) κ ∈ R and Γepi : S × A → R are fixed (independent of Q). the operator 
+
+T REV κ Q(s, a ) = R(s, a ) + γ
+
+Z
+
+> S
+
+sup 
+
+> a′∈A
+
+Q(s′, a ′) P (d s′|s, a ) − γ λepi Γepi (s, a ) + κ (41) 
+
+is a γ-contraction on (Q, ∥ · ∥ ∞) with a unique fixed point Q∗
+
+> robust
+
+.Proof sketch. For any Q1, Q 2 ∈ Q and (s, a ) ∈ S × A :
+
+T REV κ Q1(s, a ) − T REV κ Q2(s, a )
+
+= γ
+
+Z
+
+> S
+
+ sup 
+
+> a′
+
+Q1(s′, a ′) − sup 
+
+> a′
+
+Q2(s′, a ′) P (d s′|s, a ) (κ, Γepi cancel by (C3)) 
+
+≤ γ
+
+Z
+
+> S
+
+sup 
+
+> a′
+
+Q1(s′, a ′) − sup 
+
+> a′
+
+Q2(s′, a ′) P (d s′|s, a ) (triangle ineq.) 
+
+≤ γ
+
+Z
+
+> S
+
+∥Q1 − Q2∥∞ P (d s′|s, a ) (| sup Q1 − sup Q2| ≤ ∥ Q1 − Q2∥∞)
+
+= γ∥Q1 − Q2∥∞. (X P = 1 )Taking the sup over (s, a ) gives ∥T REV κ Q1 − T REV κ Q2∥∞ ≤ γ∥Q1 − Q2∥∞. By the Banach Fixed-Point Theorem ( γ < 1), T REV κ has a unique fixed point. 
+
+Remark (relationship to the Lean 4 proof ). The Lean 4 proof (supplementary Proof.lean )mechanises the finite case (assumptions (A0)–(A2), which are the finite-space analogues of (C0)– (C2)). The continuous-space theorem above is not mechanised, but its proof is structurally identical: the only difference is that sums over a finite S are replaced by integrals against P (d s′|s, a ), and the finite max is replaced by sup a′∈A . Crucially, condition (C3)—the independence of κ and Γepi 
+
+from Q—is the same in both versions and is the load-bearing step of the proof. The finite-space mechanisation therefore provides a machine-verified certificate of the core logical structure, with the continuous extension following by the standard measure-theoretic argument above. 
+
+Remark (function approximation in practice). In deep RL, Q is represented by a neural network Qϕ rather than an arbitrary measurable function. The standard functional-approximation theory (e.g. Bertsekas & Tsitsiklis [ ?]) shows that the contraction of T REV κ on the full space Q
+
+transfers to approximate fixed-point results on the restricted class {Qϕ}: the approximation error is bounded by 11−γ min ϕ ∥Qϕ − Q∗
+
+> robust
+
+∥∞. The RE-SAC training loop minimises this residual via gra-dient descent. The finiteness assumption of the Lean proof is therefore a proof-of-concept certificate for the theoretical mechanism, not a claim that the practical system operates in a discrete space. 
+
+Remark (non-triviality of the fixed-penalty design). A referee might note that once κ
+
+and Γepi are treated as constants, the operator T REV κ is merely a standard Bellman operator applied to a shifted reward ˜R(s, a ) = R(s, a ) − γ(λepi Γepi (s, a ) + κ), and that the contraction of a shifted-reward operator is a textbook fact. This observation is mathematically correct, but the scientific contribution lies before this reduction: 1. Necessity of the frozen-parameter design. If the aleatoric penalty were allowed to vary with Q (i.e. κQ = λale 
+
+P 
+
+> l
+
+∥W (Q) 
+
+> l
+
+∥1 for a Q-dependent parametrisation), the operator would take the form 
+
+Tbad Q = γ Q + λale · Q, (42) 26 in the worst case (see the 1-state 1-action derivation in the supplementary Counterproof.lean ). The effective contraction factor becomes γ + λale , which exceeds 1 for any non-trivial aleatoric coefficient, preventing contraction . Formally (machine-verified in Counterproof.lean , Theo-rem 1): 
+
+(Non-contraction, Counterproof.lean : T_bad_not_contraction ) Let γ ≥ 0,
+
+λ ≥ 0, γ + λ ≥ 1. Then Tbad (q) = ( γ + λ)q is not a contraction: ∃ q1, q 2 s.t. 
+
+|Tbad (q1) − Tbad (q2)| ≥ | q1 − q2|.(Setting R = 0 is without loss of generality: any constant R shifts both Tbad (q1) and Tbad (q2)
+
+equally, leaving the distance |T (q1) − T (q2)| unchanged.) A stronger result is also machine-verified ( T_bad_expansion ): if γ + λ > 1 then Tbad strictly expands distances, so it cannot be a γ′-contraction for any γ′ < 1. The two results together establish that γ + λ ≥ 1 is a sharp 
+
+boundary: equality gives non-contraction; strict inequality gives expansion. The frozen-weight / target-network design (standard in deep RL, e.g. DQN, SAC) is therefore necessary , not merely convenient, for the RE-SAC operator to be contractive. 
+
+Operator Aleatoric term Distance factor Contracts? 
+
+Tbad (Counterproof.lean) λ · Q (Q-dependent) γ + λ × if γ+λ ≥ 1
+
+T REV κ (Proof.lean) κ (fixed scalar) γ ✓ (γ < 1)2. Non-obviousness of the multi-penalty cancellation. RE-SAC carries two heterogeneous penalty terms: an aleatoric term that depends on critic weight norms and an epistemic term that depends on ensemble variance over target networks. Neither is obviously constant in 
+
+Q without careful inspection of the training mechanics. The proof makes explicit that both 
+
+terms cancel independently in T REV κ Q1 − T REV κ Q2—a fact that the Lean 4 mechanisation (no sorry ) confirms without ambiguity. In this sense the theoretical claim is: the specific architecture choices of RE-SAC (target networks for epistemic variance, frozen critic weights for aleatoric penalty) are jointly sufficient to guarantee the operator is a γ-contraction .3. Connection to the Robust Bellman Operator. From a broader perspective, T REV κ can be viewed as an analytical approximation of the Robust Bellman Operator under an IPM-based uncertainty set (see Appendix B). The standard Robust Bellman Operator T rob Q(s, a ) = 
+
+R(s, a ) + γ min P ′∈P s,a EP ′ [V Q] is itself a contraction [31], but evaluating min P ′ is intractable in practice. RE-SAC replaces this intractable inner minimisation with the tractable additive penalty λepi Γepi +κ, retaining contractivity (as proven above) while remaining computationally efficient. This is the sense in which the result is non-trivial: it guarantees that a specific tractable approximation preserves the convergence guarantee of the exact robust operator. 
+
+Summary. The technical contribution of the proof in this section is thus three-fold: (i) es-tablishing that the frozen-parameter design is a necessary condition for contraction (Theorem 1); (ii) verifying that this condition is sufficient for the multi-penalty RE-SAC operator via Blackwell’s conditions (Lemmas E.1–E.2 and Theorem E.3); and (iii) connecting the result to the broader theory of tractable Robust Bellman Operators. 
+
+## E.1 Scope and limitations of the contraction result 
+
+We explicitly circumscribe the theoretical contribution to preempt several natural objections. 
+
+(S1) Per-step vs. learning-dynamics guarantee. The contraction property proven above (The-orem E.3) is a per-step result: for any fixed snapshot of the penalties (κ, Γepi ), the operator T REV κ
+
+contracts in the L∞ norm. It does not by itself guarantee that the full training loop—in which κ
+
+and Γepi change after every gradient update—converges to a global optimum. This distinction is standard: every Bellman-operator contraction proof in deep RL (DQN [40], SAC [34], TD3 [10]) 27 establishes the same per-step property; no published result proves end-to-end convergence of the full nonlinear training loop. Our contribution is not a claim of global convergence but a structural certifi-cate : the frozen-parameter design is the exact design choice that preserves the per-step contraction, and any Q-dependent alternative provably breaks it ( Counterproof.lean ). 
+
+(S2) IPM-to-κ approximation chain. The aleatoric penalty κ = λale 
+
+P 
+
+> l
+
+∥Wl∥1 arises from three successive relaxations: (i) the IPM robust lower bound yields ε · Lip( Vθ ); (ii) Lip( Vθ ) ≤ Q 
+
+> l
+
+∥Wl∥2 by the spectral-norm chain rule; (iii) ∥Wl∥2 is upper-bounded by the computationally cheaper ∥Wl∥1.Each step is an over-approximation , making κ a conservative (pessimistic) proxy. Crucially, the contraction proof does not depend on the tightness of κ: it requires only that κ be a fixed scalar per Bellman backup, which it is regardless of approximation quality. Tightness affects the quality of the fixed point Q∗ 
+
+> robust
+
+(a tighter κ yields a fixed point closer to the true robust value), but not the existence or uniqueness of that fixed point. 
+
+(S3) Γepi is Q-independent (not Q-dependent). A potential concern is that Γepi (s, a ) = Var  {Qϕ′ 
+
+> k
+
+(s, a )} depends on Q-functions and could break contraction (cf. the counterexample in 
+
+Counterproof.lean ). This concern does not apply: the variance is computed from the target net-works ϕ′
+
+> k
+
+, which are frozen (EMA-lagged) copies of the online networks, updated after the Bellman backup completes. During the backup step Q 7 → T REV κ Q, the function Γepi : S × A → R is a fixed mapping, independent of Q. The Lean proof reflects this: Gamma_epi is a parameter of type S -> A -> Real , not a function of Q. This is the precise structural property that makes the penalty safe :it enters the operator identically for Q1 and Q2, cancelling exactly in T REV κ Q1 − T REV κ Q2.
+
+(S4) Robust lower bound vs. training loss. The operator T REV κ defines the ideal Bellman target; the actual training minimises a mean-squared loss LQ(ϕ) = ∥Qϕ − T REV κ ˆQ∥2 + regularisers. The contraction of T REV κ ensures that the target to which the loss drives the network is well-defined (unique fixed point). The gap between the training loss and the ideal operator is governed by the function-approximation error, which is bounded by 11−γ min ϕ ∥Qϕ − Q∗
+
+> robust
+
+∥∞ under standard projected Bellman theory [ ?]. 
+
+(S5) Function approximation and the deadly triad. Deep RL with bootstrapping, off-policy data, and function approximation (the “deadly triad” [41]) can diverge even when the underlying operator is a contraction. Our contraction result does not eliminate this risk; instead, it removes one potential source of instability (operator non-contractiveness due to Q-dependent penalties) from the equation. The empirical stability of RE-SAC (§5) should therefore be understood as the joint 
+
+effect of per-step contraction plus standard stabilising mechanisms (target networks, replay buffer, gradient clipping). 
+
+(S6) Boundedness of κ during training. The scalar κ = λale 
+
+P 
+
+> l
+
+∥Wl∥1 remains bounded throughout training because (i) gradient clipping (max norm = 1 .0) prevents weight explosion, and (ii) the ℓ1 regularisation in LQ explicitly penalises large weight norms. In our experiments, κ
+
+stabilises within the first 50 episodes and fluctuates by less than 5% thereafter. 
+
+# F Formal justification of uncertainty disentanglement 
+
+A potential concern is whether the two penalty terms in RE-SAC genuinely target distinct sources of uncertainty, or whether they conflate aleatoric and epistemic signals. We address this below with two formal propositions. 
+
+Setup. Let P (s′|s, a ) be the true transition kernel and ˆPn(s′|s, a ) its empirical estimate from n i.i.d. transitions. The aleatoric penalty is κ = λale 
+
+P 
+
+> l
+
+∥W (θ) 
+
+> l
+
+∥1, the Lipschitz proxy for the worst-case value sensitivity. The epistemic penalty is Γepi (s, a ) = Var( {Qϕk (s, a )}Kk=1 ), the sample variance across K diversely-initialised critics trained on ˆPn.
+
+Proposition F.1 (Aleatoric penalty does not encode epistemic information) . The aleatoric penalty 
+
+κ is a function only of the current frozen critic weights θ. It is independent of the dataset size n, the 
+
+28 empirical transition kernel ˆPn, and the ensemble indices k ∈ { 1, . . . , K }. In particular, κ has zero covariance with any statistic derived from data coverage, such as visitation counts or ˆPn-uncertainty. Proof. By definition, κ = λale 
+
+P 
+
+> l
+
+∥W (θ) 
+
+> l
+
+∥1, where θ are the weights of the current (frozen) critic at the time of the Bellman backup. These weights are fixed during the backup. The quantity 
+
+P 
+
+> l
+
+∥W (θ) 
+
+> l
+
+∥1 depends only on the parameter values, not on which state-action pair (s, a ) is evaluated, nor on n nor on ˆPn. Hence κ carries no information about data coverage or model disagreement. It measures the structural sensitivity (Lipschitz constant) of the value network to input perturbations— a property of the function class, not of the data distribution. 
+
+Proposition F.2 (Epistemic penalty vanishes in the infinite-data limit) . Under mild regularity conditions (bounded Q-function class, i.i.d. data collection with positive visitation probability for all 
+
+(s, a ), and independently initialised ensemble members), as n → ∞ :
+
+Γepi (s, a ) = Var  {Qϕk (s, a )}Kk=1 
+
+ n→∞ 
+
+−−−−→ 0 ∀(s, a ), (43) 
+
+while the aleatoric penalty κ remains strictly positive as long as the environment is stochastic and 
+
+λale > 0.Proof sketch. Part 1: Γepi → 0. The key property of ensembles is that in the limit of infinite data, all ensemble members converge to the same Bayes-optimal Q-function Q∗ 
+
+> Bayes
+
+(assuming a well-specified function class). This follows from the standard statistical argument: with probability 1, each member’s empirical loss converges to the population loss (by the law of large numbers), and the unique minimiser of the population risk is Q∗ 
+
+> Bayes
+
+(by Bayes consistency). Since all K members converge to the same function, their variance converges to zero: Var( {Qϕk (s, a )}) → 0.
+
+Part 2: κ remains positive. In a stochastic environment with irreducible noise σ2 > 0 in the transition P (s′|s, a ), the optimal Q-function Q∗ itself has nonzero sensitivity to perturbations in the state s: even with infinite data, a small state perturbation δ shifts Q∗(s + δ, a ) by at most 
+
+Lip( Q∗)∥δ∥, and Lip( Q∗) > 0 whenever R or P depends non-trivially on s. Weight regularization controls an upper bound on this Lipschitz constant. As long as λale > 0 and the environment is non-trivially stochastic, κ > 0 regardless of n.
+
+Remark (ensemble variance in high-aleatoric environments). A subtle concern is that in environments with high aleatoric noise, ensemble members may disagree even with infinite data, because each member observes different noise realisations during training. We note two mitigating factors: 1. Target network smoothing. Γepi in RE-SAC is computed from target networks ˆQϕ′ 
+
+> k
+
+, which are updated via slow exponential moving averages ( τ = 0 .01 ). This smoothing reduces the variance due to individual-batch noise. 2. The aleatoric penalty as a lower bound on irreducible error. Even if Γepi retains a small residual contribution from aleatoric noise in finite-data regimes, this residual is bounded by κ: the aleatoric penalty explicitly penalises the Lipschitz constant that governs sensitivity to such noise. Hence the two penalties together form a composite upper bound on total uncertainty, and the aleatoric term prevents double-counting: λepi Γepi penalises only residual disagreement beyond what κ already captured. 
+
+Conclusion. Propositions F.1 and F.2 jointly establish that κ captures an intrinsic, data-independent structural property (aleatoric sensitivity) while Γepi captures a data-dependent model-agreement sig-nal (epistemic uncertainty) that vanishes as data coverage improves. The two penalties are therefore 
+
+functionally disentangled , not merely labelled differently. 29 G Penalty feasibility and policy non-degeneration 
+
+A natural concern is whether large penalty coefficients λale and λepi can drive the fixed point Q∗
+
+> robust
+
+so far below the unpenalised value Q∗ that the greedy policy degenerates—e.g. a bus agent that never acts because every action appears equally bad. We show that this cannot happen: the penalties preserve the action ranking exactly. 
+
+Key observation. In the RE-SAC operator T REV κ , both penalty terms are action-independent at any given state s:
+
+• κ = λale 
+
+P 
+
+> l
+
+∥W (θ) 
+
+> l
+
+∥1 is a global scalar; 
+
+• Γepi (s′, a ′) depends on the next state-action pair (s′, a ′) sampled via a′ ∼ π(·| s′), not on the current action a.Therefore the penalty enters the Bellman backup as γ(λepi Γepi + κ), a term that is identical for every action a at a given state s.
+
+Proposition G.1 (Action-ranking preservation) . Under (A0)–(A2), let Q∗ be the fixed point of the standard (unpenalised) Bellman operator and Q∗ 
+
+> robust
+
+be the fixed point of T REV κ . Then for all s ∈ S 
+
+and a1, a 2 ∈ A :
+
+Q∗
+
+> robust
+
+(s, a 1) ≥ Q∗
+
+> robust
+
+(s, a 2) ⇐⇒ Q∗(s, a 1) ≥ Q∗(s, a 2). (44) 
+
+In particular, arg max a Q∗
+
+> robust
+
+(s, a ) = arg max a Q∗(s, a ): the greedy policy is unchanged by the penalties. Proof. Write ∆ = λepi Γepi + κ. Since ∆ is independent of a, the fixed-point equation gives: 
+
+Q∗
+
+> robust
+
+(s, a ) = R(s, a ) + γX
+
+> s′
+
+P (s′|s, a ) V ∗
+
+> robust
+
+(s′) − γ ∆= R(s, a ) + γX
+
+> s′
+
+P (s′|s, a ) V ∗(s′)
+
+| {z }
+
+Q∗(s, a )
+
+− γ ∆ 11−γ
+
+| {z }
+
+> uniform shift
+
+,
+
+where the second equality uses the self-consistent relationship V ∗
+
+> robust
+
+(s) = V ∗(s)−γ∆/(1 −γ) (since the uniform shift propagates identically through all future states under the same transition kernel). The shift γ∆/(1 − γ) is the same for every action a, so the ordering is preserved. 
+
+Quantitative Q-value depression. The fixed point satisfies the uniform bound: 
+
+Q∗
+
+> robust
+
+(s, a ) = Q∗(s, a ) − γ ∆1 − γ for all (s, a ). (45) In the bus control experiments, γ = 0 .99 and ∆ ≈ λepi Γmax + κmax ≈ 0.005 × 5 + 10 −4 × 10 3 ≈ 0.125 ,so the depression is γ∆/(1 − γ) ≈ 0.99 × 0.125 /0.01 = 12 .4 Q-units—small compared to the typical 
+
+|Q∗| ≈ 10 3 scale. 
+
+Practical λ feasibility bounds. Although the penalties cannot change the action ranking, exces-sively large ∆ can depress Q∗ 
+
+> robust
+
+so far that numerical precision issues arise or that the entropy bonus α log π dominates the Q-differences. A practical guideline is: 
+
+γ ∆1 − γ ≪ max 
+
+> a1,a 2
+
+Q∗(s, a 1) − Q∗(s, a 2) , (46) i.e. the uniform depression should be small relative to the inter-action Q-value spread. The empirical choices λale = 10 −4, λepi = 0 .005 yield a depression of ∼ 12 Q-units against a typical inter-action spread of ∼ 200 , satisfying this condition. 30 Remark (connection to Robust MDP feasibility). Condition (46) is the additive-penalty analogue of the uncertainty-set budget constraint in Robust MDP theory [31]: infeasibility arises when the uncertainty set is so large that the minimax value is unbounded below. Proposition G.1 strengthens the classical feasibility result by showing that, for action-independent penalties, policy degeneration is impossible regardless of reward scale—only numerical precision imposes a practical upper bound on ∆.
+
+# H Q-value poisoning vs. classical estimation pathologies 
+
+Definition 1.1 introduces Q-value poisoning as a distinct failure mode. We here make the distinction from two classical concepts explicit. 
+
+Phenomenon Formal signature Mechanism Overestimation Bias [33, 10] 
+
+Qt(s, a ) ≥ Q∗(s, a ) uni-formly Bootstrapping from a max-operator amplifies upward noise; no dependence on local stochasticity σ2(s, a )
+
+Deadly Triad [10] ∥Qt∥∞ → ∞ (diver-gence) Off-policy sampling + func-tion approximation + boot-strapping combine to desta-bilise the Bellman iteration globally 
+
+Q-value Poison-ing (Definition 1.1) 
+
+Qt(s, a ) < Q∗(s, a ) on 
+
+Pt = {(s, a ) : σ2(s, a ) ≥
+
+σ20 }; accurate elsewhere Aleatoric variance is selec-tively misattributed as epis-temic uncertainty, causing pessimism only in high-noise regions while ∥Qt∥∞ remains bounded The three pathologies are therefore mutually exclusive in their primary signature: overestimation is uniformly upward; the deadly triad diverges; poisoning is selectively downward and bounded. Importantly, poisoning can occur even when the standard stability conditions (contraction, bounded rewards) are satisfied—it is a biased-but-stable regime, not a divergent one. 
+
+Why poisoning is specifically dangerous for transit control. Overestimation bias leads to aggressive policies that are corrected by double-Q tricks [33]. The Deadly Triad leads to numerical instability that is visible in training curves. Q-value poisoning is more insidious: the training curve appears stable, but the agent’s value estimates for high-variance states (e.g. severe headway deviations) are systematically too low, causing the policy to avoid those states even when the optimal action would yield high long-run reward. This manifests as the “under-exploitation trap” described in the main text and in [4]. The RE-SAC mechanism (Definition 1.1 + Theorems E.3–E.4) directly targets this failure mode by decoupling the sources of variance. 31
