@@ -1,0 +1,756 @@
+Title: Scalable Inspection Planning via Flow-based Mixed Integer Linear Programming
+
+URL Source: https://arxiv.org/pdf/2603.16593v1
+
+Published Time: Wed, 18 Mar 2026 01:21:52 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# Scalable Inspection Planning via Flow-based Mixed Integer Linear Programming 
+
+Adir Morgan ⋆, Kiril Solovey, and Oren Salzman 
+
+Technion–Israel Institute of Technology, Haifa, Israel 
+
+samorgan@campus.technion.ac.il, kirilsol@technion.ac.il, osalzman@cs.technion.ac.il 
+
+Abstract. Inspection planning is concerned with computing the short-est robot path to inspect a given set of points of interest (POIs) using the robot’s sensors. This problem arises in a wide range of applications from manufacturing to medical robotics. To alleviate the problem’s complex-ity, recent methods rely on sampling-based methods to obtain a more manageable (discrete) graph inspection planning (GIP ) problem. Unfor-tunately, GIP still remains highly difficult to solve at scale as it requires si-multaneously satisfying POI-coverage and path-connectivity constraints, giving rise to a challenging optimization problem, particularly at scales encountered in real-world scenarios. In this work, we present highly scal-able Mixed Integer Linear Programming (MILP) solutions for GIP that significantly advance the state-of-the-art in both runtime and solution quality. Our key insight is a reformulation of the problem’s core con-straints as a network flow, which enables effective MILP models and a specialized Branch-and-Cut solver that exploits the combinatorial struc-ture of flows. We evaluate our approach on medical and infrastructure benchmarks alongside large-scale synthetic instances. Across all scenar-ios, our method produces substantially tighter lower bounds than exist-ing formulations, reducing optimality gaps by 30–50% on large instances. Furthermore, our solver demonstrates unprecedented scalability: it pro-vides non-trivial solutions for problems with up to 15,000 vertices and thousands of POIs, where prior state-of-the-art methods typically ex-haust memory or fail to provide any meaningful optimality guarantees. 
+
+## 1 Introduction & Related Work 
+
+In inspection planning ( IP ), a robot equipped with an onboard sensor is tasked with computing a path in a known environment to inspect a set of points of inter-est (POIs) while avoiding obstacles and minimizing path cost. Applications of IP 
+
+arise in a wide range of domains, including construction [9], manufacturing [5], and medical robotics [10, 11]. State-of-the-art approaches to the IP problem [22, 23] use sampling-based motion planning to discretize the robot’s continuous configuration space into  
+
+> ⋆
+
+Corresponding author.  
+
+> arXiv:2603.16593v1 [cs.RO] 17 Mar 2026 2Morgan, Solovey, and Salzman
+
+ruvwpbpg
+
+> (a)
+
+rruvwpbpgtbtg (b) ruvwtbtg (c)               
+
+> Fig. 1: Graph inspection planning using network flow. (a) The POI pbcan be inspected from the vertices uand w, and the POI pgcan be inspected from vand w(depicted by colored circles surrounding each POI). (b) The corresponding multi-commodity flow (MCF) problem where a unique commodity (colored dashed arrows) and virtual target (tband tg) are assigned to each POI. (c) A specific multi-commodity flow (dashed colored edges) together with the corresponding inspection plan (orange).
+
+a roadmap represented as a graph. The vertices and edges of this graph corre-spond to valid robot configurations and feasible local motions, respectively. Each vertex is additionally associated with a visibility set that specifies which POIs can be inspected from that configuration. The IP task then reduces to finding a minimum-cost tour on this graph that inspects all POIs, a problem known as 
+
+graph inspection planning (GIP ). GIP presents a significant computational chal-lenge, as it entails the simultaneous selection of a subset of vertices that jointly cover all POIs, together with the computation of a minimum-length tour con-necting them. Thus, GIP generalizes both the set cover problem and the traveling salesman problem (TSP) [31, 37], both of which are NP-hard, and even hard to approximate within constant factors [20, 44]. Fu et al. [22] proposed a search-based approach that reformulates GIP as a shortest-path problem on a new graph GIP , whose vertex set captures all origi-nal roadmap vertices and all possible POI subsets. Consequently, the size of GIP 
+
+is exponential in the number of POIs. While this approach provides theoretical guarantees on solution quality, it does not manage to handle real-world instances involving thousands of POIs within a reasonable time frame, thus limiting its practical applicability. More recently, Mizutani et al. [41] tackled GIP using dy-namic programming and mixed-integer linear programming (MILP) approaches. Among the two, the most scalable is their MILP formulation, solved using the Branch-and-Bound (BnB) paradigm (see Sec. 5). While this formulation can handle substantially larger GIP instances than earlier methods, its performance degrades as the graph size and the number of POIs grow, leading to loose lower bounds and limited near-optimality certification, even for modest graph sizes (relative to those commonly considered in motion planning [43]). This motivates alternative formulations that retain strong solution-quality guarantees while en-abling scalability. 
+
+Contribution. We develop MILP-based GIP solvers that scale to large instances while providing tight bounds on solution quality. Our approach is driven by a flow-based interpretation of GIP , illustrated in Fig. 1, which demonstrates how coverage and connectivity constraints can be expressed through network-flow structures within MILP formulations. Toward this goal, we start by formally defining the GIP problem (Sec. 2) and then reformulate it using a group-covering Scalable Inspection Planning via Flow-based MILP 3
+
+(GC) perspective (Sec. 3). This perspective situates GIP within a well-studied class of combinatorial optimization problems and yields structural insights that guide the design of effective MILP solvers. Using this perspective, we present a baseline MILP formulation that enforces coverage and local structure (Sec. 4.1), yet lacks global connectivity enforcement. We next propose three different ap-proaches to ensure global connectivity (Sec. 4.2), each offering a trade-off be-tween formulation compactness and solver strength. Our most scalable approach out of the three relies on network-flow cutset constraints, that are too numerous to be explicitly evaluated simultaneously. Instead, we consider a lazy constraint-generation approach with the Branch-and-Cut framework [40, 42]. To construct this solver, we introduce in Sec. 5 tailored algorithmic building blocks, that enable on-demand constraint genera-tion and the construction of progressively-improving feasible solutions to GIP .We conclude (Sec. 6) with an extensive experimental evaluation on real-world and simulated instances spanning a wide range of problem scales, demonstrat-ing the scalability of the proposed approach and the trade-offs between different formulations. 
+
+## 2 Problem Definition 
+
+Let G = ( V, E, c ) be a weighted directed graph that abstracts the robot’s mo-tion, where vertices correspond to robot configurations and edges correspond to dynamically feasible, collision-free motions with cost c(e). Let P denote a set of points of interest (POIs) in the workspace. The robot is equipped with an exte-roceptive sensor (e.g. camera, lidar), inducing a coverage function χ : V → 2P
+
+that specifies the POIs inspected when the robot is positioned at a given vertex. Given a designated root vertex r ∈ V , a tour τ is a closed path starting and ending at r, traversing edges in E. The cost of a tour is the sum of its edge costs, denoted c(τ ), and its coverage is the union of POIs observed along the tour, denoted χ(τ ). Let T (G, r ) denote the set of all such tours. 
+
+Definition 1 (Graph inspection planning). Given ⟨G = ( V, E, c ), r, P, χ ⟩,find a minimum-cost tour from r that inspects all POIs, i.e., 
+
+arg min    
+
+> τ∈T (G,r )
+
+c(τ ) subject to χ(τ ) = P.
+
+## 3 Graph Inspection Planning via Group Covering 
+
+To set the foundations for the design of scalable MILP formulations for GIP ,we reinterpret the problem through a group-covering (GC) lens, revealing sim-ilarities to group variants of TSP [4] and steiner tree ( ST ) [29]. In GC prob-lems [25, 35], alongside a weighted graph G = ( V, E, c ) we are also given a set S = {S1, S 2, . . . , S k} of k ≥ 1 subsets (or “groups”) of vertices Si ⊆ V . The goal is to visit the vertices of V , according to some path constraints, such that at least one vertex in each set Si is visited. To express GIP as a GC problem, 4 Morgan, Solovey, and Salzman 
+
+recall that in GIP each vertex v ∈ V covers a set of POIs χ(v) ⊆ P . We de-fine the associated family of groups by inverting χ: for each p ∈ P , define a set Sp := {v ∈ V | p ∈ χ(v)}, and let S := {Sp}p∈P . Here, Sp consists of all ver-tices from which POI p can be inspected, and inspecting p in a tour corresponds to visiting at least one vertex in Sp. Thus, GIP can be expressed as follows. 
+
+Definition 2 ( Group-covering form of GIP ). Given ⟨G = ( V, E, c ), r, S⟩ , find a minimum-cost tour from r that covers all groups in S.
+
+arg min   
+
+> τ∈T (G,r )
+
+c(τ ) subject to ∀ Si ∈ S : V (τ ) ∩ Si̸ = ∅.
+
+This representation reveals a connection to two well-studied GC problems: 
+
+Definition 3 ( Group-TSP [35]). Given ⟨G = ( V, E, c ), r, S⟩ , find a minimum-cost tour from r that visits any vertex in V \ { r} at most once and covers S.
+
+arg min   
+
+> τ∈T (G,r )
+
+c(τ ) subject to ∀ Si ∈ S : V (τ ) ∩ Si̸ = ∅.
+
+Definition 4 ( Group-ST [25]). Given ⟨G = ( V, E, c ), r, S⟩ , find a minimum-cost tree T ∈ Trees (G, r ), where Trees (G, r ) is the set of all subtrees of G rooted in r, that covers all groups in S.
+
+arg min  
+
+> T∈Trees (G,r )
+
+c(T ) subject to ∀ Si ∈ S : V (T ) ∩ Si̸ = ∅.
+
+Despite their apparent similarity, the path-simplicity constraint in Group-TSP introduces additional combinatorial complexity, distinguishing it from GIP ,where vertex revisits are allowed. In contrast, Group-ST is structurally closer to 
+
+GIP , as it emphasizes connectivity between the root and representative vertices of each group rather than tour simplicity. However, existing Group-ST approaches typically rely on reductions to classical Steiner Tree [24], which enlarge the prob-lem and limit scalability. Additionally, their conversion to tours can yield poor in-spection paths, especially in directed graphs. These observations motivate MILP formulations for GIP that, inspired by Group-ST , enforce root-to-group connec-tivity rather than explicit tour ordering. They further imply that approximation bounds for Group-ST translate to GIP up to constant factors, yielding state-of-the-art GIP approximation bounds, we derive in App. A. 
+
+## 4 MILP Formulations for Graph Inspection Planning 
+
+Following the group-covering perspective (Sec. 3), we propose MILP formulations for GIP that enforce both group coverage and tour structure. We start with a baseline formulation that enforces coverage and local connectivity, and then introduce additional constraints to ensure global connectivity. We denote the number of POIs by |P| = |S| = k, and set K = {1, . . . , k }.Furthermore, N +(v) := {u ∈ V : ( v, u ) ∈ E} and N −(v) := {u ∈ V : ( u, v ) ∈ E}
+
+denote the out-neighborhood and in-neighborhood of vertex v, respectively. Scalable Inspection Planning via Flow-based MILP 5
+
+4.1 Baseline MILP Formulation 
+
+The following is our baseline MILP formulation of GIP . The inspection tour τ is specified through binary decision variables xuv associated with each edge (u, v ) ∈
+
+E, i.e., xuv = 1 indicates that τ traverses edge (u, v ).
+
+min  
+
+> xuv ,∀(u,v )∈E
+
+X
+
+> (u,v )∈E
+
+c(u, v ) · xuv (1a) s.t. X 
+
+> v∈N+(r)
+
+xrv ≥ 1, (1b) 
+
+X
+
+> v∈Si
+
+X 
+
+> u∈N−(v)
+
+xuv ≥ 1, ∀Si ∈ S , (1c) 
+
+X 
+
+> u∈N+(v)
+
+xuv = X 
+
+> u∈N−(v)
+
+xvu , ∀v ∈ V, (1d) 
+
+xuv ∈ { 0, 1}, ∀(u, v ) ∈ E. (1e) 
+
+Objective (1a) minimizes the total cost of the selected edges, and constraints (1b) and (1c) ensure that the corresponding tour will start from r and cover every group Si ∈ S , respectively. 1 Finally, constraints (1d) enforce that every vertex in the subgraph induced by the selected edges has equal in-degree and out-degree. As a result, the selected edges decompose into one or more edge-disjoint di-rected cycles [7]. Additional subtour-elimination constraints (SEC) are therefore required to ensure that all selected edges belong to a single connected tour con-taining the root. Before introducing our SECs, we briefly review the role of LP-relaxations in Branch-and-Bound (BnB) [36], and their interpretation for GIP .
+
+Linear-programming (LP) relaxation. In BnB, the MILP’s feasible region is recursively partitioned into a sequence of increasingly restricted subproblems. For each subproblem, an LP relaxation of the MILP, obtained by omitting in-tegrality constraints (i.e., turning xuv ∈ { 0, 1} into xuv ∈ [0 , 1] ), is solved by an LP-solver. The objective value of this relaxed problem provides a lower bound for any feasible integer solution within the corresponding subproblem. 
+
+Flow-based interpretation. In GIP , the LP relaxation admits a natural flow interpretation, where each variable xuv ∈ [0 , 1] is viewed as assigning a fractional amount of flow to edge (u, v ). Feasible LP solutions therefore correspond to routing fractional flow that satisfies group-coverage, motivating our flow-based 
+
+GIP formulations. 
+
+Integrality gap. In addition to lower bounds obtained from LP relaxations, a BnB solver maintains feasible integer solutions that provide upper bounds. Convergence is achieved as these bounds progressively tighten. The effectiveness of a MILP formulation is therefore governed by its integrality gap , defined as the  
+
+> 1
+
+This formulation permits revisiting vertices but explicitly forbids revisiting edges. However, the latter is not limiting: Mizutani et al. [41] (Lemma 1) prove that any optimal GIP tour traverses each directed edge at most once. Additionally, while outside the scope of this work, we note that this formulation can be extended to partial-coverage GIP [22, 41]. See App. B. 6 Morgan, Solovey, and Salzman 
+
+difference between the LP optimum and the best integer-feasible solution. Large integrality gaps lead to weak bounds and slow convergence in BnB, highlighting the importance of strong subtour-elimination constraints [34]. 
+
+4.2 Subtour Elimination Constraints (SEC) for GIP 
+
+Motivated by the flow-based interpretation of the LP relaxation, we introduce three families of subtour-elimination constraints (SEC), where the binary edge-selection variables xuv serve as capacities for a directed network, while additional mechanisms are used to enforce global connectivity constraints. 
+
+Single-commodity flow (SCF). We consider a single flow originating from the root which is propagated along and consumed by any selected edges, thereby enforcing connectivity. This is inspired by similar approaches for TSP solvers [26]. Specifically, we introduce a nonnegative continuous flow variable fuv ≥ 0 for each directed edge (u, v ) ∈ E, together with the following constraints:                      
+
+> fuv ≤M·xuv ,∀(u, v )∈E, (2a)
+> X
+> u∈N−(v)
+> fuv −X
+> u∈N+(v)
+> fvu =X
+> u∈N+(v)
+> xvu ,∀v∈V\ { r}.(2b)
+
+Constraint (2a) ensures flow is permitted only on selected edges, where M is chosen sufficiently large to accommodate any required flow. Following Lemma 2 of Mizutani et al. [41], which (tightly) bounds the length of an optimal tour by 
+
+2 · (|V | − 1) , we set M = 2 · (|V | − 1) . Constraint (2b) forms a flow-consumption rule, which eliminate subtours by requiring each traversal of a selected edge to consume one unit of flow. This is expressed from a vertex-centric perspective: A visit to a vertex v is induced by selecting an incoming edge xuv for some 
+
+u ∈ N −(v). Each such visit consumes one unit of flow, implying that the total incoming flow at v exceeds the total outgoing flow by exactly one unit per visit. 
+
+Lemma 1 (SCF constraints eliminate subtours). An optimal solution for the MILP formulation defined by constraints (1) and (2) yields a single tour containing r.Proof. (sketch) By contradiction, assume that the optimal solution contains a directed subtour that does not visit the root r. Denote by C ⊆ V the vertices visited by this subtour. Summing constraint (2b) over all the vertices in C,the left-hand side telescopes to zero, since every unit of flow leaves a cycle-vertex enters another cycle-vertex, and the net-flow out of C is zero. In contrast, the right-hand side sums to the number of edges in the cycle, which is strictly positive. This yields a contradiction, showing that such a cycle cannot satisfy the flow constraints. The only vertex excluded from constraint (2b) is the root, which is therefore allowed to exhibit a net flow imbalance, effectively acting as a flow source. Consequently, any feasible cycle must include the root. ⊓⊔
+
+The SCF formulation augments the baseline with constraints (2), introduc-ing 2|E| additional continuous variables and O(|E| + |V |) constraints, and is Scalable Inspection Planning via Flow-based MILP 7
+
+the most compact MILP formulation we consider. However, for the LP-relaxed problem, the Big-M constraints in (2a) allow substantial flow on weakly selected edges, enabling the LP relaxation to satisfy connectivity constraints without committing to specific edges. This results in a large integrality gap, motivating tighter flow formulations that avoid Big-M constants, which we introduce next. Mizutani et al. [41] proposed an alternative subtour-elimination scheme based on continuous charge variables, which enforces connectivity by maintaining a global charge balance with the root acting as a sink. Although asymptotically as compact as SCF, this formulation induces a different LP relaxation. We em-pirically compare their behavior within BnB in Sec. 6. 
+
+Multi-commodity flow (MCF). To overcome the large integrality gap that may be induced by constraint (2), we consider the following SEC mechanism, inspired by related routing and network-design problems [13, 47]. The key idea, depicted in Fig. 1, is to associate a distinct flow commodity with each group 
+
+i ∈ K, and to require that one unit of flow be delivered from the root to a vertex covering that group. Formally, we introduce continuous flow variables f iuv ∈ [0 , 1] 
+
+for each group i ∈ K and edge (u, v ) ∈ E. Each group i requires one unit of flow to originate at the root r.                                              
+
+> X
+> v∈N+(r)
+> firv ≥1,∀i∈K, (3a)
+> X
+> v∈Si
+> X
+> u∈N−(v)
+> fiuv −X
+> v∈Si
+> X
+> u∈N+(v)
+> fivu ≥1,∀i∈K, (3b)
+> X
+> u∈N−(v)
+> fiuv =X
+> u∈N+(v)
+> fivu ,∀i∈K, v ∈V\(Si∪ { r}),(3c)
+> fiuv ≤xuv ,∀i∈K, (u, v )∈E. (3d)
+
+In the MCF formulation, each group requires one unit of flow from the root to a covering vertex, ensuring that any cycle carrying flow is connected to the root by flow conservation (3c). Cycles without commodity flow are irrelevant and can be removed without increasing cost, yielding a single structure rooted at the start vertex. By bounding flow directly with edge-selection variables (3d), MCF avoids Big-M constraints and produces a much tighter LP relaxation than SCF. How-ever, this strength comes at a high cost: the formulation adds 2k|E| continuous variables, leading to tens of millions of variables in realistic instances [22, 23, 41], which makes it impractical beyond small scales (App. D.2). Consequently, we next move on to suggest a formulation that retains this connectivity strength without introducing an explicit flow commodity for each group. While reducing the number of variables, it will introduce an exponential number of constraints. To avoid generating them explicitly, which will render the approach infeasible, we will take a lazy approach and generate them on demand. 
+
+Group-cutset formulation. We present a subtour-elimination mechanism based on explicit connectivity constraints, inspired by cutset-based approaches for TSP [3], which explicitly enforces root-to-group connectivity. This formula-tion aims to achieve the structural strength of root-to-group connectivity en-forcement found in multi-commodity flow SEC, while avoiding its prohibitive 8 Morgan, Solovey, and Salzman 
+
+memory requirements, thereby enabling application to large-scale GIP instances. We achieve this by introducing an exponential number of vertex-cut constraints, that are lazily evaluated within a Branch-and-Cut framework. The effectiveness of this approach relies on the fact that these group-cutset constraints can be efficiently validated using network-flow based algorithms, as detailed in Sec. 5. Formally, for any group Si ∈ S , we examine all partitions of the vertex set V
+
+into two disjoint subsets R ⊂ V and V \R such that the root r ∈ R and R∩Si = ∅.Such a partition defines a vertex cut between R and its complement. If a tour were to remain entirely within R, it would be impossible to visit any vertex in Si, and thus the corresponding POI pi could not be inspected. Therefore, any feasible GIP tour must include at least one edge crossing this vertex cut. Thus, we add constraints requiring the selected edges to cross every such cut R,enforcing connectivity between the root and each group Si. Formally, let R
+
+denote the family of vertex subsets that contain r but exclude at least one group, i.e., R := {R ⊆ V | r ∈ R and ∃Si ∈ S such that R ∩ Si = ∅} . For any R ⊆ V ,we define its outgoing edge set as δ+(R) := {(u, v ) ∈ E | u ∈ R, v / ∈ R}. The baseline formulation (1) is augmented with the following family of group-cutset constraints , requiring that for any R ∈ R , at least one selected edge leaves R:
+
+P 
+
+> (u,v )∈δ+(R)
+
+xuv ≥ 1, ∀R ∈ R . (4) The following lemma states that this constraint indeed eliminates subtours. 
+
+Lemma 2 (Group-cutset constraints eliminate subtours). Assume c(e) >
+
+0, for all e ∈ E.2 The MILP formulation defined by constraints (1) and (4) yields a single tour containing r.Proof. Let {x∗} be an optimal integral solution and set F := {e ∈ E | x∗ 
+
+> e
+
+= 1 }.We show that F forms a single tour containing the root. Let Cr ⊆ V denote the strongly-connected component of r in the subgraph induced by F , and let 
+
+Fr ⊆ F be the edges whose both ends are in Cr . Note that |Cr | ≥ 2 due to constraint (1b). Define a new solution {ˆx} by setting ˆxe = 1 if e ∈ Fr and 
+
+ˆxe = 0 otherwise and note that it can be easily shown that {ˆx} is feasible. If F̸ = Fr , then {ˆx} removes at least one selected edge. Since all edge costs are strictly positive, this strictly decreases the objective value, contradicting the optimality of {x∗}. Therefore, F = Fr , and all selected edges lie in the connected component of r. ⊓⊔
+
+As R grows exponentially with the graph size, explicitly enumerating the group-cutset formulation would render the solver intractable. However, given a candidate solution, constraints (4) can be efficiently verified , and for infeasible candidates, violated constraints can be identified using efficient flow-based algo-rithms. This property allows us to apply the Branch-and-Cut (BnC) approach      
+
+> 2If zero-cost edges are allowed, i.e., c(e)≥0, an optimal solution may contain addi-tional disconnected components of zero total cost. Such components can be removed without affecting feasibility or optimality. Scalable Inspection Planning via Flow-based MILP 9
+
+enabling a lazy evaluation of the constraints (4), hence avoiding explicitly enu-merating them. As a result, the group-cutset formulation is particularly suited for large-scale instances, where explicit multi-commodity flow formulations are computationally infeasible and compact formulations yield poor lower bounds. To use BnC, we need to introduce several additional algorithmic building blocks which we now describe. 
+
+## 5 Branch-and-Cut Solver for Group-Cutset formulation 
+
+The Branch-and-Cut (BnC) framework extends Branch-and-Bound by incorpo-rating cutting planes , i.e., additional constraints that are generated dynamically during the search. In the context of the group-cutset model introduced in Sec. 4.2, the BnC framework allows for a lazy-constraint evaluation. Specifically, the solver starts from a static partial formulation, and extends the formulation only with constraints that are relevant to the regions of the solution space explored by the solver, thus avoiding the overhead of enforcing constraints that are never active. Such dynamic constraint enforcement is performed by a separation oracle , which either identifies violated constraints or certifies that none exist. This allows BnC to operate on a compact formulation while retaining the strength of a much richer, potentially exponential constraint set. We present an oracle tailored to the group-cutset formulation in Sec. 5.1. A complementary component of the BnC framework is a primal heuristic ,which transforms fractional LP relaxations into integer-feasible solutions that serve as upper bounds in the search process. While primal heuristics are standard in BnB-based MILP solvers, their problem-specific design is especially important in lazy-constraint formulations. In such settings, generic heuristics employed by solvers such as Gurobi [27] may produce solutions that satisfy the current for-mulation but violate constraints introduced later in the search. We therefore introduce a problem-specific primal heuristic that explicitly exploits the struc-ture of GIP to provide valid solutions (Sec. 5.2). 
+
+5.1 Group-Cutset Separation Oracles 
+
+During the BnC search, partial problem formulations are LP-relaxed and solved, providing solution candidates {xc}. The separation oracle, given such candidate, determines whether one of the group-cutset constraints (4) is violated, i.e., there exists a set R ∈ R as defined in Sec. 4.2, such that P 
+
+> (u,v )∈δ+(R)
+
+xcuv < 1. If such a set exists, the corresponding constraint is returned as a separating cut. We introduce two complementary separation oracles, along with a third hybrid oracle that combines their respective strengths. 
+
+Connectivity-based separation oracle. We first consider a fast separation or-acle for verifying integral candidate solutions {xc}. We construct a subgraph Gc =(V, E c) containing only the edges (u, v ) ∈ E for which xcuv = 1 . We then compute the strongly connected component (SCC) Rc ⊆ V of the root r in Gc, i.e., Rc
+
+contains any vertex v ∈ V such that there exists a directed path from r to v, and 10 Morgan, Solovey, and Salzman 
+
+Algorithm 1 Flow-based separation oracle ( {xc}, G = ( V, E ), S, r)                                                                
+
+> 1: Initialize an empty set Cof cuts 2: for each group Si∈ S do
+> 3: Define flow network Niwith vertices V∪ { t}, edges E∪Ai, and capacities
+> κ:E∪Ai→R+:4: Update capacities for original edges κ(u, v )←xcuv for any (u, v )∈E.5: Generate auxiliary edges Ai← { (v, t ) : v∈Si}with κ(v, t )←1.6: Compute a minimum r–tcut (Ri,(V∪ { t})\Ri)in Ni
+> 7: if P
+> (u,v )∈δ+(Ri)xcuv <1then
+> 8: Add the violated constraint P
+> (u,v )∈δ+(Ri)xuv ≥1to C
+> 9: return C
+
+v to r. For each group Si ∈ S , we check whether Rc ∩ Si is empty. If so, the set 
+
+Rc defines a violated group-cutset constraint, which is returned as a certificate. Otherwise, the oracle certifies that {xc} satisfies all group-cutset constraints. As the complexity of the SCC operation is linear in the number of edges [15] this oracle runs in O(|S| · | V | + |E|) time and guarantees that no invalid integral solution is ever accepted by the solver. Although this oracle is computationally efficient, it generates only a single violated constraint per integer candidate so-lution, which may make the BnC solver struggle to develop meaningful problem representation. 
+
+Flow-based separation oracle. To strengthen constraint generation, we in-troduce a separation oracle applicable to both fractional and integral solutions, based on solving an s–t max-flow problem (Alg. 1). The key idea is to interpret the fractional values xcuv as capacities on directed edges and test whether the resulting network can route at least one unit of flow from the root r to a vertex covering a given group Si. Under integrality of xcuv , such a flow corresponds to a path composed of selected edges. Formally, for each group Si ∈ S , we compute the maximum flow from r to Si, as illustrated in Fig. 1. If the flow value is smaller than one, then no feasible solution can connect r to Si using the current edge selections. By the max-flow min-cut theorem [17], this implies the exis-tence of a cut separating r from Si with total capacity less than one, yielding a violated group-cutset constraint that can be added as a separating inequality. While effective at tightening LP relaxations, this oracle is computationally ex-pensive, as fully verifying the validity of a candidate solution requires solving a max-flow problem for each group. Using standard algorithms, Alg. 1 runs in 
+
+O(|S| · | V |2 · | E|) time [1, 19], motivating its use only in a limited manner within a hybrid approach. 
+
+Combined separation oracle. The two prior oracles offer complementary strengths. The connectivity-based oracle is computationally efficient and guar-antees correctness by validating integral candidate solutions. However, it can generate at most a single separating constraint per integral solution, which lim-its its ability to substantially tighten the relaxation. In contrast, the flow-based oracle is capable of generating multiple effective separating constraints, including at fractional solutions, but its computational cost prevents it from being used Scalable Inspection Planning via Flow-based MILP 11 
+
+to validate or rule out candidate solutions. We therefore propose a combined separation oracle that applies connectivity-based checks to all integer-feasible candidates and selectively applies flow-based separation to a uniformly sampled subset of groups at fractional solutions. This balances relaxation strength and computational cost while preserving correctness. Importantly, sampling intro-duces no loss of correctness: although violated constraints for unsampled groups may be missed at fractional solutions, any integral solution is ultimately vali-dated by the connectivity oracle. As shown in Sec. 6.3, this combined approach yields strong cuts at low computational cost, significantly improving convergence while maintaining correctness guarantees. Furthermore, as we will demonstrate empirically, the method is insensitive to the exact value of the group sample size. As shown in Sec. 6.3, this combined strategy yields strong cuts at low com-putational cost and significantly improves convergence. In addition, experiment indicates solver performance is largely insensitive to the exact group sample size. 
+
+5.2 Primal Heuristic for GIP 
+
+We present a problem-specific primal heuristic for GIP . While applicable to all SEC variants (Sec. 4), it is particularly important for lazy-constraint formula-tions. In such settings, generic MILP heuristics (e.g. [6, 16, 21]) may generate solutions that satisfy only the currently enforced constraints, yet violate con-straints that will be introduced later by the separation oracle. This issue is most pronounced in the early stages of the search, when the formulation is still highly partial, making incumbent generation unreliable and motivating a heuristic that is explicitly aware of the full GIP structure. Our heuristic is tightly integrated with the BnC search and exploits informa-tion from the current LP relaxation. At a high level, it consists of three phases. First, edge costs are modified using the fractional LP solution {xe}e∈E by defin-ing cn(e) := c(e) · (1 − xe), which biases the search toward edges favored by the relaxation. Second, a group-covering tree rooted at the start vertex is greedily constructed in the discounted graph, incrementally connecting the root to a rep-resentative vertex of an uncovered group while ensuring connectivity. Third, the resulting tree is augmented and traversed to produce a valid GIP tour. Rather than doubling tree edges, we add a minimum-weight matching over odd-degree tree vertices, yielding an Eulerian subgraph whose traversal produces a lower-cost tour [12]. This heuristic reliably generates high-quality incumbent solutions early in the BnC search, leading to substantially improved upper bounds and faster convergence. A complete algorithmic description is provided in App. C, and an empirical evaluation appears in App. D.3. 
+
+## 6 Experimental Results 
+
+We empirically evaluate how different MILP formulations and their associated algorithmic components for GIP trade off scalability and solution-quality guaran-tees. We report two quantities that BnC solvers maintain throughout the search: 12 Morgan, Solovey, and Salzman 
+
+an upper bound cUB , given by the cost of the best incumbent feasible solution, and a lower bound cLB , obtained from LP relaxations of the MILP. Another mea-sure we report is the optimality gap , defined as Gap := 100 · (cUB − cLB )/c UB ,which quantifies the practical tightness of the solver’s near-optimality certifi-cation. This measure is particularly important given the provable hardness of approximating GIP (App. A). We conduct our evaluation by progressing from medium-scale real-world benchmarks to larger-scale controlled simulated experiments, and finally to tar-geted ablation studies, in order to examine the effects of formulation and solver design. Across all settings, the proposed Group-Cutset formulation consistently produces stronger lower bounds than the other tested formulations, and exhibits slower performance degradation on larger instances. We complement these re-sults in App. D with an evaluation of small-scale instances, where Group-Cutset 
+
+continues to perform competitively. The appendix further includes an ablation study of primal-heuristic design. The experiments were conducted on a laptop with an Intel Core Ultra 9 185H CPU and 64 GB RAM, without GPU acceleration or explicit parallelization beyond that provided by the MILP solver (Gurobi [27]). Algorithms described in Sec. 5 are implemented in Python, interfacing with Gurobi’s C ++ solver core via the gurobipy package. Our code is publicly available in the GIP repository. 
+
+6.1 Evaluation Scenarios 
+
+Our evaluation uses both real-world inspection datasets and controlled simu-lated scenarios, to study solver behavior across varying graph sizes and numbers of POIs. The CRISP scenario [2, 38], adapted from [22], models medical inspec-tion with a continuum robot tasked with inspecting 4,203 POIs in a confined anatomical cavity, yielding GIP instances with dense and highly overlapping coverage groups. The Bridge scenario, adapted from [23], considers aerial in-spection of 3,346 POIs distributed across a large structure, requiring inspection plans that connect distant regions of the roadmap. Controlled scenarios com-plement these benchmarks, enabling systematic evaluation across a wide range of problem scales using a simplified planar point-robot simulator (App. D.1). Experiment scenarios are illustrated in Fig. 2. 
+
+6.2 Comparative Evaluation of MILP Formulations 
+
+We compare the performance of the different MILP formulations, i.e., the base-line MILP detailed in Sec. 4.1 with the three different SEC detailed in Sec. 4.2, which we refer to as SCF , MCF and Group-Cutset together with the charge-variables based formulation of Mizutani et al. [41], which we refer to as Charge .The compact formulations ( SCF , Charge ) are solved within the BnB framework while the Group-Cutset formulation is solved using the BnC framework with the combined separation oracle using a group sample size of 100 , accompanied by our developed GIP primal heuristic, elaborated in App. C. For each variant, we report cUB , c LB , and the optimality gap Gap as a function of each algorithm’s Scalable Inspection Planning via Flow-based MILP 13      
+
+> (a) CRISP (b) Bridge 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> 10 (c) Controlled
+> Fig. 2: Experimental evaluation scenarios. (a) CRISP robot, composed of a snare-tube and a camera-tube, inside the cavity of a patient’s lungs. (b) Drone inspecting POIs marked on a bridge structure. (c) Planar point robot in a maze, starting at the green point and tasked with inspecting all POIs (yellow).
+
+running time. Due to its explicit large representation, MCF formulation exceeds available memory at scales evaluated here, and is therefore omitted from these experiments and is discussed on App. D.2. 
+
+Medium-size Instances. We begin with medium-sized scenarios ( CRISP and 
+
+Bridge ), with a time limit of 1,000 seconds per instance. Roadmaps are con-structed using IRIS-CLI [23] with 1,000 and 2,000 vertices, yielding graphs with over 20 ,000 and 40 ,000 edges, respectively. Results are shown in Fig. 3. Across all evaluated instances, Group-Cutset consistently produces tighter lower bounds than the compact formulations, an effect that is particularly pro-nounced in the CRISP scenarios, where its lower bounds continue to improve throughout the run while those of compact formulations stabilize early. In con-trast, compact formulations, most notably SCF , tend to yield better incumbent solutions. Compared to the prior MILP solver Charge , SCF achieves better upper and lower bounds on both 1,000 -vertex instances, whereas Charge performs best on the Bridge-2000 instance. These results indicate instance-dependent behavior. While the Group-Cutset 
+
+primal heuristic performs competitively on CRISP , it is weaker on Bridge , sug-gesting limited generality of the current problem-specific heuristic (Sec. 5.2). In contrast, the fully instantiated compact formulations allow Gurobi to exploit a broader set of generic primal heuristics, enabling better adaptation to different instance structures. Overall, these complementary strengths suggest that hybrid approaches combining strong incumbent generation from compact formulations with the tighter lower bounds of Group-Cutset may be a promising direction for future work. 
+
+Large Instances. The medium-sized GIP instances correspond to relatively small roadmap sizes when compared to those encountered in realistic motion-planning problems [43]. We therefore turn to simulated GIP instances with sub-stantially larger graphs and numbers of POIs to explicitly stress solver scalability. Time limits are set to 500 seconds per instance. Solver setups are identical to 14 Morgan, Solovey, and Salzman 0.0 
+
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Cost
+
+Crisp-1000 
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+Crisp-2000      
+
+> 0200 400 600 800 1000
+
+Time (s)      
+
+> 0
+> 50
+> 100
+> Gap (%)
+> 0200 400 600 800 1000
+
+Time (s) 
+
+> 0
+> 50
+> 100 400
+> 600
+> 800
+> 1000
+> Cost
+
+Bridge-1000 
+
+> 500
+> 750
+> 1000
+
+Bridge-2000      
+
+> 0200 400 600 800 1000
+
+Time (s)      
+
+> 0
+> 50
+> 100
+> Gap (%)
+> 0200 400 600 800 1000
+
+Time (s)     
+
+> 0
+> 50
+> 100 Group-Cutset SCF Charge Upper bound ( cUB )Lower bound ( cLB )
+
+Fig. 3: Solvers evaluation on real-world instances. 
+
+those used in the previous experiments, with the exception that the compact formulations ( SCF , Charge ) are augmented with the our GIP heuristic. 3
+
+Fig. 4 presents the optimality gap as a function of the number of POIs for different roadmap sizes. Group-Cutset maintains substantially smaller optimality gaps as instance size grows, whereas Charge exhibits limited gap reduction across all tested scales. The SCF formulation shows moderate improvements on smaller instances but degrades rapidly as problem size increases. This behavior reflects fundamental differences in how global connectivity is enforced in the correspond-ing LP relaxations. Both SCF and Charge rely on global flow or charge-balance  
+
+> 3
+
+This heuristic was added because Gurobi’s internal heuristics struggled to produce feasible solutions within the time limits for the large instances considered. All re-ported results improved when this heuristic was included. Scalable Inspection Planning via Flow-based MILP 15 1000 2500 5000 7500                       
+
+> k
+> 40
+> 50
+> 60
+> 70
+> 80
+> 90
+> 100
+> Optimality Gap (%)
+> (a) n= 3 ,500 1000 2500 5000 7500
+> k
+> 40
+> 50
+> 60
+> 70
+> 80
+> 90
+> 100
+> Optimality Gap (%) (b) n= 5 ,000 1000 2500 5000 7500
+> k
+> 40
+> 50
+> 60
+> 70
+> 80
+> 90
+> 100
+> Optimality Gap (%) (c) n= 10 ,000 1000 2500 5000 7500
+> k
+> 40
+> 50
+> 60
+> 70
+> 80
+> 90
+> 100
+> Optimality Gap (%) (d) n= 15 ,000 Group-Cutset SCF Charge
+
+Fig. 4: Optimality gap on large-scale instances after 500 s for varying graph sizes ( n)and number of POIs ( k). 
+
+constraints to eliminate subtours [26, 47], which allow fractional solutions to satisfy connectivity by spreading flow across many weakly selected edges. As the graph size grows, such fractional connectivity patterns lead to increasingly weak lower bounds [39, 41]. In contrast, Group-Cutset enforces connectivity through explicit root-to-group cut constraints. Any feasible solution, fractional or inte-gral, must allocate sufficient total edge capacity across cuts separating the root from each POI group. As the number of POIs increases, the growing number of such constraints progressively tightens the LP relaxation, explaining the more stable optimality gaps observed for Group-Cutset on large instances. 
+
+6.3 Separation Oracle Design Evaluation 
+
+We evaluate the impact of separation-oracle design on lower-bound strength and solver convergence of the Group-Cutset BnC solver (Sec. 5.1). We consider three variants: (i) a connectivity-based oracle ; (ii) a flow-based oracle applied exhaus-tively to all groups; (iii) a combined oracle that validates integral candidates via connectivity checks and applies flow-based separation to a uniformly sampled subset of groups at fractional solutions. Fig. 5(a) compares the final optimality gaps obtained using these variants on real-world instances. Using only the connectivity-based oracle (crimson) yields large final gaps across all instances, indicating a weak LP relaxation in which fractional solutions remain poorly constrained, leading to weak lower bounds and slow convergence. In contrast, the combined oracle (purple) substantially strengthens the formulation, consistently reducing the final optimality gap by approximately 10–30% relative to connectivity-only separation. This improve-ment stems from the ability of the flow-based approach to generate effective con-straints, even when validating only a small sample of groups. We also evaluated a standalone flow-based oracle (turquoise bars in Fig. 5(a)) that performs ex-haustive root-to-group separation. Although strong in principle, this approach is computationally prohibitive: validating a single candidate requires solving thou-sands of max-flow problems, leading to excessive separation time and negligible progress. As a result, exhaustive flow-based separation does not scale to large 
+
+GIP instances. Fig. 5(b) examines the effect of group-sampling size in the com-16 Morgan, Solovey, and Salzman Bridge-1000 Bridge-2000 Crisp-1000 Crisp-2000      
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Optimality Gap [Percent]
+> Connectivity Oracle
+> Flow Oracle
+> Combined Oracle
+> (a) Comparison between separation oracles. Bridge-1000 Bridge-2000 Crisp-1000 Crisp-2000
+> 0
+> 25
+> 50
+> 75
+> 100 Groups sample size:
+> 50
+> 100
+> 500
+> 1000 (b) Effect of group sampling size.
+
+Fig. 5: Ablation study for the separation oracles reporting the final optimality gaps after 500 s on the real-world instances. (a) Comparison of connectivity-only, flow-only, and combined separation oracles (using a group sample size of 100). (b) Effect of group sampling size for the combined oracle. 
+
+bined oracle. Final optimality gaps vary by only a few percentage points across a wide range of values, indicating low sensitivity to this parameter and enabling effective separation with modest samples. Taken together, these results highlight the importance of separation-oracle design for scalability, with the combined oracle achieving a practical balance between strength and efficiency. 
+
+## 7 Conclusion and Future Work 
+
+In this work, we have positioned the graph inspection planning ( GIP ) problem within the broader context of graph-based optimization, highlighting its algo-rithmic connections to Steiner tree, TSP and network flow. Leveraging this per-spective, we developed and analyzed three distinct MILP formulations, with our primary contribution being a scalable Branch-and-Cut solver centered on the 
+
+Group-Cutset formulation. Beyond inspection planning, our results suggest that lazy formulations and the Branch-and-Cut framework may provide a powerful modeling paradigm for a broader class of graph-based planning. Several promising directions remain for future research. First, we plan to further explore the trade-off between motion-planning fidelity and optimiza-tion complexity, as increasingly dense roadmaps improve geometric accuracy but significantly complicate approximation and certification. Second, we aim to strengthen the solver for GIP by incorporating advanced MILP techniques, in-cluding additional classes of cutting planes and primal heuristics. Finally, we see significant potential in extending the proposed framework to richer settings, such as multi-robot inspection planning, partial and adaptive inspection objectives, and online or incremental problem formulations. 
+
+Acknowledgments. Large language models (ChatGPT and Gemini) were used for light editing and grammar refinement, as well as limited assistance with preliminary literature exploration and figure presentation and formatting. Bibliography 
+
+[1] Ravindra K Ahuja, Thomas L Magnanti, and James B Orlin. Network flows: theory, algorithms and applications . Prentice hall, 1994. [2] Patrick L Anderson, Arthur W Mahoney, and Robert James Webster. Con-tinuum reconfigurable parallel robots for surgery: Shape sensing and state estimation with uncertainty. IEEE robotics and automation letters , 2(3): 1617–1624, 2017. [3] David Applegate, Robert Bixby, Vašek Chvátal, and William Cook. Tsp cuts which do not conform to the template paradigm. In Computational Combinatorial Optimization: Optimal or Provably Near-Optimal Solutions ,pages 261–303. Springer, 2001. [4] David L Applegate, Robert E Bixby, Vašek Chvátal, and William J Cook. The traveling salesman problem: a computational study. In The Traveling Salesman Problem . Princeton university press, 2011. [5] Prasad N Atkar, Aaron Greenfield, David C Conner, Howie Choset, and Alfred A Rizzi. Uniform coverage of automotive surface patches. The In-ternational Journal of Robotics Research , 24(11):883–898, 2005. [6] Livio Bertacco, Matteo Fischetti, and Andrea Lodi. A feasibility pump heuristic for general mixed-integer problems. Discrete Optimization , 4(1): 63–76, 2007. [7] John Adrian Bondy and Uppaluri Siva Ramachandra Murty. Graph theory with applications . north-Holland, 1979. [8] Chandra Chekuri, Guy Even, and Guy Kortsarz. A greedy approximation algorithm for the group steiner problem. Discrete Applied Mathematics , 154 (1):15–34, 2006. [9] Peng Cheng, James Keller, and Vijay Kumar. Time-optimal uav trajec-tory planning for 3d urban structure coverage. In 2008 IEEE/RSJ Inter-national Conference on Intelligent Robots and Systems , pages 2750–2757. IEEE, 2008. [10] Brian Y Cho and Alan Kuntz. Efficient and accurate mapping of subsurface anatomy via online trajectory optimization for robot assisted surgery. In 
+
+2024 IEEE International Conference on Robotics and Automation (ICRA) ,pages 15478–15484. IEEE, 2024. [11] Brian Y Cho, Tucker Hermans, and Alan Kuntz. Planning sensing sequences for subsurface 3d tumor mapping. In 2021 international symposium on medical robotics (ISMR) , pages 1–7. IEEE, 2021. [12] Nicos Christofides. Worst-case analysis of a new heuristic for the travel-ling salesman problem. In Operations Research Forum , volume 3, page 20. Springer, 2022. [13] A Claus. A new formulation for the travelling salesman problem. SIAM Journal on Algebraic Discrete Methods , 5(1):21–25, 1984. [14] William J. Cook and Andre Rohe. Computing minimum-weight perfect matchings. INFORMS Journal on Computing , 11(2):138–148, 1999. 18 Morgan, Solovey, and Salzman 
+
+[15] Thomas H. Cormen, Charles E. Leiserson, Ronald L. Rivest, and Clifford Stein. Introduction to Algorithms . The MIT Press, Cambridge, MA, USA, 3 edition, 2009. [16] Emilie Danna, Edward Rothberg, and Claude Le Pape. Exploring relaxation induced neighborhoods to improve mip solutions. Mathematical Program-ming , 102(1):71–90, 2005. [17] George Dantzig and Delbert Ray Fulkerson. On the max flow min cut theorem of networks. Linear inequalities and related systems , 38:225–231, 2003. [18] Jack Edmonds. Paths, trees, and flowers. Canadian Journal of Mathematics ,17:449–467, 1965. [19] Jack Edmonds and Richard M Karp. Theoretical improvements in algorith-mic efficiency for network flow problems. Journal of the ACM (JACM) , 19 (2):248–264, 1972. [20] Uriel Feige. A threshold of ln n for approximating set cover. Journal of the ACM , 45(4):634–652, 1998. [21] Matteo Fischetti, Fred Glover, and Andrea Lodi. The feasibility pump. 
+
+Mathematical Programming , 104(1):91–104, 2005. [22] Mengyu Fu, Alan Kuntz, Oren Salzman, and Ron Alterovitz. Toward asymptotically-optimal inspection planning via efficient near-optimal graph search. Robotics science and systems: online proceedings , 2019:10–15607, 2019. [23] Mengyu Fu, Oren Salzman, and Ron Alterovitz. Computationally-efficient roadmap-based inspection planning via incremental lazy search. In 2021 IEEE International Conference on Robotics and Automation (ICRA) , pages 7449–7456. IEEE, 2021. [24] Gerald Gamrath, Thorsten Koch, Stephen J Maher, Daniel Rehfeldt, and Yuji Shinano. Scip-jack—a solver for stp and variants with parallelization extensions. Mathematical Programming Computation , 9(2):231–296, 2017. [25] Naveen Garg, Goran Konjevod, and Ramamoorthi Ravi. A polylogarithmic approximation algorithm for the group steiner tree problem. Journal of Algorithms , 37(1):66–84, 2000. [26] Bezalel Gavish and Stephen C Graves. The travelling salesman problem and related problems. 1978. [27] Gurobi Optimization, LLC. Gurobi Optimizer Reference Manual, 2024. [28] Eran Halperin and Robert Krauthgamer. Polylogarithmic inapproximabil-ity. In Proceedings of the thirty-fifth annual ACM symposium on Theory of computing , pages 585–594, 2003. [29] Frank K. Hwang, Dana S. Richards, and Pawel Winter. The Steiner Tree Problem . Elsevier, 1992. [30] Sertac Karaman and Emilio Frazzoli. Incremental sampling-based algo-rithms for optimal motion planning. Robotics Science and Systems VI , 104 (2):267–274, 2010. [31] Richard M. Karp. Reducibility among combinatorial problems. Complexity of Computer Computations , pages 85–103, 1972. Scalable Inspection Planning via Flow-based MILP 19 
+
+[32] Richard M. Karp and Michael Sipser. Maximum matching in sparse random graphs. In Proceedings of the 22nd Annual Symposium on Foundations of Computer Science , pages 364–375, 1981. [33] Thorsten Koch and Alexander Martin. Solving Steiner tree problems in graphs to optimality. Networks: An International Journal , 32(3):207–232, 1998. [34] Ailsa H Land and Alison G Doig. An automatic method for solving discrete programming problems. In 50 Years of Integer Programming 1958-2008: From the Early Years to the State-of-the-Art , pages 105–132. Springer, 2009. [35] Gilbert Laporte and Yves Nobert. Generalized travelling salesman prob-lem through n sets of nodes: an integer programming approach. INFOR: Information Systems and Operational Research , 21(1):61–75, 1983. [36] Eugene L Lawler and David E Wood. Branch-and-bound methods: A survey. 
+
+Operations research , 14(4):699–719, 1966. [37] Eugene L. Lawler, Jan Karel Lenstra, Alexander H. G. Rinnooy Kan, and David B. Shmoys. The Traveling Salesman Problem . Wiley, 1985. [38] Arthur W Mahoney, Patrick L Anderson, Philip J Swaney, Fabien Mal-donado, and Robert J Webster. Reconfigurable parallel continuum robots for incisionless surgery. In 2016 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 4330–4336. IEEE, 2016. [39] Clair E Miller, Albert W Tucker, and Richard A Zemlin. Integer program-ming formulation of traveling salesman problems. Journal of the ACM (JACM) , 7(4):326–329, 1960. [40] John E Mitchell. Branch-and-cut algorithms for combinatorial optimization problems. Handbook of applied optimization , 1(1):65–77, 2002. [41] Yosuke Mizutani, Daniel Coimbra Salomao, Alex Crane, Matthias Bentert, Pål Grønås Drange, Felix Reidl, Alan Kuntz, and Blair D Sullivan. Lever-aging fixed-parameter tractability for robot inspection planning. arXiv preprint arXiv:2407.00251 , 2024. [42] Manfred Padberg and Giovanni Rinaldi. A branch-and-cut algorithm for the resolution of large-scale symmetric traveling salesman problems. SIAM review , 33(1):60–100, 1991. [43] Itai Panasoff and Kiril Solovey. Effective sampling for robot motion planning through the lens of lattices. In Robotics: Science and Systems , 2025. [44] Sartaj Sahni and Teofilo Gonzalez. P-complete approximation problems. 
+
+Journal of the ACM , 23(3):555–565, 1976. [45] Hiromitsu Takahashi. An approximate solution for steiner problem in graphs. Math. Japonica , 24(6):573–577, 1980. [46] Vijay V. Vazirani. Approximation Algorithms . Springer, 2001. [47] Richard T Wong. Integer programming formulations of the traveling sales-man problem. In Proceedings of the IEEE international conference of cir-cuits and computers , volume 149, page 152. IEEE Press Piscataway NJ, 1980. 20 Morgan, Solovey, and Salzman 
+
+## A Approximation Bounds for Graph Inspection Planning 
+
+In this section, we leverage the connection between GIP and Group-ST to establish approximation upper and lower bounds for GIP . For upper bound, Mizutani et al. [41] Thm. 4 stated a straight forward O(k)-approximation algorithm. To the best of our knowledge, approximation lower bounds have not previously been established for GIP .4 We begin by restating the following approximation bounds for Group-ST . Below, k denotes the number of groups, and n = |V |.
+
+Theorem 1 (Lower approximation bounds for Group-ST [28]). Group-ST is hard 5 to approximate by a factor of Ω(log 2−ϵ k), for any constant ϵ > 0.For Theorem 3 we assume the same computational model. 
+
+Theorem 2 (Upper approximation bounds for Group-ST [8, 25]). There exists a randomized polynomial time O(log n·log 2 k)-approximation algorithm for 
+
+Group-ST .
+
+We recall that Group-ST was formally defined in Def. 4. Although the problem is stated in terms of finding a tree, an equivalent formulation may allow any connected subgraph, since an optimal solution can always be taken to be a tree. To derive analogous approximation bounds for GIP , we rely on the following two observations: 
+
+O1 Any feasible solution to GIP induces a valid solution to Group-ST , since a 
+
+GIP tour is, by definition, a connected subgraph that covers all groups. 
+
+O2 Any feasible solution to Group-ST can be transformed into a feasible solution to GIP by traversing the solution tree in a depth-first manner and returning along each edge. This transformation yields a GIP tour whose cost is at most twice the cost of the original Group-ST solution. The following theorem provides a lower approximation bound for GIP .
+
+Theorem 3 (Lower approximation bound for GIP ). GIP is hard 5 to ap-proximate within a factor of Ω(log 2−ϵ k) for all constant ϵ > 0.Proof. Assume by contradiction we are given an α-approximation oracle O for 
+
+GIP , such that α < Ω (log 2−ϵ k). Given a Group-ST instance, we consider the corresponding GIP and apply O to obtain a tour τO that α-approximates τ ∗, the optimal GIP tour. Let T ∗ be an optimal Group-ST solution. By traversing T ∗ back and forth and following Observation O2 , we can construct a closed tour for GIP , T ∗ 
+
+> p
+
+, such that |T ∗ 
+
+> p
+
+| ≤ 2 · | T ∗|. As T ∗ 
+
+> p
+
+is a covering-tour for GIP and τ ∗ is the optimal tour we have that 
+
+|τ ∗| ≤ | T ∗ 
+
+> p
+
+|.         
+
+> 4The discussion below considers the undirected version of GIP .
+> 5Halperin and Krauthgamer [28] rely on the assumption that NP has no quasi-polynomial Las Vegas algorithms. This is slightly stronger assumption than P̸=NP
+> but widely accepted as plausible. Scalable Inspection Planning via Flow-based MILP 21
+
+Using the assumption that O is an α-approximation algorithm, we have that 
+
+|τO | ≤ α · | τ ∗| ≤ 2α · | T ∗|.
+
+This solution τO forms a covering and connected edge subset, and hence is a solution to the Group-ST problem by Observation O1 (and may be tightened to a tree by the removal of cycle-closing edge). Hence we found a solution τO to the 
+
+Group-ST problem that is 2 · α < Ω (log 2−ϵ k) approximating the optimal Group-ST solution, in contradiction to Thm 1. Hence no such approximation algorithm exists for GIP under the computational model of Halperin and Krauthgamer [28] 
+
+⊓⊔
+
+The following theorem, describing upper approximation bounds for GIP , im-proves the previous O(k) approximation result provided by Mizutani et al. [41]. 
+
+Theorem 4 (Upper approximation bounds for GIP ). There exists an efficient O(log n · log 2 k)-approximation algorithm for GIP .Proof. Given a GIP instance with optimal solution T ∗, we apply the approxi-mation algorithm AGroup-ST provided by Thm. 2, yielding a solution TA to the 
+
+Group-ST problem for which |TA| ≤ O(log n · log 2 k) · | T ∗|. We build a tour τ
+
+such that |τ | ≤ 2·| TA| traveling TA back and forth by Observation O2 . However, as the optimal GIP solution τ ∗ is also a Group-ST solution by Observation O1 ,
+
+|T ∗| ≤ | τ ∗|, it follows that 
+
+|τ | ≤ 2 · | TA| ≤ 2 · O(log n · log 2 k) · | T ∗| ≤ O(log n · log 2 k) · | τ ∗|.
+
+Thus, Agst is an efficient O(log n log 2 k)-approximation algorithm for GIP . ⊓⊔
+
+## B Partial-coverage GIP 
+
+In this section we briefly describe how to extend the baseline MILP formulation for GIP (1a)–(1e) to support partial group coverage. This extension is orthogonal to the choice of subtour-elimination constraints, as it can be plugged into any of the discussed formulations. It is based on ideas proposed by Mizutani et al. [41], and we include it here for completeness. Given a desired number of POIs to be covered, q ≤ k, we introduce additional binary decision variables zi ∈ { 0, 1} for all i ∈ K, indicating whether POI i is selected for inspection. The requirement to cover at least q POIs is enforced by the constraint X
+
+> i∈K
+
+zi ≥ q. (5) The group-coverage constraint (1c) is then modified so that coverage is en-forced only for selected POIs: 
+
+X
+
+> v∈Si
+
+X 
+
+> u∈N−(v)
+
+xuv ≥ zi, ∀i ∈ K. (6) 22 Morgan, Solovey, and Salzman 
+
+This GIP variant is particularly interesting in the aspect of model tightness tradeoffs. On one hand, partial coverage relaxes the full GIP problem constraints, easing the discovery of feasible solutions. On the other hand, the additional combinatorial explosion of having to chose q out of the k POIs significantly increases the solution space. When viewed through the lens of MILP, it looses model integrality gap, as fractional solutions may spread partial coverage across many groups via the zi variables, weakening coverage constraints in the LP relaxation. Eventually, this leads to a problem where finding the optimal partial-coverage solution may be even more challenging than finding the optimal full-coverage solution. We leave empirical evaluation of this variant to future work. 
+
+## C Additional Details on the Primal Heuristic for GIP 
+
+We provide additional details regarding our GIP -specific primal heuristic. The heuristic consists of the following three phases (visualized in Fig. 6 and 7 and detailed shortly). At a high level, we first modify edge costs based on the cur-rent LP relaxation, enabling the heuristic to leverage guidance from fractional solutions encountered during the search. Then, inspired by the Group-ST prob-lem [33, 45], we greedily construct a tree that connects the root to at least one vertex from each POI group. Finally, we transform this group-covering tree into a feasible GIP tour by adding a small set of connecting edges. We mention that a common approach to generate incumbent solutions in MILP problems is to round fractional solutions to enforce integrality. The LP-based cost modification strategy [33] generalizes this idea by using fractional val-ues to guide the construction of integer solutions indirectly: instead of rounding variables explicitly, edge costs are discounted according to their fractional val-ues in the current relaxation. This biases the heuristic toward structures already supported by the LP relaxation, improving solution quality and alignment with the solver’s ongoing search. From this perspective, our heuristic can be viewed as a problem-aware LP-rounding step embedded within the BnC process. We now provide a detailed description for each of the three phases. 
+
+Phase 1-LP-based cost-discounted graph. Let {xe}e∈E denote a fractional solution obtained from an LP relaxation solved during the BnC process. We construct a new weighted graph Gn = ( V, E, c n) over the same vertices and edges as the original graph G = ( V, E, c ), where each edge e ∈ E is assigned a modified cost cn(e) := c(e) · (1 − xe). This modification reflects the intuition that edges partially selected by the LP relaxation are more likely to belong to high-quality integer solutions. By lowering their cost, the heuristic is encouraged to follow the structure suggested by the relaxation, while still allowing alternative edges when necessary. 
+
+Phase 2-Group-covering tree. In the second phase, illustrated in Fig. 6, we construct a group-covering tree T rooted at r in the discounted graph Gn that covers all groups, i.e., ∀Si ∈ S , T ∩ Si̸ = ∅. To this end, we maintain a set U
+
+of uncovered groups, initialized as U := S, and incrementally expand the tree, which initially consists of the root vertex r alone. Scalable Inspection Planning via Flow-based MILP 23 
+
+r
+
+> (a)
+
+r   
+
+> (b) Fig. 6: Illustration of Phase 2 of the primal heuristic for GIP : A group covering tree (green) is built from the root rtowards the closest vertex among all the vertices covering an uncovered group (colored vertices); (a) The yellow vertex is chosen as the closest vertex to the tree and a path from nearest tree vertex (orange edges) is found. (b) After the path was added, the tree continues to grow greedily until all groups are covered.
+
+Before growing the tree, we compute all-pairs shortest paths in Gn, obtaining for every pair of vertices u, v ∈ V a shortest (weighted) path π∗(u, v ) and its cost d∗(u, v ) with respect to the modified edge costs cn. This forms the computa-tional bottleneck of the heuristic, as it is recalculated whenever a new LP-relaxed solution is found and graph weights are updated. At each iteration, we define the set of candidate vertices 
+
+Vcovered := {v ∈ V \ T | ∃ Si ∈ U such that v ∈ Si},
+
+consisting of vertices that belong to at least one uncovered group. Among these candidates, we greedily select the vertex v′ ∈ Vcovered that is closest to the current tree, i.e., 
+
+v′ := arg min 
+
+> v∈Vcovered
+
+min  
+
+> w∈T
+
+d∗(w, v ).
+
+The selected vertex v′ is added to the tree by inserting the shortest path π∗(u, v ′),where 
+
+u := arg min  
+
+> w∈T
+
+d∗(w, v ′).
+
+This process is repeated until U = ∅, yielding a tree that intersects all groups in S.
+
+Phase 3-Tree-to-tour conversion. In the final phase (illustrated in Fig. 7), we transform the group-covering tree T into a feasible GIP tour by adding a minimum-cost set of edges so as to make T an Eulerian subgraph. Concretely, let O denote the set of vertices in T with odd degree. A standard approach to making the graph Eulerian is to compute a minimum-weight perfect matching M on the complete graph induced by O, where edge weights correspond to shortest-path distances in Gn, and to add the matched shortest paths to T .This procedure follows the matching phase of Christofides’ algorithm [12] and can be implemented using Blossom-based algorithms for minimum-weight perfect matching [14, 18]. The matching adds exactly one incident edge to each odd-degree vertex, resulting in the augmented graph T + M being Eulerian. In our 24 Morgan, Solovey, and Salzman    
+
+> r
+> (a)
+> r
+> (b)
+> r
+> (c)
+> Fig. 7: Illustration of Phase 3 of the primal heuristic for GIP : (a) The phase starts with a tree (green) connecting the root to a covering set of vertices (red). (b) A matching is found between odd-degree tree vertices, resulting in an Eulerian graph. The matching may include actual graph edges (orange) or virtual edges representing shortest paths (red) (c) An Eulerian tour is imposed on the graph, orienting the selected edges to form a valid GIP tour.
+
+context, using an optimal matching minimizes the additional cost required to make T traversable and typically yields higher-quality tours. We refer to the heuristic described so far as covering tree + minimum match-ing . For scalability and speed, we consider a lightweight alternative based on 
+
+greedy nearest-neighbor matching on O, in which the two closest unmatched vertices are repeatedly paired and removed [32, 46]. We refer to this heuristic as 
+
+covering tree + greedy matching .In practice, the greedy matching variant substantially reduces heuristic com-putation time and often produces solutions close to those obtained with optimal matching at a fraction of the computational cost. The trade-off between solu-tion quality and runtime for these two variants is evaluated in Sec. D.3: while minimum-weight perfect matching gives slightly improved heuristics, the greedy matching approach enables better scaling to very large GIP instances. After aug-menting T using the chosen matching strategy, we extract an Eulerian tour and shortcut repeated vertices to obtain the final GIP solution. Throughout the experiments conducted in Sec. 6, the covering tree + greedy matching was the applied heuristic. 
+
+## D Additional Experimental Results 
+
+In this section we complement the experimental discussion in Sec. 6 with the following: (i) We elaborate on the inspection-planning simulation, used in the 
+
+Controlled instances. (ii) We complement the scale-range analysis with small scale experiments. (iii) We extend our ablation study regarding BnC algorithmic building blocks, with a primal-heuristic discussion. 
+
+D.1 Inspection-Planning Simulator 
+
+While real-world datasets capture practical inspection scenarios, simulation en-ables independent control over key problem parameters such as graph size and Scalable Inspection Planning via Flow-based MILP 25         
+
+> (a) (b) (c)
+> Fig. 8: Inspection planning simulation. (a) The simulation environment is a planar maze of given size, with randomly allocated L-shaped obstacles (in brown). k= 50
+> POIs are scattered in the free space at random (in yellow). (b) RRT graph with n=1,000 vertices built to span the robot’s configuration space with the robot’s starting configuration located in the top-left corner and marked in green. (c) Edges are locally added to create an RRG graph which is used as the inspection-planning graph.
+
+number of POIs, allowing us to isolate and study the scaling behavior of different MILP formulations. To this end, we developed a configurable inspection-planning simulator that generates problem instances on a point robot model, preserving the structural characteristics of roadmap-based inspection graphs, while enabling precise control over instance scale and coverage complexity. The point robot operates in a three-dimensional configuration space C =
+
+R2 × SO(2) , representing planar position and orientation. It is equipped with a camera characterized by a fixed field-of-view (FOV) angle and a maximal in-spection range. Each scenario is generated by randomly placing two-dimensional obstacles, a set of POIs P, and a designated starting configuration r in a bounded planar workspace. An RRG roadmap is then constructed in the robot’s configuration space, respecting obstacle constraints using standard collision-checking procedures [30]. Vertices correspond to collision-free robot configurations, and edges represent dynamically feasible local motions with associated traversal costs. Based on the camera’s FOV and inspection range, each vertex v ∈ V is assigned a visibility set χ(v) ⊆ P , consisting of the POIs that can be inspected when the robot is positioned at v. This process yields a graph inspection planning instance as defined in Def. 1. In the experiments below, we systematically vary the roadmap size n = |V | and the number of POIs k = |P| to analyze solver behavior across a wide range of problem scales. The simulation environment is a planar maze populated with randomly placed L-shaped obstacles, inducing narrow passages and nontrivial connectivity pat-terns. POIs are uniformly distributed in the free space, and inspection plans must navigate the roadmap to ensure coverage while maintaining global connectivity. The process of generating a representative simulated instance is demonstrated in Fig. 8. 26 Morgan, Solovey, and Salzman 
+
+D.2 Evaluation of Small Instances 
+
+Recall that in Sec. 6.2 we studied the optimality gap on large-scale simulated instances (Fig. 4). We now examine the opposite end of the scale spectrum, where tighter formulations become feasible and exact convergence is sometimes attainable in the controlled scenarios. Fig. 9 reports the final optimality gap after a time limit of 500 s . Solver were applied in identical configuration to Sec. 6. 100 250 350 500                        
+
+> k
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Optimality Gap (%)
+> (a) n= 250 100 250 350 500
+> k
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Optimality Gap (%) (b) n= 500 100 250 350 500
+> k
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Optimality Gap (%) (c) n= 750 100 250 350 500
+> k
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Optimality Gap (%) (d) n= 1000 Group-Cutset SCF MCF Charge
+
+Fig. 9: Optimality gap on small-scale simulated instances after 500 s for varying graph sizes ( n) and number of POIs ( k). 
+
+For instances in which the MCF solver fits within available memory, it consis-tently solves the problem to optimality. This behavior is expected, as the MCF 
+
+solver provides a tight and complete encoding of connectivity and group-coverage constraints, making it the preferred choice whenever problem size permits. In contrast, the more compact solvers ( Charge and SCF ) exhibit significantly larger optimality gaps on these instances. The Group-cutset formulation, how-ever, maintains high performance even at small scales, indicating a degree of scale insensitivity. One possible explanation for the weaker performance of the Charge and SCF formulations on these simulated instances, despite their competitive results on some larger real-world graphs (e.g., Bridge-1000 ), is the relatively small num-ber of POIs. With fewer groups, coverage constraints become less restrictive, en-larging the feasible region of the LP relaxation and making tight lower bounds harder to obtain. In such settings, formulation strength, measured by lower-bound tightness, becomes the dominant factor, where Group-cutset excels. This interpretation is supported by the observed trend that the optimality gaps for the Charge and SCF solvers decrease as the number of POIs increases, whereas the gap slightly increases for group-cutset solvers. 
+
+D.3 Evaluation of Primal Heuristic 
+
+We evaluate the effectiveness of our problem-specific GIP heuristics discussed in App. C, and compare them against the heuristic proposed by Mizutani et al. Scalable Inspection Planning via Flow-based MILP 27 Bridge-1000 
+
+> Bridge-2000
+> Crisp-1000
+> Crisp-2000
+
+0
+
+500 
+
+1000 
+
+1500 
+
+> Tour cost
+> (a) Bridge-1000
+> Bridge-2000
+> Crisp-1000
+> Crisp-2000
+
+10 0
+
+10 1   
+
+> Time (s) (b) Covering Tree + Greedy Matching Covering Tree + Perfect Matching ST Heuristic
+
+Fig. 10: Heuristic evaluation. (a) Tour cost comparison at the root of the BnC tree. Tour costs on CRISP instances are scaled by 1, 000 ×. (b) Execution runtime in seconds. 
+
+[41], referred to as the ST heuristic . The ST heuristic first selects vertices greed-ily based on proximity to the root by finding the appropriate shortest-paths, until a group-covering set is obtained, then constructs a Steiner tree using a minimum spanning tree, which yields a 2-approximation of the optimal Steiner tree connecting those chosen vertices. Finally, their approach produces a tour by traversing the tree back and forth. We note that as presented, this heuristic is only applicable in an undirected graph regime. 100 200 300 400 500 
+
+Time (s) 
+
+800 
+
+1000 
+
+1200 
+
+1400   
+
+> Tour cost Covering Tree + Greedy Matching Covering Tree + Perfect Matching ST Heuristic
+
+Fig. 11: Anytime performance on the Bridge-1000 instance. The plot shows the tour cost improvement over time for the different heuristics. 
+
+In contrast, our GIP heuristic builds the group-covering tree iteratively, min-imizing the incremental edge cost while covering new groups. This integrates vertex selection and tree construction into a single phase, which tends to yield more compact covering trees. Furthermore, the tree-to-tour conversion goes be-28 Morgan, Solovey, and Salzman 
+
+yond simple back-and-forth traversal by augmenting the tree to an Eulerian graph and extracting an Eulerian tour. We evaluate two variants of our “Covering-Tree” heuristic on real-world sce-narios, which differ only in the final tour-construction phase (App. C): one using minimum-weight perfect matching and the other using greedy matching .Fig. 10 compares the resulting heuristic solutions 6 on the CRISP and Bridge in-stances. Specifically, Fig. 10(a) reports the cost of the heuristic-generated tour. In Fig. 10(b) we report the running time of a single heuristic execution on the scenario problem instance, i.e. independently from the BnC solver. Finally, Fig. 11 illustrates a representative Group-Cutset solver run for the 
+
+Bridge-1000 instance, augmented with each heuristic variant, over a time hori-zon of t = 500 seconds. Comparing the two Covering-Tree variants reveals a modest trade-off between solution quality and runtime (Fig. 10). Greedy matching substantially reduces heuristic computation time, at the cost of a mild degradation in solution quality of up to approximately 5% .For solvers with sufficiently long time limits, this degradation has negligible impact on the final solution quality. Fig. 11 illustrates this behavior, showing that both variants, when used as primal heuristics within the BnC framework, consistently outperform the ST heuristic, with no clear dominance between them in this regime. However, for the larger instances considered in Sec. 6.2, heuristic runtime becomes a dominant factor. In this regime, the faster greedy-matching vari-ant provides a clear advantage, a trend we consistently observed during exper-imentation but do not report explicitly for brevity. Accordingly, we adopt the greedy-matching variant within the Group-Cutset BnC solver for all experimental evaluations (Sec. 6). Comparing these results to those obtained using Gurobi’s generic internal heuristics when applied to the Group-Cutset formulation highlights the impor-tance of problem-specific primal heuristics. In additional experiments conducted during evaluation (not shown for brevity), our heuristic consistently produced substantially better incumbent solutions than Gurobi’s default internal heuris-tics. On the CRISP-1000 instance, where the difference is smallest, incumbent costs were approximately five times lower, while on more challenging instances the improvement reached up to two orders of magnitude. These results demon-strate the critical role of tailored primal heuristics for obtaining high-quality incumbents in lazy-constraint settings.

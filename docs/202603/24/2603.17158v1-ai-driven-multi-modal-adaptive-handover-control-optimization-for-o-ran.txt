@@ -1,0 +1,514 @@
+Title: AI-Driven Multi-Modal Adaptive Handover Control Optimization for O-RAN
+
+URL Source: https://arxiv.org/pdf/2603.17158v1
+
+Published Time: Thu, 19 Mar 2026 00:23:18 GMT
+
+Number of Pages: 6
+
+Markdown Content:
+This version of the paper has been accepted for presentation at IEEE ICC WS-01, 2026. It is subject to IEEE copyright and may be removed upon request. 
+
+# AI-Driven Multi-Modal Adaptive Handover Control Optimization for O-RAN 
+
+Abdul Wadud ∗† , Graduate Student Member, IEEE Fatemeh Golpayegani ∗, Senior Member, IEEE and Nima Afraz ∗, Senior Member, IEEE 
+
+∗School of Computer Science, University College Dublin, Ireland 
+
+†Bangladesh Institute of Governance and Management, Dhaka, Bangladesh 
+
+Abstract —Handover optimization in O-RAN faces growing challenges due to heterogeneous user mobility patterns and rapidly varying radio conditions. Existing ML-based handover schemes typically operate at the near-RT layer, which lack aware-ness of the mobility-mode and struggle to incorporate a longer-term predictive context. This paper proposes a multi-modal mobility-aware optimization framework in which all predictive intelligence, including mobility mode classification, short-horizon trajectory and RSRP forecasting, and a PPO Actor–Critic policy, runs entirely inside an rApp in the non-RT RIC. The rApp generates per-UE ranked neighbour-cell recommendations and delivers them to the existing handover xApp through the A1 interface. The xApp combines these rankings with instantaneous E2 measurements and performs the final standards-compliant handover decision. This hierarchical design preserves low-latency execution in the xApp while enabling the rApp to supply richer and mode-specific predictive guidance. Evaluation using mobility traces demonstrates that the proposed approach reduces ping-pong handover events and improves handover reliability com-pared to conventional 3GPP A3-based and ML-based baselines. 
+
+Index Terms —O-RAN, handover, optimization, multi-modal mobility, Non-RT RIC, Near-RT RIC, machine learning, rApp 
+
+I. I NTRODUCTION 
+
+# HANDOVER (HO) is a core mobility function in cellu-lar networks, which ensures that user equipment (UE) maintains connectivity while moving across cells. In legacy macrocell deployments, simple geometric proximity and radio indicators (RSRP/RSRQ) were sufficient to trigger handovers. However, modern 5G networks consist of dense small cells with coverage radii of only a few hundred meters, signifi-cantly increasing handover frequency, signaling load, and the likelihood of short-lived or premature handovers [1]. These challenges are further amplified in O-RAN, where disaggre-gated processing across the O-CU, O-DU, and O-RU (7.2x split) introduces new latency and coordination constraints [2], [3]. Traditional A3-event handover mechanisms rely on fixed Time-to-Trigger (TTT), Hysteresis (Hyst), and Cell Individual Offset (CIO) values [1]. While simple and robust, fixed configurations are inherently mobility-agnostic. Slow-moving 
+
+Funding for this research is provided by the European Union’s Horizon Europe research and innovation program through the Marie Sklodowska-Curie SE grant under the agreement RE-ROUTE No 101086343. Corresponding author: Abdul Wadud (email: abdul.wadud@ucdconnect.ie). 
+
+User Equipments (UEs) often experience excessive ping-pong handovers, while high-speed UEs, such as those in vehicles or trains, suffer from late or failed handovers due to insufficient reaction time [4]. Several works have attempted to enhance A3-based decisions using machine learning. Zhang et al. and Saboor et al. proposed ML-assisted parameter tuning to reduce unnecessary handovers [5], while Karmakar et al. demonstrated that adaptive TTT/Hyst improves performance in high-mobility environments [6]. However, these approaches treat mobility as a continuous variable and overlook the fact that real-world user mobility is inherently multi-modal , pedes-trians, cars, buses, and trains exhibit distinct speed patterns, dwell times, and cell transition behaviors. Recent ML-based handover studies leverage trajectory pre-diction and reinforcement learning. For instance, DQN- and LSTM-based models have been applied for mobility-aware handover optimization [7], [8]. Although these methods im-prove predictive accuracy, they require substantial real-time computation, making them difficult to deploy within near-real-time RIC constraints. Moreover, most existing solutions operate as monolithic controllers and do not exploit the hierarchical processing capabilities of the O-RAN’s non-RT and near-RT RICs. As highlighted in [4], [9], there remains a substantial gap in reconciling predictive mobility intelligence with the strict latency budgets of O-RAN’s near-RT control loops. To the best of our knowledge, there is no existing work that holistically combines (i) multi-modal mobility awareness, (ii) predictive handover target ranking, and (iii) real-time, lightweight decision-making aligned with O-RAN’s hierarchi-cal rApp–xApp architecture. 
+
+Our contribution. This paper proposes a mobility-aware, multi-modal handover optimization framework tailored for O-RAN 7.2x deployments. The system (i) classifies each UE into one of seven mobility modes, pedestrian, cyclist, car, bus, train, drone, or uav using short-term movement patterns, (ii) predicts future RSRP and UE trajectory using mode-specific models, and (iii) delivers a ranked list of handover candidates using Proximal Policy Optimization (PPO)-based method to a handover (HO) xApp running in the near-RT RIC. Unlike prior works, the proposed design explicitly leverages O-RAN’s hierarchical separation: long-timescale mobility analytics are offloaded to the non-RT RIC (rApp), while the xApp performs 
+
+> arXiv:2603.17158v1 [cs.NI] 17 Mar 2026
+
+sub-100 ms handover decisions using live E2 measurements and the rApp’s mobility-enriched policies. This division en-ables predictive, mobility-aware handover optimization with-out violating latency constraints. Simulation results demonstrate significant improvements in handover success rate, reduced ping-pong rates, and enhanced throughput compared to both classical A3-based baselines and contemporary LSTM-based transfer learning method [10], which we term as ORAN ML-Assisted method throughout this paper. The results confirm that multi-modal mobility awareness and hierarchical RIC cooperation are essential to robust handover performance in dense and dynamic 5G/O-RAN deployments. The following section discusses the O-RAN architecture and system model. O-RU O-RU       
+
+> O-RU O-RU
+> O-RU O-RU O-RU
+> O-CU -CP O-CU -UP
+> O-DU
+> Open Front -Haul
+> (Split 7.2)
+> F1 -uF1 -c
+> E1
+> SMO Framework
+> rApp s
+> Framework
+> R1
+> Non -RT -RI C
+> O1
+> xApps
+> Database
+> Messaging Platform
+> Near -RT -RIC SDL
+> CM
+> SM
+> E1
+> A1 A1
+> Fig. 1. System Model.
+
+II. S YSTEM MODEL AND PROBLEM FORMULATION 
+
+A. O-RAN 7.2x Setting and Entities 
+
+We consider a 5G RAN realized according to the O-RAN 7.2x split as illustrated in Fig. 1: the O-CU hosts RRC/PDCP protocols, each O-DU executes RLC/MAC, and each O-RU performs PHY/RF. O-RUs attach to O-DUs via fronthaul; O-DUs attach to the O-CU via midhaul. The non-RT RIC (in the SMO) exposes A1 policies; the near-RT RIC hosts xApps that act over the E2 interface. The SMO Framework hosts Non-RT RIC and rApps for time insensitive network management tasks, whereas the Near-RT RIC hosts xApps for time critical network management activities. Figure 1 depicts the standard O-RAN architecture presented by O-RAN Alliance [2]. Let U be the set of active UEs and C the set of serv-ing/neighbor cells (RUs) visible to a UE. Time advances in near-RT control ticks t ∈ N. For UE u ∈ U we denote position by put = [ xut , y ut ]⊤ ∈ R2 and kinematics by kut =[vut , a ut , j ut , ˙ψut ]⊤, where v, a, j, ˙ψ are speed, acceleration, jerk, and bearing rate. Downlink measurements are rut = rut,c 
+
+ 
+
+> c∈C
+
+,with rut,c the measured (or filtered) RSRP from cell c.Each UE has a mobility mode mut ∈ M with M =
+
+{PED , CYCLIST , CAR , BUS , TRAIN , DRONE , UAV }. We denote its one-hot encoding by e(mut ) ∈ { 0, 1}|M| .
+
+B. Predictors and near-RT State 
+
+Two normalization-aware Random Forest regressors provide one-step-ahead forecasts from features (kut , put , m ut ): a trajec-tory regressor outputs bput+1 = [ bxut+1 , byut+1 ]⊤ and an ensemble RSRP regressor outputs a vector brut+1 = brut+1 ,c 
+
+ 
+
+> c∈C
+
+. The near-RT policy state is 
+
+sut =  e(mut ), bput+1 , brut+1 
+
+ ∈ R|M| +2+ |C| .
+
+C. Action, Constraints, and A3 View 
+
+At each tick t, the action is a target cell aut ∈ A u ⊆ C , where 
+
+Au are admissible neighbors. Standard feasibility applies: P 
+
+> c∈C
+
+xut,c = 1 (unique association) and P 
+
+> u∈U
+
+ρut,c ≤ 1
+
+(cell resource limit), where xut,c ∈ { 0, 1} and ρut,c ∈ [0 , 1] 
+
+are managed by the DU/MAC. For completeness, the clas-sical A3 condition between serving c and candidate c′ is 
+
+rut,c ′ + CIO > r ut,c + Hyst with time-to-trigger is used. In our predictive setup, we use brut+1 ,· and internalize this logic in the policy. If a deployment exposes only A3/A5 knobs, the policy can be mapped to (TTT , Hyst , CIO ) using mode-dependent scalings. 
+
+D. Objective as a Control Utility 
+
+Over horizon T , we intend to maximize a weighted utility 
+
+max 
+
+> T
+
+X
+
+> t=1
+
+X
+
+> u∈U
+
+ α w uRut − βH ut − γP P ut
+
+
+
+where Rut is throughput, Hut ∈ { 0, 1} flags a handover, and 
+
+P P ut ∈ { 0, 1} flags ping–pong. Weights α, β, γ ≥ 0 encode operator tradeoffs; wu is per-UE priority. III. P ROPOSED MULTI -M ODAL OPTIMIZATION METHOD 
+
+This section presents an adaptive handover controller (AHC) that combines three predictive components of mobility mode classification (MC, short-horizon trajectory prediction (TP), and Per-Cell RSRP prediction (P-RSRP), and eventually feeds them into a stochastic Actor–Critic agent named cell-ranker (CR) running inside the non-RT rApp (see in Fig. 2). The ranked cells are then being transferred to the Handover (HO) xApp running in the near-RT RIC for handover decision. The design follows the O-RAN split: a non-RT rApp performs policy enrichment and manages the life-cycle of predictive models and ranks the cells based on these predictions, whereas the HO xApp executes per-UE decisions using the policy sent by the MultiModal-AHC rApp with live E2 measurements. 
+
+A. Mobility Mode Classification (MC) 
+
+Each UE is assigned a mobility mode mut ∈{PED , CYCLIST , CAR , BUS , TRAIN , DRONE , UAV },which is classified using a lightweight k-NN classifier hosted inside the Multimodal-AHC rApp. AI Model  
+
+> Catalog
+> RIC Data
+> Collector
+> O-CU -CP O-CU -CP
+> E1
+> E2
+> E2
+> O-DU
+> F1
+> Open -FH
+> RIC
+> Database
+> Data Broker
+> Database
+> Training
+> Cache
+> Training
+> Model
+> Service Management and Orchestration (SMO)
+> Online Model
+> Uploading
+> O1
+> A1
+> O-RU
+
+MLB 
+
+xApp 
+
+HO
+
+xApp 
+
+Messaging Platform  
+
+> TP P-RSRP
+> MC
+
+R1 
+
+Framework 
+
+Non -RT -RIC  
+
+> Near -RT -RIC
+> CR
+> AHC
+> rAPP Fig. 2. Proposed Multi-Modal Adaptive Handover Control Framework in O-RAN.
+
+Input Features.: The classifier ingests a short history of motion descriptors:  
+
+> •
+
+velocity vut , 
+
+> •
+
+acceleration aut , 
+
+> •
+
+jerk jut , 
+
+> •
+
+bearing rate ˙ψut , and  
+
+> •
+
+the previous mode estimate. These features capture motion smoothness and direction changes [11]. The rApp computes the mode label periodically from historical traces and sends its one-hot encoding e(mut )
+
+to the xApp via A1. 
+
+B. Short-Horizon Prediction 
+
+Two lightweight Random-Forest regression ensembles run-ning in the rApp forecast short-horizon mobility and link quality. Their outputs help the cell rank (CR) component of the rApp anticipate near-future geometric and radio conditions and rank cells for possible handover decision. 
+
+Trajectory Prediction (TP): The next-step position 
+
+bput+1 = [ bxut+1 , byut+1 ] is predicted using regressors trained on the feature vector: 
+
+[vut , a ut , m ut , x ut , y ut ].
+
+These features capture both recent kinematics and current location, enabling accurate short-range forecasts. 
+
+Per-cell RSRP Prediction (P-RSRP): For each cell c ∈ C ,the rApp predicts brut+1 ,c via an ensemble regressor using: 
+
+[vut , a ut , x ut , y ut , m ut ].
+
+The resulting vector brut+1 encodes the anticipated near-future link strengths and is passed to the CR component for neighbor ranking and policy input. 
+
+C. Actor–Critic Handover Policy based Cell Ranker (CR) 
+
+The non-RT-RIC Multimodal-AHC hosts a stochastic Actor–Critic agent trained with proximal policy optimization (PPO). Unlike the predictive models in the rApp, the Actor– Critic is the real-time decision engine. The action aut ∈ A u selects the target cell for UE u. The actor outputs a probability distribution: 
+
+πθ (a|sut ),
+
+while the critic estimates Vϕ(sut ).Training uses the clipped PPO surrogate objective: 
+
+LPPO (θ) = E
+
+h
+
+min 
+
+
+
+rt(θ) ˆAt, clip (rt(θ), 1 − ϵ, 1 + ϵ) ˆAt
+
+i 
+
+,
+
+with rt(θ) the probability ratio and ˆAt the advantage. An entropy regularizer promotes exploration.  
+
+> Fig. 3. Hierarchical rApp–xApp workflow.
+
+IV. H IERARCHICAL R APP –XAPP COLLABORATION FOR 
+
+MOBILITY -A WARE HANDOVER OPTIMIZATION 
+
+In the proposed O-RAN deployment, mobility intelligence is distributed between the non-RT RIC and the near-RT RIC following standard O-RAN architecture principles. A lightweight mobility analytics rApp operates in the non-RT RIC (within the SMO), while a handover control xApp 
+
+executes in the near-RT RIC. The rApp performs offline and slow-timescale tasks such as mobility mode classification, trajectory prediction, and per-RU RSRP forecasting, and also hosts the Actor–Critic (PPO) policy that ranks neighbor cells per UE as A1 policy recommendations. The HO xApp remains policy-driven and latency-light: it consumes these A1 rankings together with live E2 measurements and issues the standards-compliant handover commands. 
+
+A. Handover Decision-Making Workflow 
+
+The sequence diagram in Fig. 3 illustrates the interaction flow between the SMO, rApp, xApp, and RAN Nodes (O-CU, O-DU, O-RU, and UE):  
+
+> •
+
+Offline Stage (SMO → rApp): The SMO deploys the trained mobility models and the PPO policy to the rApp over the O1 interface. These include the classifier, trajectory regressors, per-RU RSRP predictor, and the Actor–Critic parameters.  
+
+> •
+
+non-RT Processing (rApp): The rApp periodically re-trieves UE historical data from the RAN, classifies each UE’s mobility mode, and runs mode-specific prediction models. The rApp’s Actor–Critic policy fuses mode, short-horizon trajectory, and per-cell RSRP to rank can-didate target cells per UE.  
+
+> •
+
+Policy Transfer (rApp → xApp): The rApp sends ranked handover candidates and optional KPI preferences to the xApp through the A1 interface as mobility enrich-ment information.  
+
+> •
+
+near-RT Execution (xApp): The xApp receives live RAN measurements via E2, combines them with the rApp’s A1 rankings, applies a light utility check (e.g., current load/admission and QoS guards), and executes the final handover. Handover commands are then issued to the RAN using standard E2 control.  
+
+> •
+
+Feedback (RAN → SMO): The RAN reports per-formance metrics (handover success/failure, ping-pong, throughput) back to the SMO for monitoring and periodic rApp model/policy refresh. 
+
+B. Purpose of the Hierarchical Split 
+
+This division ensures that: (i) compute-intensive analyt-ics and the Actor–Critic policy optimization run at non-RT time scales in the SMO/rApp, and (ii) latency-critical handover execution remains in the near-RT RIC with sub-second deadlines. The xApp thus stays lightweight and real time, while benefiting from predictive, mobility-aware policy recommendations generated by the rApp. The rApp–xApp split of work enables mobility-aware, predictive, and stable handover control without overloading the near-RT RIC. V. S IMULATION RESULTS AND PERFORMANCE ANALYSIS 
+
+A. Simulation Setup 
+
+Performance evaluation of the proposed MultiModal-AHC framework was carried out using the MATLAB 5G Toolbox with a realistic O-RAN 7.2x architecture [12], [13]. The scenario consists of one O-CU connected to three O-DUs, each serving 9 O-RUs, and has a population of U = 100 
+
+mobile users distributed across seven mobility modes (pedes-trian, cyclist, car, bus, train, drone, UAV). Users move within a dense-urban layout, generating diverse mobility and link dynamics. The O-RUs are distributed on a circle with radius = 1000m, and each O-RU covers 500m radius. Therefore, the total coverage area is approximately 7 square kilometers. The radio configuration follows 3GPP-compliant parame-ters: a 2.1 GHz carrier, 20 MHz bandwidth, 46 dBm RU trans-mit power, and an Urban Macro path-loss model with 8 dB log-normal shadowing. Fronthaul links use 10 Gbps capacity with 0.1–0.5 ms one-way latency, compatible with O-RAN near-RT timing. The simulation runs for 200 control intervals (20 s), during which all UEs periodically report measurements, mobility states evolve, and the xApp executes the PPO-based handover decisions using A1 policy hints from the rApp. The performance results are collected by repeating the simulation 30 times with a confidence interval of 95%. This configuration captures realistic latency, mobility, and radio-variability conditions required to assess the effectiveness of predictive mobility-aware handover control in O-RAN. 
+
+B. Evaluation of Machine Learning Models 1 2 3 4 5 6 7 
+
+> Predicted Mode
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> Actual Mode
+> 5955
+> 2283
+> 5239
+> 3335
+> 2550
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 6
+> 0
+> 1
+> 0
+> 0
+> 6
+> 6
+> 0
+> 12
+> 0
+> 0
+> 6
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 1096
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 0
+> 1933
+> 0
+> 1000
+> 2000
+> 3000
+> 4000
+> 5000
+> Accuracy = 99.8%
+> Fig. 4. Confusion matrix for 7-mode classifier (overall accuracy: 99.84%)
+
+We first assess the performance of the individual machine learning models used in the proposed framework. Each model was trained and evaluated separately before being integrated into the multi-modal adaptive framework. Table 1: Mode Classification 
+
+Mode P R F1  
+
+> PED
+
+1.00 1.00 1.00  
+
+> CYCLIST
+
+1.00 0.99 1.00  
+
+> CAR
+
+1.00 1.00 1.00  
+
+> BUS
+
+0.99 1.00 1.00  
+
+> TRAIN
+
+1.00 1.00 1.00  
+
+> DRONE
+
+1.00 0.99 0.99  
+
+> UAV
+
+1.00 0.99 1.00 
+
+1) Mode Classification Accuracy: The mobility mode clas-sifier (k-NN over short kinematic windows with velocity, ac-celeration, jerk, and bearing-rate) achieves an overall accuracy of 99.84% across seven modes: {PED , CYCLIST , CAR , BUS ,
+
+> TRAIN
+
+, DRONE , UAV }. Per-class precision (P), recall (R), and F1 are near-perfect, with only marginal 1% recall dips on a few classes, consistent with rare transition periods where adjacent modes exhibit overlapping speeds or headings (see in Table 1). The confusion matrix (Fig. 4) confirms that misclassifi-cations are sparse and predominantly occur between CY -
+
+> CLIST
+
+/UAV /DRONE in short windows where kinematics briefly align. This level of accuracy is sufficient for the rApp’s ranked-target generation, as downstream scoring integrates trajectory and per-RU RSRP predictions, further dampening any residual classification noise. X Position (m)            
+
+> -2000 -1500 -1000 -500 0500 1000 1500 2000 2500
+> Y Position (m)
+> -1500
+> -1000
+> -500
+> 0
+> 500
+> 1000
+> 1500 RMSE = 14.40 m
+> Mode 1 Actual
+> Mode 1 Predicted
+> Mode 2 Actual
+> Mode 2 Predicted
+> Mode 3 Actual
+> Mode 3 Predicted
+> Mode 4 Actual
+> Mode 4 Predicted
+> Mode 5 Actual
+> Mode 5 Predicted
+> Mode 6 Actual
+> Mode 6 Predicted
+> Mode 7 Actual
+> Mode 7 Predicted
+> Fig. 5. Short-horizon trajectory prediction: mode-wise actual vs predicted coordinates.
+
+2) Trajectory Prediction Performance: The short-horizon trajectory regressor achieves strong accuracy with an overall RMSE of 14.40 m. Predicted and actual coordinates are nearly perfectly aligned, with correlation coefficients of 1.00 for both 
+
+x and y. The mean absolute errors are 4.62 m (x) and 5.09 m (y), confirming stable and reliable motion forecasting across mobility modes. Mode-wise actual vs predicted trajectory coordinates are illustrated in Fig. 5. In the figure, the modes are mapped as: ’Ped:1’, ’Cyclist:2’, ’Car:3’, ’Bus:4’, ’Train:5’, ’Drone:6’, and ’Uav:7’. 
+
+3) Per-RU RSRP Prediction Accuracy: The rApp uses a lightweight Random Forest ensemble to predict short-horizon per-RU RSRP, conditioned on mobility mode, kinematic fea-tures, and the predicted UE trajectory. The model achieves an RMSE of 7.35 dB , with mean predicted RSRP (-66.76 dB) closely matching the ground truth (-66.75 dB). This error margin is sufficient for reliable neighbor ranking, as the AHC rApp uses RSRP predictions in combination with trajectory forecasts and mode-specific scoring. The small bias between predicted and actual RSRP indicates stable generalization across all mobility modes without overfitting. 
+
+4) Actor–Critic PPO Handover Policy Performance: The PPO-based handover policy was trained using mobility-augmented state features and predicted RSRP values. After convergence, the agent demonstrated stable and consistent behavior across mobility modes. The PPO controller reached an average episode reward of +23.4 , improving from an initial baseline of near zero. The policy reduced handover failures by approximately 18% 
+
+compared to the non-predictive baseline and lowered short-term ping-pong events by 12% . Convergence was observed after roughly 150–180 training episodes, with the clipped surrogate loss stabilizing around 0.03–0.05 .These preliminary results indicate that the PPO agent suc-cessfully exploits mobility-aware predictions to make more stable and anticipatory handover decisions, especially in medium- and high-mobility scenarios. 
+
+C. Overall KPI Performance with 95% Confidence Intervals 
+
+Fig. 6 reports the mean and 95% confidence intervals (CIs) over 30 independent runs for the three KPIs, throughput 
+
+(Mbps), handover rate , and ping–pong rate (%), comparing 
+
+Traditional A3 , O-RAN ML Assisted , Load Balance O-RAN ,and the proposed MultiModal-AHC (rApp). 
+
+Throughput. The mean throughput of MultiModal-AHC is 
+
+77 .10 ±5.72 Mbps (95% CI: [71 .38 , 82 .82] ). Traditional A3 at-tains 74 .11 ±5.54 Mbps ( [68 .57 , 79 .65] ), and O-RAN ML As-sisted attains 78 .48 ± 6.17 Mbps ( [72 .31 , 84 .66] ), while Load Balance O-RAN yields 75 .23 ± 5.58 Mbps ( [69 .65 , 80 .81] ). The CIs overlap across methods, indicating that average throughput differences are not statistically distinguishable at 95% under this scenario. In other words, the proposed rApp maintains competitive throughput despite enforcing stricter stability controls. 
+
+Handover rate. The handover rate indicates handover failure rate. During simulation, MultiModal-AHC achieves a mean HO rate of 0.0362 ± 0.0009 (CI: [0 .0353 , 0.0371] ), substantially lower than Load Balance O-RAN ( 0.4013 ±
+
+0.0036 , [0 .3977 , 0.4049] ), and higher than both O-RAN ML Assisted ( 0.0209 ± 0.0005 , [0 .0205 , 0.0214] ) and Traditional A3 ( 0.0962 ±0.0019 , [0 .0943 , 0.0982] ). These non-overlapping CIs show the ordering is statistically significant. The elevated HO rate relative to A3/ML-Assisted stems from the rApp’s proactivity: the ranked neighbor recommendations encour-age timely transitions for fast or non-stationary modes (e.g., bus/train), avoiding late HOs at the cost of additional (but controlled) HO activity. Conversely, MultiModal-AHC avoids the excessive, load-triggered fluctuations observed in the fixed-threshold Load Balance baseline. 
+
+Ping–pong rate. MultiModal-AHC and Traditional A3 both achieve 0.00% ping–pong (no events recorded across runs), whereas O-RAN ML Assisted and Load Balance O-RAN exhibit 12 .64 ± 0.68% ([11 .95 , 13 .32] ) and 11 .29 ±
+
+0.20% ([11 .09 , 11 .49] ), respectively. This demonstrates that the rApp’s mobility-aware ranking and one-step-ahead ra-dio prediction eliminate short-lived, back-and-forth handovers without sacrificing overall connectivity. Traditional A3 and MultiModal–AHC both achieve 0% ping–pong, but for differ-ent reasons. A3 suppresses ping–pong simply because its fixed TTT and hysteresis make it highly conservative, preventing Traditional A3 
+
+> ORAN ML-Assisted
+> Load Balance
+> MultiModal-AHC (Proposed)
+> Throughput (Mbps)
+> 0
+> 20
+> 40
+> 60
+> 80
+
+Average Throughput 
+
+> Traditional A3
+> ORAN ML-Assisted
+> Load Balance
+> MultiModal-AHC (Proposed)
+> Handover Rate
+> 0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+
+Handover Frequency 
+
+> Traditional A3
+> ORAN ML-Assisted
+> Load Balance
+> MultiModal-AHC (Proposed)
+> Ping-Pong Rate (%)
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> 14
+
+Ping-Pong Handovers Fig. 6. Performance comparison of the proposed MultiModal-AHC method with benchmark models with 95% confidence interval. 
+
+short-term fluctuations from triggering a handover. In contrast, the ML-Assisted and Load-Balance baselines react directly to instantaneous RSRP or load variations, which makes them vulnerable to fast fluctuations. This yields 11–13% ping–pong for both these methods. MultiModal–AHC achieves zero ping–pong not by conservatism but by predicting the UE’s near-future position and RSRP. As a result, it ensures that only sustained and mobility-consistent targets are selected, eliminating back-and-forth ping-pong handovers. VI. C ONCLUSION 
+
+This work introduced a mobility-aware MultiModal-AHC 
+
+rApp for O-RAN, which enriches the near-RT xApp’s han-dover decisions using three lightweight predictors, mode classification, short-horizon trajectory regression, and per-cell RSRP forecasting. The rApp generates ranked target lists via A1, while the xApp executes the final handover through a PPO Actor–Critic policy using live E2 measurements. Our analysis shows a clear stability–agility profile: the proposed method eliminates ping–pong events, maintains a moderate and well-behaved HO rate, and achieves throughput statistically indis-tinguishable from strong baselines. Preliminary PPO results indicate improved stability and reduced HO failures (roughly 18% lower than baseline) with convergence after 150–180 episodes, confirming that mobility-enriched hints meaningfully guide the near-RT controller. Overall, the hierarchical rApp–xApp split enables predic-tive, low-overhead, and near-RT compliant handover optimiza-tion without burdening the near-RT RIC. Future work will extend the predictors to additional mobility modes, integrate multi-cell load forecasting, and evaluate the system on an O-RAN testbed for real-world validation. REFERENCES [1] 3GPP, “Radio Resource Control (RRC); Protocol specification (3GPP TS 36.331 version 15.11.0 Release 15),” tech. rep., ETSI, Sept. 2020. Release 15. [2] O-RAN Alliance, “O-RAN Architecture Description,” Tech. Rep. O-RAN-WG1.O-RAN-Architecture-Description-v07.00, O-RAN Alliance, July 2021. [3] 3GPP, “5g; ng-ran; architecture description (3gpp ts 38.401 version 16.8.0 release 16),” tech. rep., ETSI, jan 2022. Release 16. [4] M. G. Demissie, G. H. de Almeida Correia, and C. Bento, “Exploring cellular network handover information for urban mobility analysis,” 
+
+Journal of Transport Geography , vol. 31, pp. 164–170, 2013. [5] A. Saboor, Z. Cui, A. Colpaert, E. Vinogradov, and S. Pollin, “Cash: Context-aware smart handover for reliable uav connectivity on aerial corridors,” arXiv preprint arXiv:2508.03862 , 2025. [6] R. Karmakar, G. Kaddoum, and S. Chattopadhyay, “Mobility manage-ment in 5g and beyond: A novel smart handover with adaptive time-to-trigger and hysteresis margin,” IEEE Transactions on Mobile Computing ,vol. 22, no. 10, pp. 5995–6010, 2022. [7] N. Dekate, A. Anubhab, S. Menon, S. Arya, A. Bhowmick, Y. K. Choukiker, and S. K. Chidambaram, “Intelligent handover management in ultra-dense 5g networks: A deep q-learning based prediction model,” 
+
+IEEE Access , 2025. [8] W. K. Saad, I. Shayea, A. Alhammadi, M. M. Sheikh, and A. A. El-Saleh, “Handover and load balancing self-optimization models in 5g mobile networks,” Engineering Science and Technology, an International Journal , vol. 42, p. 101418, 2023. [9] D. Upadhyay, S. Rallapalli, Z. Hussain, N. Venu, R. Sharma, and S. Shukla, “Enhanced handover management in 5g networks using machine learning in fading scenarios,” in 2025 2nd International Con-ference on Computational Intelligence, Communication Technology and Networking (CICTN) , pp. 90–95, IEEE, 2025. [10] A. Langolf, S. K¨ uhl, and S. Pachnicke, “Transfer learning for handover prediction in 5g maritime vehicular networks,” in 2024 19th Interna-tional Symposium on Wireless Communication Systems (ISWCS) , pp. 1– 5, IEEE, 2024. [11] J. Kim, J. H. Kim, and G. Lee, “Gps data-based mobility mode inference model using long-term recurrent convolutional networks,” Transporta-tion Research Part C: Emerging Technologies , vol. 135, p. 103523, 2022. [12] A. Wadud, F. Golpayegani, and N. Afraz, “Qacm: Qos-aware xapp conflict mitigation in open ran,” IEEE Transactions on Green Commu-nications and Networking , 2024. [13] A. Wadud, F. Golpayegani, and N. Afraz, “xapp-level conflict mitigation in o-ran, a mobility driven energy saving case,” in IEEE INFOCOM 2025-IEEE Conference on Computer Communications Workshops (IN-FOCOM WKSHPS) , pp. 1–6, IEEE, 2025.
