@@ -1,0 +1,438 @@
+Title: A Hybrid Decomposition Approach for Stochastic Unit Commitment with Combined-Cycle Generators
+
+URL Source: https://arxiv.org/pdf/2603.18177v1
+
+Published Time: Fri, 20 Mar 2026 00:14:32 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# A Hybrid Decomposition Approach for Stochastic Unit Commitment with Combined-Cycle Generators 
+
+## Rosemary Barrass 1* , Harsha Nagarajan 2, Mathieu Tanneau 1, Russell Bent 2, and Pascal Van Hentenryck 11Georgia Institute of Technology 
+
+2Los Alamos National Laboratory 
+
+*Address correspondence to: rbarrass3@gatech.edu March 20, 2026 
+
+Abstract 
+
+The U.S. power grid is undergoing a major paradigm shift with the increased development of renewable generators, electric vehicles, and data centers. In response to this growing need, the U.S. has ramped up the construction of combined-cycle generators (CCs). CCs are fast-ramping generators that utilize variable configurations of combustion turbines (CTs) and steam turbines (STs) to achieve much higher efficiency than traditional CTs alone. For schedule optimization, this requires the addition of a large number of binary constraints and variables in Unit Commitment (UC) problem formulations. This paper presents a novel hybrid Benders’ (BD) and Dantzig-Wolfe (DW) decomposition algorithm for stochastic UC problems with CCs. The algorithm exploits the separability of the linear constraints in UC through BD and the integer CC constraints through DW. Results are presented for the 935-generator FERC test data set, modified to include mode data for CCs. The algorithm demonstrates a significant speed-up over traditional BD across all cases. It also demonstrates better convergence rates on cases with 25 or more scenarios than both BD and Gurobi’s branch-and-bound solver. These cases show that the proposed algorithm is a scalable approach for solving stochastic UC. 
+
+# 1 Introduction 
+
+The U.S. power grid is in the midst of a major paradigm shift. The rapid deployment of AI data centers and the increasing adoption of electric vehicles is fundamentally changing the distribution and scale of load across the country. These major changes are leading to more volatility in load profiles and an increasing need for fast ramping generators. These volatile load profiles can be modeled effectively in Unit Commitment (UC) models using stochastic formulations. However, stochastic UC models are more computationally expensive than deterministic models and become increasingly intractable as more scenarios are added to the formulation. Volatile systems like that of the modern grid require a large number of scenarios for the model to be robust to the worst cases. System operators must generate UC decisions every day under tight time constraints, making this trade-off between decision robustness and solve time critical to daily grid operations. In addition to these varying loads, system operators need to make decisions that will remain feasible for high ramping load scenarios. To address these ramping needs, U.S. generators have adopted a high mix of combined-cycle generators (CCs). As of 2023, CCs make up more than 20% of the entire U.S. generation fleet ([1, 18]). These generators are fast ramping, generally low-cost natural gas generators that combine combustion turbines with steam turbines to make use of excess heat and improve operation efficiency. These generators are also more complex to schedule than traditional combustion turbines because of their modularity: a CC can be configured to operate one or more turbines independently of each other. From here on, the terms “configuration” and “mode” are interchangeably to refer to a feasible operating configuration of the individual turbines of a CC. In terms of the standard formulation for UC, this increased complexity introduces more binary variables and integer constraints. It is well known that combinatorial optimization with generic solvers like Gurobi and CPLEX is computationally expensive, so it follows that UC formulations that include CC constraints and variables are more computationally expensive to solve. 
+
+## 1.1 Literature Review 
+
+While significant research has been devoted to solving both stochastic UC and UC with CCs, the integration of CCs into stochastic UC formulations remains understudied. This is largely due to the scarcity of publicly available data sets with detailed operational data on CCs, which limits the development and benchmarking of realistic models in academic settings. Additionally, 1
+
+> arXiv:2603.18177v1 [math.OC] 18 Mar 2026
+
+the combined challenges of a large number of binary constraints and variables in CC formulations plus the large number of load scenarios in stochastic formulations creates a problem that can be entirely intractable at any realistic scale. Therefore, to the best of the authors’ knowledge, the current literature focuses on these topics completely separately. A substantial portion of the literature on solving deterministic UC with CCs utilizes decomposition techniques, particularly Lagrangian Relaxation (LR) and Surrogate Lagrangian Relaxation (SLR), to manage computational complexity ([3], [19], [14], [4], [11]). These methods decompose the problem into tractable inner problems, enabling the solution of UC instances with many units over long planning horizons. While LR and SLR are computationally more tractable than branch-and-cut (B&C) algorithms, these methods do not guarantee convergence to the optimal solution. To address this, researchers have also worked towards tighter formulations of UC with CCs to improve the computational efficiency of solving the full mixed integer linear program (MILP). Many of these techniques involve clever solution space reduction techniques that exploit expert knowledge of real-world CC operation. In ([5]), the authors utilize a configuration-based model, which schedules physically feasible turbine combinations instead of individual turbines, and eliminate configurations that have cost curves which are always higher than all other configurations. This approach, however, lacks the nuance and accuracy of individual component modeling. In ([13]), the authors present a component-based model that takes advantage of the more accurate fuel-generation curve modeling to add additional power augmenting features, like duct burners, to improve the UC model accuracy. The results show that this modeling approach is tractable for the IEEE 118-bus system, however, this component-based scheduling cannot be used directly in energy markets for day-ahead bidding. In ([6]), the authors address this mismatch of scheduling information by presenting a hybrid component-configuration model which uses configuration-based pricing curves with component-based physical constraints. While this model is ideal for accuracy and efficacy in the real-world, this formulation takes longer to solve on the IEEE-118 bus system than the configuration-based model. Finally, ([15]) uses a combination of BD and LR to exploit the separability of the binary and linear constraints in scheduling flexible fuel CCs. This model is an aggregate UC model, with all CCs modeled as single generating units with no modes, but there is a similar level of additional complexity added to the system in the form of fuel operating modes. Across all of these formulations and decomposition methods, the balance between computational efficiency and model accuracy is key, with the main problem coming from the large number of binary variables and constraints that each CC requires. Additionally, nearly all of the literature is tested using a relatively small system, the modified IEEE-118 bus system, with the exception of a few authors with access to proprietary data from real system operators. While the real-world cases are impressive, limited data transparency hinders reproducibility and rigorous benchmarking. Consequently, solving UC problems with CCs remains a challenging and computationally intensive task, highlighting the need for further research and better data availability in this area. We draw on ideas beyond the UC literature to leverage a key property of UC with CCs: per-generator separability. The added binaries required for accurate CC modeling increase complexity, making the problem well-suited to column generation, as in job-shop scheduling and vehicle routing. Similar approaches have succeeded for stochastic UC without CCs ([17]). More broadly, pairing column generation with constraint/row generation is an empirically observed scalability method for MILPs with block-diagonal structures ([16, 21, 20, 7, 12]). 
+
+## 1.2 Contributions and Outline 
+
+This paper introduces a hybrid decomposition framework designed to tackle the computational challenges posed by both large sets of load scenarios and the large number of binary variables and constraints in UC with CC. The decomposition method combines Benders’ Decomposition (BD), which is often used to improve solve times in stochastic programming, and Dantzig-Wolfe Decomposition (DW), which is used in column generation methods for reducing the size of integer problem search spaces. This methodology is applied to a stochastic UC (SUC) formulation with CCs and varying load scenarios; an increasingly relevant, critical real-world use-case that has not yet been explored in literature. The proposed combination of decomposition techniques is a novel approach to solving a previously computationally intractable size of SUC by utilizing the strongest aspects of both decomposition techniques. This paper demonstrates the efficacy of the hybrid decomposition on large-scale, open-source power-system benchmarks, outperforming both a traditional stochastic programming technique and a commercial branch-and-bound solver. The paper is organized as follows: Section 2 describes the SUC formulation, decomposition techniques, and acceleration techniques for the proposed methodology, Section 3 compares the results of testing the proposed algorithm, BD, and a state-of-the-art solver on large-scale test cases, and Section 4 presents the concluding remarks and future directions for this work. 
+
+# 2 Methodology 
+
+Motivated by decades of progress in column and row generation for MILPs, this paper introduces a novel column–row generation (CRG) framework for SUC with CCs, and demonstrates its efficacy on large-scale, open-source power-system benchmarks. 2Methodologically, we use a two-level decomposition. A BD splits SUC into an outer problem for generator commitment and a linear inner problem for networked dispatch, reserves, and scenario/contingency recourse. Within the outer problem, a DW reformulation disaggregates generator configuration constraints (minimum up/down, ramping, startup/shutdown) into smaller-scale per-generator pricing inner problems that generate columns on demand, while row generation adds violated inner problem constraints. The proposed algorithm exploits the separability of the problem for faster solution times. 
+
+## 2.1 Full UC with CC Formulation 
+
+The UC problem is a generator scheduling problem which power grid operators solve every day to maintain grid reliability. The formulation used in this paper is a standard mode-based CC UC problem, which means that it includes engineering constraints for the feasible operation of each generator and mode. Throughout this paper, variables are denoted with bold characters. For ease of reading, the formulation is stated for a single scenario; the paper considers a two-stage stochastic formulation where first-stage variables comprise (binary) commitment, startup and shutdown variables, and second-stage variable comprise (continuous) energy dispatch, reserve and load penalty variables. Let T and G denote the set of all time steps and of generators, respectively. For generator 𝑔 ∈ G , let M𝑔 denote this generator’s set of modes. For each mode 𝑚 ∈ M 𝑔 , let L𝑚 denote the number of piecewise energy dispatch intervals used to approximate mode 𝑚 ’s nonlinear dispatch curve. Next, let binary variables u𝑔,𝑚,𝑡 ∈ { 0, 1}, v𝑔,𝑚,𝑡 , w𝑔,𝑚,𝑡 denote the commitment, startup and shutdown status of generator 𝑔 and mode 𝑚 at time 𝑡 . Continuous variables p𝑔,𝑚,𝑡 and r𝑔,𝑚,𝑡 model the marginal energy dispatch, defined as the incremental dispatch above the minimum limit 𝑝 𝑔,𝑚,𝑡 , and spinning reserve provided by generator 𝑔 in mode 𝑚 at time 𝑡 . The continuous variables 𝝀 𝑔,𝑚,𝑙,𝑡 represent the portion of energy dispatch from piecewise linear dispatch approximation point 𝑙 for generator 𝑔 and mode 𝑚 at time 𝑡 . Generator minimum and maximum dispatch limits are denoted by 𝑝 𝑔,𝑚,𝑡 and 𝑝 𝑔,𝑚,𝑡 , respectively. Similarly, generator ramping limits are denoted by 𝑟 up  
+
+> 𝑔,𝑚,𝑡
+
+, 𝑟 down  
+
+> 𝑔,𝑚,𝑡
+
+, 𝑟 startup  
+
+> 𝑔,𝑚,𝑡
+
+and 
+
+𝑟 shutdown  
+
+> 𝑔,𝑚,𝑡
+
+, which capture upward, downward, startup and shutdown ramping limits, respectively. All variables and parameters can be represented at the unit-level by removing the index 𝑚 , e.g. u𝑔,𝑡 is the unit-level commitment status of generator 𝑔 at time 
+
+𝑡 . Finally, penalty variable 𝜹 𝑡 denotes the generation shortage at time 𝑡 .The objective function minimizes generation and penalty costs, expressed as 
+
+min 
+
+> u,p
+
+∑︁ 𝑔 ∈ G ,𝑚 ∈ M 𝑔 ,𝑡 ∈ T ∑︁ 𝑙 ∈ L 𝑚 
+
+(𝑐 dispatch  
+
+> 𝑔,𝑚,𝑙,𝑡
+
+− 𝑐 dispatch  
+
+> 𝑔,𝑚, 1,𝑡
+
+) ∗ 𝝀 𝑔,𝑚,𝑙,𝑡 (Full UC) 
+
++∑︁   
+
+> 𝑔 ∈ G ,𝑚 ∈ M 𝑔 ,𝑡 ∈ T
+
+𝑐 dispatch  
+
+> 𝑔,𝑚, 1,𝑡
+
+∗ p𝑔,𝑚, 1,𝑡 ∗ u𝑔,𝑚,𝑡 
+
++∑︁  
+
+> 𝑡 ∈ T
+
+𝑐 penalty  
+
+> 𝑡
+
+∗ 𝜹 𝑡 
+
+where 𝑐 dispatch  
+
+> 𝑔,𝑚,𝑙,𝑡
+
+is the 𝑙 -th piecewise linear approximation of the cost of energy dispatch for generator 𝑔 in mode 𝑚 at time 𝑡 and 
+
+𝑐 penalty  
+
+> 𝑡
+
+is the penalty cost for generator shortage at time 𝑡 .The startup/shutdown logic constraints, minimum up time, and minimum down time constraints for each generator, mode, and time step read 
+
+u𝑔,𝑚,𝑡 = u𝑔,𝑚,𝑡 −1 + v𝑔,𝑚,𝑡 − w𝑔,𝑚,𝑡 ∀𝑔, 𝑚, 𝑡 ∈ G , M𝑔 , T (1) 
+
+u𝑔,𝑚,𝑡 ⩾
+
+> 𝑡
+
+∑︁   
+
+> 𝑖 =𝑡 −𝑇 𝑚𝑖𝑛𝑢 𝑝 𝑔,𝑚 +1
+
+v𝑔,𝑚,𝑖 ∀𝑔, 𝑚, 𝑡 ∈ G , M𝑔 , T (2) 
+
+u𝑔,𝑚,𝑡 ⩽ 1 −
+
+> 𝑡
+
+∑︁   
+
+> 𝑖 =𝑡 −𝑇 𝑚𝑖𝑛𝑑𝑛 𝑔,𝑚 +1
+
+w𝑔,𝑚,𝑖 ∀𝑔, 𝑚, 𝑡 ∈ G , M𝑔 , T (3) where 𝑇 𝑚𝑖𝑛𝑢 𝑝 𝑔,𝑚 , 𝑇 𝑚𝑖𝑛𝑑𝑛 𝑔,𝑚 are the minimum up and minimum down time, respectively, for each generator 𝑔 and mode 𝑚 . In (1), the generator status is turned on or off based on whether or not a startup or shutdown has occurred. If neither have occurred, then consecutive decisions must be equal. In (2) and (3), the startups and shutdowns are limited to only occur once within the minimum up time and minimum town time range, respectively. Dependent mode startup and commitment is restricted by its supporting mode commitment and startup status, respectively. 
+
+v𝑔,𝑚 𝑑 ,𝑡 ⩽ u𝑔,𝑚 𝑠 ,𝑡 ∀𝑔, (𝑚 𝑑 , 𝑚 𝑠 ), 𝑡 ∈ G , M𝑔 , T (4) 
+
+u𝑔,𝑚 𝑑 ,𝑡 ⩽ 1 − v𝑔,𝑚 𝑠 ,𝑡 ∀𝑔, (𝑚 𝑑 , 𝑚 𝑠 ), 𝑡 ∈ G , M𝑔 , T (5) 3In (4) and (5), the mode subscript ( 𝑑 ) denotes a dependent mode and ( 𝑠 ) a supporting mode. For CCs, a base mode is any configuration into which the unit can start that requires no supporting modes to be online. A dependent mode is any mode that requires another mode (i.e. its supporting mode) to be online simultaneously. The power generated by each mode ( p𝑔,𝑚,𝑡 ) is additive such that a single generator 𝑔 will have a total generation Í𝑚 ∈ M 𝑔 𝑝 𝑔,𝑚,𝑡 at each time step 𝑡 .For each generator, at most one base mode may be online at any time, yielding ∑︁  
+
+> 𝑚 base ∈ M 𝑔
+
+u𝑔,𝑚 base ,𝑡 = u𝑔,𝑡 ∀𝑔, 𝑡 ∈ G , T , (6) where the subscript base denotes any mode that is a supporting mode but never a dependent mode. The ramp-up and ramp-down limits are given by: 
+
+p𝑔,𝑚,𝑡 + r𝑔,𝑚,𝑡 − p𝑔,𝑚,𝑡 −1 ⩽ 𝑟 up  
+
+> 𝑔,𝑚,𝑡
+
+∀𝑔, 𝑚, 𝑡 ∈ G , M𝑔 , T (7) 
+
+p𝑔,𝑚,𝑡 −1 − p𝑔,𝑚,𝑡 ⩽ 𝑟 down  
+
+> 𝑔,𝑚,𝑡
+
+∀𝑔, 𝑚, 𝑡 ∈ G , M𝑔 , T (8) These constraints ensure that dispatch levels do not change too rapidly between time steps for physical generator limitations. The startup and shutdown ramping limits are given by: 
+
+p𝑔,𝑚,𝑡 + r𝑔,𝑚,𝑡 − ( 𝑝 𝑔,𝑚,𝑡 − 𝑝 𝑔,𝑚,𝑡 )u𝑔,𝑚,𝑡 
+
++ max ( 𝑝 𝑔,𝑚,𝑡 − 𝑟 startup  
+
+> 𝑔,𝑚,𝑡
+
+), 0 v𝑔,𝑚,𝑡 ⩽ 0 ∀𝑔, 𝑚, 𝑡 ∈ G , M𝑔 , T (9) 
+
+p𝑔,𝑚,𝑡 + r𝑔,𝑚,𝑡 − ( 𝑝 𝑔,𝑚,𝑡 − 𝑝 𝑔,𝑚,𝑡 )u𝑔,𝑚,𝑡 
+
++ max ( 𝑝 𝑔,𝑚,𝑡 − 𝑟 shutdown  
+
+> 𝑔,𝑚,𝑡
+
+), 0 w𝑔,𝑚,𝑡 +1 ⩽ 0 ∀𝑔, 𝑚, 𝑡 ∈ G , M𝑔 , T (10) These constraints ensure the change in generation from online to offline, and vice versa, does not exceed the physical limitations of the generators. The system-wide generation must meet system power demand: ∑︁  
+
+> 𝑔,𝑚 ∈ G 𝑛 ,M𝑔
+
+
+
+u𝑔,𝑚,𝑡 · 𝑝 𝑔,𝑚,𝑡 + p𝑔,𝑚,𝑡 
+
+
+
++ 𝜹 𝑡 ⩾ 𝑑 𝑡 ∀𝑡 ∈ T (11) where 𝜹 𝑡 is the penalty for all unmet demand. This penalty term is positive when there is unmet load in the system and negative when there is excess generation. Finally, nonlinear energy dispatch curves are approximated using piecewise linear approximations. The following constraint creates the weights for each line: ∑︁ 
+
+> 𝑙 ∈ L 𝑚
+
+𝝀 𝑔,𝑚,𝑙,𝑡 = u𝑔,𝑚,𝑡 ∀𝑔, 𝑚, 𝑡 ∈ G , M𝑔 , T (12) 
+
+## 2.2 General formulation 
+
+For clarity, we present the SUC model in general form: 
+
+min  
+
+> x,y
+
+𝑐 ⊤x + 𝑞 ⊤y (General SUC) s.t. x ∈ X (13a) 
+
+𝑇 x + 𝑊 y ⩾ ℎ (13b) where constraint (13a) captures generators’ scheduling constraints (e.g. (1)-(6)) and constraint (13b) captures system-wide linking constraints (e.g. (11)-(10)). The following methodology is presented in this general form to illustrate that it can be expanded to include line flow constraints, additional reserve types, etc. Any additional constraints not included in (Full UC) can be sorted into the categories described above and decomposed in the same manner while maintaining the feasibility of this methodology. The simple SUC formulation described in this paper is used for the sake of readability. 
+
+## 2.3 Benders’ Decomposition 
+
+Separating first- and second-stage variables x and y yields the Benders’ outer problem 
+
+min  
+
+> x,𝜼
+
+𝑐 ⊤x + 𝜼 (14a) s.t. x ∈ X (14b) 
+
+𝜼 ⩾ 𝑄 (x) (14c) 4where 𝑄 (x) is the second-stage value function, defined as 
+
+𝑄 (x) = min  
+
+> y
+
+𝑞 ⊤y (15a) s.t. 𝑊 y ⩾ ℎ − 𝑇 x (15b) The nonlinear constraint (14c) is lower-approximated in the outer problem using Benders’ cuts of the form 𝜼 ⩾ 𝛾 ⊤ (ℎ − 𝑇 x),
+
+where 𝛾 ∈ Γ and Γ = {𝛾 ⩾ 0 | 𝑊 ⊤𝛾 = 𝑞 } is the set of all dual-feasible solutions for the BP-IP. This gives a final outer problem formulation 
+
+min  
+
+> x,𝜼
+
+𝑐 ⊤x + 𝜼 (16a) s.t. x ∈ X (16b) 
+
+𝜼 ⩾ 𝛾 ⊤ (ℎ − 𝑇 x), ∀𝛾 ∈ ¯Γ (16c) where ¯Γ ⊆ Γ is identified with the set of cuts currently considered in the outer problem. Note that the paper’s implementation uses a so-called multi-cut formulation, where cuts are added separately for each scenario. This approach is known to improve convergence. 
+
+## 2.4 Dantzig-Wolfe Decomposition 
+
+The Dantzig-Wolfe (DW) decomposition for generator’s scheduling constraints is obtained by convexifying constraints (13a). Namely, letting Ω denote the set of extreme points of X, constraint (13a) is replaced with x = Í𝜔 ∈Ω 𝝁 𝜔 𝜔, where 𝜇 are non-negative weights that sum to 1. This yields the DW outer problem OP 𝐷𝑊 min  
+
+> x,𝝁 ,𝜼
+
+𝑐 ⊤x + 𝜼 (17a) s.t. ∑︁ 
+
+> 𝜔 ∈Ω
+
+𝝁 𝜔 𝜔 − x = 0 [𝜋 ] (17b) ∑︁ 
+
+> 𝜔 ∈Ω
+
+𝝁 𝜔 = 1 [𝜎 ] (17c) 
+
+𝝁 ⩾ 0 (17d) 
+
+𝜼 ⩾ 𝛾 ⊤ (ℎ − 𝑇 x) ∀𝛾 ∈ ¯Γ (17e) where 𝜋 and 𝜎 are the duals of constraints (17b) and (17c), respectively. Note that, in order to formulate Benders’ cuts efficiently, the present formulation keeps variables x in the DW outer problem. New columns are identified by solving the pricing inner problem IP 𝐷𝑊 (𝜋, 𝜎 ) : min  
+
+> x∈ X
+
+−𝜋 ⊤x − 𝜎 (18) This inner problem can then be separated into G independent problems, one per generator. Thus, the final decomposition of the problem is separated into 3 parts: a DW outer problem, per-generator pricing inner problems, and per-load-scenario inner problems. 
+
+## 2.5 Column-Row Generation Algorithm 
+
+To solve this series of outer and inner problems, a CRG algorithm is employed (see Appendix). This algorithm iteratively adds columns from the Pricing IP and cuts from the Benders’ IP. An initial set of columns is generated by seeding the DW inner pricing problems with the dual solution of the linear relaxation (Full UC). The algorithm proceeds in a loop until there are no more columns or rows to generate, or the desired optimality gap is achieved. At each iteration, valid upper and lower bounds are computed as follows. A valid upper bound is obtained as UB 𝐶 𝑅𝐺 (𝜔 ∗, y) = 𝑐 ⊤𝜔 ∗ + 𝑞 ⊤y (19) where 𝜔 ∗ is the best schedule in the current set of schedules. The lower bound is updated with the duals of the DW inner and outer problems: LB 𝐶 𝑅𝐺 (x, 𝜋, 𝜎, DualObj(17) ) = −𝜋 ⊤x − 𝜎 + DualObj(17) (20) where DualObj(17) is the objective value of the dual problem of (17). The optimality gap is calculated by subtracting the lower bound from the upper bound and dividing this by the upper bound. Once one of these criteria is met, the outer problem is converted back into an integer program with the generated columns and cuts and the final integer solution is found. 5Figure 1: Sensitivity analysis on the 30-load scenario case terminated after 120s using varying 𝛼 and 𝛽 values. The heatmap shows the optimality gap (%) for each (𝛼, 𝛽 ) pair, with grid lines (grey) indicating the evaluated combinations. Setting 𝛼 and 𝛽 
+
+to 1 is equivalent to not using in–out separation in Section 2.6. 
+
+## 2.6 Stabilization Techniques 
+
+Without stabilization, BD-based algorithms can suffer from slow convergence due to the somewhat erratic nature of the primal solution. This behavior can be mitigated using in-out separation, as described in [2]. For this paper, an in-out separation technique is applied to both BD and CRG to stabilize the primal solution and improve convergence. In-out separation uses a feasible point in the interior of the feasible region of the OP to provide a better solution to the inner problems than just using the previous outer problem solution. In general, instead of solving the second stage of BD with the outer problem solution 𝑥 ∗𝑘 and previous core point ¯𝑥 𝑘 −1 as input and a variable 𝛼 is chosen such that 0 ⩽ 𝛼 ⩽ 1 to calculate the following: 
+
+𝑥 𝑘 𝑖𝑜 = 𝛼𝑥 ∗𝑘 + ( 1 − 𝛼 ) ¯𝑥 𝑘 −1 (21) The inner problems are then solved with the input 𝑥 𝑘 𝑖𝑜 . This technique is sensitive to the choices of 𝛼 and 𝛽 , as can be seen in Fig. 1. This sensitivity analysis was performed on a PGLIB-UC instance with 30 load scenarios, 934 thermal generators, and 12 time steps. Each run was terminated after 120 s. Optimality gaps between the best incumbent solution and the lower bound are reported in percent, computed as the difference divided by the best solution. Gaps are smallest (down to ≈25%) for moderate values of 𝛼 and 𝛽 (around 0.3–0.5), and much larger ( ≈58–83%) at the extremes (𝛼 = 0) and (𝛼 = 𝛽 = 1). So, moderate in–out separation clearly gives better solution quality than using no separation. From this analysis, the best values for 𝛼 and 𝛽 were chosen as 0.4 and 0.5, respectively. For the CRG and BD tests, this approach was accelerated by warm-starting with a core point generated by solving the deterministic UC for the scenario with the highest single-hour load. This in-out separation point is used to solve the inner problems and the core point is updated. The core point is updated using another parameter 𝛽 such that 0 ⩽ 𝛽 ⩽ 1:
+
+¯𝑥 𝑘 = 𝛽𝑥 𝑘 𝑖𝑜 + ( 1 − 𝛽 ) ¯𝑥 𝑘 −1 (22) This way, the in-out separation point can be chosen more aggressively, even when the outer solution is approaching optimal. The branch-and-bound (B&B) solver is also warm-started with the deterministic highest single-hour load scenario solution to provide a fair comparison. 
+
+# 3 Computational Results 
+
+The CRG algorithm is tested on a modified version of the FERC dataset from PGLIB-UC ([8, 9, 10]). This dataset includes 934 thermal generators, aggregate wind generation, and 12 representative load scenarios. Each load scenario covers 48 time steps. Among the 934 thermal generators, 14 are combined-cycle (CC) units. In the original data set, these CC units are each modeled 6Table 1: Performance comparison Solution Time (s) #Scen. Alg Outer Inner Total Obj. ($bn) Lb ($bn) 10 B&B - - 1927 4.56 4.56 
+
+BD 3616 122 3600 4.61 4.40 
+
+CRG 2590 1010 3600 4.62 4.48 
+
+20 B&B - - 3359 4.56 4.56 
+
+BD 3455 244 3600 4.67 4.33 
+
+CRG 2759 841 3600 4.64 4.48 
+
+30 B&B - - 3600 4.86 4.51 BD 3295 398 3600 4.75 4.32 
+
+CRG 2804 796 3600 4.63 4.50 
+
+40 B&B - - 3600 5.15 0BD 3145 557 3600 5.05 4.22 
+
+CRG 2847 753 3600 4.64 4.49 
+
+45 B&B - - 3600 5.15 0BD 2712 680 3600 4.92 4.28 
+
+CRG 2838 762 3600 4.66 4.49 
+
+50 B&B - - 3600 5.16 0BD 2349 819 3600 5.03 4.25 
+
+CRG 2873 727 3600 4.65 4.49 
+
+> Bolded instances indicate the algorithm with the smallest gap at the end of 3600s.
+
+as single mode, traditional generators. For this study, the data have been modified so that each CC unit is represented as a two combustion-turbine, one steam-turbine configuration with two operating modes. Additional load scenarios are also generated using a copula-based method, as described in ([22]). The details of this load scenario generation are beyond the scope of this paper. Penalty values of $5,000/MWh are applied to unmet and excess load. Although actual penalty values vary by utility, such large values are standard in industry SUC models and contribute to the substantial difference observed between near-optimal and optimal decisions. All tests are conducted on an Apple M3 Max CPU with 64 GB of RAM. Gurobi version 12.0.2 is used as the solver for all inner, outer, and full problem formulations. The CRG algorithm is compared against the BD algorithm and the B&B approach on the full SUC problem. Both CRG and BD use in-out separation with 𝛼 = 0.4 and 𝛽 = 0.5. All three algorithms are subject to a 3600-second time limit. In Table 1, the proposed algorithm (CRG) is italicized. The CRG algorithm consistently solves the outer problem faster than BD (see Table 1). This performance improvement results from the significantly reduced search space generated by the pricing IPs. Currently, the calculation of the upper bound in CRG introduces considerable overhead, leading to an inflated total IP solve time. This total includes the solution times for both the pricing IPs and the Benders’ IPs. The time limit for each algorithm also accounts for the time required to parse and rewrite models within the algorithm. Consequently, the actual optimization solve time for CRG is approximately two-thirds that of BD. With improved software engineering, this overhead could be reduced, further enhancing the CRG algorithm’s ability to identify superior solutions within the same computational time frame. CRG finds better primal solutions faster than BD for all test cases, as seen by the final objective values in Table 1. For all load scenarios, CRG also provides tighter final lower bounds than BD. The combination of high-quality primal solutions, tight lower bounds, and improved scalability leads to CRG’s better convergence rates for larger test cases, as illustrated in Fig. 2. These results demonstrate the efficacy of CRG in reducing the binary solution space to a smaller, higher-quality set of candidate solutions. CRG also finds better lower bounds than BD throughout all of the cases. Both of these models use the same technique for improving lower bounds: cutting planes generated using primal solutions. If bad primal solutions are provided to the Benders’ IPs, this will be reflected in the poor convergence of the lower bound. Thus, CRG must be determining better primal solutions than BD at each iteration. Finally, for instances with 30 or more scenarios, CRG produces tighter bounds than both B&B and BD. These instances are bolded in Table 1. At these problem sizes, even state-of-the-art B&B solvers such as Gurobi suffer from the curse of dimensionality. For example, at 35 scenarios, Gurobi must determine the optimal decision for 4,202,275 continuous and 7(a) 30 load scenarios (b) 40 load scenarios  
+
+> (c) 45 load scenarios (d) 50 load scenarios
+
+Figure 2: Convergence of incumbent solutions and lower bounds for B&B, BD, and CRG. Each plot shows a test case with a different number of load scenarios. 126,846 integer variables after pre-solve. At this size, Gurobi exhausts the full one-hour time limit searching for an improvement over the warm-start solution but fails to find one. Thus, in Fig. 2b, Fig. 2c, and Fig. 2d, the constant incumbent value for B&B corresponds to this warm-start solution. In summary, these observations highlight the importance of decomposition techniques such as CRG in scaling to larger system and scenario sizes. This is particularly relevant for SUC problems, where the large number of binary variables and constraints presents a major challenge for traditional B&B solvers. 
+
+# 4 Conclusion 
+
+Motivated by the computational challenges of solving SUC problems with CCS, this paper has proposed a CRG algorithm that hybridizes Benders’ and Dantzig-Wolfe decompositions. This approach efficiently handles multiple scenarios through BD, while also tackling the combinatorial structure of CC operations through DW decomposition. Numerical experiments have demonstrated the efficiency and scalability of the proposed CRG algorithm. Namely, compared to BD, CRG achieves better primal and dual bounds, especially in the early stages of the optimization. This behavior is particularly desirable for real-life settings, where high-quality solutions are sought within short computing times. Future work will consider further computational enhancements through algorithmic acceleration strategies and improved software integration, paving the way to solving SUC with CCs at scale. 85 Acknowledgments 
+
+This work was partially funded by Los Alamos National Laboratory’s Directed Research and Development project, “Artificial Intelligence for Mission (ArtIMis)” under U.S. DOE Contract No. DE-AC52-06NA25396. This work was partially funded by NSF award 2112533. 9A Appendix: CRG Algorithm 
+
+Algorithm 1 Column-Row Generation (CRG)  
+
+> 1:
+
+Input : initial solution ( x), 𝜖 > 0, 𝛼 ∈ [ 0, 1], 𝛽 ∈ [ 0, 1] 
+
+> 2:
+
+corePnt ← (x), ioPnt ← (x), cutGenerated ← false  
+
+> 3:
+
+¯Ω ← {( x)} , Γ ← {} , UB ← ∞ , LB ← −∞  
+
+> 4:
+
+while (UB - LB)/UB > 𝜖 do  
+
+> 5:
+
+// Column Generation  
+
+> 6:
+
+Solve (17)( ¯Ω, ¯Γ) 
+
+> 7:
+
+Solve (18), obtain column ( x) 
+
+> 8:
+
+LB ← (20)  
+
+> 9:
+
+if 𝜋 ⊤x + 𝜎 > 0 then  
+
+> 10:
+
+¯Ω ← ¯Ω ∪ { x} 
+
+> 11:
+
+Set cutGenerated ← false  
+
+> 12:
+
+Continue  
+
+> 13:
+
+end if  
+
+> 14:
+
+// Row Generation  
+
+> 15:
+
+if cutGenerated is false then  
+
+> 16:
+
+ioPnt ←(21)( x,corePnt , 𝛼 ) 
+
+> 17:
+
+Solve (15) and obtain cut ( 𝛾 ) 
+
+> 18:
+
+¯Γ ← ¯Γ ∪ { 𝛾 } 
+
+> 19:
+
+cutGenerated ← true , corePnt ← (22)( ioPnt , 𝛽 ), UB ← (19)( 𝜔, y) 
+
+> 20:
+
+else  
+
+> 21:
+
+// Compute integer-feasible solution  
+
+> 22:
+
+Solve (17)( ¯Ω, ¯Γ) with integer constraints  
+
+> 23:
+
+Solve (15) and obtain cut ( 𝑄 ) 
+
+> 24:
+
+add ( 𝑄 ) to ¯Γ 
+
+> 25:
+
+cutGenerated ← true , corePnt ← (22)( ioPnt , 𝛽 ), UB ← (19)( 𝜔, y) 
+
+> 26:
+
+end if  
+
+> 27:
+
+end while  
+
+> 28:
+
+return Optimal solution to (17) 10 References 
+
+[1] U.S. Energy Information Administration. What Is U.S. Electricity Generation by Energy Source . 2023. url : https: //www.eia.gov/tools/faqs/faq.php?id=427&t=3 .[2] Pierre Bonami, Domenico Salvagnin, and Andrea Tramontani. “Implementing Automatic Benders Decomposition in a Modern MIP Solver”. In: Integer Programming and Combinatorial Optimization . Ed. by Daniel Bienstock and Giacomo Zambelli. Cham: Springer International Publishing, 2020, pp. 78–90. isbn : 978-3-030-45771-6. [3] Mikhail A. Bragin et al. “An efficient approach for Unit Commitment and Economic Dispatch with combined cycle units and AC Power Flow”. In: 2016 IEEE Power and Energy Society General Meeting (PESGM) . 2016, pp. 1–5. doi :
+
+10.1109/PESGM.2016.7741156 .[4] Mikhail A. Bragin et al. “Surrogate Lagrangian relaxation and branch-and-cut for unit commitment with combined cycle units”. In: 2014 IEEE PES General Meeting | Conference & Exposition . 2014, pp. 1–5. doi : 10.1109/PESGM.2014. 6939901 .[5] G. W. Chang, G. S. Chuang, and T. K. Lu. “A simplified combined-cycle unit model for mixed integer linear programming-based unit commitment”. In: 2008 IEEE Power and Energy Society General Meeting - Conversion and Delivery of Electrical Energy in the 21st Century . 2008, pp. 1–6. doi : 10.1109/PES.2008.4596496 .[6] Xin Fang et al. “Hybrid component and configuration model for combined-cycle units in unit commitment problem”. In: 
+
+Journal of Modern Power Systems and Clean Energy 6.6 (2018), pp. 1332–1337. doi : 10.1007/s40565-018-0409-1 .[7] Rodolphe Griset et al. “Combining Dantzig-Wolfe and Benders decompositions to solve a large-scale nuclear outage planning problem”. In: European Journal of Operational Research 298.3 (2022), pp. 1067–1083. issn : 0377-2217. doi :
+
+https://doi.org/10.1016/j.ejor.2021.07.018 . url : https://www.sciencedirect.com/science/ article/pii/S0377221721006135 .[8] Bernard Kneuven and Carleton Coffrin. PGLIB-UC . release v19.08. 2019. url : https://github.com/power-grid-lib/pglib-uc .[9] Bernard Knueven, James Ostrowski, and Jean-Paul Watson. “On Mixed Integer Programming Formulations for the Unit Commitment Problem”. In: Optimization Online Repository 2018 (Nov. 2018). issn : ISSN 9999-0042. url : https: //www.osti.gov/biblio/1492385 .[10] Eric Krall, Michael Higgins, and Richard P. O’Neill. “RTO Unit Commitment Test System”. In: Federal Energy Regulatory Commission (2012). url : https://www.ferc.gov/power- sales- and- markets/increasing- efficiency-through-improved-software/rto-unit-commitment-test .[11] Tao Li and M. Shahidehpour. “Price-based unit commitment: a case of Lagrangian relaxation versus mixed integer programming”. In: IEEE Transactions on Power Systems 20.4 (2005), pp. 2015–2025. doi : 10.1109/TPWRS.2005. 857391 .[12] Ricardo M. Lima et al. “An effective hybrid decomposition approach to solve the network-constrained stochastic unit commitment problem in large-scale power systems”. In: EURO Journal on Computational Optimization 12 (2024), p. 100085. issn : 2192-4406. doi : https : / / doi . org / 10 . 1016 / j . ejco . 2024 . 100085 . url : https : / / www . sciencedirect.com/science/article/pii/S2192440624000029 .[13] Cong Liu et al. “Component and Mode Models for the Short-Term Scheduling of Combined-Cycle Units”. In: IEEE Transactions on Power Systems 24.2 (2009), pp. 976–990. doi : 10.1109/TPWRS.2009.2016501 .[14] Bo Lu and M. Shahidehpour. “Short-term scheduling of combined cycle units”. In: IEEE Transactions on Power Systems 
+
+19.3 (2004), pp. 1616–1625. doi : 10.1109/TPWRS.2004.831706 .[15] Bo Lu and M. Shahidehpour. “Unit commitment with flexible generating units”. In: IEEE Transactions on Power Systems 
+
+20.2 (2005), pp. 1022–1034. doi : 10.1109/TPWRS.2004.840411 .[16] İbrahim Muter, Ş. İlker Birbil, and Kerem Bülbül. “Benders decomposition and column-and-row generation for solving large-scale linear programs with column-dependent-rows”. In: European Journal of Operational Research 264.1 (2018), pp. 29–45. issn : 0377-2217. doi : https : / / doi . org / 10 . 1016 / j . ejor . 2017 . 06 . 044 . url : https : / / www . sciencedirect.com/science/article/pii/S0377221717305854 .[17] Takayuki Shiina and John R. Birge. “Stochastic unit commitment problem”. In: International Transactions in Operational Research 11.1 (2004), pp. 19–32. doi : https : / / doi . org / 10 . 1111 / j . 1475 - 3995 . 2004 . 00437 . x . eprint: 
+
+https : / / onlinelibrary . wiley . com / doi / pdf / 10 . 1111 / j . 1475 - 3995 . 2004 . 00437 . x . url : https : //onlinelibrary.wiley.com/doi/abs/10.1111/j.1475-3995.2004.00437.x .11 [18] Independent Statistics and Analysis. Electric Power Annual 2023 . Tech. rep. U.S. Energy Information Administration, 2023. url : https://www.eia.gov/electricity/annual/pdf/epa.pdf .[19] Xiaorong Sun et al. “A Novel Decomposition and Coordination Approach for Large Day-Ahead Unit Commitment With Combined Cycle Units”. In: IEEE Transactions on Power Systems 33.5 (2018), pp. 5297–5308. doi : 10.1109/TPWRS. 2018.2808272 .[20] Gongshu Wang and Lixin Tang. “A Row-and-Column Generation Method to a Batch Machine Scheduling Problem”. In: 
+
+Proceedings of the Ninth International Symposium on Operations Research and Its Applications (ISORA-10) (Jan. 2010). [21] Bo Zeng and Long Zhao. “Solving two-stage robust optimization problems using a column-and-constraint genera-tion method”. In: Operations Research Letters 41.5 (2013), pp. 457–461. issn : 0167-6377. doi : https : / / doi . org / 10 . 1016 / j . orl . 2013 . 05 . 003 . url : https : / / www . sciencedirect . com / science / article / pii / S0167637713000618 .[22] Hanyu Zhang et al. Weather-Informed Probabilistic Forecasting and Scenario Generation in Power Systems . 2024. arXiv: 
+
+2409.07637 [stat.ML] . url : https://arxiv.org/abs/2409.07637 .12

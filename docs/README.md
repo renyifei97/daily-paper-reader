@@ -6,67 +6,67 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-03-25
-- 运行时间：2026-03-25 20:03:47 UTC
+- 最新运行日期：2026-03-26
+- 运行时间：2026-03-26 20:05:58 UTC
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：3
 - 速读区：12
 
 ### 今日简报（AI）
-今日深度解析 15 篇前沿成果，聚焦 Transformer 架构革新与兼顾公平性的动态定价策略。
-FISformer 凭借模糊推理系统重塑时间序列预测，而鲁棒定价模型则在收益与公平间找到了新平衡。
-推荐关注模糊逻辑在时序建模中的潜力，并尝试在决策算法中引入公平性约束。
-- 详情：[/202603/25/README](/202603/25/README)
+今日精选 15 篇前沿论文，深度解析行人冲突规避机制与时空预测的前沿架构。
+重点关注利用方差指标优化行人汇流冲突的实验研究，以及结合小波变换与空频双域门控的时空预测新模型。
+建议读者关注复杂系统建模在交通流与无线网络自适应分配中的跨领域应用。
+- 详情：[/202603/26/README](/202603/26/README)
 
 ### 精读区论文标签
-1. [FISformer: Replacing Self-Attention with a Fuzzy Inference System in Transformer Models for Time Series Forecasting](/202603/25/2603.21724v1-fisformer-replacing-self-attention-with-a-fuzzy-inference-system-in-transformer-models-for-time-series-forecasting)  
-   标签：评分：9.0/10、query:urt-pf
-   evidence：在Transformer中引入模糊推理系统进行时间序列预测
-2. [Robust Dynamic Pricing and Admission Control with Fairness Guarantees](/202603/25/2603.17764v1-robust-dynamic-pricing-and-admission-control-with-fairness-guarantees)  
-   标签：评分：8.0/10、query:urt-c
-   evidence：共享系统中的准入控制与拥堵调节
-3. [Fast and Interpretable Autoregressive Estimation with Neural Network Backpropagation](/202603/25/2603.19041v1-fast-and-interpretable-autoregressive-estimation-with-neural-network-backpropagation)  
+1. [Conflict Avoidance in Pedestrian Merging in Controlled Experiments by Variance Indicator](/202603/26/2603.20593v1-conflict-avoidance-in-pedestrian-merging-in-controlled-experiments-by-variance-indicator)  
+   标签：评分：9.0/10、query:urt-c
+   evidence：走廊交叉口的行人拥挤和流动不稳定性
+2. [WaveSFNet: A Wavelet-Based Codec and Spatial--Frequency Dual-Domain Gating Network for Spatiotemporal Prediction](/202603/26/2603.23284v1-wavesfnet-a-wavelet-based-codec-and-spatial--frequency-dual-domain-gating-network-for-spatiotemporal-prediction)  
    标签：评分：8.0/10、query:urt-pf
-   evidence：时间序列自回归估计的神经网络公式化
+   evidence：用于未来帧预测的时空预测学习
+3. [CoordLight: Learning Decentralized Coordination for Network-Wide Traffic Signal Control](/202603/26/2603.24366v1-coordlight-learning-decentralized-coordination-for-network-wide-traffic-signal-control)  
+   标签：评分：8.0/10、query:urt-c
+   evidence：用于交通信号控制与协调的多智能体强化学习
 
 ### 速读区论文标签
-1. [RHYME-XT: A Neural Operator for Spatiotemporal Control Systems](/202603/25/2603.17867v1-rhyme-xt-a-neural-operator-for-spatiotemporal-control-systems)  
-   标签：评分：7.0/10、query:urt-pf
-   evidence：用于时空控制系统代理建模的神经算子
-2. [Enactor: From Traffic Simulators to Surrogate World Models](/202603/25/2603.18266v1-enactor-from-traffic-simulators-to-surrogate-world-models)  
-   标签：评分：7.0/10、query:urt-pf
-   evidence：城市网络中参与者交互的深度学习
-3. [Accurate and Efficient Multi-Channel Time Series Forecasting via Sparse Attention Mechanism](/202603/25/2603.18712v1-accurate-and-efficient-multi-channel-time-series-forecasting-via-sparse-attention-mechanism)  
-   标签：评分：7.0/10、query:urt-pf
-   evidence：捕获线性和非线性依赖的多通道时间序列预测
-4. [cuGenOpt: A GPU-Accelerated General-Purpose Metaheuristic Framework for Combinatorial Optimization](/202603/25/2603.19163v1-cugenopt-a-gpu-accelerated-general-purpose-metaheuristic-framework-for-combinatorial-optimization)  
+1. [A Hybrid Decomposition Approach for Stochastic Unit Commitment with Combined-Cycle Generators](/202603/26/2603.18177v1-a-hybrid-decomposition-approach-for-stochastic-unit-commitment-with-combined-cycle-generators)  
    标签：评分：7.0/10、query:urt-c
-   evidence：用于调度和组合优化的GPU加速元启发式框架
-5. [Stochastic Sequential Decision Making over Expanding Networks with Graph Filtering](/202603/25/2603.19501v1-stochastic-sequential-decision-making-over-expanding-networks-with-graph-filtering)  
+   evidence：用于随机调度优化的 Benders 分解
+2. [Deep Adaptive Rate Allocation in Volatile Heterogeneous Wireless Networks](/202603/26/2603.20926v1-deep-adaptive-rate-allocation-in-volatile-heterogeneous-wireless-networks)  
    标签：评分：7.0/10、query:urt-c
-   evidence：扩展网络上的随机序贯决策与多智能体强化学习
-6. [Centrality-Based Pruning for Efficient Echo State Networks](/202603/25/2603.20684v1-centrality-based-pruning-for-efficient-echo-state-networks)  
+   evidence：用于动态速率分配和路径状态预测的深度强化学习
+3. [ANCHOR: Adaptive Network based on Cascaded Harmonic Offset Routing](/202603/26/2603.21718v1-anchor-adaptive-network-based-on-cascaded-harmonic-offset-routing)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：用于非线性时间序列预测的回声状态网络
-7. [PanguMotion: Continuous Driving Motion Forecasting with Pangu Transformers](/202603/25/2603.16196v1-pangumotion-continuous-driving-motion-forecasting-with-pangu-transformers)  
+   evidence：利用频域先验进行非平稳信号的时间序列分析
+4. [Optimal Solutions for the Moving Target Vehicle Routing Problem with Obstacles via Lazy Branch and Price](/202603/26/2603.21880v1-optimal-solutions-for-the-moving-target-vehicle-routing-problem-with-obstacles-via-lazy-branch-and-price)  
+   标签：评分：7.0/10、query:urt-c
+   evidence：用于车辆路径规划和轨迹优化的列生成算法框架
+5. [Noise Titration: Exact Distributional Benchmarking for Probabilistic Time Series Forecasting](/202603/26/2603.22219v1-noise-titration-exact-distributional-benchmarking-for-probabilistic-time-series-forecasting)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：概率时间序列预测的精确分布基准测试
+6. [Graph Signal Processing Meets Mamba2: Adaptive Filter Bank via Delta Modulation](/202603/26/2603.22333v1-graph-signal-processing-meets-mamba2-adaptive-filter-bank-via-delta-modulation)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：图信号处理与状态空间模型用于时间序列分析
+7. [Ruyi2.5 Technical Report](/202603/26/2603.17311v1-ruyi25-technical-report)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：用于强化学习微调的二进制前缀策略优化
+8. [An HMDP-MPC Decision-making Framework with Adaptive Safety Margins and Hysteresis for Autonomous Driving](/202603/26/2603.17802v1-an-hmdp-mpc-decision-making-framework-with-adaptive-safety-margins-and-hysteresis-for-autonomous-driving)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：用于自动驾驶的HMDP-MPC决策框架
+9. [Beyond the Main Mode: The contribution of access and egress trips in door-to-door travel](/202603/26/2603.18594v1-beyond-the-main-mode-the-contribution-of-access-and-egress-trips-in-door-to-door-travel)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：包含火车和地铁的多模式出行离散选择模型
+10. [Bridging Network Fragmentation: A Semantic-Augmented DRL Framework for UAV-aided VANETs](/202603/26/2603.18871v1-bridging-network-fragmentation-a-semantic-augmented-drl-framework-for-uav-aided-vanets)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：用于城市车辆网络和拓扑推理的深度强化学习框架
+11. [CAMO: A Conditional Neural Solver for the Multi-objective Multiple Traveling Salesman Problem](/202603/26/2603.19074v1-camo-a-conditional-neural-solver-for-the-multi-objective-multiple-traveling-salesman-problem)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：多目标优化用于多智能体协调和旅行成本优化
+12. [TRACE: Trajectory Recovery with State Propagation Diffusion for Urban Mobility](/202603/26/2603.19474v1-trace-trajectory-recovery-with-state-propagation-diffusion-for-urban-mobility)  
    标签：评分：6.0/10、query:urt-pf
-   evidence：驾驶场景中的运动预测与轨迹预测
-8. [Fine-Grained Network Traffic Classification with Contextual QoS Profiling](/202603/25/2603.16748v1-fine-grained-network-traffic-classification-with-contextual-qos-profiling)  
-   标签：评分：6.0/10、query:urt-pf
-   evidence：用于捕获流量中多尺度时间模式的分层图神经网络
-9. [Physics-informed offline reinforcement learning eliminates catastrophic fuel waste in maritime routing](/202603/25/2603.17319v1-physics-informed-offline-reinforcement-learning-eliminates-catastrophic-fuel-waste-in-maritime-routing)  
-   标签：评分：6.0/10、query:urt-c
-   evidence：用于路径策略的离线强化学习
-10. [Per-Domain Generalizing Policies: On Learning Efficient and Robust Q-Value Functions (Extended Version with Technical Appendix)](/202603/25/2603.17544v1-per-domain-generalizing-policies-on-learning-efficient-and-robust-q-value-functions-extended-version-with-technical-appendix)  
-   标签：评分：6.0/10、query:urt-c
-   evidence：学习用于规划和决策的高效Q值函数
-11. [Flow Matching Policy with Entropy Regularization](/202603/25/2603.17685v1-flow-matching-policy-with-entropy-regularization)  
-   标签：评分：6.0/10、query:urt-c
-   evidence：带有熵正则化的强化学习流量匹配策略
-12. [Robust Dynamic Pricing and Admission Control with Fairness Guarantees](/202603/25/2603.17764v2-robust-dynamic-pricing-and-admission-control-with-fairness-guarantees)  
-   标签：评分：6.0/10、query:urt-c
-   evidence：共享服务系统中的准入控制与拥堵调节
+   evidence：具有时空模式的城市移动轨迹恢复
 
 
 <div class="dpr-home-promo-card">
