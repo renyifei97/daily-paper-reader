@@ -6,67 +6,64 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-03-26
-- 运行时间：2026-03-26 20:05:58 UTC
+- 最新运行日期：2026-03-27
+- 运行时间：2026-03-27 19:44:48 UTC
 - 运行状态：成功
-- 本次总论文数：15
-- 精读区：3
+- 本次总论文数：14
+- 精读区：2
 - 速读区：12
 
 ### 今日简报（AI）
-今日精选 15 篇前沿论文，深度解析行人冲突规避机制与时空预测的前沿架构。
-重点关注利用方差指标优化行人汇流冲突的实验研究，以及结合小波变换与空频双域门控的时空预测新模型。
-建议读者关注复杂系统建模在交通流与无线网络自适应分配中的跨领域应用。
-- 详情：[/202603/26/README](/202603/26/README)
+今日聚焦智能交通决策与超快速仿真，深度解析 Decision Transformer 与可微 Agent 在城市治理中的实战突破。
+重点推荐无需在线探索的应急抢占策略，以及通过可微仿真实现的秒级交通预测与闭环管控。
+建议关注时序大模型适配器（CoRA）等轻量化方案，探索如何将复杂决策智能高效落地于资源受限的现实场景。
+- 详情：[/202603/27/README](/202603/27/README)
 
 ### 精读区论文标签
-1. [Conflict Avoidance in Pedestrian Merging in Controlled Experiments by Variance Indicator](/202603/26/2603.20593v1-conflict-avoidance-in-pedestrian-merging-in-controlled-experiments-by-variance-indicator)  
-   标签：评分：9.0/10、query:urt-c
-   evidence：走廊交叉口的行人拥挤和流动不稳定性
-2. [WaveSFNet: A Wavelet-Based Codec and Spatial--Frequency Dual-Domain Gating Network for Spatiotemporal Prediction](/202603/26/2603.23284v1-wavesfnet-a-wavelet-based-codec-and-spatial--frequency-dual-domain-gating-network-for-spatiotemporal-prediction)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：用于未来帧预测的时空预测学习
-3. [CoordLight: Learning Decentralized Coordination for Network-Wide Traffic Signal Control](/202603/26/2603.24366v1-coordlight-learning-decentralized-coordination-for-network-wide-traffic-signal-control)  
+1. [Emergency Preemption Without Online Exploration: A Decision Transformer Approach](/202603/27/2603.22315v1-emergency-preemption-without-online-exploration-a-decision-transformer-approach)  
    标签：评分：8.0/10、query:urt-c
-   evidence：用于交通信号控制与协调的多智能体强化学习
+   evidence：用于廊道优化和多智能体空间协调的决策Transformer
+2. [Ultra-fast Traffic Nowcasting and Control via Differentiable Agent-based Simulation](/202603/27/2603.25068v1-ultra-fast-traffic-nowcasting-and-control-via-differentiable-agent-based-simulation)  
+   标签：评分：8.0/10、query:urt-c
+   evidence：用于交通现报与控制的可微智能体仿真
 
 ### 速读区论文标签
-1. [A Hybrid Decomposition Approach for Stochastic Unit Commitment with Combined-Cycle Generators](/202603/26/2603.18177v1-a-hybrid-decomposition-approach-for-stochastic-unit-commitment-with-combined-cycle-generators)  
-   标签：评分：7.0/10、query:urt-c
-   evidence：用于随机调度优化的 Benders 分解
-2. [Deep Adaptive Rate Allocation in Volatile Heterogeneous Wireless Networks](/202603/26/2603.20926v1-deep-adaptive-rate-allocation-in-volatile-heterogeneous-wireless-networks)  
-   标签：评分：7.0/10、query:urt-c
-   evidence：用于动态速率分配和路径状态预测的深度强化学习
-3. [ANCHOR: Adaptive Network based on Cascaded Harmonic Offset Routing](/202603/26/2603.21718v1-anchor-adaptive-network-based-on-cascaded-harmonic-offset-routing)  
+1. [StreamTGN: A GPU-Efficient Serving System for Streaming Temporal Graph Neural Networks](/202603/27/2603.21090v1-streamtgn-a-gpu-efficient-serving-system-for-streaming-temporal-graph-neural-networks)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：利用频域先验进行非平稳信号的时间序列分析
-4. [Optimal Solutions for the Moving Target Vehicle Routing Problem with Obstacles via Lazy Branch and Price](/202603/26/2603.21880v1-optimal-solutions-for-the-moving-target-vehicle-routing-problem-with-obstacles-via-lazy-branch-and-price)  
+   evidence：动态任务中时空图神经网络的高效推理
+2. [Cluster-Specific Predictive Modeling: A Scalable Solution for Resource-Constrained Wi-Fi Controllers](/202603/27/2603.21778v1-cluster-specific-predictive-modeling-a-scalable-solution-for-resource-constrained-wi-fi-controllers)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：针对时间序列数据的特定聚类预测建模
+3. [CoRA: Boosting Time Series Foundation Models for Multivariate Forecasting through Correlation-aware Adapter](/202603/27/2603.21828v1-cora-boosting-time-series-foundation-models-for-multivariate-forecasting-through-correlation-aware-adapter)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：通过相关性感知适配器进行多变量时间序列预测
+4. [A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks](/202603/27/2603.22586v1-a-foundation-model-for-instruction-conditioned-in-context-time-series-tasks)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：上下文时间序列任务的基础模型
+5. [Joint Task Orchestration and Resource Optimization for SC3 Closed Loop in 6G Networks](/202603/27/2603.23217v1-joint-task-orchestration-and-resource-optimization-for-sc3-closed-loop-in-6g-networks)  
    标签：评分：7.0/10、query:urt-c
-   evidence：用于车辆路径规划和轨迹优化的列生成算法框架
-5. [Noise Titration: Exact Distributional Benchmarking for Probabilistic Time Series Forecasting](/202603/26/2603.22219v1-noise-titration-exact-distributional-benchmarking-for-probabilistic-time-series-forecasting)  
+   evidence：用于资源优化的 Actor-critic 框架
+6. [A Comparative Study of Machine Learning Models for Hourly Forecasting of Air Temperature and Relative Humidity](/202603/27/2603.23282v1-a-comparative-study-of-machine-learning-models-for-hourly-forecasting-of-air-temperature-and-relative-humidity)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：概率时间序列预测的精确分布基准测试
-6. [Graph Signal Processing Meets Mamba2: Adaptive Filter Bank via Delta Modulation](/202603/26/2603.22333v1-graph-signal-processing-meets-mamba2-adaptive-filter-bank-via-delta-modulation)  
-   标签：评分：7.0/10、query:urt-pf
-   evidence：图信号处理与状态空间模型用于时间序列分析
-7. [Ruyi2.5 Technical Report](/202603/26/2603.17311v1-ruyi25-technical-report)  
+   evidence：使用LSTM和CNN-LSTM模型进行短期预测
+7. [Optimal Path Planning in Hostile Environments](/202603/27/2603.18958v1-optimal-path-planning-in-hostile-environments)  
    标签：评分：6.0/10、query:urt-c
-   evidence：用于强化学习微调的二进制前缀策略优化
-8. [An HMDP-MPC Decision-making Framework with Adaptive Safety Margins and Hysteresis for Autonomous Driving](/202603/26/2603.17802v1-an-hmdp-mpc-decision-making-framework-with-adaptive-safety-margins-and-hysteresis-for-autonomous-driving)  
+   evidence：多智能体路径规划与移动调度
+8. [Stochastic Virtual Power Plant Dispatch via Temporally Aggregated Distributed Predictive Control with Performance Guarantees](/202603/27/2603.19106v1-stochastic-virtual-power-plant-dispatch-via-temporally-aggregated-distributed-predictive-control-with-performance-guarantees)  
    标签：评分：6.0/10、query:urt-c
-   evidence：用于自动驾驶的HMDP-MPC决策框架
-9. [Beyond the Main Mode: The contribution of access and egress trips in door-to-door travel](/202603/26/2603.18594v1-beyond-the-main-mode-the-contribution-of-access-and-egress-trips-in-door-to-door-travel)  
-   标签：评分：6.0/10、query:urt-c
-   evidence：包含火车和地铁的多模式出行离散选择模型
-10. [Bridging Network Fragmentation: A Semantic-Augmented DRL Framework for UAV-aided VANETs](/202603/26/2603.18871v1-bridging-network-fragmentation-a-semantic-augmented-drl-framework-for-uav-aided-vanets)  
-   标签：评分：6.0/10、query:urt-c
-   evidence：用于城市车辆网络和拓扑推理的深度强化学习框架
-11. [CAMO: A Conditional Neural Solver for the Multi-objective Multiple Traveling Salesman Problem](/202603/26/2603.19074v1-camo-a-conditional-neural-solver-for-the-multi-objective-multiple-traveling-salesman-problem)  
-   标签：评分：6.0/10、query:urt-c
-   evidence：多目标优化用于多智能体协调和旅行成本优化
-12. [TRACE: Trajectory Recovery with State Propagation Diffusion for Urban Mobility](/202603/26/2603.19474v1-trace-trajectory-recovery-with-state-propagation-diffusion-for-urban-mobility)  
+   evidence：用于调度的分布式优化和预测控制
+9. [Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs](/202603/27/2603.19970v1-graph2ts-structure-controlled-time-series-generation-via-quantile-graph-vaes)  
    标签：评分：6.0/10、query:urt-pf
-   evidence：具有时空模式的城市移动轨迹恢复
+   evidence：时间序列生成与全局时间结构建模
+10. [Operator Learning for Smoothing and Forecasting](/202603/27/2603.20359v1-operator-learning-for-smoothing-and-forecasting)  
+   标签：评分：6.0/10、query:urt-pf
+   evidence：动力系统预测的数据驱动方法
+11. [Neural Inference Functions for Margins for Time Series Copula Models](/202603/27/2603.21075v1-neural-inference-functions-for-margins-for-time-series-copula-models)  
+   标签：评分：6.0/10、query:urt-pf
+   evidence：多元时间序列 Copula 模型的神经推理
+12. [Hybrid Quantum-Classical Branch-and-Price for Intra-Day Electric Vehicle Charging Scheduling via Partition Coloring](/202603/27/2603.21374v1-hybrid-quantum-classical-branch-and-price-for-intra-day-electric-vehicle-charging-scheduling-via-partition-coloring)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：用于调度和资源冲突的分支定价算法
 
 
 <div class="dpr-home-promo-card">

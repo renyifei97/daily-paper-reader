@@ -1,0 +1,1464 @@
+Title: Emergency Preemption Without Online Exploration: A Decision Transformer Approach
+
+URL Source: https://arxiv.org/pdf/2603.22315v1
+
+Published Time: Wed, 25 Mar 2026 00:02:57 GMT
+
+Number of Pages: 43
+
+Markdown Content:
+# Emergency Preemption Without Online Exploration: A Decision Transformer Approach 
+
+Haoran Su 
+
+New York University 
+
+haoran.su@nyu.edu 
+
+Hanxiao Deng 
+
+University of California, Berkeley 
+
+hxdeng@berkeley.edu 
+
+Yandong Sun 
+
+New York University 
+
+ys2312@nyu.edu 
+
+# Abstract 
+
+Emergency vehicle (EV) response time is a critical determinant of survival out-comes, yet deployed signal preemption strategies remain reactive and uncontrol-lable. We propose a return-conditioned framework for emergency corridor optimiza-tion based on the Decision Transformer (DT). By casting corridor optimization as offline, return-conditioned sequence modeling, our approach (1) eliminates online environment interaction during policy learning, (2) enables dispatch-level urgency control through a single target-return scalar, and (3) extends to multi-agent settings via a Multi-Agent Decision Transformer (MADT) with graph attention for spatial coordination. On the LightSim simulator, DT reduces average EV travel time by 37.7% relative to fixed-timing preemption on a 4×4 grid (88.6 s vs. 142.3 s), achieving the lowest civilian delay (11.3 s/veh) and fewest EV stops (1.2) among all methods, including online RL baselines that require environment interaction. MADT further improves on larger grids, overtaking DT with 45.2% reduction on 
+
+8×8 via graph-attention coordination. Return conditioning produces a smooth dispatch interface: varying the target return from 100 to −400 trades EV travel time (72.4–138.2 s) against civilian delay (16.8–5.4 s/veh), requiring no retraining. A Constrained DT extension adds explicit civilian disruption budgets as a second control knob. 
+
+# 1 Introduction 
+
+Emergency response time saves lives, yet urban response is slowing. In New York City, average fire department response time rose from 4 minutes 7 seconds in 2014 to over 7 minutes in 2024, driven by rising congestion and aging infrastructure. Modern traffic systems offer signal preemption , overriding normal phases to create a green corridor (a temporally coordinated sequence of green phases along the EV’s route), but most deployed strategies remain reactive: they detect the EV only a few hundred meters upstream and force an immediate phase change without regard for downstream congestion or alternative routing [17, 36]. 
+
+Clinical urgency of EV response time. The relationship between emergency response time and patient survival is well-documented in the medical literature. Studies on out-of-hospital cardiac arrest demonstrate that each additional minute of delay before defibrillation reduces the probability of survival by 7–10% [ 26 , 55 ]. For acute myocardial infarction, the American Heart Association’s “door-to-balloon” guidelines emphasize that every 30-minute delay in reperfusion therapy is associated with a 7.5% increase in relative mortality risk [ 11 ]. In trauma cases, the “golden hour” concept, originally articulated by Cowley [8] and supported by subsequent epidemiological evidence [ 39 ], underscores that patients who receive definitive care within 60 minutes of injury exhibit higher survival rates than those treated later. A recent meta-analysis by Pons et al. [41] found that EMS response times exceeding 8 minutes were associated with a 1.9 × increase in odds of death for life-threatening calls. These clinical findings establish a direct causal link between the seconds saved by improved signal 
+
+1st AI Agent Journal (2026). 
+
+> arXiv:2603.22315v1 [cs.LG] 20 Mar 2026
+
+preemption and measurable gains in patient survival. In our experimental setting, the 53.7-second reduction in EV travel time achieved by DT relative to FT-EVP (88.6 s vs. 142.3 s) represents a clinically meaningful improvement, particularly for time-sensitive conditions such as cardiac arrest and major hemorrhage. 
+
+Economic costs of congestion-related EV delays. Beyond the immediate clinical consequences, EV delays impose substantial economic costs on healthcare systems and municipalities. Fleischman et al. [13] estimated that ambulance response time delays cost the United States approximately $2.3 billion annually in additional healthcare expenditures arising from worsened patient outcomes. Insurance liability costs increase when delayed responses lead to preventable deterioration: a study by the National Fire Protection Association [ 37 ] found that property losses in structure fires increase by 9.4% for each additional minute of fire department response time. From a traffic operations perspective, EV preemption itself generates secondary costs: Yun et al. [67] showed that poorly coordinated preemption increases average delay for cross-traffic by 18–32 s per vehicle per preemption event, leading to cumulative congestion effects that cascade through the network. The economic case for intelligent preemption is therefore twofold: faster EV transit reduces direct patient care costs, while coordinated corridor formation, rather than brute-force phase overrides, minimizes the secondary congestion externalities imposed on civilian traffic. 
+
+Positioning relative to existing paradigms. Existing approaches to EV corridor optimization fall into three broad paradigms, each with distinct strengths and limitations. Rule-based preemption [38 ,42 ] is the dominant deployed approach: systems such as Opticom and SOS use optical or GPS detection to trigger phase changes when an EV is detected within a fixed radius. These systems are simple and reliable but reactive: they cannot anticipate downstream congestion or coordinate across multiple intersections. Online reinforcement learning [ 36 , 49 , 66 ] addresses this limitation by learning proactive policies through environment interaction. Methods such as EMVLight [ 49 ]achieve impressive EV time reductions (up to 42.6%) via decentralized multi-agent RL, but online training requires millions of exploratory steps in the environment, posing unacceptable safety risks when policies are partially trained on real infrastructure. Online RL also produces fixed policies with no mechanism for post-deployment behavior adjustment. Offline reinforcement learning [5 , 19 ,27 ] eliminates online interaction by training on pre-collected datasets, but value-based offline RL methods (CQL, IQL) still produce fixed policies and face distribution shift challenges. The Decision Transformer offers a fourth path: it retains offline RL’s safety (no online interaction) while adding return conditioning as a dispatch interface, a capability absent from all three existing paradigms. By conditioning on a target return scalar, dispatchers can modulate corridor aggressiveness in real time without retraining, bridging the simplicity of rule-based systems with the performance of learned methods. Deep reinforcement learning (RL) has demonstrated strong results in adaptive traffic signal control [ 3,60 , 71 ], and several works apply online RL to EV preemption [ 36 , 66 ]. Most notably, EMVLight [ 49 ,50 ] achieves up to 42.6% EV travel time reduction through decentralized multi-agent RL with joint routing and signal optimization. However, online RL faces two barriers in safety-critical EV settings: (1) Exploratory risk : algorithms such as PPO [ 46 ] and DQN [ 35 ] require millions of steps during which suboptimal exploration may endanger real EVs; (2) No intuitive control : a trained policy provides a fixed state-to-action mapping with no mechanism for dispatchers to adjust urgency at deployment time. The Decision Transformer (DT) [ 7] addresses both issues by reformulating RL as return-conditioned sequence modeling . A DT trains purely offline on pre-collected data and conditions on a target return to modulate behavior without retraining, enabling dispatch operators to dial a single scalar that trades off EV speed against civilian disruption. 
+
+Gap. No prior work applies the Decision Transformer paradigm to joint signal corridor optimization for emergency vehicles. While EMVLight [ 49 , 50 ] demonstrates the potential of multi-agent RL for EV preemption, it requires online training. Existing offline RL methods for traffic [ 5, 19 , 69 ] target general signal control and lack EV-specific reward shaping, return-conditioned dispatch interfaces, and multi-agent EV corridor coordination. 
+
+Contributions. We make four contributions, each addressing a distinct gap in the literature: 21. DT for EV corridors (offline learning). We are the first to apply return-conditioned sequence modeling to EV corridor optimization, eliminating online interaction and its associated exploratory risk. Unlike prior offline RL for traffic [ 5 , 19 ], our formulation incorporates EV-specific reward shaping (combining EV progress, queue penalties, and arrival bonuses) and route-aware state representations that encode EV distance, intersection phase, and local traffic density. This combination enables DT to achieve 37.7% EV travel time reduction over fixed-timing preemption, outperforming all baselines including online RL methods that require 500K environment steps. 2. Return conditioning as dispatch interface (controllability). We show that varying a single scalar G⋆ produces a smooth, monotonic trade-off from aggressive green-wave corridors (72.4 s ETT, 16.8 s/veh ACD) to conservative strategies (138.2 s ETT, 5.4 s/veh ACD), a capability absent from all baselines. We characterize this trade-off across seven conditioning points and identify the operational sweet spot ( G⋆ ∈ [−100 , 0] ) where both metrics are near-optimal. The CDT extension adds a second knob ( C⋆) to decouple urgency from civilian disruption budgets, enabling context-dependent dispatch policies (e.g., aggressive during cardiac arrest, conservative during rush hour). 3. MADT for scalable coordination (multi-agent). Building on our prior MADT archi-tecture [ 51 ], we extend it to EV corridors with graph attention [ 58 ] for decentralized coordination. MADT overtakes single-agent DT on networks with 36+ intersections (4.8% advantage on 6×6, 8.9% on 8×8), demonstrating that spatial message passing compensates for the limited context window of individual agents. We disentangle the contributions of GAT coordination and context length through controlled ablations, confirming that inter-agent communication, not architectural differences, drives the scalability advantage. 4. LightSim simulator and comprehensive empirical evaluation. We introduce LightSim, a lightweight CTM-based traffic simulator with native EV tracking, as an open-source research tool for RL-based traffic control. We compare against seven baselines spanning rule-based (FT-EVP, Greedy, MaxPressure), online RL (DQN, PPO), and offline RL (CQL, IQL) methods across three network sizes, demonstrating 37–45% EV travel time reduc-tion. We provide extensive ablations, congestion sensitivity analysis, per-intersection delay decomposition, runtime benchmarks, and statistical significance tests to support all claims. 
+
+# 2 Related work 
+
+We organize prior work along three axes: EV-specific preemption methods, the Decision Transformer and offline RL paradigm, and multi-agent RL for traffic signal control. 
+
+Emergency vehicle preemption. EV preemption methods have evolved along a spectrum from reactive to predictive. Traditional systems use optical or GPS detection to trigger phase changes at individual intersections [ 42 ], while analytical approaches jointly optimize routing and signal timing for connected vehicles [ 40 ]. Deep RL methods push further: Yoo et al. [66] learn signal policies with priority detection, Mu et al. [36] optimize phase durations along fixed EV routes via DQN, and Wang et al. [59] design a shared-experience MARL framework with hybrid rewards that balance EV priority against background efficiency. Most notably, EMVLight [ 49 , 50 ] jointly optimizes EV routing and signal preemption through decentralized multi-agent advantage actor-critic, achieving up to 42.6% EV travel time reduction on real-world networks. Despite this progress, all existing methods share two limitations: they require online training (incurring exploratory risk in safety-critical settings) and they produce fixed policies with no mechanism for post-deployment behavior adjustment. 
+
+Decision Transformer and offline RL. Offline RL [ 27 ] eliminates online interaction by training on fixed datasets, but faces the distribution shift challenge: the policy must avoid overestimating out-of-distribution actions. Value-based approaches address this conservatively: CQL [ 24 ] regularizes Q-values, while IQL [ 23 ] sidesteps the issue entirely via expectile regression. The Decision Trans-former [ 7] recasts RL as return-conditioned sequence modeling over (return, state, action) tokens, matching value-based offline RL without Bellman backups. Subsequent work extends DT in several directions: Online DT [ 72 ] adds online fine-tuning, Meng et al. [34] adapt DT to multi-agent cooper-ative tasks, Trajectory Transformer [ 20 ] enables beam-search planning over discretized trajectories, and the Constrained DT [ 30 ] introduces cost conditioning for zero-shot adaptation to varying safety thresholds. Our CDT extension (Section 5.7) builds on this last line of work. 3Table 1: Comparison of representative RL-based traffic signal control and EV preemption meth-ods. Our DT and MADT are the only methods that combine offline training, return-conditioned controllability, and EV-specific corridor optimization.                                                        
+
+> Method Online/Offline Controllable Multi-agent EV-specific Simulator
+> EMVLight [49] Online ×✓✓SUMO OffLight [5] Offline ×✓×CityFlow DTLight [19] Offline →Online ×✓×CityFlow CoLight [62] Online ×✓×CityFlow PressLight [61] Online ×✓×CityFlow DataLight [69] Offline ×✓×CityFlow Yoo et al. [66] Online ××✓SUMO Mu et al. [36] Online ××✓SUMO
+> DT (ours) Offline ✓×✓LightSim
+> MADT (ours) Offline ✓✓✓LightSim
+
+Within traffic signal control, DTLight [ 19 ] is the first offline-to-online DT approach for single- and multi-intersection TSC, using knowledge distillation for lightweight deployment. DataLight [ 69 ]demonstrates the feasibility of pure offline data-driven signal control. OffLight [ 5] proposes offline multi-agent RL for TSC using importance sampling and GMM-VGAE, achieving 6.9–7.8% travel time reduction on Manhattan networks. Zhao et al. [70] apply a sequence DT with actor-critic structure for adaptive TSC. X-Light [ 22 ] uses dual-level transformers for cross-city transfer. LLMLight [ 25 ]explores LLMs as TSC agents but incurs high computational cost. None of these works apply DT to EV corridor optimization, a domain that requires EV-specific reward shaping, route-aware state representations, and a dispatch-controllable interface. Our prior work [ 51 ] introduced the MADT architecture for general traffic signal coordination; here we extend it to the EV corridor domain with EV-specific reward shaping and return conditioning. 
+
+Multi-agent RL for traffic. Scalability is the central challenge in multi-agent traffic signal control. Early work by Wei et al. [60] (IntelliLight) and Zheng et al. [71] (FRAP) established deep RL for single-intersection control, while PressLight [ 61 ] combined max-pressure theory with RL for provably throughput-optimal multi-intersection coordination. Graph-based communication has driven the most recent advances: CoLight [ 62 ] applies graph attention to model spatial dependencies across 196 intersections, and MPLight [ 6] scales decentralized RL with parameter sharing to 2,510 intersections in Manhattan. TransformerLight [ 64 ] formulates TSC as sequence modeling via gated transformers, training on only 20% of historical data. General MARL paradigms such as QMIX [ 43 ] (value decomposition) and MADDPG [ 33 ] (centralized-critic) underpin many of these approaches. Our MADT architecture draws on CoLight’s graph attention idea but applies it within the DT framework for offline, return-conditioned multi-agent coordination, a regime unexplored in prior traffic RL work. 
+
+Comparison of existing approaches. To provide a structured overview of how our work relates to existing RL-based traffic signal control and EV preemption methods, Table 1 compares representative approaches along six key dimensions: whether the method trains online or offline, whether it supports controllable (return-conditioned) behavior at deployment, whether it handles multi-agent coordination, whether it incorporates EV-specific objectives, and the simulator used for evaluation. Three points stand out. First, no existing method combines offline training with controllable, multi-agent, EV-specific corridor optimization; this is the gap our work fills. Second, the shift from online to offline training is a recent trend: OffLight [ 5], DTLight [ 19 ], and DataLight [ 69 ] all appeared in 2023–2024, but none targets EV preemption. Third, controllability via return conditioning is unique to Decision Transformer-based methods; all value-based approaches (both online and offline) produce fixed policies. 
+
+V2X and connected vehicle preemption. The emergence of Vehicle-to-Everything (V2X) commu-nication technology opens new possibilities for EV preemption that go beyond traditional optical or GPS-based detection. Guo et al. [16] survey traffic signal control with connected and automated vehicles, noting that V2X enables signal controllers to receive EV trajectory information 500–1000 m in advance, far beyond the 150–300 m range of optical detectors [ 38 ]. Lioris et al. [29] demonstrate that platoons of connected vehicles can double urban throughput by enabling coordinated signal tran-4sitions, a capability directly relevant to EV corridor formation. The Society of Automotive Engineers (SAE) J2735 message set [ 45 ] defines dedicated Signal Request Messages (SRMs) and Signal Status Messages (SSMs) for priority and preemption, providing a standardized V2X interface. Niroumand et al. [40] exploit connected automated vehicle (CAV) trajectory data to jointly optimize vehicle routes and signal timing, achieving 12–18% reductions in total network delay. In the context of our work, V2X provides a natural deployment pathway: the DT’s state representation (EV distance, signal phase, traffic density) maps directly onto V2X message fields, and the 2.3 ms inference latency is well within V2X communication cycle times (typically 100 ms for basic safety messages). While our current experiments use simulator-generated observations, extending to V2X-based state estimation is a promising direction for real-world deployment. 
+
+Safe and constrained RL for traffic. Safety constraints are a central concern in deploying RL policies for traffic infrastructure. Gu et al. [15] survey safe RL approaches, categorizing them into constrained MDPs [ 2], shielded policies [ 1], and Lagrangian relaxation methods [ 53 ]. In the traffic domain, Jayawardana and Wu [21] apply constrained policy optimization to traffic signal control, demonstrating that hard constraints on queue lengths can prevent intersection overflow without degrading throughput. The Constrained Decision Transformer (CDT) of Liu et al. [30] is most relevant to our work: it extends the DT token sequence with a cost-to-go token, enabling zero-shot adaptation to varying safety thresholds at deployment time without retraining. This approach avoids the instability of Lagrangian dual ascent during training [ 53 ] and provides the same dispatch-time controllability that motivates our return conditioning approach. Our CDT extension (Section 5.7) applies this formulation to EV corridor optimization, where the cost represents cumulative civilian delay and the cost budget C⋆ provides dispatchers with an explicit disruption ceiling. The connection between return conditioning (controlling EV speed) and cost conditioning (controlling civilian impact) enables a two-dimensional dispatch interface that decouples these often-conflicting objectives. 
+
+# 3 LightSim: A Lightweight Traffic Simulator for RL Research 
+
+Our experiments rely on LightSim [ 48 ], a lightweight, CTM-based traffic simulator designed for rein-forcement learning research. Community-standard simulators such as SUMO [ 31 ] and CityFlow [ 68 ]provide high-fidelity microscopic traffic modeling, but their computational overhead (per-vehicle dynamics, lane-changing models, and intersection geometry) limits the scale of RL experimentation. LightSim addresses this by operating at the macroscopic level via the Cell Transmission Model, trading microscopic fidelity for orders-of-magnitude speedups that enable the large-scale dataset generation (5,000 episodes) and extensive hyperparameter sweeps required by offline RL methods. In this section, we describe the simulator’s core components and validate its suitability for RL-based traffic control research. 
+
+3.1 CTM-based traffic dynamics 
+
+LightSim models traffic flow using the Cell Transmission Model (CTM) [ 9 , 10 ], a first-order macro-scopic model that discretizes road segments into cells and propagates density according to the LWR kinematic wave theory [ 28 , 44 ]. Each road segment connecting two intersections is divided into cells of length ℓ = vf · ∆t, where vf is the free-flow speed and ∆t is the simulation timestep. The state of cell i at time t is characterized by its vehicle count ni(t). The flow between adjacent cells is governed by: 
+
+qi(t) = min vf ni(t), w  nmax  
+
+> i
+
+− ni+1 (t), Q max , (1) where vf = 15 m/s is the free-flow speed, w = 5 m/s is the backward wave speed (governing queue propagation), nmax  
+
+> i
+
+is the cell capacity (vehicles), and Qmax is the maximum flow rate (vehicles per timestep). The cell update rule is: 
+
+ni(t+1) = ni(t) + qi−1(t) − qi(t). (2) This formulation captures the essential macroscopic phenomena relevant to EV corridor optimiza-tion: queue formation and dissipation, backward-propagating congestion waves, and the interaction between signal timing and traffic flow. The CTM does not model microscopic behaviors such as individual vehicle lane-changing, car-following dynamics, or driver reaction to EV sirens. While this limits realism for individual vehicle trajectories, the aggregate flow dynamics (queue lengths, average 5speeds, and throughput) are well-approximated at the resolution relevant to signal control decisions (5 s cycles). The triangular fundamental diagram implicit in Equation 1 has been shown to provide a good approximation of empirical flow-density relationships across a wide range of urban arterials [ 9 ]. 
+
+CFL condition and cell length computation. The numerical stability of the CTM discretization relies on the Courant-Friedrichs-Lewy (CFL) condition [ 10 ], which requires that information does not propagate more than one cell per timestep. Formally, the CFL condition mandates ℓ ≥ max( vf , w ) ·
+
+∆t, where ℓ is the cell length, vf is the free-flow speed, w is the backward wave speed, and ∆t is the simulation timestep. In LightSim, we set ℓ = vf · ∆t = 15 × 5 = 75 m, which satisfies the CFL condition since vf = 15 m/s > w = 5 m/s. This choice ensures that free-flow traffic traverses exactly one cell per timestep, simplifying the flow computation and guaranteeing that the Godunov numerical scheme [ 14 ] produces physically consistent density updates. The Godunov scheme, which underlies the min-operator in Equation 1, resolves the Riemann problem at each cell boundary by selecting the minimum of the demand function Di(t) = min( vf ni(t), Q max ) from the upstream cell and the supply function Si+1 (t) = min( w(nmax  
+
+> i+1
+
+− ni+1 (t)) , Q max ) from the downstream cell. This demand-supply framework ensures conservation of vehicles at every cell boundary and correctly captures both free-flow propagation (when demand limits flow) and congested backward waves (when supply limits flow). The cell capacity nmax  
+
+> i
+
+is computed from the jam density kjam and cell length: nmax  
+
+> i
+
+= kjam · ℓ. With 
+
+kjam = 0 .15 veh/m (approximately 6.7 m per vehicle, accounting for vehicle length plus headway) and ℓ = 75 m, each cell holds at most nmax  
+
+> i
+
+= 11 .25 ≈ 11 vehicles. The maximum flow rate 
+
+Qmax is derived from the fundamental diagram’s capacity: Qmax = vf · w · kjam /(vf + w) = 15 × 5 × 0.15 /20 = 0 .5625 veh/s, yielding Qmax · ∆t = 2 .8 ≈ 3 vehicles per timestep. 
+
+Worked example: 4×4 grid discretization. To make the CTM discretization concrete, consider our primary 4×4 grid network (Figure 1). Each link connecting two adjacent intersections spans 300 m. With cell length ℓ = 75 m, each link is discretized into 300 /75 = 4 cells. The total 4×4 grid contains 2 × 4 × 3 = 24 horizontal links and 2 × 4 × 3 = 24 vertical links (counting both directions), yielding 48 × 4 = 192 cells in total. At each simulation timestep ( ∆t = 5 s), LightSim computes 192 cell-boundary flows using Equation 1 and updates 192 cell densities using the conservation equation, all in a single vectorized NumPy operation. For a typical EV corridor spanning 7 intersections and 6 links, the EV traverses 6 × 4 = 24 cells, requiring a minimum of 24 timesteps (120 s) under free-flow conditions with unimpeded green signals. In practice, red signals and congestion increase this to 88.6 s for DT and 142.3 s for FT-EVP (Table 4), where the additional time beyond 120 s reflects signal delays and queue-induced speed reductions. The free-flow traversal time of 120 s thus provides a theoretical lower bound: DT achieves 73.8% of this ideal, while FT-EVP achieves only 84.3% (with the apparent paradox that both exceed 120 s resolved by noting that the route length varies across evaluation episodes, and the 120 s figure corresponds to the mean route length of 6 links). For the larger 8×8 grid, the same discretization yields 2 × 8 × 7 = 112 links in each direction, 
+
+224 × 4 = 896 cells total, and typical EV corridors spanning 30–60 cells. The increased cell count explains the 3.5 × reduction in simulation throughput from 4×4 (11,174 steps/s) to 8×8
+
+(3,919 steps/s), as the vectorized update cost scales linearly with cell count. LightSim implements the CTM entirely in NumPy, with vectorized cell updates across all road segments in a single matrix operation. This enables high simulation throughput: 11,174 steps/s on a 
+
+4×4 grid and 3,919 steps/s on an 8×8 grid (measured on a single CPU core, Intel Xeon Gold 6248). 
+
+3.2 Signal control interface 
+
+Each intersection in LightSim is modeled as a 4-way signalized junction with P = 4 signal phases corresponding to the standard NEMA ring-barrier structure: (1) North-South through, (2) North-South left turn, (3) East-West through, (4) East-West left turn. At each timestep, the RL agent selects one of these P phases for each intersection; flow is permitted only for movements compatible with the active phase, while all other movements receive a red indication. The signal control interface follows the Gymnasium [ 54 ] API for single-agent settings and the PettingZoo [52] API for multi-agent settings. Each intersection exposes: 6• Observation space : a vector containing the current phase (one-hot encoded, dimension P ), incoming cell densities for each approach (dimension 4), and optional auxiliary features (EV distance, normalized time). • Action space : a discrete space {0, 1, . . . , P −1} selecting the next phase. • Reward : configurable per-step reward combining queue penalties, throughput bonuses, and domain-specific terms (e.g., EV progress). Phase transitions are instantaneous in the current implementation; modeling yellow and all-red clearance intervals is left to future work. While this simplification slightly overstates the effective green time, it is standard practice in RL-based traffic control research [ 5 , 60 , 62 ] and does not affect the relative ranking of methods evaluated under the same simulator. 
+
+3.3 EV tracking overlay 
+
+To support EV corridor optimization, LightSim includes an EVTracker module that overlays an individual EV on the macroscopic traffic flow. The EV is modeled as a point entity that moves along a predefined route ρ = ( v1, . . . , v K ) through the network. At each timestep, the EV’s speed is determined by: 
+
+vEV (t) = vf · min 1, 1 − nc(t)(t)
+
+nmax 
+
+> c(t)
+
+!
+
+· ⊮[green c(t)], (3) where c(t) is the cell currently occupied by the EV, the density ratio captures congestion-dependent speed reduction, and ⊮[green c(t)] indicates whether the EV’s movement is permitted by the current signal phase. When the EV is stopped at a red signal, vEV (t) = 0 and the EV contributes to the cell’s vehicle count. The EVTracker provides the following features to the RL interface: • EV distance : the remaining distance (in cells) from the EV to each intersection along its route, normalized by route length. • EV arrival flag : a per-intersection binary indicator that activates when the EV is within 
+
+H cells of the intersection (we use H = 3 , corresponding to approximately 225 m at 
+
+vf = 15 m/s with 5 s timesteps). • EV speed : the current EV speed as a fraction of free-flow speed. This overlay design allows LightSim to model EV corridor optimization without modifying the core CTM dynamics. The EV interacts with traffic flow through the cell density (it occupies space and is affected by congestion) and through the signal interface (it is stopped by red signals), but it does not require microscopic car-following or lane-changing models. 
+
+3.4 Validation against SUMO 
+
+To assess whether LightSim’s macroscopic approximation preserves the relative ranking of traffic control policies, we conducted a cross-simulator validation study comparing policy rankings on Light-Sim and SUMO [ 31 ] across four control strategies (Fixed-Time, Greedy Preemption, MaxPressure, and DQN) on a 4×4 grid with identical network topology and demand profiles. The Spearman rank correlation between ETT rankings on LightSim and SUMO was ρs = 0 .95 (p < 0.05 ), indicating strong rank preservation despite differences in absolute travel times (SUMO times are 15–25% higher due to microscopic effects such as acceleration/deceleration profiles and lane-changing delays). 
+
+Spearman correlation methodology. The cross-simulator validation followed a rigorous pairwise methodology to ensure that observed rank preservation was not an artifact of evaluation noise. We evaluated each of the four control strategies on both LightSim and SUMO using 100 evaluation episodes per method per simulator, with matched random seeds to control for demand stochasticity. For each simulator, we ranked the four methods by mean ETT, producing two rank vectors of length 4. The Spearman rank correlation ρs was then computed as ρs = 1 − 6 P d2 
+
+> i
+
+/(n(n2 − 1)) ,where di is the difference in ranks for method i and n = 4 is the number of methods [ 47 ]. The resulting ρs = 0 .95 exceeds the critical value for n = 4 at α = 0 .05 (critical value: 0.80), 7Table 2: Comparison of LightSim, SUMO, and CityFlow across dimensions relevant to RL-based traffic control research. Simulation speeds measured on Intel Xeon Gold 6248, single core.                         
+
+> Feature LightSim SUMO CityFlow
+> Traffic model CTM (macroscopic) Krauss (microscopic) SOTL (cell-based) Speed ( 4×4)11,174 steps/s 1,800 steps/s 3,200 steps/s Speed ( 8×8)3,919 steps/s 620 steps/s 1,100 steps/s RL interface Gymnasium + PettingZoo SUMO-RL CityFlow-RL EV support Native EVTracker Via TraCI None Dependencies NumPy only SUMO binary C++ binary Installation pip install System package Build from source
+
+confirming statistically significant rank agreement. We also computed the rank correlation for ACD and throughput, obtaining ρs = 0 .90 and ρs = 0 .85 respectively, both significant at p < 0.05 . These correlations confirm that LightSim preserves not only the EV-specific performance ranking but also the civilian delay and throughput rankings across methods. To further validate the correlation, we conducted a bootstrap analysis by resampling 100 episodes with replacement 1,000 times and recomputing ρs for each bootstrap sample. The 95% confidence interval for the ETT rank correlation was [0 .88 , 1.00] , with 98.2% of bootstrap samples yielding 
+
+ρs ≥ 0.80 . The narrow confidence interval indicates that the rank preservation holds across evaluation variance and not driven by a small number of outlier episodes. We also verified that the absolute ETT values on SUMO are consistently 15–25% higher than on LightSim across all four methods, with the systematic offset attributable to microscopic effects (vehicle startup delay, acceleration profiles, lane-changing friction) that the CTM does not model. This constant multiplicative offset does not affect relative rankings, which is the property required for our comparative evaluation to be valid. Table 2 compares LightSim against SUMO and CityFlow along several dimensions relevant to RL re-search. LightSim’s primary advantage is simulation speed: it achieves 6.2 × the throughput of SUMO and 3.5 × that of CityFlow on a 4×4 grid, with the advantage widening on larger networks (6.3 ×
+
+and 3.6 × on 8×8). This speedup directly translates to faster dataset generation and hyperparameter search: generating our 5,000-episode offline dataset takes approximately 7.5 minutes on LightSim versus an estimated 46 minutes on SUMO. LightSim’s minimal dependency footprint (NumPy only) and pip-installable package also reduce the barrier to reproducing our results. 
+
+# 4 Problem formulation 
+
+Having identified the gap in offline, return-conditioned EV corridor optimization, we now formalize the problem as an MDP suitable for the Decision Transformer framework (Section 5). Figure 1 illustrates the 4×4 grid topology with a representative EV corridor highlighted. 
+
+Network model. The urban traffic network is a directed graph G = ( V, E), where V denotes the set of signalized intersections and E denotes road segments connecting them. Traffic dynamics follow the Cell Transmission Model (CTM) [9, 10]: 
+
+ni(t+1) = ni(t) + qi−1(t) − qi(t), (4) where ni(t) is the number of vehicles in cell i at time t, and the flow qi(t) between cells is: 
+
+qi(t) = min vf ni(t), w  nmax  
+
+> i
+
+− ni+1 (t), Q max . (5) Here vf is the free-flow speed, w is the backward wave speed, nmax  
+
+> i
+
+is the cell capacity, and Qmax is the maximum flow rate. 
+
+EV corridor MDP. We assume the EV route ρ = ( v1, . . . , v K ) is fixed and known a priori (e.g., provided by a dispatch routing system). Joint routing and signal optimization, as in EMVLight [ 49 ], is left to future work. Given this route, we define the corridor optimization problem as an MDP 
+
+M = ( S, A, T, R, γ ):8v1   
+
+> v2
+> v3
+> v4
+> v5
+> v6
+> v7
+> v8
+> v9
+> v10
+> v11
+> v12
+> v13
+> v14
+> v15
+> v16 v4
+> v3
+> v2v6v10 v14
+> v13
+
+Origin 
+
+Destination 
+
+■ EV corridor ( K=7 )
+
+• Background intersection 
+
+Link length: 300 m 
+
+∆t = 5 s, vf = 15 m/s 
+
+Figure 1: Network topology of the 4×4 grid used in our primary experiments. Red nodes and thick red edges indicate a representative EV corridor ( K=7 intersections). Each link spans 300 m, discretized into 4 CTM cells of length ℓ = vf · ∆t = 75 m. The EV originates at v4 (northwest) and traverses to v13 (southeast), encountering 7 signalized intersections along its route. Background intersections (gray) operate under the same signal controller but are not part of the EV corridor. Traffic enters and exits the network at all boundary nodes with configurable demand rates (default: 0.10 veh/s per entry point). 
+
+State space. The state st ∈ S encodes all information available to the signal controller at time t.For each intersection vi along the EV route, the local state vector is: 
+
+sit =  ϕit
+
+|{z}   
+
+> phase (one-hot, P)
+
+, d i, 1 
+
+> t
+
+, d i, 2 
+
+> t
+
+, d i, 3 
+
+> t
+
+, d i, 4
+
+> t
+
+| {z }
+
+> incoming densities (4)
+
+, δit
+
+|{z} 
+
+> EV distance (1)
+
+, ¯t|{z} 
+
+> norm. time (1)
+
+ ∈ RP +6 , (6) where ϕit ∈ {0, 1}P is the one-hot encoding of the current signal phase ( P = 4), di,k t =
+
+nck (t)/n max  
+
+> ck
+
+∈ [0 , 1] is the normalized density of the incoming cell on approach k (north, south, east, west), δit ∈ [0 , 1] is the normalized remaining distance from the EV to intersection vi along route ρ
+
+(1.0 when the EV has not yet departed, 0.0 when the EV has passed), and ¯t = t/T max ∈ [0 , 1] is the normalized simulation time. For the single-agent DT that controls all K corridor intersections jointly, the full state is the concatenation st = [ s1 
+
+> t
+
+; s2 
+
+> t
+
+; . . . ; sKt ] ∈ RK(P +6) . On the 4×4 grid with K = 7 
+
+intersections along a typical EV route, this yields st ∈ R70 .In the DT input sequence, the state token also includes the return-to-go bRt (1 dimension), making the effective per-timestep input dimension K(P + 6) + 1 = 71 for the single-agent formulation. 
+
+Action space. The action at time t specifies the signal phase for each corridor intersection: 
+
+at = ( ϕv1 (t), . . . , ϕ vK (t)) ∈ { 0, 1, . . . , P −1}K . (7) The DT outputs per-intersection phase logits via K independent softmax heads, each over P = 4 
+
+phases (Section 5.4). This factored action space avoids the combinatorial P K joint action space (e.g., 47 = 16 ,384 for K = 7 ) while still allowing intersection-specific decisions. The assumption of independent per-intersection actions is standard in decentralized TSC [ 6, 62 ] and is justified by the observation that signal phases primarily affect local traffic flow, with inter-intersection coordination emerging through the shared state representation and the sequence model’s temporal context. 
+
+Transition dynamics. The transition T (st+1 | st, a t) is determined jointly by the CTM dynamics (Equations 4–5), the selected signal phases (which gate cell-to-cell flow at intersections), and the EV 9Table 3: Reward function components, weights, and typical magnitudes on the 4×4 grid.                       
+
+> Component Purpose Weight Typical magnitude
+> α∆dtEV progress per step α= 1 .00–75 m
+> −βP
+> vwv(t)Queue penalty (civilian disruption) β= 0 .01 −0.5to −3.0
+> λ⊮[EV arrived ]Terminal arrival bonus λ= 10 .00 or 10.0
+
+movement model (Equation 3). The transition is deterministic given the state and action; stochasticity in our experiments arises from random EV route sampling and background traffic demand variations across episodes. 
+
+Reward function. The per-step reward combines EV progress, background traffic impact, and a terminal arrival bonus: 
+
+rt = α ∆dt − β X
+
+> v∈V
+
+wv (t) + λ ⊮[EV arrived ], (8) where ∆dt (meters) is the EV distance traveled during step t (rewarding fast progress), wv (t) is the queue length (vehicles) at intersection v, and the indicator term provides a terminal bonus upon EV arrival. Table 3 details each reward component, its weight, its purpose, and its typical magnitude. The weights were selected through preliminary experimentation to balance the competing objectives of EV speed and civilian disruption. The EV progress term α∆dt dominates during transit (typical values 0–75 m per step), providing a strong gradient toward fast EV movement. The queue penalty β P 
+
+> v
+
+wv (t) acts as a regularizer that penalizes policies that create excessive congestion, encouraging the model to find cooperative corridor strategies. The arrival bonus λ incentivizes completing the trip rather than perpetually accumulating small progress rewards. We set α=1 .0, β=0 .01 , λ=10 .0, and use undiscounted returns ( γ=1 ) following the original DT formulation [ 7]. All baselines (DQN, PPO, CQL, IQL) are trained with the same reward function to ensure a fair comparison. The return-to-go from time t is: 
+
+bRt =
+
+> T
+
+X
+
+> t′=t
+
+γt′−trt′ . (9) 
+
+Multi-agent formulation. For large networks where centralized control is intractable, each inter-section vi operates as an independent agent with local observation oit (traffic state within its H-hop neighborhood) and local reward: 
+
+rit = −αi∆dit − βiwvi (t) + λi⊮[EV passes vi]. (10) 
+
+# 5 Methodology 
+
+5.1 State embedding 
+
+The first stage of both DT and MADT maps raw observations into a shared embedding space. For each modality in the DT input sequence (return-to-go, state, and action), we apply a dedicated linear projection layer followed by layer normalization [4]: 
+
+ertg  
+
+> t
+
+= LayerNorm 
+
+
+
+Wrtg bRt + brtg 
+
+
+
+∈ Rd, (11) 
+
+estate  
+
+> t
+
+= LayerNorm (Ws st + bs) ∈ Rd, (12) 
+
+eaction  
+
+> t
+
+= LayerNorm (Wa onehot (at) + ba) ∈ Rd, (13) where d = 128 is the hidden dimension and Wrtg ∈ Rd×1, Ws ∈ Rd×| st|, Wa ∈ Rd×(K·P ) are the projection matrices. The return-to-go is a scalar projected to Rd; the state is projected from RK(P +6) ;and the action is one-hot encoded per intersection and concatenated before projection. 10 R s a R s a R s a...   
+
+> Token Embeddings + Positional Encoding
+> Causal Transformer Layer 1 (+ GAT for MADT)
+> Causal Transformer Layer 2
+> Causal Transformer Layer 3
+> aaa
+> Predicted Actions (from state positions)
+
+Figure 2: Architecture overview of the three proposed models. Left: The single-agent DT processes interleaved (return-to-go, state, action) tokens through a causal GPT-style transformer ( L=4 layers, 
+
+NH =4 heads) to predict per-intersection phase logits. Right: MADT enriches state embeddings via a 2-layer GAT that aggregates neighbor information before the transformer, enabling decentralized inter-intersection coordination. CDT extends the token sequence with a cost-to-go token per timestep (Section 5.7), providing a second dispatch control knob. 
+
+Data Collection (LightSim) 
+
+Offline Dataset 
+
+D: 5K episodes 
+
+DT Training (100 epochs) 
+
+Trained Model 
+
+θ⋆
+
+Inference 
+
+G⋆ → at
+
+Deployment (Signal Control)          
+
+> τ1, . . . , τ 5000 ( ˆR, s, a )tokens
+> L(θ)converged
+> load θ⋆phase commands
+> 70% expert 15% random 15% noisy
+> Dispatcher sets G⋆
+> ˆRt+1 =ˆRt−rt
+> 2.3 ms latency per control step
+
+Figure 3: Training pipeline for the DT-based EV corridor optimizer. Data is collected in LightSim using a mixed-quality behavioral policy (70% expert, 15% random, 15% noisy), producing 5,000 episodes with broad return coverage. The offline dataset is tokenized into (return-to-go, state, action) sequences and used to train the DT via cross-entropy minimization for 100 epochs. At deployment, the trained model receives a dispatcher-specified target return G⋆ and autoregressively generates phase commands at 2.3 ms per step, well within the 5 s control cycle. For MADT, the state embedding estate  
+
+> t
+
+is computed per agent (per intersection), with each agent embedding its local observation oit ∈ RP +6 via a shared projection W local  
+
+> s
+
+∈ Rd×(P +6) . The GAT layers (Section 5.5) then enrich these per-agent embeddings before they enter the transformer. Layer normalization is applied after each projection to stabilize training and ensure that embeddings from different modalities have comparable magnitudes, which is important because the raw scales differ widely (return-to-go ranges from −1,500 to +100 , state features are in [0 , 1] , and actions are discrete). 
+
+5.2 Positional encoding 
+
+Unlike the sinusoidal positional encodings used in the original Transformer [ 57 ], we employ learned 
+
+timestep embeddings following the Decision Transformer formulation [ 7 ]. For each absolute timestep 
+
+t in the episode, a learned embedding pt ∈ Rd is added to all three token embeddings at that timestep: 
+
+˜ertg  
+
+> t
+
+= ertg  
+
+> t
+
++ pt, ˜estate  
+
+> t
+
+= estate  
+
+> t
+
++ pt, ˜eaction  
+
+> t
+
+= eaction  
+
+> t
+
++ pt. (14) This shared timestep embedding ensures that the model can identify which tokens correspond to the same timestep, enabling temporal alignment across modalities. The embedding table has Tmax = 200 
+
+entries (the maximum episode length in our experiments), each of dimension d = 128 .11 We also apply a learned modality embedding m ∈ { mrtg , mstate , maction } to distinguish the three token types, as in the original DT. The final token representation entering the causal transformer is: 
+
+ˆe(·) 
+
+> t
+
+= ˜ e(·) 
+
+> t
+
++ m(·). (15) 
+
+5.3 Causal attention mask 
+
+The Decision Transformer differs from standard supervised sequence models through the causal attention mask , which prevents future information leakage during both training and inference. In a standard transformer encoder [ 57 ], each token attends to all other tokens in the sequence, including those at future timesteps. For autoregressive action prediction, this would allow the model to “cheat” by observing future states and actions when predicting the current action, a form of information leakage that would make the learned policy unusable at deployment, where future observations are unavailable. The causal mask M ∈ { 0, −∞} 3C×3C is applied to the attention logits before the softmax operation in each transformer layer: Attention (Q, K, V) = softmax 
+
+ QK ⊤
+
+√dk
+
++ M
+
+
+
+V, (16) where Q, K, V ∈ R3C×dk are the query, key, and value matrices, dk = d/N H = 32 is the per-head dimension, and the mask entry Mij = −∞ for positions j > i (preventing attention to future tokens) and Mij = 0 otherwise. The −∞ entries become zero after softmax, effectively zeroing out the attention weights for future positions. The mask operates at the token level within the interleaved (Rt, s t, a t) sequence. Con-cretely, for a context window of C timesteps, the input sequence has 3C tokens ordered as 
+
+( bRt−C+1 , s t−C+1 , a t−C+1 , . . . , bRt, s t, a t). The causal mask enforces the following attention struc-ture: when predicting the action at, the model can attend to all return-to-go tokens bRt′ for t′ ≤ t, all state tokens st′ for t′ ≤ t, and all previous action tokens at′ for t′ < t . In particular, at cannot attend to its own ground-truth value during training (which would trivialize the prediction), nor to any tokens at timesteps t′ > t . This mask structure ensures that the model’s information set at prediction time matches exactly the information available to a real-time signal controller: the current and historical observations, plus the actions already taken. In practice, the causal mask is implemented as a lower-triangular boolean matrix of shape 3C × 3C,generated once during model initialization and registered as a non-trainable buffer. The computational overhead of applying the mask is negligible (a single element-wise addition to the attention logit matrix). We verified empirically that removing the causal mask during training results in near-perfect training accuracy ( >99.5%) but catastrophic evaluation performance (ETT of 186.4 s on the 4×4
+
+grid, worse than FT-EVP), confirming that the mask is essential for learning policies that generalize to the autoregressive inference setting. 
+
+5.4 Single-agent Decision Transformer for EV corridor 
+
+The Decision Transformer [ 7] predicts actions conditioned on desired future returns. Given a context window of length C, the model autoregressively predicts: 
+
+at = DT θ
+
+  bRt, s t, a t−1, bRt−1, s t−1, . . . , bRt−C+1 , s t−C+1 
+
+. (17) Each modality (return-to-go, state, action) is projected into a d-dimensional embedding space via learned linear layers (Section 5.1). Learned timestep encodings are added to each token (Section 5.2). The interleaved sequence of 3C tokens is processed by a causal GPT-style transformer with L layers and NH attention heads. 
+
+Return conditioning at inference. At deployment, the dispatcher sets the initial return-to-go 
+
+bR0 = G⋆ and updates it at each step as bRt+1 = bRt − rt. A high G⋆ produces aggressive green corridors that prioritize EV speed; a low G⋆ produces conservative strategies that limit civilian disruption. Note that bRt can drift outside the training distribution if cumulative rewards diverge from the target; in practice, we find this is rare on our grid networks (occurring in <2% of episodes at extreme G⋆ values), but it may become more prevalent on larger or irregular networks. 12 Algorithm 1 DT Training for EV Corridor Optimization 
+
+Require: Offline dataset D = {τ1, . . . , τ N }, context length C, epochs E
+
+Ensure: Trained parameters θ
+
+1: Initialize DT parameters θ randomly 
+
+2: for epoch = 1 to E do 
+
+3: for each minibatch B ⊂ D do 
+
+4: for each trajectory τ = ( s0, a 0, r 0, . . . , s T , a T , r T ) ∈ B do 
+
+5: Compute return-to-go: bRt ← PTt′=t γt′−trt′ for all t
+
+6: Sample random index t with t ≥ C − 1
+
+7: Construct input: ( bRt−C+1 , s t−C+1 , a t−C+1 , . . . , bRt, s t)
+
+8: Predict ˆat ← DT θ (context ) {Equation 17} 
+
+9: end for 
+
+10: Update θ ← θ − η∇θ L(θ) {Equation 18} 
+
+11: end for 
+
+12: end for 
+
+13: return θ
+
+Algorithm 2 DT Inference with Return Conditioning 
+
+Require: Trained parameters θ, target return G⋆, environment M, context length C
+
+Ensure: Trajectory τ = ( s0, a 0, r 0, . . . )
+
+1: s0 ← Reset (M), bR0 ← G⋆
+
+2: for t = 0 , 1, 2, . . . until EV arrives or t > T max do 
+
+3: Construct context from last min( t + 1 , C ) steps 
+
+4: at ← DT θ ( bRt:t−C+1 , s t:t−C+1 , a t−1: t−C+1 )
+
+5: Execute at in M; observe st+1 , rt
+
+6: Update return-to-go: bRt+1 ← bRt − rt
+
+7: end for 
+
+8: return τ
+
+Output parameterization. The DT outputs per-intersection phase logits via K independent softmax heads (one per corridor intersection), each over P =4 phases. This avoids the combinatorial P K joint action space while still allowing intersection-specific decisions. 
+
+Training objective. The model is trained offline via cross-entropy minimization on a mixed-quality dataset D:
+
+L(θ) = −E( bR,s,a )∼D 
+
+log πθ (at | bRt:t−C+1 , s t:t−C+1 , a t−1: t−C+1 ). (18) Algorithm 1 summarizes the training procedure and Algorithm 2 describes inference with return conditioning. 
+
+5.5 Multi-Agent Decision Transformer (MADT) 
+
+While the single-agent DT (Section 5.4) controls all corridor intersections centrally, this becomes intractable on large networks. MADT decentralizes control: each intersection agent i shares DT parameters θ. Before the causal transformer processes the token sequence, state embeddings hit are enriched via a Graph Attention Network (GAT) [ 58 ] that aggregates information from neighboring intersections: 
+
+αtij = exp  LeakyReLU (a⊤[W h it∥W h jt ]) P  
+
+> k∈N (i)
+
+exp  LeakyReLU (a⊤[W h it∥W h kt ])  , (19) 
+
+˜hit = σ
+
+ X  
+
+> j∈N (i)
+
+αtij W h jt
+
+
+
+, (20) where W ∈ Rd′×d is a shared weight matrix, a ∈ R2d′
+
+is the attention vector, ∥ denotes concatena-tion, and σ is an ELU activation. Learned agent identity embeddings distinguish agents that share weights. 13 Multi-head GAT formulation. Following Veliˇ ckovi´ c et al. [58] , we extend the single-head GAT to a multi-head variant with KGAT = 4 attention heads to stabilize learning and capture diverse spatial relationships. Each head k ∈ { 1, . . . , K GAT } computes its own attention coefficients and aggregation independently: 
+
+˜hi, (k) 
+
+> t
+
+= σ
+
+ X 
+
+> j∈N (i)
+
+αt, (k) 
+
+> ij
+
+W (k)hjt
+
+ , (21) where W (k) ∈ Rd′/K GAT ×d and αt, (k) 
+
+> ij
+
+are the head-specific projection and attention coefficients, respectively. The per-head dimension is d′/K GAT = 128 /4 = 32 . The outputs of all heads are concatenated to produce the enriched embedding: 
+
+˜hit = KGAT 
+
+> k=1
+
+˜hi, (k) 
+
+> t
+
+∈ Rd′
+
+. (22) This concatenated embedding replaces the original state token hit in the DT input sequence. We apply two consecutive GAT layers, with the second layer using averaging instead of concatenation across heads [ 58 ] to produce the final d-dimensional output. The neighborhood N (i) includes all intersections within 1-hop on the road network graph, plus i itself (self-loops). On the 4×4 grid, interior intersections have |N (i)| = 5 neighbors (4 adjacent + self), corner intersections have 3, and edge intersections have 4. The multi-head formulation enables different heads to specialize in different spatial patterns. In our trained MADT, we observe that head 1 consistently assigns high attention to the upstream neighbor along the EV route (mean α = 0 .42 ), head 2 attends primarily to cross-traffic neighbors (mean α = 0 .38 ), head 3 distributes attention roughly uniformly (capturing general traffic state), and head 4 focuses on the self-loop (mean α = 0 .51 ), encoding the local intersection state. This head specialization arose during training without explicit supervision, consistent with findings in multi-head attention for graph-structured data [ 62 ]. The total parameter count added by the 2-layer GAT is approximately 0.6M (on top of the 1.2M DT parameters), bringing MADT to 1.8M parameters total. 
+
+Message passing example on a 3-node subgraph. To illustrate how GAT coordination produces green-wave formation, consider three consecutive intersections along the EV route: v1 (EV ap-proaching), v2 (next intersection), and v3 (two intersections ahead). At timestep t, the local state embeddings encode: h1 
+
+> t
+
+contains high EV proximity ( δ1 
+
+> t
+
+≈ 0.1), h2 
+
+> t
+
+contains moderate proximity (δ2 
+
+> t
+
+≈ 0.5), and h3 
+
+> t
+
+contains low proximity ( δ3 
+
+> t
+
+≈ 0.8). During GAT message passing, v2 attends to 
+
+v1 with high weight ( αt 
+
+> 21
+
+≈ 0.65 ) because v1’s embedding carries urgent EV information, while v3
+
+attends to v2 (αt 
+
+> 32
+
+≈ 0.55 ), receiving indirect EV information. After two GAT layers, v3’s enriched embedding ˜h3 
+
+> t
+
+contains information about the EV’s imminent arrival at v1, enabling it to preemptively switch to a green phase for the EV’s approach before the EV reaches v2. This anticipatory behavior, impossible for independent agents without communication, is the mechanism by which MADT forms coordinated green waves on larger networks. 
+
+5.6 Architectural comparison: DT vs. BC, CQL, and IQL 
+
+To clarify the architectural and algorithmic distinctions between our DT approach and the offline RL baselines, we provide a systematic comparison of four methods that all train on the same offline dataset D but differ in how they extract and represent policy information. 
+
+Behavioral cloning (BC). BC is the simplest baseline: it trains a policy πθ (at|st) via supervised learning on state-action pairs from D, minimizing −E[log πθ (at|st)] . BC shares the same cross-entropy loss as DT (Equation 18) but conditions only on the current state st: it has no context window, no return conditioning, and no temporal modeling. This makes BC equivalent to removing both the return-to-go tokens and the autoregressive context from our DT architecture, leaving only the state embedding and output head. The “w/o return conditioning” ablation in Table 7 approximates BC with the additional benefit of a temporal context window ( C = 30 ); pure BC (context C = 1 ,no bR) performs even worse (ETT of 124.7 s in preliminary experiments) because it cannot reason about temporal patterns in signal timing. The core limitation of BC is that it averages across all quality levels in the dataset: with 70% expert and 30% sub-optimal data, BC learns a policy that is intermediate between expert and random, with no mechanism for targeting high-return behavior. 14 Conservative Q-Learning (CQL). CQL [ 24 ] learns a Q-function Qθ (s, a ) from offline data with an additional conservative regularizer that penalizes Q-values for out-of-distribution actions: 
+
+LCQL = αCQL · Es∼D [log P 
+
+> a
+
+exp Qθ (s, a ) − Ea∼πβ [Qθ (s, a )]] + LTD , where πβ is the behavioral policy and LTD is the standard temporal difference loss. Architecturally, CQL uses a feedforward neural network to parameterize Qθ (3 hidden layers of 256 units in our implementation), which differs from DT’s autoregressive transformer. CQL requires Bellman backups during training, which can propagate estimation errors across timesteps, a problem that DT avoids by treating RL as sequence modeling. CQL produces a fixed policy π(s) = arg max a Q(s, a ) with no mechanism for return conditioning. In our domain, CQL’s conservative Q-value regularization appears to be overly cautious at congested intersections, preferring safe but suboptimal phase selections that result in unnecessary EV stops (2.1 stops vs. DT’s 1.2; Table 4). 
+
+Implicit Q-Learning (IQL). IQL [ 23 ] avoids querying Q-values for out-of-distribution actions entirely by using expectile regression to learn an upper expectile of the value distribution: LIQL =
+
+E(s,a,r,s ′)∼D [Lτ 
+
+> 2
+
+(r+γV (s′)−Q(s, a ))] , where Lτ 
+
+> 2
+
+(u) = |τ −⊮(u < 0) |u2 is the asymmetric squared loss with expectile τ = 0 .7. IQL shares CQL’s feedforward Q-network architecture but avoids the explicit conservative regularizer, instead relying on the asymmetric loss to implicitly constrain the policy to in-distribution actions. This makes IQL less conservative than CQL, explaining its 2.6% ETT advantage (99.4 s vs. 102.1 s; Table 4). However, IQL still requires Bellman backups and produces a fixed policy. The key architectural difference from DT is that IQL reasons about single-step transitions (s, a, r, s ′), while DT reasons about multi-step trajectories of length C = 30 ,enabling richer temporal patterns such as green-wave sequencing that span multiple control cycles. 
+
+Summary of architectural distinctions. The four methods can be organized along two axes: 
+
+temporal modeling (single-step vs. multi-step) and optimization target (Bellman backup vs. sequence prediction). BC and the value-based methods (CQL, IQL) operate on single-step transitions and use Bellman-style objectives, while DT operates on C-step sequences and uses a supervised sequence prediction objective. This distinction has practical consequences: DT’s sequence-level reasoning enables it to discover multi-step coordination patterns (e.g., pre-clearing a queue at intersection k to benefit the EV at intersection k + 2 ), while single-step methods must encode such strategies implicitly through the value function’s temporal discounting. The return-to-go token provides an additional degree of freedom absent from all three alternatives, enabling the dispatch controllability that is central to our framework. 
+
+5.7 Constrained Decision Transformer (CDT) 
+
+We extend the DT with a cost-to-go conditioning token ˆCt that represents the remaining civilian delay budget, following the constrained DT formulation of Liu et al. [30] . The per-step cost is 
+
+ct = P 
+
+> v
+
+wv (t) (total queue length), and the cost-to-go is ˆCt = PTt′=t ct′ , computed from the dataset analogously to return-to-go. The token sequence becomes ( bRt, ˆCt, s t, a t) per timestep, four tokens instead of three. The training loss adds an auxiliary cost prediction term: 
+
+LCDT = L(θ) + μ X
+
+> t
+
+∥ˆct − ct∥2, (23) where ˆct is predicted by a linear head from the cost token’s hidden state and μ=0 .1. At deployment, dispatchers specify both a return target G⋆ (EV urgency) and a cost budget C⋆ (maximum tolerable civilian disruption). This two-knob interface decouples how fast the EV travels from how much 
+
+civilian traffic is disrupted. 
+
+Interaction between cost-to-go and return-to-go tokens. The CDT’s four-token sequence 
+
+( bRt, ˆCt, s t, a t) enables a nuanced interaction between the return-to-go and cost-to-go condition-ing signals. During training, both bRt and ˆCt are computed from the dataset: bRt = PTt′=t rt′
+
+captures the future EV-centric reward (dominated by EV progress and arrival bonus), while 
+
+ˆCt = PTt′=t ct′ = PTt′=t
+
+P 
+
+> v
+
+wv (t′) captures the cumulative future civilian queue lengths. These two quantities are correlated but not redundant: aggressive corridors that prioritize EV speed (high return) tend to create large queues at cross-traffic approaches (high cost), while conservative strategies produce low return and low cost. The Pearson correlation between per-episode return and cost in our dataset is r = −0.73 (p < 0.001 ), indicating strong but imperfect negative correlation; the 15 imperfection arises because some high-return episodes achieve fast EV transit through fortunate demand patterns rather than aggressive preemption, resulting in low civilian cost. At inference time, the dispatcher initializes bR0 = G⋆ and ˆC0 = C⋆, then updates both at each step: bRt+1 = bRt − rt and ˆCt+1 = ˆCt − ct. The cost-to-go token acts as a “remaining budget” that the model monitors: when ˆCt approaches zero, the model has used most of its civilian disruption budget and shifts toward less disruptive phase selections (e.g., maintaining cross-traffic green phases even when the EV is nearby). When ˆCt is large (loose budget), the model defers to the return-to-go conditioning, behaving similarly to the unconstrained DT. This budget-aware behavior arises from the training data distribution: the model learns that trajectories with low remaining cost-to-go at time t
+
+tend to exhibit conservative phase selections in subsequent steps, and it reproduces this pattern when conditioned on low ˆCt at inference. To illustrate concretely, consider a CDT deployment with G⋆ = 50 (aggressive) and C⋆ = −50 
+
+(moderate budget) on the 4×4 grid. At t = 0 , the model receives bR0 = 50 and ˆC0 = −50 . After 10 timesteps of aggressive preemption, suppose the EV has made good progress ( bR10 ≈ 20 , on track) but civilian queues have grown ( ˆC10 ≈ − 10 , budget nearly exhausted). The model, sensing the tight remaining budget through the cost-to-go token, shifts its phase selections to favor cross-traffic clearance at upcoming intersections, accepting slightly longer EV wait times to prevent further queue growth. This adaptive behavior, trading off objectives within a single episode based on remaining budget, is unique to CDT and cannot be replicated by the unconstrained DT or any value-based offline RL method. 
+
+5.8 Data collection 
+
+A key design choice for return-conditioned models is data diversity. The offline dataset D comprises 5,000 episodes collected with a mixed-quality behavioral policy: 70% greedy preemption expert, 15% uniformly random actions, and 15% noisy expert ( ϵ-greedy with ϵ = 0 .3). This mixture ensures broad return coverage, spanning returns from −1,500 (random) to −200 (expert), which is essential for effective return conditioning, as confirmed by ablation (Section 6.5). In particular, DT can outperform its best training data through trajectory stitching [7]: by conditioning on a high target return, the model combines the best signal timing decisions from different episodes (e.g., an expert’s intersection-1 timing with a noisy-expert’s intersection-3 timing that happened to produce low queue spillback), yielding corridors that no single training episode demonstrated. 
+
+5.9 Training details 
+
+All models are trained using the AdamW optimizer [ 32 ] with learning rate η = 10 −4, weight decay 
+
+10 −4, and (β1, β 2) = (0 .9, 0.999) . The learning rate follows a linear warmup schedule over the first 5 epochs followed by cosine decay to 10 −6 over the remaining 95 epochs. Gradient clipping is applied with a maximum norm of 1.0 to prevent training instabilities arising from occasional high-return trajectories. 
+
+Batch sampling strategy. Minibatches of size 64 are constructed by sampling trajectories uniformly from D, then sampling a random context window of length C within each trajectory. To ensure that the model sees trajectories spanning the full return distribution, we employ a stratified sampling scheme: the dataset is partitioned into quartiles by episode return, and each minibatch draws 16 trajectories from each quartile. This stratification prevents the optimizer from focusing disproportionately on the abundant expert trajectories (70% of the dataset) at the expense of the less common random and noisy trajectories that provide the low-return conditioning signal. 
+
+Convergence behavior. Figure 10 (Appendix B) shows training loss curves for three DT variants over 100 epochs. The full DT converges within approximately 15 epochs (measured as <1% change in validation loss over 3 consecutive epochs), with the loss curve exhibiting a characteristic rapid initial decrease followed by a plateau. Expert-only data converges faster (within 8 epochs) but to a lower loss floor; this apparent advantage is misleading, as the model overfits to the narrow expert return distribution and fails to generalize to other conditioning targets (Table 7). The w/o RTG variant shows similar convergence to the full model but achieves inferior evaluation performance because it cannot distinguish high-return from low-return behavior at inference time. 16 Training wall-clock time on a single NVIDIA A100 GPU is 12.3 minutes for DT on the 4×4 grid (100 epochs, 5,000 episodes, batch size 64), scaling to 51.4 minutes for the 8×8 grid due to the larger state dimension and more intersections per episode. 
+
+# 6 Experiments 
+
+We evaluate DT, MADT, and CDT on grid networks of increasing size, comparing against seven baselines spanning rule-based, online RL, and offline RL methods. 
+
+6.1 Setup Simulator. LightSim [ 48 ] is a CTM-based traffic simulator with ∆t = 5 s time steps and free-flow speed vf = 15 m/s (see Section 3 for a detailed description). We use the EV tracking overlay (Section 3.3) that models EV position, congestion-dependent speed, and signal interaction. All travel times are reported in seconds. 
+
+Scenarios. Three grid networks of increasing size: 4×4 (16 intersections), 6×6 (36 intersections), and 8×8 (64 intersections). For each evaluation episode, the EV origin and destination are sampled uniformly from all intersection pairs with Manhattan distance ≥ N/ 2 (where N is the grid side length), ensuring routes that traverse a substantial fraction of the network. 
+
+Baselines. We compare against seven baselines spanning rule-based, online RL, and offline RL methods: (1) Fixed-Time EVP (FT-EVP): static signal plan with fixed preemption phases. (2) Greedy Preemption: forces immediate green for the EV at every intersection. (3) MaxPressure [ 56 ]: a provably throughput-optimal decentralized controller that selects phases based on queue pressure differentials. (4) DQN [ 35 ] and (5) PPO [ 46 ]: online RL trained for 500,000 environment steps. (6) CQL [ 24 ]: offline RL with conservative value estimation, trained on the same dataset as DT. (7) IQL [ 23 ]: offline RL with implicit Q-learning via expectile regression, also trained on the same dataset. 
+
+Metrics. (1) EV travel time (ETT, seconds, ↓): total time from EV dispatch to arrival. (2) Average civilian delay (ACD, seconds/vehicle, ↓): mean additional delay imposed on background vehicles relative to free-flow travel time. (3) Vehicular throughput ( ↑): total vehicles served during the episode. (4) EV stops ( ↓): number of times the EV decelerates to zero speed at a red signal. 
+
+Implementation. DT: d=128 , L=4 , NH =4 , C=30 . MADT: d=128 , L=3 , NH =4 , 2 GAT layers with 4 heads. Optimizer: AdamW with learning rate 10 −4 and weight decay 10 −4. Training: 100 epochs on the 5,000-episode dataset. All results averaged over 100 evaluation episodes with standard deviations reported. Online RL baselines (DQN, PPO) use the same reward function (Equation 8) and are trained until convergence (500K steps, verified via learning curves in the supplementary material). 
+
+Inference latency. DT inference takes 2.3 ms per step on a single NVIDIA A100 GPU ( C=30 , batch size 1), well within the 5 s control cycle of the simulator. MADT requires 4.1 ms per step on 4×4 and 8.7 ms on 8×8 (including GAT message passing across all agents), still comfortably real-time. Code: 
+
+https://github.com/AnthonySu/decision-transformer-traffic .
+
+6.2 Main results 
+
+Table 4 and Figure 4 present results on the 4×4 grid. DT achieves the best EV travel time among all methods (88.6 s), a 37.7% reduction over FT-EVP (142.3 s) and 6.9% faster than the best online baseline PPO (95.2 s), despite training entirely offline. DT also achieves the lowest civilian delay (11.3 s/veh, 8.9% below the next-best FT-EVP at 12.4 s/veh) and fewest EV stops (1.2), indicating that it learns corridor strategies that cooperate with background traffic flow rather than forcing disruptive phase changes. MADT trails DT by only 4.3% on ETT (92.4 s vs. 88.6 s) on the 4×4 grid, with competitive ACD (11.8 s/veh) and EV stops (1.4). As Section 6.4 shows, MADT overtakes DT on larger grids where inter-intersection coordination becomes critical. Greedy preemption achieves fast EV time (98.7 s) but incurs the worst civilian delay (18.6 s/veh) and lowest throughput (1654 veh), because forcing immediate phase changes at every intersection creates cascading queue spillbacks. PPO leads on throughput (1923 veh), as expected for a method 17 FT-EVP    
+
+> Greedy
+> MaxPres.
+> DQN
+> PPO
+> CQL
+> IQL DT
+> (ours) MADT
+> (ours)
+> 0
+> 25
+> 50
+> 75
+> 100
+> 125
+> 150
+> EV Travel Time (s)
+> (a) EV Travel Time
+> FT-EVP
+> Greedy
+> MaxPres.
+> DQN
+> PPO
+> CQL
+> IQL DT
+> (ours) MADT
+> (ours)
+> 0
+> 5
+> 10
+> 15
+> 20
+> Avg Civilian Delay (s/veh)  (b) Civilian Delay
+> FT-EVP
+> Greedy
+> MaxPres.
+> DQN
+> PPO
+> CQL
+> IQL DT
+> (ours) MADT
+> (ours)
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> EV Stops
+> (c) EV Stops
+> Rule-based Online RL Offline RL Ours
+
+Figure 4: Performance comparison of nine methods on the 4×4 grid (100 evaluation episodes). DT (ours) achieves the lowest EV travel time (88.6 s), lowest civilian delay (11.3 s/veh), and fewest EV stops (1.2), all without online environment interaction. Error bars show ±1 standard deviation. Numerical values are in Table 4. Table 4: Results on 4×4 grid (mean ± std over 100 evaluation episodes). Best bold , second-best underlined . ETT is in seconds; ACD is average civilian delay in seconds per vehicle. Baselines are grouped by type: rule-based, online RL, and offline methods. 
+
+Method ETT (s) ↓ ACD (s/veh) ↓ Throughput ↑ EV Stops ↓
+
+Rule-based 
+
+FT-EVP 142 .3 ± 18 .5 12 .4 ± 2.1 1842 ± 156 4.2 ± 1.3
+
+Greedy 98 .7 ± 12 .3 18 .6 ± 3.4 1654 ± 189 1.8 ± 0.9
+
+MaxPressure 118 .7 ± 16 .2 11 .9 ± 2.0 1912 ± 145 3.1 ± 1.2
+
+Online RL 
+
+DQN 108 .4 ± 15 .7 14 .2 ± 2.8 1789 ± 167 2.4 ± 1.1
+
+PPO 95 .2 ± 11 .8 13 .8 ± 2.5 1923 ± 142 1.6 ± 0.8
+
+Offline (same dataset) 
+
+CQL 102 .1 ± 13 .4 13 .1 ± 2.3 1856 ± 151 2.1 ± 1.0
+
+IQL 99 .4 ± 12 .8 12 .8 ± 2.2 1871 ± 158 2.0 ± 0.9
+
+DT (ours) 88 .6 ± 9.2 11 .3 ± 1.9 1897 ± 148 1.2 ± 0.7
+
+MADT (ours) 92 .4 ± 10 .1 11 .8 ± 2.0 1881 ± 153 1.4 ± 0.8
+
+that optimizes overall flow. Among the offline RL baselines, IQL achieves the best raw ETT (99.4 s), slightly outperforming CQL (102.1 s), but both produce fixed policies with no dispatch-time behavior adjustment. MaxPressure [ 56 ] achieves excellent ACD (11.9 s/veh, second-best overall) and high throughput (1912 veh) by optimizing queue pressure, but its ETT (118.7 s) remains 33.9% slower than DT. MaxPressure targets general throughput, not EV-specific corridor optimization. 
+
+6.3 Return-conditioning analysis 
+
+Figure 5 and Table 5 show the effect of varying the target return G⋆ from 100 (aggressive) to −400 
+
+(conservative). High targets yield EV travel times as low as 72.4 s with elevated civilian delay (16.8 s/veh), while low targets reduce civilian delay to 5.4 s/veh at the cost of longer EV travel (138.2 s). The relationship is monotonic and smooth across all seven conditioning points, confirming that return conditioning provides a practical dispatch interface for real-time urgency adjustment. The operational sweet spot lies at G⋆ ∈ [−100 , 0] , where DT achieves 88.6–108.7 s ETT with 8.2– 11.3 s/veh ACD, both metrics near their respective optima. This capability is unique to DT: PPO, DQN, and CQL each produce a single fixed policy, requiring full retraining to shift the speed–disruption trade-off. 18 400 300 200 100 0 100 
+
+# Target Return G *
+
+## 70 
+
+## 80 
+
+## 90 
+
+## 100 
+
+## 110 
+
+## 120 
+
+## 130 
+
+## 140 
+
+> EV Travel Time (s)
+
+Sweet spot 
+
+72s 
+
+138s 
+
+# Return Conditioning ( 4×4 grid) 
+
+EV Travel Time (s) 
+
+Civilian Delay (s/veh) 
+
+## 6
+
+## 8
+
+## 10 
+
+## 12 
+
+## 14 
+
+## 16 
+
+> Avg Civilian Delay (s/veh)
+
+400 
+
+300 
+
+200 
+
+100 
+
+0
+
+100 
+
+> G * value
+
+Figure 5: Return conditioning sweep on the 4×4 grid (100 episodes per G⋆ value). Varying G⋆
+
+from 100 (aggressive corridor) to −400 (conservative) produces a smooth, monotonic trade-off: ETT ranges from 72.4 s to 138.2 s while ACD ranges from 16.8 to 5.4 s/veh. The shaded region marks the operational sweet spot ( G⋆ ∈ [−100 , 0] ) where both metrics are near-optimal. See Table 5 for exact values. Table 5: Return conditioning sweep on 4×4 grid. Varying G⋆ trades EV speed against civilian delay in a smooth, monotonic fashion. All values are mean over 100 episodes. 
+
+G⋆ ETT (s) ↓ ACD (s/veh) ↓ Throughput ↑
+
+100 72 .4 16 .8 1642 50 78 .1 14 .3 1724 0 88 .6 11 .3 1897 
+
+−50 96 .3 9.8 1956 
+
+−100 108 .7 8.2 2014 
+
+−200 124 .5 6.7 2089 
+
+−400 138 .2 5.4 2142 
+
+6.4 Scalability 
+
+Figure 6 and Table 6 present scalability results across three grid sizes. Both DT and MADT consistently reduce EV travel time by 35–45% relative to FT-EVP. On the 4×4 grid, DT leads (88.6 s vs. MADT’s 92.4 s). However, MADT overtakes DT on 6×6 (148.7 s vs. 156.2 s, a 4.8% advantage) and widens the gap on 8×8 (226.3 s vs. 248.5 s, 8.9% advantage). We attribute this crossover to GAT-based spatial coordination becoming more valuable as the number of intersections grows: on a 
+
+4×4 grid, corridor planning involves at most 7 intersections along the EV path, where a single-agent DT can reason effectively within its context window. On 8×8, corridors span up to 15 intersections, and MADT’s graph attention enables each agent to incorporate downstream signal states from its neighbors, producing more coordinated green waves. 19 4x4 6x6 8x8 
+
+# Grid Size 
+
+## 0
+
+## 50 
+
+## 100 
+
+## 150 
+
+## 200 
+
+## 250 
+
+## 300 
+
+## 350 
+
+## 400 
+
+> EV Travel Time (s)
+
+MADT overtakes DT 
+
+38% 
+
+35% 
+
+42% 
+
+45% 
+
+40% 
+
+45% Scalability 
+
+FT-EVP 
+
+DT (ours) 
+
+MADT (ours) Figure 6: Scalability of EV travel time across three grid sizes ( 4×4, 6×6, 8×8; 100 episodes each). Both DT and MADT consistently outperform FT-EVP by 35–45%. MADT overtakes DT starting at the 6×6 grid (4.8% advantage), with the gap widening to 8.9% on 8×8, demonstrating the growing benefit of GAT-based coordination. See Table 6 for exact values. Table 6: Scalability results. ETT in seconds (mean over 100 episodes). Improvement is relative to FT-EVP. MADT overtakes DT on 6×6+ grids.                     
+
+> Grid DT ETT (s) MADT ETT (s) FT-EVP ETT (s) DT Impr. MADT Impr.
+> 4×488 .692 .4142 .337.7% 35.1%
+> 6×6156 .2148 .7268 .441.8% 44.6%
+> 8×8248 .5226 .3412 .739.8% 45.2%
+
+6.5 Ablation studies 
+
+Table 7 and Figure 7 confirm that every design choice contributes meaningfully to DT’s performance. 
+
+Expert-only data caused the largest degradation ( +33 .7% ETT, from 88.6 s to 118.5 s). Without trajectories spanning a broad return range, the model cannot distinguish high-return from low-return strategies, causing return conditioning to fail. Mixed-quality data (combining expert, noisy, and random trajectories) is essential for the DT paradigm. 
+
+Removing return conditioning (i.e., removing bR tokens from the input and retraining from scratch, equivalent to behavioral cloning on the full mixed-quality dataset) increased ETT by 26.7% (to 112.3 s) and ACD by 21.2% (to 13.7 s/veh). Without return conditioning, the model averages across all quality levels in the dataset rather than targeting high-return behavior. 
+
+Short context (C=5 vs. C=30 ) degraded ETT by 18.3% (to 104.8 s). Effective corridor planning requires anticipating downstream signal states over multiple intersections; a 5-step context limits the model to reactive, local decisions. 20 0 20 40 60 80 100 120      
+
+> EV Travel Time (s)
+> DT (full)
+> w/o RTG
+> Context C=5
+> Expert-only
+> 2 layers
+> 88.6s (baseline)
+> 112.3s (-26.7%)
+> 104.8s (-18.3%)
+> 118.5s (-33.7%)
+> 97.3s (-9.8%)
+> (a) ETT by Variant
+> 0.0 2.5 5.0 7.5 10.0 12.5
+> Avg Civilian Delay (s/veh)
+> 11.3
+> 13.7
+> 12.9
+> 14.1
+> 12.2
+> (b) ACD by Variant
+
+Figure 7: Ablation study on the 4×4 grid (100 episodes per variant). Bars show ETT relative to the full DT model (88.6 s). Expert-only data causes the largest degradation ( +33 .7% ), followed by removing return conditioning ( +26 .7% ), short context ( +18 .3% ), and a shallower model ( +9 .8% ). See Table 7 for ACD values. Table 7: Ablation study on 4×4 grid (100 evaluation episodes). ∆ is relative change in ETT compared to the full model. 
+
+Variant ETT (s) ↓ ACD (s/veh) ↓ ∆ETT 
+
+DT (full) 88 .6 11 .3 —w/o return cond. 112 .3 13 .7 +26 .7% 
+
+context C=5 104 .8 12 .9 +18 .3% 
+
+expert-only data 118 .5 14 .1 +33 .7% 
+
+2 layers (vs. 4) 97 .3 12 .2 +9 .8% 
+
+Shallow model (2 layers vs. 4) increased ETT by 9.8% (to 97.3 s), a modest but meaningful degrada-tion. The additional capacity of 4 layers enables richer temporal reasoning across the 30-step context window. 
+
+Dataset composition sweep. The 70/15/15 expert/random/noisy split was not arbitrary. Table 8 shows DT performance across six dataset compositions on the 4×4 grid. Expert-only data (100/0/0) overfits and fails to generalize (118.5 s). Reducing diversity slightly (90/5/5) improves to 96.2 s but still underperforms the 70/15/15 mix (88.6 s). Further reducing expert proportion to 50/25/25 yields 91.4 s, competitive but slightly worse, while 30/35/35 degrades to 98.7 s due to insufficient high-quality signal. Removing expert data entirely (0/50/50) collapses performance to 126.3 s. The sweet spot at 70/15/15 balances two competing needs: enough expert trajectories for the model to learn effective corridors, and enough diverse trajectories for return conditioning to distinguish quality levels. 
+
+MADT: disentangling GAT from context length. A reviewer might reasonably ask whether MADT’s advantage on larger grids stems from GAT coordination or simply from architectural differences (e.g., MADT uses C=20 vs. DT’s C=30 ). Table 9 isolates these factors by evaluating three MADT variants across grid sizes: (1) full MADT ( C=20 , GAT), (2) MADT without GAT (C=20 , parameter-sharing DT with no inter-agent communication), and (3) MADT with longer context ( C=30 , GAT). Removing GAT has minimal effect on 4×4 (91.1 s vs. 92.4 s, within noise) but causes large degra-dation on 6×6 (+9.5%, 162.8 s vs. 148.7 s) and 8×8 (+14.1%, 258.1 s vs. 226.3 s). Without GAT, MADT reduces to independent parameter-sharing agents with no inter-agent communication, per-forming worse than even single-agent DT on 8×8 (258.1 s vs. 248.5 s), because the shorter context (C=20 ) hurts without spatial coordination to compensate. Extending MADT’s context to C=30 while keeping GAT yields the best results across all grid sizes (89.8 s, 144.3 s, 219.7 s), confirming that context length and GAT coordination are complementary: longer context enables better temporal planning, while GAT enables spatial coordination. On 4×4,this variant (89.8 s) nearly matches single-agent DT (88.6 s), closing the gap identified in Section 6.4. 21 Table 8: Dataset composition sweep on 4×4 grid (100 episodes). Expert/Random/Noisy proportions (%). The 70/15/15 mix achieves the best ETT.                 
+
+> Composition ETT (s) ↓ACD (s/veh) ↓
+> 100/0/0 (expert-only) 118 .514 .1
+> 90/5/5 96 .212 .4
+> 70/15/15 (ours) 88 .611 .3
+> 50/25/25 91 .411 .7
+> 30/35/35 98 .712 .5
+> 0/50/50 (no expert) 126 .315 .2
+
+Table 9: MADT ablation across grid sizes (ETT in seconds, 100 episodes). Removing GAT degrades performance sharply on 6×6+ grids, confirming that inter-agent coordination, not context length, drives MADT’s scalability advantage.                   
+
+> Variant 4×46×68×8
+> MADT (full, C=20 )92 .4148 .7226 .3
+> w/o GAT ( C=20 )91 .1162 .8258 .1
+> C=30 + GAT 89 .8144 .3219 .7
+> DT (single-agent, C=30 )88 .6156 .2248 .5
+
+6.6 Constrained DT: two-knob dispatch interface 
+
+To validate the CDT extension (Section 5.7), we swept over return targets G⋆ ∈ { 50 , 0, −50 } and cost budgets C⋆ ∈ { 0, −50 , −100 } on the 4×4 grid (Figure 8). The results confirmed an interpretable two-knob interface: 
+
+Tight cost budget (C⋆=0 ): civilian delay remained low at 5.2–5.8 s/veh regardless of the return target, ensuring minimal civilian disruption. EV travel time was 82.4–86.3 s across configurations. 
+
+Loose cost budget (C⋆=−100 ): the return target gained full control over civilian delay, ranging from 14.2 s/veh ( G⋆=50 , aggressive) to 8.4 s/veh ( G⋆=−50 , conservative), matching the direction observed in the unconstrained return conditioning sweep (Table 5). EV travel time ranged from 85.1 s to 93.6 s. These results suggest that the cost budget governs how the corridor is formed (civilian disruption level) while the return target governs how aggressively the EV is prioritized. EV travel time remained within 82–94 s across all nine configurations, indicating that the EV consistently receives priority. The cost constraint adds a safety layer: dispatchers can set C⋆=0 during rush hour to limit civilian disruption, then relax it during low-traffic periods. However, we caution that this 3 ×3 sweep is preliminary; a denser grid of (G⋆, C ⋆) values and formal constraint violation analysis are needed to validate hard safety guarantees. 
+
+6.7 Training dynamics 
+
+Understanding the training behavior of DT and MADT provides insight into model convergence, data efficiency, and potential overfitting risks. Figure 10 (Appendix B) presents training loss curves for three DT variants over 100 epochs on the 4×4 dataset. 
+
+Convergence analysis. The full DT model (with return conditioning and mixed-quality data) converges within 15 epochs, measured as the epoch at which validation loss ceases to decrease by more than 1% per epoch. The training loss follows a characteristic two-phase pattern: a rapid decrease during epochs 1–8 as the model learns basic signal timing patterns, followed by a slower refinement phase (epochs 8–15) where it learns to differentiate conditioning targets. After epoch 15, the training and validation losses plateau at 1.42 and 1.48, respectively, with the small gap indicating minimal overfitting. The expert-only variant converges faster (within 8 epochs) and achieves a lower training loss floor (0.87), reflecting the reduced diversity and lower entropy of the expert-only dataset. However, this 22 G * =50 G * =0 G * =-50 
+
+# Return Target G *      
+
+> C*=0
+> C*=-50
+> C*=-100
+> Cost Budget  C *
+
+# 5.4 5.2 
+
+# 14.2 10.8 
+
+# CDT Two-Knob Dispatch ( 4×4 )
+
+> 6
+> 7
+> 8
+> 9
+> 10
+> 11
+> 12
+> 13
+> 14
+> Avg Civilian Delay (s/veh)
+> med=8.2
+
+Figure 8: CDT two-knob dispatch interface on the 4×4 grid. The heatmap shows average civilian delay (s/veh) across 9 combinations of return target G⋆ (columns) and cost budget C⋆ (rows), each averaged over 100 episodes. Tight budgets ( C⋆=0 ) cap civilian delay at 5.2–5.8 s/veh regardless of 
+
+G⋆; loose budgets ( C⋆=−100 ) allow G⋆ to modulate disruption freely (8.4–14.2 s/veh). EV travel time remains within 82–94 s across all configurations. apparent training advantage is deceptive: the narrow return distribution in expert-only data means the model cannot distinguish high-return from low-return conditioning at inference time, leading to the 33.7% ETT degradation observed in Table 7. MADT converges more slowly (approximately 22 epochs) due to the additional GAT parameters and the need to learn both temporal and spatial representations. The MADT training loss follows a three-phase pattern: rapid signal timing learning (epochs 1–8), GAT attention weight stabilization (epochs 8–15), and fine-tuning of the temporal-spatial interaction (epochs 15–22). Despite the slower convergence, MADT achieves comparable final loss to DT, indicating that the additional model capacity is well utilized. 
+
+Early stopping and overfitting detection. We monitor the gap between training and validation loss as an overfitting indicator. For the full DT, this gap remains below 0.1 throughout training, indicating that the 5,000-episode dataset provides sufficient coverage for the model’s 1.2M parameters. For MADT (1.8M parameters), the gap widens to 0.15 after epoch 60, suggesting that longer training on the same dataset may lead to mild overfitting. In practice, we apply early stopping with a patience of 10 epochs on validation loss, which terminates training at epoch 72 for MADT on the 8×8 grid. 
+
+6.8 Per-intersection analysis 
+
+To understand where along the EV route DT achieves its time savings, we decompose the total EV travel time into per-intersection segments and compare DT against FT-EVP on the 4×4 grid. For a typical EV route traversing 7 intersections from the northwest corner to the southeast corner, we measure the average time the EV spends in each intersection’s control zone (defined as the two cells immediately upstream and downstream of the intersection). Table 10 presents the per-segment analysis, grouping intersections by their position along the EV route. The results reveal a non-uniform delay distribution: mid-route intersections (positions 4–5) contribute 23 Table 10: Per-intersection delay decomposition on 4×4 grid (DT at G⋆ = 0 , mean over 100 episodes). Mid-route intersections contribute the most delay; DT achieves its largest savings at these locations by anticipating congestion and pre-clearing queues.                     
+
+> Position DT delay (s) FT-EVP delay (s) Savings (s) Mechanism
+> 1–3 (near origin) 8.214 .86.6Early green activation 4–5 (mid-route) 12 .424 .712 .3Pre-clearance of queues 6–7 (near destination) 6.811 .24.4Residual green wave
+> Total (7 intersections) 27 .450 .723 .3—
+
+Table 11: Congestion sensitivity on 4×4 grid (100 episodes per demand level). DT maintains consistent improvement over FT-EVP (37–39%) across all demand levels. All models trained on the medium demand dataset.                     
+
+> Demand (veh/s) DT ETT (s) FT-EVP ETT (s) DT Impr. DT ACD (s/veh)
+> 0.05 (low) 78 .2124 .637.2% 6.4
+> 0.10 (medium) 88 .6142 .337.7% 11 .3
+> 0.20 (high) 108 .4178 .539.3% 18 .7
+> 0.30 (heavy) 134 .7215 .237.4% 28 .4
+
+the most to total EV delay under both DT and FT-EVP, with DT achieving its largest absolute time savings at these locations. This pattern is consistent with the observation that mid-route intersections experience the highest congestion: upstream intersections release vehicles that accumulate at mid-route bottlenecks, while downstream intersections benefit from the natural dissipation of the EV’s green wave. DT saves the most time at mid-route intersections (12.3 s savings at positions 4–5 vs. 6.6 s at positions 1–3 and 4.4 s at positions 6–7). We attribute this to the DT’s ability to pre-clear queues at mid-route intersections: by observing traffic density several steps ahead through its 30-step context window, DT can initiate green phases for cross-traffic at intersections 4–5 before the EV arrives, allowing accumulated queues to discharge and creating a clear path. FT-EVP, by contrast, only triggers preemption when the EV is detected, by which point queue spillback at mid-route intersections is already established. Near-origin intersections (positions 1–3) show moderate savings (6.6 s) because the EV has not yet accumulated delays and traffic conditions are relatively uncongested. Near-destination intersections (positions 6–7) show the smallest savings (4.4 s) because the DT’s green wave, initiated at upstream intersections, propagates downstream, providing residual benefit even without active optimization at these locations. 
+
+6.9 Congestion sensitivity 
+
+Real-world traffic conditions vary widely throughout the day, from free-flow conditions during early morning hours to heavy congestion during peak commute periods. To assess DT’s performance under varying demand levels, we evaluate performance across four demand intensities on the 4×4 grid: low (0.05 veh/s per entry point), medium (0.10 veh/s, our default), high (0.20 veh/s), and heavy (0.30 veh/s). Table 11 presents the congestion sensitivity results. First, DT maintains a consistent improvement over FT-EVP across all demand levels, with the relative reduction ranging narrowly from 37.2% (low demand) to 39.3% (high demand). This consistency indicates that DT’s corridor optimization strategy generalizes across congestion levels, despite being trained exclusively on medium-demand data. Second, both absolute ETT and ACD increase monotonically with demand, as expected: at heavy demand (0.30 veh/s), DT’s ETT rises to 134.7 s and ACD to 28.4 s/veh. The ETT increase from low to heavy demand (72.2% for DT, 72.7% for FT-EVP) is nearly identical, indicating that congestion affects both methods proportionally rather than disproportionately degrading DT. Third, the slight increase in relative improvement at high demand (39.3%) suggests that DT’s learned corridor strategies become more valuable under congestion. Under low demand, queues are short and 24 Table 12: Runtime analysis across grid sizes (NVIDIA A100 GPU). All latencies are well within the 5 s control cycle. Training times reflect 100 epochs on 5,000 episodes.                 
+
+> Grid DT Train (min) DT Infer (ms/step) MADT Infer (ms/step) Memory (MB)
+> 4×412.3 2.3 4.1 245
+> 6×628.7 3.1 6.8 512
+> 8×851.4 4.2 8.7 891
+
+even naive preemption creates little disruption; under high demand, the ability to pre-clear queues and coordinate phases across intersections provides greater marginal benefit. All models in Table 11 were trained on the medium-demand dataset (0.10 veh/s). The strong out-of-distribution generalization to other demand levels (particularly the 0.30 veh/s heavy scenario, which is 3× the training demand) indicates that DT learns structural corridor strategies (e.g., phase sequencing patterns and green-wave timing) that transfer across demand levels, rather than memorizing demand-specific signal plans. 
+
+6.10 EV trajectory visualization 
+
+To provide intuitive insight into how DT forms green-wave corridors, we visualize representative EV trajectories on the 4×4 grid, comparing DT ( G⋆ = 0 ) against FT-EVP and Greedy Preemption. The space-time diagram traces the EV’s position along its route (vertical axis) against elapsed simulation time (horizontal axis), with the signal state at each intersection indicated by color (green for EV-compatible phase, red otherwise). Under DT, the EV trajectory exhibits a characteristic “staircase” pattern with short, infrequent stops: the EV traverses 2–3 intersections at near-free-flow speed, pauses briefly ( <5 s) at a single intersection while a queue clears, then resumes. The signal state diagram reveals that DT pre-activates green phases at downstream intersections 2–3 timesteps (10–15 s) before the EV arrives, creating a propagating green wave. This anticipatory behavior is most visible at mid-route intersections (positions 4–5), where the DT switches to an EV-compatible phase while the EV is still two intersections away, allowing accumulated cross-traffic queues to discharge before the EV arrives. By contrast, the FT-EVP trajectory shows frequent stops (4.2 on average) distributed along the route, with the EV waiting 10–20 s at each red signal. The signal state diagram reveals no anticipatory phase changes: each intersection switches to green only after detecting the EV in the upstream cell, by which point the EV has already decelerated. The Greedy Preemption trajectory shows fewer stops (1.8) but with characteristic “pulse” patterns in cross-traffic: each forced phase change creates a burst of delay for cross-traffic vehicles, visible as queue buildups that propagate backward through the network. The green-wave formation achieved by DT resembles the coordinated signal plans designed by traffic engineers for arterial corridors [ 29 ], but DT discovers these patterns automatically from offline data without explicit green-wave optimization objectives. 
+
+6.11 Runtime analysis 
+
+For practical deployment, the computational requirements of signal control policies must be compati-ble with real-time operation. Table 12 presents training time, inference latency, and memory usage for DT and MADT across three grid sizes, measured on a single NVIDIA A100 GPU (80 GB). DT inference latency scales sub-linearly with grid size (2.3 ms to 4.2 ms from 4×4 to 8×8), because the transformer’s self-attention cost is dominated by the context length C (fixed at 30) rather than the state dimension. MADT inference is approximately 2 × slower than DT due to the additional GAT message passing step, but remains well within real-time constraints: even the worst case (8.7 ms on 
+
+8×8) is less than 0.2% of the 5 s control cycle. Training time scales roughly linearly with the number of intersections (and hence the state and action dimensions): the 8×8 grid requires 4.2 × longer than 4×4. The total training cost is modest (51.4 minutes for the largest grid), making rapid iteration on reward design and hyperparameters feasible. 25 0 5 10 15 20 25        
+
+> Time Step
+> I0
+> I1
+> I2
+> I3
+> I4
+> I5
+> I6
+> Intersection Index
+> Total: 19 steps
+> (a) DT (Ours)
+> 0510 15 20 25
+> Time Step
+> Total: 28 steps
+> (b) FT-EVP (Fixed Timing)
+> Green (EV-favorable) Red (EV-unfavorable) EV trajectory
+
+Figure 9: Space-time diagram of a representative EV trajectory on the 4×4 grid, comparing DT (G⋆ = 0 ), FT-EVP, and Greedy Preemption. The vertical axis represents the EV’s position along its 7-intersection route (from origin v4 to destination v13 ); the horizontal axis is elapsed simulation time (seconds). Green bands indicate EV-compatible signal phases at each intersection; red bands indicate red phases for the EV approach. DT exhibits a smooth “staircase” trajectory with only 1 brief stop at intersection v10 , reaching the destination at t = 87 s. FT-EVP shows 4 stops (vertical flat segments) totaling 50.7 s of intersection delay. Greedy Preemption has fewer stops (2) but creates visible queue buildups (shaded gray regions) at cross-traffic approaches. DT’s anticipatory green-wave activation is visible as green bands that begin 10–15 s before the EV reaches each intersection, contrasting with FT-EVP’s reactive phase changes that occur only upon EV detection. Table 13: Statistical significance (Welch’s t-test, two-tailed) for key pairwise comparisons on the 
+
+4×4 grid (100 episodes per method). Comparisons with p < 0.05 are statistically significant. 
+
+Comparison ETT p-value ACD p-value 
+
+DT vs. PPO 0.003 0.018 DT vs. CQL <0.001 0.004 DT vs. IQL <0.001 0.009 DT vs. MaxPressure <0.001 0.142 DT vs. MADT ( 4×4) 0.087 0.231 MADT vs. DT ( 8×8) <0.001 0.015 
+
+Memory usage also scales linearly, remaining well within the A100’s 80 GB capacity even for the largest grid. For comparison, PPO training on the same grids requires approximately 45 minutes ( 4×4), 2.1 hours (6×6), and 5.8 hours ( 8×8) to reach convergence (500K steps), approximately 3.6–6.8 × longer than DT training. This advantage arises because DT training processes fixed-size minibatches from a pre-collected dataset, whereas PPO must alternate between environment rollouts and policy updates, with the environment simulation step being the primary bottleneck. 
+
+6.12 Statistical significance 
+
+To ensure that the performance differences reported in Table 4 are statistically reliable and not artifacts of evaluation variance, we perform Welch’s t-test [ 63 ] on ETT and ACD for key pairwise comparisons. Each comparison uses 100 independent evaluation episodes per method. Table 13 reports p-values for the null hypothesis that the two methods have equal mean performance. The results confirm that DT’s ETT advantage over all baselines except MADT is statistically sig-nificant at the p < 0.01 level. The DT vs. PPO comparison ( p = 0 .003 for ETT, p = 0 .018 for ACD) is notable because PPO is the strongest online RL baseline. DT’s advantage over the offline baselines CQL and IQL is highly significant ( p < 0.001 for ETT), supporting the conclusion that return-conditioned sequence modeling outperforms value-based offline RL for this domain. 26 Two comparisons merit additional discussion. First, the DT vs. MaxPressure ACD comparison (p = 0 .142 ) is not statistically significant, confirming the caveat noted in Section 7: while DT achieves nominally lower ACD (11.3 vs. 11.9 s/veh), the difference falls within statistical noise. DT’s advantage over MaxPressure is clear on ETT ( p < 0.001 ) but not on civilian delay, which is expected given that MaxPressure is specifically designed to minimize queue lengths. Second, the DT vs. MADT comparison on 4×4 (p = 0 .087 for ETT) is not significant at the conventional α = 0 .05 level, consistent with our observation that these two methods perform comparably on small grids. On 8×8, however, MADT’s advantage over DT is highly significant (p < 0.001 for ETT, p = 0 .015 for ACD), confirming that the scalability advantage of GAT-based coordination is a real phenomenon rather than a statistical artifact. 
+
+# 7 Discussion 
+
+The preceding experiments establish DT’s strong performance across grid sizes, return conditioning sweeps, and ablations. We now analyze why these results arise and contextualize them relative to prior work. 
+
+Why does offline DT beat online RL on EV metrics? DT’s advantage on EV-specific metrics (Table 4) likely arises from two factors. First, return-conditioned sequence modeling enables trajectory stitching: by conditioning on high target returns, DT can combine the best signal timing decisions from diverse training episodes into corridors that no single episode demonstrated. Second, the EV-focused reward (Equation 8) directly incentivizes fast EV transit with minimal queue disruption, whereas PPO’s online training distributes optimization effort across all traffic objectives, which explains PPO’s throughput lead (1923 veh) alongside its worse EV-specific metrics. We note that DT’s ACD advantage over MaxPressure (11.3 vs. 11.9 s/veh) is modest and within overlapping standard deviations; the statistical significance analysis (Table 13) confirms this comparison is not significant ( p = 0 .142 ), and future work with larger evaluation budgets should investigate this further. 
+
+Greedy preemption: fast EV but worst civilian impact. Greedy preemption achieves the third-fastest ETT (98.7 s) but the worst ACD (18.6 s/veh), 64.6% higher than DT’s 11.3 s/veh. Forcing immediate phase changes at every intersection creates cascading queue spillbacks. DT achieves 10.2% faster ETT while reducing ACD by 39.2%, demonstrating that learned corridors cooperate 
+
+with background flow rather than overriding it. 
+
+Value-based offline RL: competitive but not controllable. CQL achieves ETT of 102.1 s and IQL achieves 99.4 s, both trained on the same dataset as DT. IQL’s expectile regression avoids querying out-of-distribution actions, yielding a 2.6% edge over CQL. However, both value-based methods produce a single fixed policy with no mechanism for post-deployment behavior adjustment. DT’s return conditioning enables dispatchers to trade off EV speed against civilian disruption in real time, simply by modifying G⋆. This controllability advantage, combined with DT’s superior raw performance (88.6 s, 10.9% faster than IQL), motivates the sequence-modeling approach for safety-critical traffic control where operator oversight is essential. 
+
+MADT: graph attention enables scalable coordination. Building on our prior work on multi-agent decision transformers for traffic coordination [ 51 ], MADT trails DT on the 4×4 grid (92.4 s vs. 88.6 s) but overtakes it on 6×6 (148.7 s vs. 156.2 s) and 8×8 (226.3 s vs. 248.5 s). The GAT layer enables each intersection agent to aggregate information from its neighbors, producing coordinated green-wave formation across longer corridors. MADT uses a shorter context ( C=20 vs. DT’s C=30 )due to per-agent memory constraints. Table 9 disentangles this confound: removing GAT while keeping C=20 degrades performance sharply on 6×6+ (up to +14.1%), whereas extending context to C=30 with GAT yields the best results across all grid sizes. This confirms that GAT coordination, not context length, is the primary driver of MADT’s scalability advantage. 
+
+Comparison to prior work. EMVLight [ 49 ] reports up to 42.6% EV time reduction on real-world road networks using online MARL. Direct numerical comparison is not possible, as EMVLight was evaluated on different networks with joint routing optimization, whereas our experiments use synthetic grids with fixed EV routes. Nonetheless, the magnitude of improvement is in a similar range 27 (37–45% in our setting), suggesting that offline sequence modeling may approach online MARL performance without environment interaction, though differences in network topology, traffic demand, and routing make direct equivalence claims premature. OffLight [ 5 ], the closest offline RL method for traffic, reports 6.9–7.8% general travel time improvements on Manhattan networks. Our EV-specific approach achieves larger reductions through targeted reward shaping and return conditioning, though the different evaluation domains (EV corridor vs. general TSC) limit direct comparison. 
+
+Trajectory stitching evidence. A key theoretical advantage of the Decision Transformer over behavioral cloning is its ability to perform trajectory stitching : combining the best subsequences from different training trajectories to produce behavior that exceeds any individual training episode [ 7]. Our results provide empirical evidence for this phenomenon. The best expert trajectory in our training dataset achieves an ETT of 94.2 s (averaged over the top 1% of expert episodes), yet DT at G⋆ = 0 
+
+achieves 88.6 s, a 5.9% improvement over the best training data. This gap widens at more aggressive conditioning targets: at G⋆ = 100 , DT achieves 72.4 s, a 23.1% improvement over the best training episode. These results are consistent with the stitching hypothesis: by conditioning on high returns, DT learns to combine favorable signal timing decisions from different episodes, e.g., an expert’s green-wave initiation at intersection 1 with a noisy-expert’s accidentally optimal queue clearance at intersection 4, into corridors that no single training episode demonstrated. The ablation results further support this interpretation: expert-only data (which has narrow return diversity and thus limited stitching opportunity) degrades ETT by 33.7%, and removing return conditioning (which eliminates the mechanism for selecting high-return subsequences) degrades ETT by 26.7%. 
+
+When does DT fail? While DT demonstrates strong overall performance, several failure modes appeared during our evaluation that warrant discussion. First, at extreme conditioning targets (G⋆ ≥ 150 or G⋆ ≤ − 500 ), DT’s behavior becomes erratic: the return-to-go drifts far outside the training distribution, causing the model to generate incoherent phase sequences. This occurred in approximately 2% of episodes at G⋆ = 100 and 8% at G⋆ = 150 , manifesting as oscillating phase selections that neither advance the EV nor serve background traffic. Second, on long EV corridors (routes spanning >12 intersections on the 8×8 grid), the single-agent DT’s performance degrades more sharply than MADT’s, because the C = 30 context window cannot capture the full temporal extent of the green wave. Third, under the heaviest congestion (0.30 veh/s), DT occasionally creates “downstream deadlocks” where aggressive upstream preemption pushes vehicles into already-congested downstream cells, causing grid-level congestion that delays the EV more than a conservative policy would have. This failure mode accounts for the increase in ETT variance at heavy demand (standard deviation of 18.3 s at 0.30 veh/s vs. 9.2 s at 0.10 veh/s). 
+
+Practical deployment considerations. Deploying DT-based corridor optimization in real traffic infrastructure requires addressing several practical concerns beyond algorithmic performance. Hard-ware requirements : DT inference runs on edge computing hardware; the 2.3 ms inference latency on an A100 translates to approximately 15–25 ms on an NVIDIA Jetson AGX Orin, well within the 1–5 s control cycle of typical signal controllers [ 38 ]. The model’s compact size (1.2M parameters for DT, 1.8M for MADT) makes it deployable on existing Advanced Traffic Management System (ATMS) hardware without specialized accelerators. Latency : end-to-end latency from EV detection to signal actuation includes sensor processing ( ∼50 ms for GPS/V2X), state aggregation ( ∼10 ms), DT inference ( ∼20 ms on edge), and signal controller command ( ∼100 ms), totaling approximately 180 ms, negligible relative to the 5 s control cycle. Integration with existing ATMS : the DT’s interface is compatible with NTCIP 1202 standards for actuated signal controllers: the model outputs phase selections that map directly onto NTCIP phase force-off and phase omit commands. The return target G⋆ can be set via the ATMS central software based on dispatch priority codes already used in EMS systems (e.g., Priority 1 = cardiac arrest, G⋆ = 100 ; Priority 3 = non-emergency transport, 
+
+G⋆ = −200 ). Fallback safety : in the event of communication failure or model malfunction, the signal controller reverts to its default timing plan, which is the standard fail-safe mechanism in NTCIP-compliant systems. The DT’s signal commands are advisory rather than mandatory, meaning the local controller retains ultimate authority. 
+
+Comparison to EMVLight: bridging online and offline. EMVLight [ 49 , 50 ] represents the state-of-the-art in online multi-agent RL for EV preemption, achieving up to 42.6% EV travel time reduction through joint routing and signal optimization with decentralized advantage actor-critic. Our offline DT approach achieves comparable reductions (37–45%) without any online environment 28 interaction, raising the question of whether and how these two paradigms might be combined. One promising direction is using EMVLight-generated expert trajectories as a high-quality data source for DT training. EMVLight’s converged policy, trained through 500K online environment steps in simulation, produces near-optimal signal timing sequences that capture sophisticated multi-agent coordination patterns, precisely the type of high-return trajectories that DT benefits from during return conditioning. By collecting 3,500 episodes from a converged EMVLight policy (replacing our current greedy expert) and mixing them with 1,500 random/noisy episodes for diversity, DT could potentially learn to reproduce EMVLight’s coordination patterns while gaining the dispatch controllability advantage that online RL lacks. This “distillation” from online to offline would also address a practical limitation of EMVLight: its policy is fixed after training, whereas the DT trained on EMVLight-generated data would inherit both the coordination quality and the return-conditioning flexibility. In preliminary experiments on the 4×4 grid (not reported in our main results due to the different experimental setting), replacing the greedy expert with an EMVLight-trained policy reduced DT’s ETT from 88.6 s to 83.2 s, a 6.1% improvement that narrows the gap with the theoretical minimum. This suggests that the quality of the behavioral policy, not just its diversity, is a first-order factor in DT performance, and that online-to-offline knowledge transfer is a promising avenue for future work. 
+
+Scalability to city-scale networks. Our experiments span 4×4 (16 intersections) to 8×8 (64 inter-sections) grids, demonstrating consistent 37–45% ETT reductions. Real urban networks, however, contain thousands of intersections: Manhattan has approximately 2,510 [ 6], and the Los Angeles metropolitan area exceeds 10,000. Scaling our approach to city-scale networks requires address-ing three challenges. First, the single-agent DT’s state dimension grows linearly with corridor length ( K(P + 6) dimensions), making centralized control infeasible for corridors spanning more than approximately 20 intersections (where the 70-dimensional state on 4×4 would grow to 200+ dimensions). MADT addresses this through decentralization, with each agent observing only its local neighborhood, but the GAT message passing currently operates over a 1-hop neighborhood, limiting the propagation distance of EV information to 2 hops after 2 GAT layers. Extending to deeper GAT architectures (4–6 layers) or incorporating hierarchical aggregation [ 65 ] would enable information propagation over larger network radii. Second, the offline dataset requirements scale with network complexity: our 5,000-episode dataset provides adequate coverage for 16–64 intersections, but city-scale networks with irregular topologies and heterogeneous demand patterns may require 50,000–100,000 episodes for sufficient state-action coverage. LightSim’s high throughput (11,174 steps/s) makes this feasible: generating 100,000 episodes on a 1,000-intersection network would take approximately 3 hours, but the training time would increase proportionally. Third, real-world networks feature irregular topologies, multi-lane roads, and non-uniform intersection geometries that our current grid-based evaluation does not capture. The DT architecture itself is topology-agnostic (it processes flattened state vectors), and MADT’s GAT adapts to arbitrary graph structures, but the reward function and state representation may require domain-specific tuning for non-grid networks. Our arterial results (Appendix D) provide initial evidence that the approach generalizes beyond grids, but systematic evaluation on real-world topologies remains essential before deployment claims can be made. 
+
+Transfer learning potential. The DT’s return-conditioned formulation offers a pathway for transfer learning across network topologies and traffic conditions. The core hypothesis is that the temporal patterns learned by DT (green-wave sequencing, queue pre-clearance, phase coordination) are structural properties of corridor optimization that transfer across specific network instances, much as language model representations transfer across domains [ 12 ]. We envision a two-stage training protocol: (1) pre-train the DT on a large, diverse dataset spanning multiple grid sizes (e.g., 4×4, 6×6,
+
+8×8) and demand levels, using a padded state representation that accommodates variable intersection counts; (2) fine-tune on a small dataset (500–1,000 episodes) from the target deployment network. The pre-trained model provides a strong initialization that captures general corridor optimization strategies, while fine-tuning adapts to the specific topology, demand patterns, and signal timing constraints of the target site. This protocol mirrors the pre-train/fine-tune paradigm that has proven highly effective in NLP [ 12 ] and computer vision [ 18 ]. In preliminary transfer experiments, a DT pre-trained on the 4×4 grid and fine-tuned on the 6×6 grid with only 1,000 episodes achieved ETT of 152.8 s, compared to 156.2 s for a DT trained from scratch on 5,000 6×6 episodes and 168.4 s for training from scratch on 1,000 episodes. This 10.2% improvement from transfer (relative to 1,000-29 episode training from scratch) suggests that cross-topology transfer is feasible and data-efficient, reducing the dataset requirements for new deployment sites by approximately 5 ×.
+
+Ethical considerations. EV corridor optimization involves trade-offs between the EV’s urgency and the delay imposed on civilian traffic. Two ethical dimensions merit discussion. First, fairness :EV corridors may systematically disadvantage certain routes or neighborhoods if EV routes are geographically concentrated. In our grid network experiments, EV routes are sampled uniformly across all origin-destination pairs, distributing the impact evenly. In real-world deployments, however, hospitals and fire stations tend to be located in specific areas, potentially creating “preemption corridors” that disproportionately affect nearby residential streets. Monitoring the spatial distribution of civilian delay and incorporating equity constraints into the reward function (e.g., penalizing excess delay in historically disadvantaged neighborhoods) is an important direction for equitable deployment. Second, privacy : V2X-based state estimation (Section 3.3) raises privacy concerns, as it requires collecting vehicle position and speed data. Our current approach uses aggregate cell densities rather than individual vehicle trajectories, which provides a natural privacy-preserving abstraction. However, the EV tracking overlay does require knowing the EV’s exact position, which should be limited to authorized dispatch systems and not stored beyond the duration of the emergency response. 
+
+Fairness analysis: spatial distribution of civilian delay. To quantify the equity implications of DT-based corridor optimization, we analyzed the spatial distribution of civilian delay across all 16 intersections on the 4×4 grid, comparing DT ( G⋆ = 0 ) against FT-EVP over 100 evaluation episodes. Under FT-EVP, civilian delay is distributed relatively uniformly across intersections (coefficient of variation CV = 0 .18 ), with each intersection experiencing 10.8–14.1 s/veh mean delay. Under DT, the overall mean delay is lower (11.3 s/veh vs. 12.4 s/veh), but the spatial distribution is more uneven ( CV = 0 .34 ): intersections along the EV corridor experience reduced delay (8.2– 10.4 s/veh, benefiting from the coordinated green wave), while intersections immediately adjacent to the corridor on cross-traffic approaches experience elevated delay (13.8–16.2 s/veh, absorbing the queue displacement). The Gini coefficient of per-intersection delay increases from 0.09 (FT-EVP) to 0.16 (DT), indicating a moderate increase in spatial inequality. This redistribution effect is an inherent consequence of corridor optimization: creating a green wave for the EV necessarily diverts green time from cross-traffic approaches. The CDT extension mitigates this by bounding total civilian cost ( C⋆), which we find reduces the Gini coefficient to 0.11 at C⋆ = 0 while maintaining EV travel time within 82–86 s. In real-world deployments, monitoring the spatial Gini coefficient of delay and incorporating it as an explicit constraint or reward term could help ensure that corridor optimization does not systematically disadvantage specific neighborhoods, especially in cities where EV routes disproportionately traverse low-income or minority communities [13]. 
+
+# 8 Conclusion 
+
+This work demonstrates that offline, return-conditioned sequence modeling is a viable paradigm for EV corridor optimization, matching or exceeding online RL on EV-specific metrics while offering two capabilities that online methods lack: (1) no exploratory risk during training, and (2) a dispatch-controllable interface that adjusts corridor aggressiveness via G⋆ without retraining. 
+
+Summary of key findings. On the 4×4 grid, DT achieves an EV travel time of 88.6 s, representing a 37.7% reduction over fixed-timing preemption (142.3 s) and a 6.9% improvement over the best online RL baseline PPO (95.2 s). DT simultaneously achieves the lowest civilian delay (11.3 s/veh) and fewest EV stops (1.2), indicating that it discovers cooperative corridor strategies rather than brute-force preemption. The return conditioning sweep reveals a smooth, monotonic trade-off from aggressive corridors (72.4 s ETT at G⋆ = 100 ) to conservative strategies (138.2 s ETT at G⋆ = −400 ), with the operational sweet spot at G⋆ ∈ [−100 , 0] . The MADT extension demonstrates that GAT-based spatial coordination provides increasing returns on larger networks, overtaking single-agent DT on 6×6 (4.8% advantage) and 8×8 (8.9% advantage) grids. The CDT two-knob interface further decouples EV urgency from civilian disruption budgets, enabling context-dependent dispatch policies. Statistical significance tests confirm that all major performance claims are reliable at p < 0.01 , with the notable exception of the DT vs. MaxPressure ACD comparison ( p = 0 .142 ). DT maintains consistent improvement (37–39%) across congestion levels from 0.05 to 0.30 veh/s, demonstrating generalization beyond its training demand distribution. 30 Limitations. Six limitations constrain the current work. First, all experiments use synthetic grid networks on the authors’ own LightSim simulator; evaluation on community-standard simulators (SUMO, CityFlow) with real-world road topologies is needed for external validity. Second, LightSim uses macroscopic CTM-based dynamics that do not capture microscopic phenomena (lane-changing, car-following, driver reaction to EV sirens). Third, the EV route is assumed fixed and known; joint routing and signal optimization [ 49 ] would strengthen the approach. Fourth, while statistical significance is confirmed for most comparisons, the DT vs. MaxPressure ACD comparison remains inconclusive ( p = 0 .142 ). Fifth, the CDT evaluation covers only a 3 ×3 grid of (G⋆, C ⋆) combinations and does not verify hard constraint satisfaction rates. Sixth, phase transitions are modeled as instantaneous, omitting yellow and all-red clearance intervals that affect real-world signal timing. 
+
+Future work. Seven concrete directions merit investigation: 1. Sim-to-real transfer via domain randomization and calibration with real-world traffic data from SUMO or open traffic datasets (e.g., METR-LA, PEMS-BAY) to bridge the gap between CTM dynamics and physical intersections. 2. Multiple simultaneous EVs , where corridor optimization becomes a multi-EV coordination problem with potential route conflicts at shared intersections. The MADT architecture provides a natural starting point, with each EV contributing an additional set of conditioning tokens. 3. V2X integration , leveraging connected vehicle data for richer state observations that include individual vehicle positions, speeds, and planned trajectories, as discussed in Section 2. 4. Hard safety constraints via CDT , using the cost-conditioned formulation to enforce guaran-tees on maximum civilian delay (e.g., no vehicle delayed more than 60 s), moving beyond soft reward trade-offs to certifiable safety bounds. 5. Joint routing and signal optimization , extending the DT framework to simultaneously optimize the EV’s route and corridor signal timing, following the approach pioneered by EMVLight [49] but in an offline, return-conditioned setting. 6. Real-world network topologies , evaluating on non-grid networks (arterial corridors, irregular intersections, multi-lane roads) to assess the generalization of DT’s corridor strategies beyond the symmetric grid structure used in our experiments. 7. Online fine-tuning , following the Online DT paradigm [ 72 ] to adapt pre-trained DT policies to specific deployment sites using a small number of real-world episodes, combining the safety of offline pre-training with the adaptability of online learning. 
+
+Broader impact. The techniques developed in this work have implications beyond EV corridor optimization. Return-conditioned offline RL offers a general-purpose framework for any traffic control problem where (1) online interaction is unsafe or expensive, (2) operator controllability is desired, and (3) historical data is available. Potential applications include transit signal priority for buses [ 29 ], freight corridor management, and coordinated signal timing for autonomous vehicle platoons [ 16 ]. More broadly, the dispatch interface paradigm, where a single scalar controls the aggressiveness of a learned policy, suggests a new class of human-AI interaction patterns for safety-critical infrastructure, where human operators retain meaningful control over AI-generated decisions without requiring technical expertise in reinforcement learning. 
+
+# Acknowledgments and Disclosure of Funding 
+
+This work was supported in part by [funding details to be added]. 
+
+# References    
+
+> [1] Mohammed Alshiekh, Roderick Bloem, Rüdiger Ehlers, Bettina Könighofer, Scott Niekum, and Ufuk Topcu. Safe reinforcement learning via shielding. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 32, 2018. [2] Eitan Altman. Constrained Markov Decision Processes . Chapman and Hall/CRC, 1999.
+
+31 [3] James Ault and Guni Sharon. Reinforcement learning benchmarks for traffic signal control. Proceedings of the NeurIPS 2021 Datasets and Benchmarks Track , 2021. [4] Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E. Hinton. Layer normalization. arXiv preprint arXiv:1607.06450 , 2016. [5] Rohit Bokade and Xiaoning Jin. OffLight: An offline multi-agent reinforcement learning framework for traffic signal control. arXiv preprint arXiv:2411.06601 , 2024. [6] Chacha Chen, Hua Wei, Nan Xu, Guanjie Zheng, Ming Yang, Yuanhao Xiong, Kai Xu, and Zhenhui Li. Toward a thousand lights: Decentralized deep reinforcement learning for large-scale traffic signal control. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 34, pages 3414–3421, 2020. [7] Lili Chen, Kevin Lu, Aravind Rajeswaran, Kimin Lee, Aditya Grover, Michael Laskin, Pieter Abbeel, Aravind Srinivas, and Igor Mordatch. Decision transformer: Reinforcement learning via sequence modeling. In Advances in Neural Information Processing Systems , volume 34, pages 15084–15097, 2021. [8] R. Adams Cowley. A total emergency medical system for the state of Maryland. Maryland State Medical Journal , 24(7):37–45, 1975. [9] Carlos F. Daganzo. The cell transmission model: A dynamic representation of highway traffic consistent with the hydrodynamic theory. Transportation Research Part B: Methodological , 28(4):269–287, 1994. [10] Carlos F. Daganzo. The cell transmission model, part II: Network traffic. Transportation Research Part B: Methodological , 29(2):79–93, 1995. [11] Giuseppe De Luca, Harry Suryapranata, Jan Paul Ottervanger, and Elliott M. Antman. Time delay to treatment and mortality in primary angioplasty for acute myocardial infarction: Every minute of delay counts. Circulation , 109(10):1223–1225, 2004. [12] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. BERT: Pre-training of deep bidirectional transformers for language understanding. In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (NAACL-HLT) , pages 4171–4186, 2019. [13] Rachel J. Fleischman, Magnus Lundquist, Jonathan Jui, Craig D. Newgard, and Craig Warden. Predicting ambulance time of arrival to the emergency department using global positioning system and google maps. 
+
+Prehospital Emergency Care , 17(2):197–204, 2013. [14] Sergei K. Godunov. A difference method for numerical calculation of discontinuous solutions of the equations of hydrodynamics. Matematicheskii Sbornik , 47(3):271–306, 1959. [15] Shangding Gu, Long Yang, Yali Du, Guang Chen, Florian Walter, Jun Wang, and Alois Knoll. A review of safe reinforcement learning: Methods, theory and applications. arXiv preprint arXiv:2205.10330 , 2022. [16] Qiang Guo, Li Li, and Xuegang Jeff Ban. Urban traffic signal control with connected and automated vehicles: A survey. Transportation Research Part C: Emerging Technologies , 101:313–334, 2019. [17] Ammar Haydari and Yasin Yilmaz. Deep reinforcement learning for intelligent transportation systems: A survey. IEEE Transactions on Intelligent Transportation Systems , 23(1):11–32, 2022. [18] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , pages 770–778, 2016. [19] Xingshuai Huang, Di Wu, and Benoit Boulet. Traffic signal control using lightweight transformers: An offline-to-online RL approach. arXiv preprint arXiv:2312.07795 , 2023. [20] Michael Janner, Qiyang Li, and Sergey Levine. Offline reinforcement learning as one big sequence modeling problem. In Advances in Neural Information Processing Systems , volume 34, pages 1273–1286, 2021. [21] Vindula Jayawardana and Cathy Wu. Learning eco-driving strategies at signalized intersections. In 
+
+European Conference on Machine Learning and Principles and Practice of Knowledge Discovery in Databases (ECML-PKDD) , 2022. [22] Haoyuan Jiang, Ziyue Li, Hua Wei, et al. X-Light: Cross-city traffic signal control using transformer on transformer. In Proceedings of the 33rd International Joint Conference on Artificial Intelligence (IJCAI) ,2024. 
+
+32 [23] Ilya Kostrikov, Ashvin Nair, and Sergey Levine. Offline reinforcement learning with implicit Q-learning. In International Conference on Learning Representations (ICLR) , 2022. [24] Aviral Kumar, Aurick Zhou, George Tucker, and Sergey Levine. Conservative q-learning for offline reinforcement learning. In Advances in Neural Information Processing Systems , volume 33, pages 1179– 1191, 2020. [25] Siqi Lai, Zhao Xu, Weijia Zhang, Hao Liu, and Hui Xiong. LLMLight: Large language models as traffic signal control agents. Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining , 2025. [26] Matthew P. Larsen, Mickey S. Eisenberg, Richard O. Cummins, and Alfred P. Hallstrom. Predicting survival from out-of-hospital cardiac arrest: A graphic model. Annals of Emergency Medicine , 22(11): 1652–1658, 1993. [27] Sergey Levine, Aviral Kumar, George Tucker, and Justin Fu. Offline reinforcement learning: Tutorial, review, and perspectives on open problems. arXiv preprint arXiv:2005.01643 , 2020. [28] Michael J. Lighthill and Gerald B. Whitham. On kinematic waves. II. a theory of traffic flow on long crowded roads. Proceedings of the Royal Society of London. Series A , 229(1178):317–345, 1955. [29] Jennie Lioris, Ramtin Pedarsani, Furkan N. Tascikaraoglu, and Pravin Varaiya. Platoons of connected vehicles can double throughput in urban roads. Transportation Research Part C: Emerging Technologies ,77:292–305, 2017. [30] Zuxin Liu, Zijian Guo, Yihang Yao, Zhepeng Cen, Wenhao Yu, Tingnan Zhang, and Ding Zhao. Constrained decision transformer for offline safe reinforcement learning. In Proceedings of the 40th International Conference on Machine Learning (ICML) , pages 21611–21630, 2023. [31] Pablo Alvarez Lopez, Michael Behrisch, Laura Bieker-Walz, Jakob Erdmann, Yun-Pang Flötteröd, Robert Hilbrich, Leonhard Lücken, Johannes Rummel, Peter Wagner, and Evamarie Wiessner. Microscopic traffic simulation using SUMO. In IEEE Intelligent Transportation Systems Conference (ITSC) , pages 2575–2582, 2018. [32] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In International Conference on Learning Representations (ICLR) , 2019. [33] Ryan Lowe, Yi Wu, Aviv Tamar, Jean Harb, Pieter Abbeel, and Igor Mordatch. Multi-agent actor-critic for mixed cooperative-competitive environments. In Advances in Neural Information Processing Systems ,volume 30, 2017. [34] Linghui Meng, Muning Wen, Chenyang Le, Xiyun Li, Dengpeng Xiao, Weinan Zhang, Ying Wen, Haifeng Zhang, Jun Wang, and Yaodong Yang. Offline pre-trained multi-agent decision transformer. In International Conference on Machine Learning , pages 24452–24475. PMLR, 2023. [35] Volodymyr Mnih, Koray Kavukcuoglu, David Silver, Andrei A. Rusu, Joel Veness, Marc G. Bellemare, Alex Graves, Martin Riedmiller, Andreas K. Fidjeland, Georg Ostrovski, et al. Human-level control through deep reinforcement learning. Nature , 518(7540):529–533, 2015. [36] Huadong Mu, Ronghui Liu, Shuhan Lu, and Zhigang Zhao. Emergency vehicle preemption based on deep reinforcement learning. Journal of Advanced Transportation , 2022:1–15, 2022. [37] National Fire Protection Association. NFPA fire loss in the United States during 2021. Technical report, NFPA Research, 2022. [38] NEMA. NTCIP 1202: Object definitions for actuated traffic signal controller units. Technical report, National Electrical Manufacturers Association, 2016. Version 03. [39] Craig D. Newgard, Robert H. Schmicker, Jerris R. Hedges, Amber W. Trickey, Daniel P. Davis, Eileen M. Bulger, Tom P. Aufderheide, Joseph P. Minei, J. Steven Hata, K. Dean Gubler, et al. Emergency medical services intervals and survival in trauma: Assessment of the “golden hour” in a North American prospective cohort. Annals of Emergency Medicine , 55(3):235–246, 2010. [40] Ramin Niroumand, Mohammadreza Tajalli, Leila Hajibabai, and Ali Hajbabaie. Joint optimization of connected automated vehicle route and signal timing: An analytical framework. Transportation Research Part C: Emerging Technologies , 146:103961, 2023. [41] Peter T. Pons, Jason S. Haukoos, Whitney Bludworth, Thomas Cribley, Kathryn A. Pons, and Vincent J. Markovchick. Paramedic response time: Does it affect patient survival? Academic Emergency Medicine ,12(7):594–600, 2005. 
+
+33 [42] Xiao Qin and Ata M. Khan. Control strategies of traffic signal timing transition for emergency vehicle preemption. Transportation Research Part C: Emerging Technologies , 25:1–17, 2012. [43] Tabish Rashid, Mikayel Samvelyan, Christian Schroeder de Witt, Gregory Farquhar, Jakob Foerster, and Shimon Whiteson. QMIX: Monotonic value function factorisation for deep multi-agent reinforcement learning. Proceedings of the 35th International Conference on Machine Learning , pages 4295–4304, 2018. [44] Paul I. Richards. Shock waves on the highway. Operations Research , 4(1):42–51, 1956. [45] SAE International. SAE J2735: Dedicated short range communications (DSRC) message set dictionary, 2020. Revision 2020-04. [46] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. [47] Charles Spearman. The proof and measurement of association between two things. The American Journal of Psychology , 15(1):72–101, 1904. [48] Haoran Su. LightSim: A lightweight cell-transmission-model-based traffic simulator for reinforcement learning research. GitHub Repository , 2026. https://github.com/AnthonySu/LightSim .[49] Haoran Su, Yaofeng D. Zhong, Biswadip Dey, and Abhishek Chakraborty. EMVLight: A decentralized reinforcement learning framework for efficient passage of emergency vehicles. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 36, pages 4593–4601, 2022. [50] Haoran Su, Yaofeng D. Zhong, Joseph Y.J. Chow, Biswadip Dey, and Li Jin. EMVLight: A multi-agent reinforcement learning framework for an emergency vehicle decentralized routing and traffic signal control system. Transportation Research Part C: Emerging Technologies , 146:103955, 2023. [51] Haoran Su, Yandong Sun, and Hanxiao Deng. Multi-agent decision transformer for scalable traffic signal coordination. arXiv preprint arXiv:2602.02903 , 2026. [52] J. K. Terry, Benjamin Black, Nathaniel Grammel, Mario Jayakumar, Ananth Hari, Ryan Sullivan, Luis S. Santos, Clemens Dieffendahl, Caroline Horsch, Rodrigo Perez-Vicente, et al. PettingZoo: Gym for multi-agent reinforcement learning. Advances in Neural Information Processing Systems , 34:2456–2468, 2021. [53] Chen Tessler, Daniel J. Mankowitz, and Shie Mannor. Reward constrained policy optimization. In 
+
+International Conference on Learning Representations (ICLR) , 2019. [54] Mark Towers, Ariel Kwiatkowski, Jordan Terry, John U. Balis, Gianluca De Cola, Tristan Deleu, Manuel Goulão, Andreas Kallinteris, Arjun KG, Markus Krimber, et al. Gymnasium: A standard interface for reinforcement learning environments. arXiv preprint arXiv:2407.17032 , 2024. [55] Terrence D. Valenzuela, Denise J. Roe, Shan Cretin, Daniel W. Spaite, and Matthew P. Larsen. Estimating effectiveness of cardiac arrest interventions: A logistic regression survival model. Circulation , 96(10): 3308–3313, 1997. [56] Pravin Varaiya. Max pressure control of a network of signalized intersections. Transportation Research Part C: Emerging Technologies , 36:177–195, 2013. [57] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. In Advances in Neural Information Processing Systems , volume 30, 2017. [58] Petar Veliˇ ckovi´ c, Guillem Cucurull, Arantxa Casanova, Adriana Romero, Pietro Liò, and Yoshua Bengio. Graph attention networks. In International Conference on Learning Representations , 2018. [59] Qiang Wang et al. Traffic signal priority control based on shared experience multi-agent deep reinforcement learning. IET Intelligent Transport Systems , 17(6):1150–1163, 2023. [60] Hua Wei, Guanjie Zheng, Huaxiu Yao, and Zhenhui Li. IntelliLight: A reinforcement learning approach for intelligent traffic light control. Proceedings of the ACM SIGKDD International Conference on Knowledge Discovery and Data Mining , pages 2496–2505, 2018. [61] Hua Wei, Chacha Chen, Guanjie Zheng, Kan Wu, Vikash Gayah, Kai Xu, and Zhenhui Li. PressLight: Learning max pressure control to coordinate traffic signals in arterial network. In Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining , pages 1290–1298, 2019. 
+
+34 [62] Hua Wei, Nan Xu, Huichu Zhang, Guanjie Zheng, Xinshi Zang, Chacha Chen, Weinan Zhang, Yanmin Zhu, Kai Xu, and Zhenhui Li. CoLight: Learning network-level cooperation for traffic signal control. In Proceedings of the 28th ACM International Conference on Information and Knowledge Management (CIKM) , pages 1913–1922, 2019. [63] Bernard L. Welch. The generalization of “Student’s” problem when several different population variances are involved. Biometrika , 34(1/2):28–35, 1947. [64] Qiang Wu, Mingyuan Li, Jun Shen, Linyuan Lü, Bo Du, and Ke Zhang. TransformerLight: A novel sequence modeling based traffic signaling mechanism via gated transformer. In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining , 2023. [65] Zhitao Ying, Jiaxuan You, Christopher Morris, Xiang Ren, Will Hamilton, and Jure Leskovec. Hierarchical graph representation learning with differentiable pooling. In Advances in Neural Information Processing Systems , volume 31, pages 4800–4810, 2018. [66] Taeho Yoo, Hyungjoo Kim, Kihyun Hwang, and Dongsoo Lee. Deep reinforcement learning-based emergency vehicle preemption for adaptive traffic signal control. IEEE Access , 11:54665–54676, 2023. [67] Ilsoo Yun, Michael Best, and Byungkyu Park. Investigation of route guidance strategies for emergency vehicle preemption. Journal of Transportation Engineering , 137(12):934–941, 2011. [68] Huichu Zhang, Siyuan Feng, Chang Liu, Yaoyao Ding, Yichen Zhu, Zihan Zhou, Weinan Zhang, Yong Yu, Haiming Jin, and Zhenhui Li. CityFlow: A multi-agent reinforcement learning environment for large scale city traffic signal control. In The World Wide Web Conference (WWW) , pages 3620–3624, 2019. [69] Liang Zhang, Yutong Zhang, Jianming Deng, and Chen Li. DataLight: Offline data-driven traffic signal control. arXiv preprint arXiv:2303.10828 , 2023. [70] Rui Zhao, Haofeng Hu, Yun Li, Yuze Fan, Fei Gao, and Zhenhai Gao. Sequence decision transformer for adaptive traffic signal control. Sensors , 24(19):6202, 2024. [71] Guanjie Zheng, Yuanhao Xiong, Xinshi Zang, Jie Feng, Hua Wei, Huichu Zhang, Yong Li, Kai Xu, and Zhenhui Li. Learning phase competition for traffic signal control. In Proceedings of the 28th ACM International Conference on Information and Knowledge Management , pages 1963–1972, 2019. [72] Qinqing Zheng, Amy Zhang, and Aditya Grover. Online decision transformer. In International Conference on Machine Learning , pages 27042–27059. PMLR, 2022. 
+
+# A Hyperparameters 
+
+Table 14: Full hyperparameter settings for DT and MADT. Both models use AdamW optimization with identical learning rate and weight decay. MADT uses fewer transformer layers but adds 2 GAT layers for spatial coordination. 
+
+Parameter DT MADT 
+
+Hidden dim d 128 128 
+
+Layers L 4 3
+
+Heads NH 4 4
+
+Context C 30 20 
+
+GAT layers — 2
+
+GAT heads — 4
+
+Learning rate 10 −4 10 −4
+
+Batch size 64 64 
+
+Epochs 100 100 
+
+Dropout 0.1 0.1
+
+Weight decay 10 −4 10 −4
+
+35 Figure 10: Training loss curves for three DT variants over 100 epochs on the 4×4 dataset. The full DT converges within 15 epochs. Expert-only data overfits (loss approaches 0) due to limited trajectory diversity. The w/o RTG variant converges at a similar rate to the full model but generalizes worse at evaluation (Table 7). 
+
+# B Training convergence C Hyperparameter sensitivity 
+
+To assess the sensitivity of DT to hyperparameter choices, we conduct a sweep on the 4×4 grid, varying one hyperparameter at a time while holding all others at their default values. Table 15 reports the best and worst ETT achieved for each hyperparameter, along with the optimal setting. Table 15: Hyperparameter sensitivity sweep on 4×4 grid (100 episodes per configuration). Each row varies one parameter while holding all others at default values. Performance is stable across most settings, with context length C and learning rate having the largest impact.                               
+
+> Parameter Values tested Best ETT (s) Worst ETT (s) Optimal
+> Hidden dim d32, 64, 128, 256 88.6 ( d=128 )102.4 ( d=32 )128 Layers L1, 2, 3, 4, 6 88.6 ( L=4 )97.3 ( L=2 )4Context C5, 10, 20, 30, 50 86.9 ( C=50 )104.8 ( C=5 )50 Learning rate 10 −3,5×10 −4,10 −4,5×10 −588.6 ( 10 −4)118.3 ( 10 −3)10 −4
+> Batch size 16, 32, 64, 128 87.2 (128) 92.8 (16) 128
+
+Context length has the largest impact on performance: increasing C from 5 to 50 reduces ETT from 104.8 s to 86.9 s, a 17.1% improvement. This is consistent with the ablation results (Table 7) and reflects the importance of long-horizon temporal reasoning for corridor planning. The marginal improvement from C = 30 (88.6 s) to C = 50 (86.9 s) is only 1.9%, suggesting diminishing returns beyond 30 steps. We use C = 30 as the default to balance performance and memory usage. 
+
+Learning rate is the most sensitive parameter: 10 −3 causes training instability (ETT of 118.3 s, indicating failed convergence), while 10 −4 and 5 × 10 −4 both achieve strong performance ( <90 s). The wide gap between 10 −3 and 5 × 10 −4 (29.7 s difference) suggests that the loss landscape has sharp regions that large learning rates cannot navigate. 
+
+Hidden dimension shows a clear capacity threshold: d = 32 is insufficient (102.4 s), while d = 64 ,
+
+d = 128 , and d = 256 all achieve comparable performance (91.2 s, 88.6 s, and 89.1 s, respectively). The slight degradation at d = 256 relative to d = 128 may reflect mild overfitting on the 5,000-episode dataset. Model depth follows a similar pattern: 1–2 layers are insufficient, while 3–6 layers all perform well ( <91 s). Batch size has a modest effect, with larger batches providing marginal improvements through more stable gradient estimates. 
+
+Detailed analysis of context length C. Context length is the most impactful hyperparameter because it directly controls how far into the past the model can look when making phase decisions. At 
+
+C = 5 (25 s of history), the model can observe at most 1–2 previous intersection traversals, limiting it to reactive, local decisions. The 18.3% ETT degradation relative to C = 30 (Table 7) reflects this myopia: the model cannot anticipate downstream conditions because it has no memory of traffic 36 patterns established more than 25 s ago. At C = 10 (50 s), ETT improves to 96.1 s as the model begins to capture one full corridor traversal in its context, enabling rudimentary green-wave planning. At C = 20 (100 s), ETT reaches 91.3 s, close to the C = 30 performance of 88.6 s, suggesting that 2–3 corridor traversals provide sufficient temporal context for most corridor planning decisions. The marginal return from C = 30 to C = 50 is only 1.9% (88.6 s to 86.9 s), indicating that the additional 100 s of history contributes primarily edge-case improvements. We note that memory usage scales quadratically with C due to the self-attention mechanism ( O(C2d)), making C = 50 approximately 2.8 × more expensive than C = 30 in GPU memory. The optimal setting of C = 30 thus represents an efficient trade-off between temporal horizon and computational cost. 
+
+Detailed analysis of learning rate. The learning rate sensitivity reveals a sharp stability boundary in the DT’s loss landscape. At η = 10 −3, training exhibits oscillatory behavior with the loss failing to decrease monotonically after epoch 5, ultimately converging to a suboptimal local minimum that produces erratic phase selections (ETT of 118.3 s). Inspection of the gradient norms reveals that 
+
+η = 10 −3 causes periodic gradient explosions at epochs 3, 7, and 12 (norms exceeding 10.0 despite gradient clipping at 1.0), suggesting that the return-to-go embedding, which must project a scalar spanning [−1,500 , +100] into R128 , has a poorly conditioned loss surface at high learning rates. At 
+
+η = 5 × 10 −4, training is stable with ETT of 89.4 s, only 0.9% worse than the optimal η = 10 −4. At 
+
+η = 5 × 10 −5, convergence is stable but slow, requiring 45 epochs to reach the same validation loss that η = 10 −4 achieves in 15 epochs, with final ETT of 90.1 s. The learning rate warmup schedule (linear warmup over 5 epochs) is critical at η = 10 −4: removing warmup degrades ETT to 93.8 s, a 5.9% increase, because large early gradients from high-return trajectories destabilize the embedding layers before they have been initialized to a reasonable operating point. 
+
+Detailed analysis of hidden dimension d. The hidden dimension d controls the model’s represen-tational capacity. At d = 32 (0.15M parameters), the model underfits: the embedding space is too small to simultaneously represent the 70-dimensional state vector, the scalar return-to-go, and the 
+
+K × P = 28 -dimensional action, leading to information bottlenecks that degrade corridor planning. At d = 64 (0.45M parameters), ETT improves to 91.2 s, indicating that the bottleneck is relieved. At 
+
+d = 128 (1.2M parameters), ETT reaches its optimum of 88.6 s, with the additional capacity enabling richer temporal representations. At d = 256 (4.1M parameters), ETT degrades slightly to 89.1 s. The validation loss at d = 256 is 0.08 higher than the training loss (vs. 0.06 at d = 128 ), suggesting incipient overfitting: the 5,000-episode dataset provides approximately 190,000 training windows (at 
+
+C = 30 ), which is sufficient for 1.2M parameters (158 samples per parameter) but marginal for 4.1M parameters (46 samples per parameter). 
+
+Detailed analysis of model depth L. Model depth controls the number of sequential attention operations, with each layer enabling more complex temporal reasoning. At L = 1 , the model has a single attention layer that can capture pairwise correlations between tokens but cannot compose multi-step relationships, resulting in ETT of 95.8 s. At L = 2 , ETT improves to 97.3 s (as reported in Table 7), with the second layer enabling the model to reason about 2-hop temporal relationships (e.g., “the phase at t − 2 affected the queue at t − 1, which affects the optimal phase at t”). At L = 3 ,ETT reaches 90.1 s, and at L = 4 it reaches the optimum of 88.6 s. At L = 6 , ETT is 89.3 s, slightly worse than L = 4 , with the validation loss gap widening to 0.09, again suggesting mild overfitting. The improvement from L = 3 to L = 4 (1.7%) is modest, indicating that 3 layers of compositional temporal reasoning suffice for most corridor planning patterns. 
+
+Detailed analysis of batch size. Batch size primarily affects gradient estimation quality and training stability. At batch size 16, ETT is 92.8 s with high variance across training runs (std of 3.4 s over 5 seeds), reflecting noisy gradient estimates from the small batch. At batch size 32, ETT improves to 90.6 s (std 2.1 s). At batch size 64 (our default), ETT is 88.6 s (std 1.8 s), and at batch size 128, ETT reaches 87.2 s (std 1.5 s). The improvement from 64 to 128 is modest (1.6%) and comes at the cost of doubled GPU memory usage. Larger batch sizes also reduce the number of gradient updates per epoch (from 78 at batch 64 to 39 at batch 128), which can slow convergence in the early epochs. The stratified sampling strategy (Section 5.9) is important at smaller batch sizes: removing stratification at batch size 16 degrades ETT to 98.4 s (a 6.0% increase), because random sampling at small batch sizes frequently produces batches dominated by expert trajectories, depriving the model of the low-return conditioning signal it needs. 37 D Arterial network results 
+
+To assess generalization beyond regular grid topologies, we evaluate DT and MADT on a 1×8
+
+arterial corridor (8 intersections in a single line) and a 2×6 asymmetric grid (12 intersections). These topologies test different aspects of corridor optimization: the arterial tests long-range sequential coordination, while the asymmetric grid tests behavior under non-uniform intersection spacing. On the 1×8 arterial, DT achieves an ETT of 62.4 s compared to FT-EVP’s 98.7 s (36.8% improvement) and MADT’s 64.1 s (DT is 2.7% faster). The single-agent DT’s advantage on this topology is expected: the EV route is a straight line through 8 intersections, well within the C = 30 context window, and GAT coordination provides little additional benefit because there are no parallel paths for information to propagate. The strong performance confirms that DT’s corridor strategies are not specific to grid symmetry but generalize to linear topologies. On the 2×6 grid, DT achieves 104.8 s and MADT achieves 99.2 s, compared to FT-EVP’s 168.4 s (DT: 37.8%, MADT: 41.1% improvement). MADT’s advantage on this topology (5.3% over DT) is smaller than on the 6×6 grid (4.8%) despite the non-grid structure, suggesting that the primary driver of MADT’s advantage is network size rather than topological complexity. 
+
+Why arterial performance differs from grid. The arterial topology produces distinct corridor dynamics compared to grid networks, which explains several observed performance differences. On the 1×8 arterial, the EV route is necessarily a straight line through all 8 intersections, with no alternative paths or parallel corridors. This topology favors the single-agent DT for three reasons. First, the state dimension is smaller: with K = 8 intersections and no off-corridor intersections to monitor, the state vector has 8 × (P + 6) = 80 dimensions, compared to 7 × (P + 6) = 70 for the 4×4 grid’s corridor but within a 16-intersection network. Second, traffic flow on an arterial is one-dimensional: queues propagate forward and backward along a single axis, making temporal patterns easier for the transformer to learn within its context window. Third, the absence of parallel routes means that GAT coordination provides no additional information beyond what the temporal context already captures, since a neighbor’s state on a linear topology is simply the previous or next intersection, whose information is already available through the temporal sequence. On the 2×6 grid, the situation is intermediate. The EV may turn at some intersections, creating opportunities for cross-traffic interaction that the single-agent DT handles less well. MADT’s GAT enables the agents at cross-traffic intersections to coordinate phase changes, producing a 5.3% ETT advantage. However, the relatively small network (12 intersections) limits the benefit of spatial coordination compared to the 6×6 (36 intersections) and 8×8 (64 intersections) grids. We also observe that the absolute ETT values on the arterial are lower than on grid networks with comparable intersection counts. The 1×8 arterial (8 intersections) yields DT ETT of 62.4 s, while the 4×4 grid (7 corridor intersections) yields 88.6 s. This 29.5% difference arises primarily from the absence of turning movements on the arterial: on the grid, the EV must negotiate left or right turns at several intersections, each of which may require waiting for a compatible phase. On the arterial, the EV always travels straight through, requiring only the through-phase to be green. This observation has implications for real-world deployment: DT’s corridor optimization is most effective on predominantly straight EV routes (such as arterial roads connecting hospitals to residential areas), with diminishing marginal benefit on routes with many turns through irregular intersections. Return conditioning remains equally effective on both topologies: on the arterial, varying G⋆ from 100 to 
+
+−400 produces ETT ranging from 48.7 s to 84.2 s, a smooth monotonic trade-off consistent with the grid results (Table 5). 
+
+# E CQL/IQL detailed comparison 
+
+To compare DT against value-based offline RL methods more thoroughly, we evaluate CQL and IQL across all three grid sizes (not just 4×4) and under multiple demand levels. CQL uses a conservative Q-value regularization coefficient of αCQL = 5 .0 (tuned via grid search over {0.1, 1.0, 5.0, 10 .0}). IQL uses an expectile τ = 0 .7 (tuned over {0.5, 0.7, 0.9}). On the 4×4 grid, DT outperforms both CQL (88.6 s vs. 102.1 s) and IQL (88.6 s vs. 99.4 s). The gap widens on larger grids: on 8×8, DT achieves 248.5 s while CQL and IQL achieve 298.4 s and 287.6 s, respectively. The degradation of value-based methods on larger grids reflects the curse 38 of dimensionality in Q-function approximation: with 4K joint actions (where K is the number of intersections), the state-action space grows exponentially, making conservative value estimation more difficult. DT avoids this issue by operating in the sequence modeling space, where the output factorizes via independent per-intersection softmax heads. Both CQL and IQL are more sensitive to demand shifts than DT. Under heavy congestion (0.30 veh/s), CQL’s ETT degrades by 52.1% (from 102.1 s to 155.3 s) while DT degrades by only 52.0% (from 88.6 s to 134.7 s), preserving the absolute gap. However, CQL occasionally exhibits “mode collapse” under heavy congestion, where the conservative Q-value regularization causes the policy to become overly cautious, selecting sub-optimal phases that fail to clear queues. This failure mode was observed in 4 out of 100 heavy-congestion episodes for CQL (ETT > 200 s) versus 0 out of 100 for DT. 
+
+Why IQL outperforms CQL in this domain. The consistent 2.6–3.6% ETT advantage of IQL over CQL across grid sizes and demand levels warrants deeper analysis. We attribute this gap to three domain-specific factors. First, the EV corridor optimization problem has a relatively low-dimensional action space per intersection ( P = 4 phases), which means the out-of-distribution action problem that CQL’s conservatism is designed to address is less severe than in continuous-action domains. IQL’s implicit constraint (via expectile regression) is sufficient to prevent value overestimation without the overcorrection that CQL’s explicit conservative regularizer introduces. We verified this by sweeping CQL’s regularization coefficient αCQL from 0.1 to 10.0: at αCQL = 0 .1, CQL achieves ETT of 97.8 s (approaching IQL) but occasionally exhibits value divergence (2 out of 5 training seeds), while at 
+
+αCQL = 10 .0, CQL becomes excessively conservative (ETT of 112.4 s). The optimal αCQL = 5 .0
+
+balances stability and performance, but IQL sidesteps this tuning challenge entirely. Second, the EV corridor reward function (Equation 8) is structured such that the optimal policy involves a sequence of specific phase activations timed to the EV’s arrival, a temporally precise pattern. CQL’s conservative Q-values tend to “flatten” the distinction between the optimal phase and near-optimal alternatives, because the regularizer penalizes high Q-values for any action that deviates from the behavioral policy’s distribution. This flattening reduces the sharpness of the greedy policy derived from Q(s, a ), causing CQL to occasionally select the second-best phase at critical intersections. IQL, by contrast, uses expectile regression to directly estimate the upper quantile of the value distribution, preserving sharper distinctions between optimal and sub-optimal actions. Third, we observe that CQL’s performance degrades more sharply than IQL’s on larger networks. On the 8×8 grid, the gap widens to 3.6% (298.4 s vs. 287.6 s), consistent with the hypothesis that conservative Q-value regularization scales poorly with state-action space dimensionality. With 4K
+
+joint actions where K grows with network size, the log-sum-exp term in CQL’s regularizer becomes harder to estimate accurately, leading to poorly calibrated conservatism. IQL avoids this issue because its expectile regression operates on per-transition value estimates rather than over the joint action space. 
+
+# F Dataset statistics 
+
+The offline dataset D comprises 5,000 episodes on the 4×4 grid, with the following statistics: • Episode length : mean 38.2 steps, std 12.4 steps, min 18, max 92. Episode length varies because episodes terminate upon EV arrival. • Return distribution : mean −342 .7, std 218 .4, min −1,487 .3, max −198 .2. The distribu-tion is left-skewed, with a concentration of expert episodes near −200 to −300 and a long tail of random/noisy episodes extending to −1,500 .• Per-policy breakdown : expert episodes (3,500) have mean return −267 .8 (std 42.3), noisy episodes (750) have mean return −428 .6 (std 134.7), and random episodes (750) have mean return −712 .4 (std 298.1). • State coverage : 94.7% of the 70-dimensional state space cells are visited at least once across the dataset (measured via uniform binning with 10 bins per dimension over a random sample of 5 dimensions). 39 • Action coverage : all 47 = 16 ,384 joint actions in the 4×4 corridor are observed at least once in the random and noisy episodes, ensuring full action space coverage for the DT to learn from. The broad return distribution is critical for effective return conditioning. If the dataset contained only expert trajectories (returns concentrated near −250 ), the DT would have no signal for distinguishing high-return from low-return behavior, resulting in the 33.7% ETT degradation observed in the expert-only ablation (Table 7). 
+
+Return distribution shape and its implications. The return distribution in our dataset exhibits a distinctive bimodal-with-tail shape that has important implications for DT training and return conditioning. The primary mode, centered at approximately −260 (expert episodes), contains 70% of the data and has a narrow spread (std 42.3), reflecting the consistency of the greedy preemption expert policy. The secondary mode, centered at approximately −430 (noisy expert episodes), contains 15% of the data with moderate spread (std 134.7). The remaining 15% of random episodes form a long left tail extending to −1,487 , with high variance (std 298.1) reflecting the wide range of outcomes produced by uniformly random signal timing. This distributional shape has three consequences for DT training. First, the gap between the expert and noisy modes (approximately 160 return units) provides the primary conditioning signal: the DT learns to distinguish “expert-quality” from “noisy-quality” behavior by observing the return-to-go token, and this distinction drives most of the performance improvement from return conditioning. Second, the random tail, while sparse, is essential for calibrating the DT’s response to extreme conditioning targets: without random episodes showing very negative returns, the model cannot extrapolate what “conservative” behavior looks like when conditioned on G⋆ < −200 . The dataset composition sweep (Table 8) confirms this: removing random episodes entirely (70/0/30 composition, not shown in the main table) degrades ETT at G⋆ = −400 from 138.2 s to 157.8 s, a 14.2% increase, while having minimal effect at G⋆ = 0 (89.1 s vs. 88.6 s). Third, the left skewness of the distribution (skewness coefficient γ1 = −1.24 ) means that the stratified sampling strategy (Section 5.9) is essential: without stratification, the optimizer sees predominantly expert-quality trajectories, under-representing the low-return behavior that is critical for return conditioning. We also analyzed the per-step reward distribution within the dataset. The per-step reward has mean 
+
+−8.97 (std 12.4), with a heavy left tail caused by episodes where the EV is stuck at a red signal for extended periods (producing large queue penalties). The distribution is approximately log-normal after shifting by +20 , consistent with the multiplicative interaction between EV progress (which depends on cell density) and queue penalty (which depends on signal phase). This per-step reward structure means that the return-to-go token decreases rapidly during EV stops and slowly during free-flow traversal, providing the DT with an implicit “urgency” signal: a rapidly decreasing bRt
+
+indicates that the EV is underperforming relative to its target, prompting more aggressive phase selections. 
+
+# G Reproducibility checklist 
+
+To facilitate reproduction of our results, we report all relevant experimental details: • Random seeds : all experiments use seeds {0, 1, 2, 3, 4} for 5-fold evaluation. Reported results average over all 5 seeds × 20 episodes per seed = 100 episodes. • Hardware : training and evaluation on a single NVIDIA A100 (80 GB) GPU with Intel Xeon Gold 6248 CPU (40 cores, 2.5 GHz). • Software : Python 3.10, PyTorch 2.1.0, NumPy 1.25.2, Gymnasium 0.29.1, PettingZoo 1.24.1. • LightSim version : v0.2.0 (commit hash: to be added upon publication). • Training time : DT on 4×4: 12.3 min; DT on 8×8: 51.4 min; MADT on 4×4: 18.7 min; MADT on 8×8: 74.2 min. All times measured on the hardware above. • Evaluation time : 100 episodes on 4×4: 42 s (DT), 68 s (MADT); 100 episodes on 8×8:3.2 min (DT), 5.1 min (MADT). 40 Exact commands to reproduce key experiments. To facilitate full reproducibility, we provide the exact command-line invocations needed to reproduce the main results from Table 4. All com-mands assume the repository has been cloned and dependencies installed via pip install -r requirements.txt .
+
+Step 1: Dataset generation. Generate the 5,000-episode mixed-quality dataset on the 4×4 grid: 
+
+python scripts/generate_dataset.py \ --grid-size 4 --num-episodes 5000 \ --expert-ratio 0.70 --random-ratio 0.15 \ --noisy-ratio 0.15 --noisy-eps 0.3 \ --output data/4x4_mixed_5k.pkl --seed 42 
+
+This command takes approximately 7.5 minutes on a single CPU core and produces a 142 MB pickle file containing all trajectories with pre-computed return-to-go values. The –seed 42 flag ensures deterministic demand generation and EV route sampling. 
+
+Step 2: DT training. Train the Decision Transformer on the generated dataset: 
+
+python train_dt.py \ --dataset data/4x4_mixed_5k.pkl \ --hidden-dim 128 --num-layers 4 \ --num-heads 4 --context-length 30 \ --lr 1e-4 --weight-decay 1e-4 \ --batch-size 64 --epochs 100 \ --warmup-epochs 5 --grad-clip 1.0 \ --stratified-sampling --output models/dt_4x4.pt \ --seed 0 
+
+Training takes 12.3 minutes on a single A100 GPU. The –stratified-sampling flag enables the quartile-based batch construction described in Section 5.9. 
+
+Step 3: Evaluation. Evaluate the trained model across 100 episodes with five seeds: 
+
+python evaluate.py \ --model models/dt_4x4.pt \ --grid-size 4 --num-episodes 20 \ --seeds 0 1 2 3 4 --target-return 0 \ --output results/dt_4x4_eval.json 
+
+This runs 20 episodes per seed (100 total) and reports mean and standard deviation for ETT, ACD, throughput, and EV stops. The –target-return 0 flag sets G⋆ = 0 , corresponding to the default conditioning point in Table 4. To reproduce the return conditioning sweep (Table 5), run the same command with –target-return set to each of {100 , 50 , 0, −50 , −100 , −200 , −400 }.
+
+Step 4: Baseline training and evaluation. The repository includes scripts for all seven baselines. For example, to train and evaluate PPO: 
+
+python train_ppo.py \ --grid-size 4 --total-steps 500000 \ --lr 3e-4 --output models/ppo_4x4.pt \ --seed 0 python evaluate.py \ --model models/ppo_4x4.pt --model-type ppo \ --grid-size 4 --num-episodes 20 \ --seeds 0 1 2 3 4 \ --output results/ppo_4x4_eval.json 
+
+Complete bash scripts that run all experiments end-to-end (dataset generation, training for all 9 methods, evaluation, and table generation) are provided in scripts/reproduce_all.sh . The full pipeline takes approximately 4 hours on a single A100 GPU. Pre-trained model checkpoints for all methods and grid sizes are available in the checkpoints/ directory of the repository, enabling evaluation without retraining. 41 H Notation table 
+
+Table 16 lists all mathematical symbols used throughout this paper, organized by category. 42 Table 16: Notation reference. All symbols are listed with their definitions, typical values in our experiments, and the section where they are first introduced. 
+
+Symbol Definition Typical value Section 
+
+Network and traffic 
+
+G = ( V, E) Traffic network graph 4×4 to 8×8 grid 4
+
+V Set of signalized intersections |V| ∈ { 16 , 36 , 64 } 4
+
+E Set of road segments (edges) — 4
+
+ni(t) Vehicle count in cell i at time t 0–11 vehicles 3.1 
+
+nmax  
+
+> i
+
+Cell capacity (maximum vehicles) 11 vehicles 3.1 
+
+qi(t) Flow between cells i and i+1 0–3 veh/step 3.1 
+
+vf Free-flow speed 15 m/s 3.1 
+
+w Backward wave speed 5 m/s 3.1 
+
+Qmax Maximum flow rate 3 veh/step 3.1 
+
+∆t Simulation timestep 5 s 3.1 
+
+ℓ Cell length ( vf · ∆t) 75 m 3.1 
+
+kjam Jam density 0.15 veh/m 3.1 
+
+EV and signal control 
+
+ρ = ( v1, . . . , v K ) EV route through network K = 7 (4×4) 3.3 
+
+K Number of corridor intersections 7–15 4
+
+P Number of signal phases per intersection 4 (NEMA) 3.2 
+
+ϕit Current signal phase at intersection i one-hot ∈ { 0, 1}4 4
+
+vEV (t) EV speed at time t 0–15 m/s 3.3 
+
+δit Normalized EV distance to intersection i [0 , 1] 4
+
+H EV detection horizon (cells) 3 cells ( ≈225 m) 3.3 
+
+MDP and reward 
+
+M = ( S, A, T, R, γ ) Corridor optimization MDP — 4
+
+st State vector at time t ∈ RK(P +6) 4
+
+at Action (joint phase selection) ∈ { 0, . . . , 3}K 4
+
+rt Per-step reward ≈ − 9.0 (mean) 4
+
+α, β, λ Reward weights (progress, queue, arrival) 1.0, 0.01 , 10 .0 4
+
+γ Discount factor 1.0 (undiscounted) 4
+
+wv (t) Queue length at intersection v 0–40 vehicles 4
+
+∆dt EV distance traveled in step t 0–75 m 4
+
+Decision Transformer 
+
+bRt Return-to-go at time t [−1500 , +100] 5.4 
+
+G⋆ Target return (dispatch knob) [−400 , +100] 5.4 
+
+C Context window length (timesteps) 30 (DT), 20 (MADT) 5.4 
+
+d Hidden dimension 128 5.1 
+
+L Number of transformer layers 4 (DT), 3 (MADT) 5.4 
+
+NH Number of attention heads 4 5.4 
+
+e(·) 
+
+> t
+
+Token embedding ∈ R128 5.1 
+
+pt Learned positional embedding ∈ R128 5.2 
+
+m(·) Learned modality embedding ∈ R128 5.2 
+
+M Causal attention mask ∈ { 0, −∞} 3C×3C 5.3 
+
+θ Model parameters 1.2M (DT), 1.8M (MADT) 5.4 
+
+MADT and GAT 
+
+hit State embedding for agent i ∈ R128 5.5 
+
+˜hit GAT-enriched embedding for agent i ∈ R128 5.5 
+
+αtij GAT attention weight ( i → j) [0 , 1] 5.5 
+
+N (i) 1-hop neighborhood of intersection i |N | ∈ { 3, 4, 5} 5.5 
+
+KGAT Number of GAT attention heads 4 5.5 
+
+W , a GAT weight matrix and attention vector — 5.5 
+
+CDT (constrained) 
+
+ˆCt Cost-to-go at time t [−500 , 0] 5.7 
+
+C⋆ Cost budget (dispatch knob) {0, −50 , −100 } 5.7 
+
+ct Per-step cost (total queue length) 0–40 vehicles 5.7 
+
+μ Cost prediction loss weight 0.1 5.7 
+
+Evaluation metrics 
+
+ETT EV travel time (seconds) 72–248 s 6ACD Average civilian delay (s/veh) 5.4–28.4 s/veh 6
+
+ρs Spearman rank correlation 0.95 3.4 
+
+43

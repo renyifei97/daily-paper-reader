@@ -1,0 +1,591 @@
+Title: Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs
+
+URL Source: https://arxiv.org/pdf/2603.19970v1
+
+Published Time: Mon, 23 Mar 2026 01:01:27 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs 
+
+Shaoshuai Du * 1 Joze M. Rozanec * 2 3 Andy Pimentel 1 Ana-Lucia Varbanescu 1 2 
+
+# Abstract 
+
+Although recent generative models can produce time series with close marginal distributions, they often face a fundamental tension between pre-serving global temporal structure and modeling stochastic local variations, particularly for highly volatile signals with weak or irregular periodic-ity. Direct distribution matching in such settings can amplify noise or suppress meaningful tem-poral patterns. In this work, we propose a struc-ture–residual perspective on time-series genera-tion, viewing temporal data as the combination of a structural backbone and stochastic residual dynamics, thereby motivating the separation of global organization from sample-level variability. Based on this insight, we represent time-series structure using a quantile-based transition graph that compactly captures global distributional and temporal dependencies. Building on this rep-resentation, we propose Graph2TS , a quantile-graph conditioned variational autoencoder that performs cross-modal generation from structural graphs to time series. By conditioning genera-tion on structure rather than labels or metadata, the model preserves global temporal organization while enabling controlled stochastic variation. Ex-periments on diverse datasets, including sunspot, electricity load, ECG, and EEG signals, demon-strate improved distributional fidelity, temporal alignment, and representativeness compared to diffusion- and GAN-based baselines, highlighting structure-controlled and cross-modal generation as a promising direction for time-series modeling. 
+
+> 1
+
+Informatics Institute, University of Amsterdam, Amsterdam, The Netherlands 2Computer Architecture for Embedded Systems, University of Twente, Enschede, The Netherlands 3Laboratory of Artificial Intelligence, Institute Jozef Stedan, Ljubljana, Slovenia. Correspondence to: Shaoshuai Du <s.du@uva.nl >.
+
+Preprint. March 23, 2026. 
+
+# 1. Introduction 
+
+Time series generation is a fundamental problem in many domains, including healthcare, finance, and scientific mod-eling (Lin et al., 2024; Brophy et al., 2021). Unlike images or text, time series exhibit strong temporal dependencies, structured oscillatory patterns, and stochastic fluctuations, making realistic generation particularly challenging (Brophy et al., 2021; Gonen et al., 2025; Yang et al., 2025). A key difficulty lies in the trade-off between preserving 
+
+structural fidelity - such as global wave patterns and fre-quency content - and modeling local variability , including short-term fluctuations and noise (Brophy et al., 2021; Lin et al., 2024; Yang & Wang, 2022). Existing generative models often fail to balance these objectives. GAN-based approaches tend to reproduce high-frequency fluctuations at the cost of structural distortion, while diffusion-based models frequently oversmooth the signal, suppressing mean-ingful variability and reducing diversity (Yoon et al., 2019; Yuan & Qiao, 2024). This trade-off is especially problematic for noisy time series, which are common in real-world settings such as biomedical recordings and financial signals (Brophy et al., 2021; Meijer & Chen, 2024). In such cases, directly matching the full data distribution can either amplify noise or erase critical temporal patterns, limiting both their interpretability and downstream utility (Yoon et al., 2019). We take a structure-oriented perspective on time-series gen-eration, motivated by a structure–residual decomposition of temporal data. Rather than attempting to reproduce all sample-level variability, we observe that many real-world applications primarily require samples that preserve global temporal organization, while allowing stochastic variation at the residual level. This distinction is particularly impor-tant for volatile and irregular signals, where direct distri-bution matching often leads to noise amplification or over-smoothing of meaningful temporal patterns. To operationalize this insight, we represent temporal struc-ture using a quantile-based transition graph, which com-pactly captures global distributional and relational statis-tics while suppressing sample-specific fluctuations. This structural representation defines a complementary modality 1
+
+> arXiv:2603.19970v1 [cs.LG] 20 Mar 2026 Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs
+
+to raw time-series signals, enabling a graph-to-time-series generation paradigm. According to this formulation, we propose a graph-to-time series model ( Graph2TS ) based on a quantile-graph-conditioned variational autoencoder that learns a conditional generative model of time series given structural graphs. Unlike prior conditional VAEs that rely on labels or metadata, our model conditions generation directly on structural information, enabling cross-modal generation that preserves global temporal structure while supporting controlled stochastic diversity. Our main contributions are: • We propose a structure–residual perspective for time-series generation, modeling temporal data as a deter-ministic structural backbone with stochastic residual variation, which clarifies the trade-off between struc-tural fidelity and generative diversity. • We show that a quantile-based transition graph pro-vides a compact structural representation of time series. Under a first-order Markov assumption, this represen-tation captures essential global temporal and distribu-tional dependencies, enabling a principled cross-modal 
+
+formulation from graphs to sequences. • Based on this formulation, we propose Graph2TS ,a quantile-graph conditioned variational autoencoder that models p(x | g, z ). Extensive experiments and ablation studies demonstrate that both structural condi-tioning and stochastic residual modeling are essential for achieving faithful, diverse, and stable time-series generation, showing an advantage over diffusion- and GAN-based baselines across diverse datasets. 
+
+# 2. Related Work 
+
+2.1. Time Series Generation 
+
+Generative modeling of time series has attracted significant attention in recent years. GAN-based approaches extend adversarial learning to sequential data, often by combin-ing recurrent, temporal convolutional architectures or atten-tion mechanisms with discriminator-based training objec-tives (Goodfellow et al., 2020; Ahmed & Schmidt-Thieme, 2023). Representative examples include TimeGAN and its variants, which integrate supervised losses to encour-age temporal coherence (Yoon et al., 2019). Despite their success, GAN-based models are known to suffer from train-ing instability, mode collapse, and sensitivity to noise, par-ticularly when applied to short or highly volatile time se-ries (Arjovsky et al., 2017). In practice, such models often reproduce local fluctuations at the cost of distorting global temporal structure (Esteban et al., 2017). More recently, diffusion-based models have been adapted to time series generation (Yang et al., 2024; Rasul et al., 2021). By progressively denoising samples from a learned noise process, these methods achieve strong likelihood-based modeling and improved training stability (Lin et al., 2024; Yuan & Qiao, 2024). However, diffusion models typically exhibit a strong smoothing bias, which can sup-press meaningful variability and lead to over-regularized outputs (Liu et al., 2024). In addition, the iterative sampling procedure is computationally expensive, and the learned dy-namics may drift away from the dominant structural patterns of the data (Lin et al., 2024). These approaches aim to model the full data distribution ,and while they achieve a certain degree of success, their design makes them sensitive to noise and sample-specific artifacts, especially in short or noisy time series. 
+
+2.2. Structure-Aware and Conditional Generation 
+
+To improve controllability, several works explore condi-tional generation for time series (Coletta et al., 2023; Li et al., 2023). Conditional GANs and related architectures incorporate auxiliary information such as labels, context variables, or handcrafted features to guide generation (Smith & Smith, 2020; Lu et al., 2024; Ni et al., 2020; Narasimhan et al., 2024). Other approaches focus on learning compact representations through autoencoders or self-supervised ob-jectives, which are then used for downstream generation or reconstruction tasks (Zhang et al., 2024; Yue et al., 2022). While conditioning improves flexibility, most existing meth-ods rely on raw features or latent embeddings that entangle structural statistics with stochastic variations (Oublal et al., 2024). As a result, these models lack an explicit mecha-nism to separate global temporal structure from local noise, limiting their ability to control fidelity and diversity inde-pendently (Oublal et al., 2024). 
+
+2.3. Graph-Based Representations for Time Series 
+
+Graph-based representations provide an alternative view of time series by encoding temporal relationships as structured graphs (Rozanec et al., 2025; Luque et al., 2009). Prior work includes statistical or topology-inspired constructions as well as deep-learning graph time-series modeling. These representations capture certain structural properties of time series, such as periodicity, state recurrence, or distributional characteristics (Silva et al., 2023; Zou et al., 2019) and have been used for a wide range of tasks, but, to the best of our knowledge, no machine learning model was developed to use them for generative purposes (Lacasa et al., 2008; Silva et al., 2021; Chen & Eldardiry, 2024). In this work, we adopt a quantile-based graph as a struc-tured representation of time series (Campanharo et al., 2011; Lopes de Oliveira Campanharo & Ramos, 2015). Unlike prior uses of graph representations that primarily serve de-2Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs 
+
+scriptive or analytical purposes, we leverage the quantile graph as a conditioning signal within a generative model. By encoding distributional transitions across time rather than raw sample trajectories, this representation preserves global structural statistics while filtering out sample-specific noise, enabling structure-controlled synthesis of time series. 
+
+# 3. Problem Statement 
+
+3.1. Setting 
+
+We consider a dataset of univariate time series {xi}Ni=1 ,where xi ∈ RT . Our goal is to generate synthetic samples 
+
+˜x ∈ RT that preserve the global temporal structure of the data while maintaining non-degenerate variability. Formally, a desirable generator should satisfy 
+
+˜x ∼ q(x) s.t. S(˜ x) ≈ S (x), Var(˜ x) > 0, (1) where S(·) denotes a structural descriptor that captures in-variant temporal patterns (e.g., wave shape or transition dynamics), rather than pointwise signal values. 
+
+3.2. Why Full Distribution Modeling Is Ill-Conditioned 
+
+Most existing time-series generators aim to learn the full data distribution p(x) directly. However, for highly volatile sequences, this objective is ill-conditioned. A time series can be conceptually decomposed as 
+
+x = xstruct + ε, (2) where xstruct captures global temporal organization and ε
+
+represents stochastic fluctuations or noise. Learning p(x) entangles structural variation with sample-specific noise. In practice, this leads to a fundamental trade-off: models either overfit ε and amplify noise, or over-smooth the signal and distort xstruct . Such behavior has been widely observed in both GAN-based and diffusion-based time-series generators, particularly in the volatile sequence regime. 
+
+3.3. Structure-Conditioned Reformulation 
+
+To decouple structural information from stochastic varia-tion, we reformulate time-series generation as modeling a conditional distribution 
+
+p(x | s), s = S(x), (3) where s is a deterministic structural summary of the time series. Under this formulation, stochastic variability is re-stricted to directions that are consistent with the structural constraint s, allowing generated samples to preserve global temporal patterns while retaining controlled, non-degenerate diversity.              
+
+> t
+> xt
+> b0
+> b1
+> b2
+> b3
+> 1
+> 2
+> 3
+> Sequence {st}= [1 ,2,3,3,2,1,1,2,3]
+> 1
+> 23
+> 0.33
+> 0.67 0.33
+> 0.67
+> 0.50
+> 0.50
+> Discretization Quantile Graph
+
+Figure 1. Example of time-series to Quantile Graph mapping. Left: The time series is discretized into states based on quantile boundaries. Right: The resulting Markov transition dynamics represented as a graph. 
+
+3.4. Quantile Graph as Structural Representation 
+
+To instantiate the structural summary operator S(·), we seek a representation that (i) is invariant to local amplitude noise, (ii) preserves global temporal organization, and (iii) admits a fixed-size, sample-aligned form for conditional modeling. We therefore adopt a quantile graph , which provides a compact representation of temporal dynamics by encoding transition statistics between globally shared quantile states. Given a univariate time series {xt}Tt=1 , we first esti-mate a set of globally shared quantile boundaries B =
+
+{b0, . . . , b Q} from the training data. Each observation is mapped to a discrete state 
+
+st = q(xt), q(x) = k if x ∈ [bk−1, b k), (4) yielding a discrete stochastic process {st} over Q states. This discretization marginalizes fine-grained amplitude vari-ations while preserving the relative ordering of signal values. From the resulting state sequence, we estimate empirical transition probabilities 
+
+Pij = P(st+1 = j | st = i) ≈
+
+PT −1 
+
+> t=1
+
+1[st = i, s t+1 = j]
+
+PT −1 
+
+> t=1
+
+1[st = i] ,
+
+(5) which define a first-order Markov chain over quantile states. The transition matrix P ∈ RQ×Q is treated as a weighted directed graph, referred to as the quantile graph .This construction induces the abstraction 
+
+{xt} −→ { st} −→ P (st+1 | st),
+
+which marginalizes pointwise noise while preserving invari-ant transition statistics of the underlying dynamics. Globally shared quantile bins ensure semantic alignment across sam-ples, yielding a fixed-size and well-conditioned structural representation for conditional generation. Figure 1 illustrates the process of quantile graph construc-tion. 3Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs          
+
+> TS Input
+> [B, 32]
+> Graph Input
+> [B, 100]
+> TS Encoder (MLP)
+> Graph Encoder (MLP)
+> traw
+> [B, 128]
+> graw
+> [B, 128]
+> Norm
+> Norm
+> Align
+> Posterior
+> q(z|ts, gr )μ, log σ2
+> KL Div
+> +
+> ϵ∼ N (0 , I )
+> σ
+> μ
+> z
+> Latent
+> Decoder
+> p(ts |gr, z )
+> ˆT S
+> Output
+> Recon & Dist
+
+Figure 2. The Architecture of Our Proposed Graph2TS 
+
+# 4. Graph2TS: Structure-Conditioned Time Series Generation 
+
+Building on the structure-conditioned formulation intro-duced in the previous section, we developed Graph2TS, a conditional generative deep learning architecture. Graph2TS conditions a variational autoencoder on aquantile-based graph representation, which encodes global transition dynamics, while a latent variable captures residual stochastic variability. 
+
+4.1. Graph2TS Architecture 
+
+We illustrate the proposed Graph2TS architecture in Fig-ure 2. Each input time series x ∈ RT is first mapped to a quantile graph g = ϕ(x), which serves as a fixed-size structural condition. The graph is encoded into a continuous representation and combined with a latent variable to gen-erate time-series samples. This design explicitly separates global structural information, captured by the graph, from stochastic residual variation, modeled by the latent variable. The implications of this structure-conditioned design are analyzed in the following sections. 
+
+4.2. Generative Process 
+
+Let X ∈ RT denote a time-series random variable drawn from pdata (x). We define a deterministic structural encoder 
+
+G = ϕ(X), (6) where ϕ(·) maps a time series to its quantile graph. Given G, we introduce a latent variable Z ∈ Rd to model variability not captured by the structural representation: 
+
+Z ∼ p(z) = N (0 , I ), (7) 
+
+X ∼ pθ (x | G, Z ). (8) The resulting conditional distribution is 
+
+pθ (x | g) = 
+
+Z
+
+pθ (x | g, z ) p(z) dz, (9) which allows multiple distinct samples to be generated from the same structural graph. 
+
+4.3. Learning Objective 
+
+For our Graph2TS , we adopt a conditional variational au-toencoder formulation, where generation is conditioned on a structural representation g. Let qϕ(z | x, g ) denote the variational posterior. The core learning objective is the conditional evidence lower bound (ELBO): 
+
+LELBO = Eqϕ(z|x,g )
+
+ log pθ (x | g, z )
+
+− KL  qϕ(z | x, g ) ∥ p(z). (10) In practice, the conditional likelihood term is instantiated as a mean-squared reconstruction loss, and the KL term is weighted by a coefficient β to control the strength of stochastic regularization. The resulting training objective is augmented with additional structure-preserving regulariz-ers: 
+
+min  
+
+> θ,ϕ
+
+L = λrec Lrec + β KL  qϕ(z | x, g ) ∥ p(z)
+
++λalign Lalign + λdist Ldist .
+
+(11) The alignment loss Lalign is implemented as a bidirectional InfoNCE objective that enforces consistency between graph and time-series embeddings in a shared latent space. This term improves structural correspondence but does not intro-duce additional stochasticity into the generative process. The distribution regularization term Ldist matches the order statistics of generated and real sequences, encouraging con-sistency in marginal amplitude distributions. This stabilizes generation and mitigates distributional drift, while preserv-ing the conditional diversity provided by the latent variable 
+
+z.
+
+4.4. Interpretation of Structure-Conditioned Generation 
+
+While the problem formulation motivates conditioning on structure, this section explains how such conditioning affects 4Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs 
+
+the learned generative behavior. We briefly interpret how conditioning on a structural representation G shapes the behavior of Graph2TS. This behavior can be decomposed as follows. 
+
+Proposition 4.1 (Structure–residual decomposition) . Given a time-series random variable X ∈ RT and its deterministic structural representation G = ϕ(X), define 
+
+f (G) ≜ E[X | G], R ≜ X − f (G). (12) 
+
+Then X admits the decomposition 
+
+X = f (G) + R, (13) 
+
+where the residual satisfies 
+
+E[R | G] = 0 . (14) The function f (G) represents a structural backbone : The underlying trajectory is consistent with the structural sum-mary G. The residual term R captures admissible variations around this backbone, including stochastic fluctuations that are not determined by G.Unconditional generative models must simultaneously learn both f (G) and the residual distribution of R from data, which is difficult for noisy time series. In contrast, condition-ing on G fixes the backbone f (G) and restricts stochastic generation to the residual component. This yields the following variance decomposition: 
+
+Var( X) = Var( E[X | G]) + E[Var( X | G)] , (15) where the first term corresponds to structural variability and the second to conditional stochastic variation. By explicitly conditioning on G, the proposed model controls these two sources of variability separately. A detailed derivation of this decomposition is provided in Appendix B.1. In the proposed Graph2TS , the decoder parameterizes a conditional distribution pθ (x | g, z ). This can be interpreted as 
+
+x = fθ (g) + rθ (g, z ), (16) where fθ (g) approximates E[X | G = g] and rθ (g, z ) mod-els the residual variation with Ez [rθ (g, z ) | g] ≈ 0.As a result, structural conditioning suppresses noise-induced distortion while preserving global temporal patterns, and the latent variable z reintroduces controlled diversity without violating structural consistency. 
+
+# 5. Experiments 
+
+5.1. Setup Baselines. We compare against TimeGAN (Yoon et al., 2019) and DiffusionTS (Yuan & Qiao, 2024), which are the dominant paradigms for time-series generation. These baselines provide a rigorous benchmark for evaluating both distributional fidelity and temporal coherence. 
+
+Datasets. We evaluate the proposed method on four benchmark time-series datasets: (i) the CHB–MIT Scalp EEG Database (CHB-MIT ) (Guttag, 2010), (ii) the Daily Sunspot Number dataset ( Sunspot ) (World Data Center SILSO, 2019), (iii) the Electricity Load dataset (Electricity ) (Trindade, 2015), and (iv) the MIT-BIH Ar-rhythmia ECG dataset ( ECG ) (Moody & Mark, 2001). Ad-ditional dataset details are provided in Appendix B.5. 
+
+Metrics. We assess generative performance using a com-pact set of metrics that capture distributional fidelity , tempo-ral structure , and manifold coverage . Distributional align-ment is evaluated using the Wasserstein distance and the Kolmogorov–Smirnov (KS) statistic. Temporal consistency is measured via discrepancies in autocorrelation functions (ACF) and power spectral densities (PSD). To assess repre-sentativeness, we report prototype-based metrics including nearest-neighbor prototype error and coverage at fixed dis-tance thresholds. Unlike discriminative or downstream-task metrics, which are task- and classifier-dependent, our met-rics directly assess whether the generator matches the target distribution and dynamics. Formal metric definitions are deferred to Appendix B.6. 
+
+5.2. Overall Generation Quality 
+
+Table 1 provides a unified evaluation of generation qual-ity under equal sample size, covering distributional fi-delity, temporal structure, representativeness, and mani-fold coverage across all datasets. Overall, the proposed structure-conditioned Graph2TS demonstrates strong and well-balanced performance across all criteria and metrics. In terms of distributional fidelity , our method achieves the lowest Wasserstein distance and KS statistic on CHB-MIT, ECG, and Sunspot, and remains competitive on Electric-ity. These results indicate accurate alignment with the real marginal distributions, despite the absence of adversarial training. For temporal structure , the proposed model at-tains low ACF MAE and PSD discrepancy across datasets, demonstrating faithful preservation of temporal dependen-cies and dominant spectral characteristics. Compared to diffusion-based models, which tend to oversmooth sharp dynamics, and GAN-based models, which often distort fre-quency content, our approach achieves a more balanced temporal representation. Beyond distributional and temporal metrics, the proposed method consistently exhibits strong representativeness and 
+
+manifold coverage . Prototype-based errors are among the lowest across CHB-MIT, Electricity, and ECG, indicating that real samples are well approximated by nearby synthetic 5Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs                                                                                                                                 
+
+> Table 1. Comparison of distributional fidelity, temporal structure, and representativeness across datasets. Metrics: Wass : Wasserstein distance, KS : KS statistic, ACF : ACF MAE, PSD : PSD L2 distance, P-Err : Prototype Error, MDR : Medoid Distance Ratio, Cov :Manifold Coverage. ( ↓: Lower is better, ↑: Higher is better).
+> Dataset Model Distribution (↓)Temporal (↓)Representativeness (↓)Coverage (↑)
+> Wass KS ACF PSD P-Err (avg) P-Err (med) MDR Cov@0.5 Cov@0.9 CHB-MIT Graph2TS (Ours) 5.07e-6 0.024 0.039 9.36e-10 2.329 2.098 0.561 0.987 0.993
+> DiffusionTS 1.10e-5 0.153 0.085 4.12e-9 2.647 2.231 0.637 0.972 0.988 TimeGAN 1.29e-5 0.134 0.085 3.81e-9 3.404 3.058 0.780 0.977 0.989
+> Sunspot Graph2TS (Ours) 2.329 0.113 0.077 8.02e2 4.546 3.744 0.513 0.828 0.965 DiffusionTS 35.49 0.320 0.021 3.74e3 3.765 3.307 0.366 0.929 0.995
+> TimeGAN 14.74 0.190 0.098 1.05e3 5.108 4.613 0.755 0.806 0.965
+> Electricity Graph2TS (Ours) 7.710 0.073 0.043 6.13e2 4.369 3.540 0.427 0.946 0.998
+> DiffusionTS 4.030 0.059 0.027 3.55e3 3.793 3.963 0.542 0.889 0.990 TimeGAN 21.11 0.235 0.064 2.16e3 4.951 4.523 0.730 0.860 0.960
+> ECG Graph2TS (Ours) 0.014 0.033 0.051 5.92e-3 4.268 3.760 0.498 0.895 0.961
+> DiffusionTS 0.114 0.201 0.147 0.198 596.0 596.3 549.9 0.000 0.000 TimeGAN 0.101 0.282 0.172 0.108 249.6 250.0 135.6 0.000 0.000
+
+instances. At the same time, high coverage scores show that the generated samples broadly span the support of the real data manifold, avoiding both mode collapse and excessive dispersion. Notably, on challenging biomedical signals such as ECG, the proposed method maintains non-zero coverage and stable prototype distances, whereas competing methods fail to adequately cover the real data distribution. Taken together, these results demonstrate that conditioning generation on quantile-based structural representations en-ables a favorable trade-off between fidelity, diversity, and stability. The proposed Graph2TS consistently produces time series that are distributionally accurate, temporally co-herent, and representative of the underlying data manifold across diverse domains. These quantitative findings are further supported by qual-itative visualizations of temporal and distributional struc-ture. As shown in Appendix A.3, mean ACF and PSD curves demonstrate close alignment between real and gen-erated signals across datasets, while t-SNE embeddings indicate strong overlap of real and synthetic manifolds with-out collapse or excessive dispersion. Additional tables and visualizations supporting these results are deferred to Ap-pendix A.2, 
+
+Limitations of Baseline Models on Heavy Tailed Signals 
+
+We observe markedly different behavior of diffusion- and GAN-based models on Sunspot and ECG. Sunspot signals are dominated by smooth, low-frequency, and weakly heavy-tailed dynamics, which align well with the Gaussian pertur-bation and distribution-matching assumptions underlying DifussionTS and TimeGAN. In this regime, directly model-ing the full data distribution is relatively well-conditioned, explaining their competitive or superior performance on Sunspot. As empirically demonstrated in Appendix A.1 and Figure 4, ECG signals exhibit extremely heavy tails in their incre-ments, which fundamentally violates the Gaussian assump-tion of diffusion models, leading to over-smoothing, spectral distortion, or mode collapse. By conditioning generation on a quantile-based transition graph, Graph2TS emphasizes global structural relations rather than raw amplitude density, making it more robust to heavy-tailed and highly variable dy-namics. In contrast, Graph2TS achieves performance com-parable to DifussionTS and TimeGAN models on smooth signals such as Sunspot, while substantially outperforming them on challenging biomedical signals such as ECG. 
+
+# 6. Ablation Study 
+
+6.1. Effect of Structural Conditioning and Stochasticity Residual 
+
+Table 2 and Fig. 3 provide empirical support for the pro-posed structure–residual decomposition. By ablating ei-ther the structural component (graph conditioning) or the stochastic residual component (latent variables), we observe consistent performance degradation, confirming that both components are essential for faithful and diverse time-series generation. 
+
+Effect of structural conditioning. Replacing the graph with an identity matrix removes explicit structural infor-mation while keeping the model architecture unchanged. Although the model does not collapse, it exhibits consistent degradation in distributional fidelity, temporal alignment, and manifold coverage. As shown in Fig.3e, without a graph, the low-frequency component of the generated time series degrades, indicating that the global structure is de-stroyed. This indicates that the graph provides a strong inductive bias that stabilizes the learned conditional mean 6Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs 
+
+Table 2. Ablation study on ECG dataset. We compare the full model with (i) identity graph conditioning (w/o graph) and (ii) a deterministic Graph2TS model without stochastic latent variables. Lower is better ( ↓), higher is better ( ↑). 
+
+Model Wass. ↓ KS ↓ ACF MAE ↓ PSD L2 ↓ ProtoErr ↓ Coverage@ τ0.5 ↑
+
+Full (Graph + Graph2TS) 0.014 0.033 0.051 0.0059 4.27 0.895 
+
+w/o graph 0.049 0.125 0.088 0.0179 4.41 0.875 w/o stochasticity 0.078 0.228 0.084 0.0310 5.26 0.752         
+
+> ACF
+> (a) (b) (c)
+> PSD
+> (d) (e) (f)
+> t-SNE
+> (g) (h) (i)
+> (a) Full Model (b) w/o Graph (c) w/o Stochasticity
+
+Figure 3. Ablation study visualizing the impact of structural conditioning and stochastic residual modeling. Rows (top to bottom): 
+
+Autocorrelation Function (ACF), Power Spectral Density (PSD), and t-SNE visualization. Columns (left to right): The proposed Full Model, the model without the graph module (w/o Graph), and the model without the stochastic component (w/o Stochasticity). Removing stochasticity leads to pronounced spectral energy collapse and mode contraction, while removing the graph weakens and destroy low-frequency temporal structure. 
+
+f (G) = E[X | G]. When G carries little information, f (G)
+
+degenerates into a weak, averaged backbone, increasing the burden on stochastic modeling and leading to systematic performance degradation. 
+
+Effect of stochastic residual modeling and its interaction with structure. Removing stochastic latent variables yields a deterministic Graph2TS variant (see Appendix B.3), lead-ing to severe mode contraction, increased prototype error, and reduced coverage. As shown in Fig. 3, deterministic generation strongly attenuates low- and mid-frequency en-ergy, producing a flattened power spectrum. Although graph conditioning enforces structural consistency, the absence of stochasticity forces the decoder to collapse all admissible realizations into a single conditional average x ≈ fθ (g),suppressing spectral energy and resulting in over-smoothed signals. In contrast, the full model combines structural conditioning with stochastic residual modeling: the graph anchors a stable 7Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs                                                                                           
+
+> Table 3. Ablation study on CHB-MIT and Sunspot datasets. Each row removes or modifies a single loss component. Metrics: Wass :Wasserstein distance, KS : KS statistic, ACF : ACF MAE, PSD : PSD L2 distance, P-Err : ProtoErr, Cov : Coverage@ τ0.5. ( ↓: Lower is better, ↑: Higher is better).
+> Dataset Ablation Distribution (↓)Temporal (↓)Representativeness (↓)Coverage (↑)
+> Wass KS ACF PSD P-Err(avg) Cov@0.5 CHB-MIT Full model 5.07e-6 0.024 0.039 9.36e-10 2.329 0.987
+> Lrecon = 0 2.73e-6 0.013 0.203 1.00e-9 4.478 0.711
+> Lalign = 0 3.91e-6 0.024 0.044 7.08e-10 2.310 0.990
+> Ldist = 0 4.22e-6 0.021 0.051 9.50e-10 2.302 0.990
+> βKL = 0 5.64e-5 0.265 0.115 2.18e-8 6.288 0.382
+> Sunspot Full model 2.329 0.113 0.077 8.02e2 4.546 0.828
+> Lrecon = 0 1.709 0.082 0.179 3.69e3 8.300 0.282
+> Lalign = 0 2.605 0.112 0.066 9.21e2 4.482 0.831
+> Ldist = 0 2.510 0.107 0.074 4.88e2 4.594 0.825
+> βKL = 0 29.78 0.219 0.117 1.09e4 7.297 0.398
+
+structural backbone f (G), while the latent variable models the residual variability R with E[R | G] ≈ 0. Together, they enable accurate distributional matching, temporal con-sistency, and faithful manifold coverage, particularly for high-variability biomedical signals such as ECG. 
+
+6.2. Loss Components 
+
+Table 3 reports ablation results on the CHB-MIT and Sunspot datasets, respectively, where each row removes or modifies a single loss component while keeping all other settings fixed. These experiments aim to clarify the func-tional role of each term in the proposed objective. 
+
+Effect of reconstruction and KL regularization. Remov-ing the reconstruction loss ( Lrecon = 0 ) leads to decep-tively improved marginal distribution metrics, such as lower Wasserstein distance and KS statistic, while causing severe degradation in temporal alignment, prototype error, and coverage on both datasets. This indicates that distribution matching alone is insufficient to ensure structurally coher-ent and representative time-series generation. In contrast, removing KL regularization ( βKL = 0 ) results in a system-atic collapse across all metrics, highlighting its essential role in stabilizing the latent space and enabling meaningful conditional sampling. 
+
+Effect of auxiliary alignment and distance losses. Re-moving either the alignment loss ( Lalign = 0 ) or the dis-tance loss ( Ldist = 0 ) results in only marginal performance changes. While certain temporal or spectral metrics may slightly improve or degrade, overall distributional fidelity and manifold coverage remain largely stable. These re-sults suggest that Lalign and Ldist act as auxiliary regulariz-ers that refine structural details rather than determining the model’s core generative capability. 
+
+Summary. Overall, these results indicate that the primary performance gains of Graph2TS originate from structure-conditioned generation via the quantile graph. Auxiliary losses provide incremental refinements but do not account for the core improvements over diffusion- and GAN-based baselines. 
+
+# 7. Conclusion 
+
+This work presents a novel perspective for time-series gen-eration, successfully addressing the challenge of preserving global temporal organization and modeling stochastic lo-cal variations. We argue that many real-world signals are more naturally described by a structural backbone with ad-missible residual variability, and reformulate time-series generation as a cross-modal problem that maps compact structural representations to sequences via quantile-based transition graphs. Based on this formulation, we propose Graph2TS , a quantile-graph conditioned variational autoencoder that de-couples structural conditioning from stochastic generation. Graph conditioning stabilizes the learned conditional mean and mitigates noise amplification and over-smoothing, while latent variables model controlled residual variability. Ex-tensive experiments across diverse datasets demonstrate improved distributional fidelity, temporal alignment, and manifold coverage, particularly on highly variable signals where diffusion- and GAN-based methods struggle. These results highlight structure-controlled and cross-modal gen-eration as a promising direction for time-series modeling. To the best of our knowledge, Graph2TS is the first ma-chine learning approach to generate synthetic time series from graphs. Future work will explore extensions to multi-variate time series, richer structural graph representations, and broader cross-modal generative settings. 8Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs 
+
+# Impact Statement 
+
+This work contributes to the development of control-lable time-series generation by introducing a graph-based, structure-conditioned framework. A primary benefit of this approach is its applicability in settings where realistic syn-thetic time series are required but access to real data is limited, such as biomedical signal analysis, energy systems, and privacy-sensitive domains. Furthermore, while the cur-rent state of the art has focused on generating time series with certain constraints, to the best of our knowledge, no method has focused on generating time series data from graphs. By enabling the generation of data that preserves global temporal structure while allowing controlled variabil-ity, the proposed method may facilitate model development, benchmarking, and data sharing without exposing sensitive raw measurements. At the same time, as with most generative models, the abil-ity to synthesize realistic time series may carry potential risks if misused, for example, in deceptive or fraudulent scenarios involving financial or sensor data. These risks are not unique to the proposed method and reflect broader challenges in generative modeling. We believe that the benefits of structure-controlled synthetic data generation, particularly for privacy-preserving research and data accessi-bility, outweigh these concerns, and that responsible use and domain-specific safeguards are essential when deploying such models in practice. 
+
+# References 
+
+Ahmed, N. and Schmidt-Thieme, L. Sparse self-attention guided generative adversarial networks for time-series generation. International Journal of Data Science and Analytics , 16(4):421–434, 2023. Arjovsky, M., Chintala, S., and Bottou, L. Wasserstein GAN. CoRR , abs/1701.07875, 2017. URL http:// arxiv.org/abs/1701.07875 .Bal, H. E., Epema, D. H. J., de Laat, C., van Nieuw-poort, R., Romein, J. W., Seinstra, F. J., Snoek, C., and Wijshoff, H. A. G. A medium-scale distributed system for computer science research: Infrastructure for the long term. Computer , 49(5):54–63, 2016. doi: 10.1109/MC.2016.127. URL https://doi.org/10. 1109/MC.2016.127 .Brophy, E., Wang, Z., She, Q., and Ward, T. Generative adversarial networks in time series: A survey and tax-onomy. CoRR , abs/2107.11098, 2021. URL https: //arxiv.org/abs/2107.11098 .Campanharo, A. S. L. O., Campanharo, A. S. L. O., Sirer, M. I., Malmgren, R. D., Ramos, F. M., Amaral, L. A. N., and Amaral, L. A. N. Duality between time series and networks. PLoS ONE , 6, 2011. URL https://api. semanticscholar.org/CorpusID:7728672 .Chen, H. and Eldardiry, H. Graph time-series modeling in deep learning: a survey. ACM Transactions on Knowledge Discovery from Data , 18(5):1–35, 2024. Coletta, A., Gopalakrishnan, S., Borrajo, D., and Vyetrenko, S. On the constrained time-series generation problem. 
+
+Advances in Neural Information Processing Systems , 36: 61048–61059, 2023. Esteban, C., Hyland, S. L., and R ¨atsch, G. Real-valued (medical) time series generation with recurrent condi-tional gans. CoRR , abs/1706.02633, 2017. URL http: //arxiv.org/abs/1706.02633 .Gonen, T., Pemper, I., Naiman, I., Berman, N., and Azencot, O. Time series generation under data scarcity: A unified generative modeling approach. CoRR , abs/2505.20446, 2025. doi: 10.48550/ARXIV.2505.20446. URL https: //doi.org/10.48550/arXiv.2505.20446 .Goodfellow, I. J., Pouget-Abadie, J., Mirza, M., Xu, B., Warde-Farley, D., Ozair, S., Courville, A. C., and Bengio, Y. Generative adversarial networks. Commun. ACM ,63(11):139–144, 2020. doi: 10.1145/3422622. URL 
+
+https://doi.org/10.1145/3422622 .Guttag, J. CHB-MIT Scalp EEG Database. PhysioNet , June 2010. doi: 10.13026/C2K01R. URL https://doi. org/10.13026/C2K01R . Version 1.0.0. Lacasa, L., Luque, B., Ballesteros, F., Luque, J., and Nu ˜no, J. C. From time series to complex networks: The vis-ibility graph. Proceedings of the National Academy of Sciences , 105(13):4972–4975, 2008. doi: 10.1073/pnas. 0709247105. URL https://www.pnas.org/doi/ abs/10.1073/pnas.0709247105 .Li, H., Yu, S., and Principe, J. Causal recurrent variational autoencoder for medical time series generation. In Pro-ceedings of the AAAI conference on artificial intelligence ,volume 37, pp. 8562–8570, 2023. Lin, L., Li, Z., Li, R., Li, X., and Gao, J. Diffusion models for time-series applications: a survey. Frontiers Inf. Technol. Electron. Eng. , 25(1):19–41, 2024. doi: 10.1631/FITEE.2300310. URL https://doi.org/ 10.1631/FITEE.2300310 .Liu, J., Yang, L., Li, H., and Hong, S. Retrieval-augmented diffusion models for time series forecasting. In Globersons, A., Mackey, L., Belgrave, D., Fan, A., Paquet, U., Tomczak, J. M., and Zhang, C. (eds.), 
+
+Advances in Neural Information Processing Systems 38: Annual Conference on Neural Information Processing Systems 2024, NeurIPS 2024, Vancouver, BC, Canada, 
+
+9Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs 
+
+December 10 - 15, 2024 , 2024. URL http://papers. nips.cc/paper_files/paper/2024/hash/ 053ee34c0971568bfa5c773015c10502-Abstract-Conference. html .Lopes de Oliveira Campanharo, A. S. and Ramos, F. M. Quantile graphs for the characterization of chaotic dy-namics in time series. In 2015 Third World Confer-ence on Complex Systems (WCCS) , pp. 1–4, 2015. doi: 10.1109/ICoCS.2015.7483302. Lu, C., Reddy, C. K., Wang, P., Nie, D., and Ning, Y. Multi-label clinical time-series generation via conditional GAN. 
+
+IEEE Trans. Knowl. Data Eng. , 36(4):1728–1740, 2024. doi: 10.1109/TKDE.2023.3310909. URL https:// doi.org/10.1109/TKDE.2023.3310909 .Luque, B., Lacasa, L., Ballesteros, F., and Luque, J. Hor-izontal visibility graphs: Exact results for random time series. Phys. Rev. E , 80:046103, Oct 2009. doi: 10.1103/ PhysRevE.80.046103. URL https://link.aps. org/doi/10.1103/PhysRevE.80.046103 .Meijer, C. and Chen, L. Y. The rise of diffusion models in time-series forecasting. CoRR , abs/2401.03006, 2024. doi: 10.48550/ARXIV.2401.03006. URL https:// doi.org/10.48550/arXiv.2401.03006 .Moody, G. and Mark, R. The impact of the mit-bih arrhyth-mia database. IEEE Engineering in Medicine and Biology Magazine , 20(3):45–50, 2001. doi: 10.1109/51.932724. Narasimhan, S. S., Agarwal, S., Akcin, O., Sanghavi, S., and Chinchali, S. P. Time weaver: A conditional time series generation model. In Forty-first International Conference on Machine Learning, ICML 2024, Vienna, Austria, July 21-27, 2024 . OpenReview.net, 2024. URL https:// openreview.net/forum?id=WpKDeixmFr .Ni, H., Szpruch, L., Wiese, M., Liao, S., and Xiao, B. Conditional sig-wasserstein gans for time series gen-eration. CoRR , abs/2006.05421, 2020. URL https: //arxiv.org/abs/2006.05421 .Oublal, K., Ladjal, S., Benhaiem, D., Le-borgne, E., and Roueff, F. Disentangling time series representations via contrastive independence-of-support on l-variational in-ference. In The Twelfth International Conference on Learning Representations, ICLR 2024, Vienna, Austria, May 7-11, 2024 . OpenReview.net, 2024. URL https: //openreview.net/forum?id=iI7hZSczxE .Rasul, K., Seward, C., Schuster, I., and Vollgraf, R. Au-toregressive denoising diffusion models for multivariate probabilistic time series forecasting. In International conference on machine learning , pp. 8857–8868. PMLR, 2021. Rozanec, J. M., Zezlin, T., Vasiliu, L., Mladenic, D., Pro-dan, R., and Roman, D. Fiaingen: A financial time se-ries generative method matching real-world data quality. 
+
+CoRR , abs/2510.01169, 2025. doi: 10.48550/ARXIV. 2510.01169. URL https://doi.org/10.48550/ arXiv.2510.01169 .Silva, V. F., Silva, M. E., Ribeiro, P., and Silva, F. Time series analysis via network science: Concepts and al-gorithms. WIREs Data Mining and Knowledge Dis-covery , 11(3), March 2021. ISSN 1942-4795. doi: 10.1002/widm.1404. URL http://dx.doi.org/ 10.1002/widm.1404 .Silva, V. F., Silva, M. E., Ribeiro, P., and Silva, F. Multi-layer quantile graph for multivariate time series analy-sis and dimensionality reduction, 2023. URL https: //arxiv.org/abs/2311.11849 .Smith, K. E. and Smith, A. O. Conditional GAN for time-series generation. CoRR , abs/2006.16477, 2020. URL 
+
+https://arxiv.org/abs/2006.16477 .Trindade, A. ElectricityLoadDiagrams20112014. UCI Machine Learning Repository, 2015. DOI: https://doi.org/10.24432/C58C86. World Data Center SILSO. Daily sunspot number, 1818– 2019. https://www.sidc.be/silso/ , 2019. Royal Observatory of Belgium. Yang, C., Chen, Y., Li, Z., Wang, X., Shi, K., Yao, L., Xu, G., and Guo, Z. Deep multimodal learning for time series analysis in social computing: a sur-vey. Int. J. Multim. Inf. Retr. , 14(2):15, 2025. doi: 10.1007/S13735-025-00363-X. URL https://doi. org/10.1007/s13735-025-00363-x .Yang, M. and Wang, J. Adaptability of financial time series prediction based on bilstm. Procedia Computer Science ,199:18–25, 2022. Yang, Y., Jin, M., Wen, H., Zhang, C., Liang, Y., Ma, L., Wang, Y., Liu, C., Yang, B., Xu, Z., et al. A survey on diffusion models for time series and spatio-temporal data. 
+
+ACM Computing Surveys , 2024. Yoon, J., Jarrett, D., and van der Schaar, M. Time-series generative adversarial networks. In Wallach, H. M., Larochelle, H., Beygelzimer, A., d’Alch ´e-Buc, F., Fox, E. B., and Garnett, R. (eds.), Advances in Neural Infor-mation Processing Systems 32: Annual Conference on Neural Information Processing Systems 2019, NeurIPS 2019, December 8-14, 2019, Vancouver, BC, Canada , pp. 5509–5519, 2019. URL https://proceedings. neurips.cc/paper/2019/hash/ c9efe5f26cd17ba6216bbe2a7d26d490-Abstract. html .10 Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs 
+
+Yuan, X. and Qiao, Y. Diffusion-ts: Interpretable diffusion for general time series generation. In The Twelfth Inter-national Conference on Learning Representations, ICLR 2024, Vienna, Austria, May 7-11, 2024 . OpenReview.net, 2024. URL https://openreview.net/forum? id=4h1apFjO99 .Yue, Z., Wang, Y., Duan, J., Yang, T., Huang, C., Tong, Y., and Xu, B. Ts2vec: Towards universal representation of time series. In Thirty-Sixth AAAI Conference on Artificial Intelligence, AAAI 2022, Thirty-Fourth Conference on Innovative Applications of Artificial Intelligence, IAAI 2022, The Twelveth Symposium on Educational Advances in Artificial Intelligence, EAAI 2022 Virtual Event, Febru-ary 22 - March 1, 2022 , pp. 8980–8987. AAAI Press, 2022. doi: 10.1609/AAAI.V36I8.20881. URL https: //doi.org/10.1609/aaai.v36i8.20881 .Zhang, K., Wen, Q., Zhang, C., Cai, R., Jin, M., Liu, Y., Zhang, J. Y., Liang, Y., Pang, G., Song, D., and Pan, S. Self-supervised learning for time series analysis: Taxonomy, progress, and prospects. IEEE Trans. Pat-tern Anal. Mach. Intell. , 46(10):6775–6794, 2024. doi: 10.1109/TPAMI.2024.3387317. URL https://doi. org/10.1109/TPAMI.2024.3387317 .Zou, Y., Donner, R. V., Marwan, N., Donges, J. F., and Kurths, J. Complex network approaches to nonlinear time series analysis. Physics Reports , 787:1–97, January 2019. ISSN 0370-1573. doi: 10.1016/j.physrep.2018. 10.005. URL http://dx.doi.org/10.1016/j. physrep.2018.10.005 .11 Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs 
+
+# A. Additional Experimental Results and Analysis 
+
+A.1. Additional Results on Limitations of Baseline Models on Heavy Tailed Signals           
+
+> Table 4. Distribution statistics in z-score space for Sunspot vs ECG windows (length T= 32 ). We report summary statistics for raw values xand first-order differences ∆x. Excess kurtosis indicates tail-heaviness (larger ⇒heavier tails).
+
+Dataset B x statistics ∆x statistics 
+
+mean std excess kurt. quantile range (0.1% → 99.9%) mean std excess kurt. Sunspot 1758 -0.0360 0.9668 0.5321 [-1.0741, 3.5320] -7.5e-05 0.1994 2.2466 ECG 20312 0.2148 0.8283 7.3562 [-1.6078, 5.1106] 4.4e-05 0.1819 41.5587           
+
+> (a) Value distribution p(x)(clipped for visualization). (b) First-order difference distribution p(∆ x)(clipped).
+> Figure 4. Sunspot vs ECG in z-score space . ECG exhibits substantially heavier tails, especially in ∆x, indicating more frequent abrupt transitions compared to the smoother Sunspot dynamics.
+
+Table 4 and Fig. 4 summarize the empirical distributions in the same input space used by models (z-score normalized windows). Sunspot is close to a light-tailed process: x has low excess kurtosis ( 0.53 ) and its increment distribution ∆x is only mildly heavy-tailed (excess kurtosis 2.25 ). In contrast, ECG is strongly non-Gaussian: x exhibits heavy tails (excess kurtosis 7.36 ) and, more importantly, its increment distribution is extremely heavy-tailed (excess kurtosis 41 .56 ), revealing frequent abrupt changes. 
+
+Implication for generative modeling. Diffusion-based time-series generators implicitly assume that the target distribution in the normalized space is reasonably smooth and well-approximated by iterative Gaussian perturbations. This assumption aligns well with the smooth, low-frequency dynamics of Sunspot, but is violated by ECG where sharp transitions dominate 
+
+∆x. Consequently, DiffusionTS/TimeGAN may over-smooth sharp events or introduce spurious high-frequency artifacts, leading to noticeable mismatches in ACF/PSD. 
+
+Why Graph2TS can be advantageous on ECG. Our Graph2TS conditions generation on a quantile-transition graph, which emphasizes structural and relational patterns rather than raw amplitude density. This inductive bias is robust to heavy tails and non-stationary increments, making it not only good at smooth series but also substantially effective for high-variability biomedical signals such as ECG. 
+
+A.2. Qualitative Comparison of Real and Generated Samples 
+
+Figure 5 visualizes real and generated time series across three distinct structural conditions. Each row corresponds to a single, specific quantile graph derived from the ”Real” time series shown in that row. Alongside the real sample, we display 10 samples synthesized by our model conditioned on that extracted graph structure. 12 Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs    
+
+> (a) Example 1.
+> (b) Example 2.
+> (c) Example 3.
+
+Figure 5. Visualization of real time series and corresponding generated time series. Each row (a, b, c) displays 10 samples generated from a single, distinct graph topology, illustrating the model’s ability to synthesize data corresponding to different graphs. 
+
+13 Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs     
+
+> (a) Sample 1: Comparison of real (left) and generated (right) time series and graphs.
+> (b) Sample 2: Comparison of real (left) and generated (right) time series and graphs.
+> (c) Sample 3: Comparison of real (left) and generated (right) time series and graphs.
+> Figure 6. Qualitative comparison between real and generated data across three distinct samples. Each row visualizes the Real Time Series and Real Quantile Graph (left panels) alongside the Generated Time Series and Generated Quantile Graph (right panels), demonstrating the model’s capability to capture both temporal dynamics and structural dependencies.
+
+Fig. 6 provides a qualitative comparison between real and generated data across three distinct samples. The visual alignment between the ground truth (left) and the generated outputs (right) demonstrates the model’s ability to capture both temporal dynamics and underlying graph structures. Concerns may arise regarding the sparsity of graphs derived from short windows ( T = 32 ). However, as shown in Fig. 5 and Fig. 6, the resulting quantile graphs are not randomly sparse; instead, they exhibit consistent topological structures (e.g., localized transitions and loops) that correlate with specific temporal behaviors. This confirms that even short windows contain sufficient signal to construct meaningful structural priors, rather than mere noise. Furthermore, it is worth noting that the graph derived from the generated time series (“Generated Quantile Graph” in Fig. 6) is topologically consistent with, yet not identical to, the conditioning “Real Quantile Graph.” These minor structural deviations are expected and desirable: they arise from the stochastic residual z introduced by the latent variable. Since the quantile mapping is sensitive to local amplitude variations, the injected stochasticity naturally induces slight shifts in exact transition probabilities. Crucially, the global structural backbone (e.g., dominant cycles and connectivity) is preserved, demonstrating that Graph2TS learns a robust conditional distribution p(x|G) that supports diverse realizations, rather than simply memorizing the input transition matrix. 
+
+A.3. Qualitative Analysis of Temporal and Distributional Structure 
+
+Figures 7, 8, and 9 provides a qualitative comparison of temporal and distributional properties across models, complementing the quantitative results in Table 1. We visualize mean autocorrelation functions (ACF), power spectral densities (PSD), and t-SNE embeddings to examine temporal dynamics, frequency content, and manifold geometry, respectively. Across all datasets, the proposed Graph2TS consistently preserves the global shape of the real ACF, indicating accurate 14 Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs          
+
+> CHB-MIT Sunspot Electricity ECG
+> (a) Graph2TS (ours) (b) DiffusionTS (c) TimeGAN
+> Figure 7. Mean autocorrelation functions (ACF) of generated time series on four datasets. Rows (top to bottom): CHB-MIT, Sunspot, Electricity, and ECG. Columns: Models. The proposed Graph2TS consistently preserves temporal dependency patterns of the real data across all datasets, while DiffusionTS exhibits over-smoothing and TimeGAN shows increased structural deviation.
+
+modeling of conditional mean temporal dependencies. In contrast, DiffusionTS often exhibits inflated short-lag correlations and attenuated mid-range dynamics, while TimeGAN shows less stable and dataset-dependent correlation patterns. These behaviors reflect the tendency of diffusion models to over-smooth and GAN-based models to distort temporal structure. The PSD visualizations further reveal that Graph2TS closely matches the dominant low-frequency components of the real signals across datasets. DiffusionTS exhibits pronounced low-frequency energy suppression on high-variability signals such as ECG, whereas TimeGAN produces distorted spectral profiles with misplaced energy. This highlights the importance of explicitly modeling stochastic residuals to avoid spectral collapse or spurious high-frequency artifacts. Finally, t-SNE embeddings show that Graph2TS achieves strong overlap between real and synthetic samples, indicating faithful coverage of the data manifold. DiffusionTS tends to contract the manifold under strict structural constraints, while TimeGAN exhibits mode drifting and over-dispersion. Together, these qualitative results illustrate that combining structural 15 Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs 
+
+> CHB-MIT Sunspot Electricity ECG
+
+(a) Graph2TS (ours) (b) DiffusionTS (c) TimeGAN 
+
+Figure 8. Mean power spectral density (PSD) of generated time series on four datasets. Rows (top to bottom): CHB-MIT, Sunspot, Electricity, and ECG. The proposed model Graph2TS closely matches the spectral profile of real data across all datasets, whereas DiffusionTS tends to attenuate high-frequency components and TimeGAN exhibits spectral distortion. 
+
+conditioning with stochastic residual modeling yields stable temporal dynamics, balanced frequency characteristics, and well-aligned manifold geometry. 16 Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs 
+
+> CHB-MIT Sunspot Electricity ECG
+
+(a) Graph2TS (ours) (b) DiffusionTS (c) TimeGAN 
+
+Figure 9. t-SNE visualization of generated time series on four datasets. Rows (top to bottom): CHB-MIT, Sunspot, Electricity, and ECG. Red points represent real data and blue points represent generated data. Our Graph2TS model demonstrates superior overlap with the real data distribution, indicating it captures the global structural properties more effectively than baselines. 
+
+17 Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs 
+
+# B. Appendix: Theoretical and Implementation Details 
+
+B.1. Formula Derivation of the law of total variance. Let μ(G) ≜ E[X | G]. By definition, 
+
+Var( X) = E∥X − E[X]∥2 . (17) Insert and subtract μ(G):
+
+X − E[X] =  X − μ(G) +  μ(G) − E[X]. (18) Therefore, 
+
+Var( X) = E
+
+h
+
+(X − μ(G)) + ( μ(G) − E[X]) 2i
+
+(19) 
+
+= E∥X − μ(G)∥2 + E∥μ(G) − E[X]∥2
+
++ 2 E(X − μ(G)) ⊤(μ(G) − E[X])  . (20) The cross term is zero: 
+
+E(X − μ(G)) ⊤(μ(G) − E[X])  = EE(X − μ(G)) ⊤(μ(G) − E[X]) | G (21) 
+
+= E(μ(G) − E[X]) ⊤E[X − μ(G) | G] (22) 
+
+= E(μ(G) − E[X]) ⊤ · 0 = 0 , (23) because E[X − μ(G) | G] = E[X | G] − μ(G) = 0 . Hence, 
+
+Var( X) = E∥X − μ(G)∥2 + E∥μ(G) − E[X]∥2 . (24) Finally, observe that 
+
+E∥X − μ(G)∥2 = E[Var( X | G)] , E∥μ(G) − E[X]∥2 = Var( E[X | G]) , (25) which yields the law of total variance: 
+
+Var( X) = Var( E[X | G]) + E[Var( X | G)] . (26) 
+
+B.2. Why not graph neural networks? 
+
+Although the quantile graph admits a graph interpretation, it is fundamentally a fixed-size transition matrix with globally aligned semantics across samples. Each node corresponds to a shared quantile state, and each edge weight represents a normalized transition probability. In this setting, the primary modeling objective is to encode global transition statistics rather than local neighborhood structure. We therefore adopt a simple MLP encoder to embed the quantile graph, which is sufficient to capture these statistics while avoiding the additional complexity and inductive assumptions introduced by graph neural networks. 
+
+B.3. Deterministic Graph to Time Series Model 
+
+Fig. B.3 shows the architecture of the deterministic version of the Graph2TS .
+
+B.4. Detailed Setup Hardware and platform We run the all the experiments on DAS6 (Bal et al., 2016). All experiments were conducted on a single NVIDIA A40 GPU. 
+
+Baselines. We compare against representative time-series generators: TimeGAN (GAN-based) and DiffusionTS (diffusion-based). All baselines are trained on the same training split and generate sequences of the same length T . We use official implementations. 18 Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs        
+
+> TS Input
+> [B, 32]
+> Graph Input
+> [B, 100]
+> TS Encoder (MLP)
+> Graph Encoder (MLP)
+> traw
+> [B, 128]
+> graw
+> [B, 128]
+> Norm
+> Norm
+> tnorm
+> [B, 128]
+> gnorm
+> [B, 128]
+> Align
+> Decoder
+> p(ts |gr )
+> ˆT S
+> Output
+> Recon & Dist
+> Figure 10. Deterministic graph to time series model (Graph2TS without stochasticity).
+
+Training protocol and fairness. When computing metrics, we generate the same number of synthetic samples as the number of real samples in the evaluation split (4000 sequences) and apply balanced subsampling if needed. Note that while the sorting permutation itself is non-differentiable, standard auto-differentiation frameworks propagate gradients through the sorted values. This allows the order-statistics loss to effectively guide the generator towards matching the marginal amplitude distribution 
+
+Sampling protocol. For our model, we sample n sequences per graph by drawing independent z values. Unless otherwise stated, we set n = 1 for one-to-one comparison with unconditional generators. 
+
+Other experimental settings. We use fixed-length univariate windows of length T = 32 and condition generation on quantile-transition graphs with Q = 10 global bins, represented as a flattened first-order transition matrix in RQ2
+
+. The model (G RAPH 2TS) employs two-layer MLP encoders for the time series and the graph, each producing a 128-dimensional raw 
+
+embedding; ℓ2-normalized embeddings are used only for contrastive alignment. The posterior qϕ(z | x, g ) is parameterized by an MLP that maps the concatenated raw embeddings to (μ, log σ2) ∈ R2dz with dz = 32 , and the decoder pθ (x | g, z ) is an MLP conditioned on the concatenation of the raw graph embedding and z. Training minimizes a weighted sum of (i) a symmetric InfoNCE alignment loss between time-series and graph embeddings with a learnable temperature initialized to 0.07 , (ii) an ℓ2 reconstruction loss ∥x − ˆx∥22, (iii) an order-statistics matching loss ∥sort(ˆ x) − sort( x)∥22, (iv) a KL regularizer KL( qϕ(z | x, g ) ∥ N (0 , I )) with linear KL annealing. Unless otherwise stated, we set walign = 1 , wrecon = 5 ,
+
+wdist = 1 , and βmax = 0 .05 with a warmup of 50 epochs. Optimization is performed using Adam with learning rate 
+
+3 × 10 −4 and batch size 4096, training for 300 epochs; we select the checkpoint with the lowest average training objective and report the corresponding parameters. 
+
+Source code. We will make our source code publicly available upon acceptance. 
+
+B.5. Datasets 
+
+All datasets are segmented into fixed-length windows of T = 32 and normalized using z-score normalization within each dataset split. 
+
+CHB–MIT Scalp EEG (CHB-MIT). The CHB–MIT Scalp EEG Database (Guttag, 2010) consists of long-term scalp EEG recordings from 22 pediatric subjects with intractable epilepsy. The recordings span multiple days per subject and include expert annotations of seizure onset and offset. Following standard practice, we segment the continuous EEG signals into fixed-length windows of T = 32 and apply z-score normalization within each dataset split. This dataset is used to evaluate the ability of generative models to capture noisy biomedical signals and to support downstream seizure-related tasks under class imbalance. 
+
+Daily Sunspot Number (Sunspot). The Daily Sunspot Number dataset (World Data Center SILSO, 2019) records historical measurements of solar activity from 1818 to 2019. The data exhibit strong long-term periodicity and non-19 Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs 
+
+stationary temporal dynamics. We extract overlapping windows of length T = 32 from the normalized daily series to evaluate the model’s ability to preserve global oscillatory structure while maintaining realistic variability. 
+
+Electricity Load (Elec). The Electricity Load dataset (Trindade, 2015) contains electricity consumption measurements from multiple clients over time. The data are characterized by seasonal patterns, abrupt changes, and heterogeneous dynamics across users. We follow common preprocessing procedures and segment each univariate series into windows of length T = 32 , which are normalized using z-score normalization per split. 
+
+MIT-BIH Arrhythmia ECG (ECG). The MIT-BIH Arrhythmia Database (Moody & Mark, 2001) provides ECG recordings annotated with cardiac arrhythmia events. The signals contain structured low-frequency morphology combined with high-frequency noise and beat-level variability. We extract fixed-length ECG segments of T = 32 and apply z-score normalization, using this dataset to assess structural fidelity and temporal alignment in physiological signal generation. 
+
+B.6. Metrics Definition 
+
+Let X = {xi}Ni=1 denote a set of real time series samples and ˆX = {ˆxj }Nj=1 denote an equally sized set of synthetic samples, where each x ∈ RT .
+
+Distribution fidelity. The Wasserstein distance measures the discrepancy between the marginal distributions of real and synthetic samples: 
+
+W (X , ˆX ) = inf    
+
+> γ∈Π( X,ˆX)
+
+E(x, ˆx)∼γ
+
+∥x − ˆx∥2
+
+, (27) where Π( X , ˆX ) denotes the set of all couplings between the empirical distributions of X and ˆX . Lower values indicate closer distributional alignment. The Kolmogorov–Smirnov (KS) statistic is defined as 
+
+KS = sup 
+
+> v∈R
+
+FX (v) − F ˆX (v) , (28) where FX and F ˆX are the empirical cumulative distribution functions of real and synthetic samples, respectively. 
+
+Temporal structure alignment. Let ACF( x, ℓ ) denote the autocorrelation of time series x at lag ℓ. The ACF MAE is defined as 
+
+ACF -MAE = 1
+
+L
+
+> L
+
+X
+
+> ℓ=1
+
+Ex∼X [ACF( x, ℓ )] − Eˆx∼ ˆX [ACF(ˆ x, ℓ )] , (29) where L is the maximum lag considered. Let PSD( x) denote the power spectral density of x estimated using Welch’s method. The PSD ℓ2 distance is defined as 
+
+PSD -ℓ2 = Ex∼X [PSD( x)] − Eˆx∼ ˆX [PSD(ˆ x)] 2 . (30) 
+
+Representativeness and prototype quality. For each real sample xi ∈ X , define its nearest synthetic neighbor as 
+
+di = min   
+
+> ˆxj∈ˆX
+
+∥xi − ˆxj ∥2. (31) The Prototype Error (ProtoErr) is reported as both the mean and median of {di}Ni=1 .Let mX and m ˆX denote the medoids of the real and synthetic sets, respectively. The Medoid Distance Ratio is defined as 
+
+MDR = ∥mX − m ˆX ∥2
+
+Ex∼X 
+
+∥x − mX ∥2
+
+ . (32) 20 Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs 
+
+Coverage of the real data manifold. Let τq denote the q-quantile of the real-to-real nearest-neighbor distance distribution. The Coverage@ τq metric is defined as 
+
+Coverage@ τq = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+1
+
+
+
+min   
+
+> ˆxj∈ˆX
+
+∥xi − ˆxj ∥2 ≤ τq
+
+
+
+, (33) where 1(·) is the indicator function. Higher coverage indicates better support overlap between synthetic and real data manifolds. 
+
+B.7. Acknowledgement of Use of Generative AI 
+
+Generative AI tools were used to assist in the writing and preparation of this manuscript. The authors have reviewed and verified the content and take full responsibility for all materials presented. 21

@@ -1,0 +1,2148 @@
+Title: A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks
+
+URL Source: https://arxiv.org/pdf/2603.22586v1
+
+Published Time: Wed, 25 Mar 2026 00:24:23 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+Anish Saha 1 Konstantin Shmakov 1
+
+Abstract 
+
+In-context learning (ICL) is an established paradigm in large language models, enabling task adaptation at inference time through con-textual examples rather than parameter updates. While several recent time-series foundation mod-els incorporate forms of contextual conditioning or example-based prompting, these approaches typically rely on implicit positional context, re-trieval, or task-specific objectives, rather than explicit instruction-conditioned demonstrations. We propose a foundation model for instruction-conditioned in-context time-series tasks, built on a quantile regression variant of a T5 en-coder–decoder architecture, in which historical “examples” and “queries” are represented using a structured, prompt-like tokenization scheme with specialized semantic tokens that explicitly distin-guish target series, covariates, context, and task-specific future information. A hierarchical Trans-former architecture comprising per-example en-coding, example-level fusion, and cross-example attention enables the model to condition its decod-ing behavior on in-context input–output demon-strations, allowing it to infer forecasting strategies and other time-series tasks without task-specific fine-tuning. The model is trained on a large-scale corpus of real and synthetic time series generated via mixup augmentation and controlled multivari-ate relationship synthesis, and combines super-vised forecasting objective with self-supervised instruction-conditioned tasks such as imputa-tion, reconstruction, classification, and source de-mixing. We show that this multi-task, example-conditioned training encourages the model to learn a distribution over time-series tasks and mappings, improving its ability to adapt to lo-cal structure at inference time. Across datasets spanning diverse domains, frequencies, and hori-zons, the proposed approach consistently outper-     
+
+> 1Walmart, Sunnyvale, USA. Correspondence to: Anish Saha <anish.saha@walmart.com >, Konstantin Shmakov <kon-stantin.shmakov@walmart.com >.
+> Preprint. March 25, 2026.
+
+forms strong foundation baselines on both point and probabilistic forecasting benchmarks, includ-ing fev-bench, and GIFT-Eval, while also achiev-ing competitive performance on classification and anomaly detection tasks, demonstrating the ef-fectiveness of structured in-context prompting and hierarchical fusion for flexible, instruction-following time-series foundation models. 
+
+1. Introduction 
+
+Time series modeling underpins decision-making across a wide range of domains, including retail demand forecasting, energy and load planning, financial risk management, trans-portation, and industrial operations. These applications rely not only on accurate forecasting, but also on related tasks such as anomaly detection (Audibert et al., 2020), regime classification (Fawaz, 2020), imputation (Cao et al., 2018), and scenario analysis (Gneiting & Katzfuss, 2014). Over the past decades, the field has evolved from classical statistical approaches (Box & Jenkins, 1968) to advanced deep learn-ing techniques (Salinas et al., 2020) introducing a number of capable large-scale time-series foundation models (Woo et al., 2024; Das et al., 2024b; Ansari et al., 2024), trained on diverse datasets, that better capture nonlinear dynamics, long-range dependencies, and complex covariate interac-tions to achieve strong zero-shot forecasting performance across domains and temporal granularities. In parallel, in-context learning (ICL) has become an es-tablished paradigm in large language models, enabling task adaptation at inference time through contextual input–output examples rather than parameter updates. This behavior was first systematically demonstrated in large-scale language models (Brown et al., 2020), and has since been extended through prompting strategies such as few-shot prompting (Brown et al., 2020), instruction tuning (Wei et al., 2021), and chain-of-thought reasoning (Wei et al., 2022), which substantially improve zero-shot and few-shot performance without fine-tuning. Beyond empirical success, recent work has begun to clarify the mechanisms underlying ICL: Garg et al. 2022 show that Transformers trained on sequences of input–label pairs can implement behaviors such as lin-ear predictors, gradient-descent-like updates, and algorithm selection purely through attention, while Min et al. 2022 1
+
+> arXiv:2603.22586v1 [cs.LG] 23 Mar 2026 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks
+
+demonstrate that explicitly training on structured demonstra-tion–query episodes substantially improves ICL ability. In this work, we bring in-context learning using instruction-conditioned demonstrations to time-series modeling. We propose a foundation model for in-context time-series tasks using a structured, prompt-like tokenization scheme (repre-sented by ”examples” and ”queries”) with specialized se-mantic tokens that explicitly distinguish target series, covari-ates, historical context, and task-specific future information. We show that this explicit structure is necessary to han-dle the (i) heterogeneous temporal dynamics, (ii) variable numbers of covariates, and (iii) probabilistic multi-horizon outputs that characterize real-world time-series problems. Recent time-series foundation models such as TimesFM/TimesFM-2.5 (Das et al., 2024b;a), ICTSP (Lu et al., 2024), Chronos-2 (Ansari et al., 2025), TOTO (Cohen et al., 2025), and TiRex (Auer et al., 2025) have already explored various forms of contextual conditioning, including long historical windows, retrieval of related series, and example-based inputs. However, in these approaches context is used to improve a fixed task, typically forecasting, instead of functioning as explicit input–output demonstrations that define a task mapping at inference time, as in NLP ICL an in our proposed work. This distinction offers the promise of recovering many benefits of fine-tuning such as domain adaptation and task specialization purely through inference-time context. To endow our model with strong in-context learning capabil-ity, we train it on a large-scale corpus of real and synthetic time series using a combination of (1) supervised forecasting objectives, and (2) self-supervised tasks, including imputa-tion, reconstruction, classification, anomaly detection, and source de-mixing. This training regime exposes the model to a distribution of time-series tasks and mappings, encour-aging it to learn how to adapt behavior based on contextual demonstrations at inference time (Min et al., 2022). While our approach does not employ an explicit meta-learning formulation with inner-loop optimization (Finn et al., 2017), it can be interpreted as an amortized form of meta-learning, in which task adaptation is learned during pretraining and executed through a single forward pass at inference time. This formulation addresses a common practical scenario: a practitioner may deploy a foundation model trained pri-marily for forecasting, only to later encounter the need for related tasks such as anomaly detection, regime classifica-tion, or domain-specific forecasting behavior. Rather than collecting new labels and fine-tuning the model, our ap-proach allows these requirements to be expressed directly through in-context examples. Empirically, we show that this instruction-conditioned ICL framework yields strong improvements in both point and probabilistic forecasting accuracy across diverse benchmarks, including fev-bench (Shchur et al., 2025), and GIFT-Eval (Aksu et al., 2024), while also supporting classification and anomaly detection within the same unified architecture. Our main contributions are: • Instruction-conditioned in-context learning for time series. We introduce a principled formulation of instruction-conditioned in-context learning for time-series data, in which tasks are specified through struc-tured input–output demonstrations at inference time rather than through task-specific heads or fine-tuning. • To enable example-conditioned inference and pre-vent representation leakage we propose a hierarchical-encoder decoder architecture together with a structured, 
+
+prompt-like tokenization scheme that explicitly en-codes semantic roles (targets, covariates, historical con-text, and task-specific future information). • Amortized meta-learning for time-series foundation models. We introduce a new training paradigm for time-series foundation models that combines forecast-ing based supervision with other self-supervised tasks to enable the model to adapt to new tasks and domains purely via in-context examples at inference time. • Self-supervised tasks for pretraining time-series foundation model. We design a suite of self-supervised tasks for time-series pretraining including imputation, reconstruction, classification, anomaly de-tection, and source de-mixing. We also discuss data augmentation strategies and methods to introduce con-trolled multivariate relationships in time-series. • We empirically demonstrate the benefits of (i) instruction-conditioned training, (ii) hierarchical fu-sion, and (iii) amortized meta-learning, through ex-tensive ablations and analyses. The proposed model achieves competitive or superior zero-shot perfor-mance on popular point and probabilistic forecasting benchmarks, while also exhibiting competitive perfor-mance on classification and anomaly detection tasks using the same architecture and inference procedure. 
+
+2. Related Work 
+
+In-Context Learning and Meta-Training In-context learn-ing (ICL) enables models to adapt to new tasks at inference time by conditioning on a small number of input–output demonstrations without parameter updates (Brown et al., 2020). This can further be improved through prompt de-sign(Zhao et al., 2021; Holtzman et al., 2021), and ex-plicitly training models on structured demonstration–query episodes. In-Context Time-Series Predictor (Lu et al., 2024) also demonstrates that conditioning Transformer-based mod-els on example series can significantly improve forecasting 2A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks                                                    
+
+> Table 1. Comparison of modeling capabilities and in-context learning (ICL) usage in recent time-series foundation models. While several models support multivariate forecasting and covariate information, only our approach enables instruction-conditioned in-context learning through explicit input–output demonstrations, allowing adaptation to multiple time-series tasks at inference time without retraining. ICL context types: M= multivariate series; CL = cross-learning across a group of series; C= covariate series; T= temporal context from the target series only; D= demonstration-based.
+> Model Multi-variate Covariates In-Context Task Adaptation via Forecasting (Past / Known / Cat.) Learning Type Demos (Ex. →Q.)
+> Chronos-2 ✓✓CL ,M✗
+> TimesFM-2.5 ✗✗T✗
+> TiRex ✗✗T✗
+> Moirai-2.0 ✗✗T✗
+> TabPFN-TS ✗✓(known, categorical) C✗
+> TOTO ✓✓(past) M✗
+> (ours) ✓✓D,CL ,M✓(e.g., classification)
+
+performance, highlighting the importance of example selec-tion and contextual information for time-series prediction. A substantial line of related work focuses on meta-learning (Vilalta & Drissi, 2002; Finn et al., 2017) and multi-task learning (Evgeniou & Pontil, 2004; Ruder, 2017), through self-supervision. Prior studies that train models on a diverse collection of tasks show improved generalization on new tasks in zero-shot settings (Zhong et al., 2021; Mishra et al., 2022; Wei et al., 2021). MetaICL (Min et al., 2022) bridges these perspectives by demonstrating that multi-task meta-training on demonstration–query episodes significantly im-proves ICL. Our approach adopts a similar training philos-ophy, extending instruction-conditioned meta-training to time-series data and enabling amortized task adaptation. 
+
+From Classical to Foundation Time-Series Models Clas-sical time-series forecasting methods such as ARIMA (Box & Jenkins, 1968), exponential smoothing (Hyndman & Athanasopoulos, 2018) etc., rely on fitting separate models per series. In contrast, global models such as DeepState (Rangapuram et al., 2018), stacked architectures such as N-BEATS (Oreshkin et al., 2019) and N-HITS (Challu et al., 2023), and transformer-based models including TFT (Lim et al., 2021) and PatchTST (Nie, 2022) have become increas-ingly common. Recent time-series foundation models have scaled these ideas by training large architectures on diverse datasets to achieve strong zero-shot generalization (Ansari et al., 2025; Cohen et al., 2025; Auer et al., 2025). These models show that increased historical context, covariates, and retrieved examples can substantially improve forecast-ing performance. Patching-based encoders and decoders, as popularized by Nie 2022, are now widely adopted to improve efficiency and capture long-range temporal depen-dencies; our model similarly employs patch-based represen-tations within a T5-style encoder–decoder backbone. 
+
+Contextual Conditioning and Hierarchical Structure in Time Series These benefits of richer context and example se-lection for forecasting are demonstrated by Das et al. 2024a; Ansari et al. 2025; Auer et al. 2025. However, context is typically used to improve a fixed task, with task semantics encoded in model parameters or training objectives. In con-trast, our work introduces a hierarchical formulation that explicitly encodes structure from individual time series, to groups of examples, to the full in-context input, enabling demonstrations to define task mappings at inference time. Table 1 provides a summary of the capabilities of our model with those of existing pretrained models. 
+
+3. Methodology 
+
+3.1. Problem Formulation and ICL Setup 
+
+To study the instruction-conditioned in-context learning setup for time-series tasks, we define the following compo-nents. 3.1.1. D ATA REPRESENTATION AND GRANULARITY 
+
+We define the most granular unit in our formulation as a one-dimensional time series 
+
+x(j) = ( x(j)1 , . . . , x (j) 
+
+> T
+
+) ∈ RT ,
+
+where j indexes a component (e.g., a target series or a covariate). Each component may contain missing values, handled via a binary mask 
+
+m(j) = ( m(j)1 , . . . , m (j) 
+
+> T
+
+), m(j) 
+
+> t
+
+∈ { 0, 1},
+
+where m(j) 
+
+> t
+
+= 1 indicates that the value is observed. 3.1.2. M ULTIVARIATE TIME SERIES AND COVARIATES 
+
+A multivariate time series is defined as a collection of one-dimensional components. We denote the set of target time-series as: 
+
+X = {x(1) , . . . , x (dx)},
+
+3A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+and the set of corresponding covariate time-series as: 
+
+Z = {z(1) , . . . , z (dz )},
+
+where dx and dz denote the number of target and covari-ate components, respectively. Each x(j) and z(k) is a one-dimensional time series in RT with a corresponding mask. Categorical covariates are embedded into real-valued scalars using ordinal encoding. Each embedded categorical value is then duplicated across time to form a constant one-dimensional covariate series, ensuring structural consistency with dynamic covariates. 3.1.3. E XAMPLES AND QUERIES 
+
+An in-context example consists of a multivariate time series split into a historical segment and a future segment: 
+
+Ei = ( Xhist  
+
+> i
+
+, Z hist  
+
+> i
+
+, X fut  
+
+> i
+
+, Z fut  
+
+> i
+
+),
+
+where Xhist  
+
+> i
+
+and Zhist  
+
+> i
+
+denote target and covariate compo-nents over the historical window, and Xfut  
+
+> i
+
+and Zfut  
+
+> i
+
+denote the corresponding components over the future window, with all components retaining their corresponding masks. A query has the same structure as an example’s history: 
+
+Q = ( Xhist  
+
+> q
+
+, Z hist  
+
+> q
+
+, Z fut  
+
+> q
+
+),
+
+where future covariates Zfut  
+
+> q
+
+are provided when available, but future targets Y fut  
+
+> q
+
+are withheld and must be predicted by the model. 3.1.4. I N-CONTEXT LEARNING INPUT 
+
+An in-context learning (ICL) input consists of a set of N
+
+examples 
+
+S = {E i}Ni=1 ,
+
+followed by a query Q. During both training and inference, all examples include both historical and future segments, while the query includes only historical targets and all avail-able covariates. 
+
+3.2. Structured Tokenization and Input Construction 
+
+We represent each example /query using a prompt-like se-rialization with semantic role tokens that partition targets, covariates, and task-specific outputs while respecting the granularity and heterogeneity of time-series data. Each example is serialized into a sequence of role-labeled component segments using specialized semantic tokens. Concretely, an example Ei, containing d(i) 
+
+> x
+
+target compo-nents and d(i) 
+
+> z
+
+variates, is serialized as Ser (Ei)= [ START ]
+
+> d(i)
+> x
+
+M
+
+> j=1
+
+ [TARGET SERIES ] ϕ(x(j)
+
+> i, hist
+
+, m (j)
+
+> i, hist
+
+)
+
+> d(i)
+> z
+
+M
+
+> k=1
+
+ [EXOG ] ϕ(z(k)
+
+> i, hist
+
+, m (k)
+
+> i, hist
+
+)
+
+[MID ]
+
+> d(i)
+> x
+
+M
+
+> j=1
+
+ [TARGET SERIES ] ϕ(x(j)
+
+> i, fut
+
+, m (j)
+
+> i, fut
+
+)
+
+> d(i)
+> z
+
+M
+
+> k=1
+
+ [FUTURE EXOG ] ϕ(z(k)
+
+> i, fut
+
+, m (k)
+
+> i, fut
+
+)
+
+[END ],
+
+where ⊕ denotes concatenation, and ϕ is the embedding function ϕ : RT → RP ×D (where T is time-series length, 
+
+P is number of patches, and D is embedding dimension) performing normalization, patching, mask concatenation. The query is serialized similarly, except that future target segments and [END ] are omitted. Ser (Q)= [ START ]
+
+> d(q)
+> x
+
+M
+
+> j=1
+
+ [TARGET SERIES ] ϕ(x(j)
+
+> q, hist
+
+, m (j)
+
+> q, hist
+
+)
+
+> d(q)
+> z
+
+M
+
+> k=1
+
+ [EXOG ] ϕ(z(k)
+
+> q, hist
+
+, m (k)
+
+> q, hist
+
+)
+
+[MID ]
+
+> d(q)
+> z
+
+M
+
+> k=1
+
+ [FUTURE EXOG ] ϕ(z(k)
+
+> q, fut
+
+, m (k)
+
+> q, fut
+
+).
+
+This is done instead of raw concatenation of numeric se-quences across multiple series and roles ( target vs covari-ate vs example vs query ) to prevent representation leak-age where attention can mix unrelated subsequences, and the model has no reliable boundary cues. Explicit role and boundary tokens provide discrete anchors so the model can (i) build per-example representations, (ii) align ”inputs” with ”outputs” within each example, and (iii) condition the query’s decoding on demonstrated mappings. 3.2.1. T ARGET AND COVARIATE TYPES 
+
+We support targets and covariates in five common regimes: • Univariate target: when dx = 1 .• Multivariate targets: when dx > 1.4A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+• Past-only covariates: available over the historical win-dow, i.e., dhist  
+
+> z
+
+≥ 1 and dfut  
+
+> z
+
+= 0 .• Known covariates: available over history and forecast horizon (e.g., calendar, price plan), i.e., dhist  
+
+> z
+
+, d fut  
+
+> z
+
+≥ 1.• No covariates: when dz = 0 .3.2.2. S TRUCTURED IN-CONTEXT LEARNING INPUT 
+
+An in-context learning (ICL) prompt is formed by concate-nating a set of serialized N examples followed by the query: 
+
+P = Ser (E1) ⊕ · · · ⊕ Ser (EN ) ⊕ Ser (Q).
+
+The model predicts relevant target time-series ( Y fut  
+
+> q
+
+): 
+
+ˆY fut  
+
+> q
+
+≡ { ˆx(j)
+
+> q, fut
+
+}d(q)
+
+> x
+> j=1
+
+.
+
+3.3. Amortized Meta-Learning Task Definition 
+
+The task is implicitly defined by the structure and seman-tics of the future target components {Xfut  
+
+> i
+
+}Ni=1 appearing in the examples. The model is trained to learn a conditional predictor fθ : ( P) 7 → ˆY fut  
+
+> q
+
+, such that: 
+
+fθ (Ser (Q) | { Ser (Ei)}Ni=1 ) ≈ { x(j)
+
+> q, fut
+
+}d(q)
+
+> x
+> j=1
+
+,
+
+without parameter updates. Different tasks correspond to different interpretations of Y fut  
+
+> q
+
+:• Forecasting: Y fut  
+
+> q
+
+is the future continuation of the target series Xhist  
+
+> q
+
+.• Imputation / reconstruction: Y fut  
+
+> q
+
+is the completed version of a masked target Xhist  
+
+> q
+
+.• Anomaly detection: Y fut  
+
+> q
+
+is a corrected or denoised target series Xhist  
+
+> q
+
+.• Classification: Y fut  
+
+> q
+
+is a constant time series repre-senting a class label for Xhist  
+
+> q
+
+, derived from one of the classes present in {Xfut  
+
+> i
+
+}Ni=1 .• Source de-mixing: Y fut  
+
+> q
+
+is a residual or component series derived from the mixture in Xhist  
+
+> q
+
+.Table 2 draws an analogy between self-supervised objectives in NLP and corresponding time-series meta-learning tasks. During inference, ICL is defined as task adaptation without updating θ. All adaptation is achieved solely by condition-ing on the example set S = {E i}Ni=1 provided in the model’s context window. 
+
+Table 2. Analogy between self-supervised objectives in NLP and time-series tasks used for instruction-conditioned training. 
+
+NLP Objective Time-Series Task 
+
+Next-token prediction Forecasting Masked-span prediction Imputation Denoising Anomaly detection Classification Property / regime prediction Unshuffling Source de-mixing 
+
+3.4. Model Architecture 
+
+To enable this example-conditioned inference and prevent representation leakage we propose a hierarchical-encoder decoder architecture. In this section we study its build-ing principles consisting of three components: (i) a shared base time-series encoder ϕ, (ii) hierarchical attention fusion across time series and examples, and (iii) a task-agnostic probabilistic decoder. 3.4.1. B ASE TIME -S ERIES ENCODER ϕ
+
+All one-dimensional time-series components including tar-get series, covariates, and their corresponding masks are processed by a shared base encoder ϕ. Weight sharing ensures a unified representation space across components, while semantic role information is provided explicitly via structured tokenization. Given a one-dimensional time series x(j) ∈ RT , we reduce scale variability across domains and improves generalization by applying instance-wise z-score normalization (Kim et al., 2021): ˜x(j) = x(j)−μ(j) 
+
+> σ(j)+ϵ
+
+, where μ(j) and σ(j) are computed per component using the history only. As consistent with recent literature, we use patching (Ansari et al., 2025; Woo et al., 2024; Nie, 2022; Dosovitskiy, 2020). The normalized series is divided into P non-overlapping patches of length p, ˜x(j) → { ˜x(j)(1) , . . . , ˜x(j)(P )}
+
+where, P = ⌈T /p ⌉. Masks are patched identically and optionally concatenated as additional channels ˜x(j) ∥ ˜m(j).Each patch is embedded using a residual block, mapping 
+
+R2p7→ D , with ReLU, instance-norm and dropout: 
+
+h(j) 
+
+> k
+
+= FFN(˜ x(j)(k)) + ˜ x(j)(k), h(j) 
+
+> k
+
+∈ RD .
+
+Stacking over patches yields the encoded representation 
+
+ϕ(x(j)) ∈ RP ×D.
+
+Note that we do not introduce any absolute timestep-level positional embeddings. However, the T5 maintains relative position embeddings used in the self-attention layers which we retain. Additionally, work done by Das et al. 2024a;b on TimesFM and its variants (based on Haviv et al. 2022) and other leading models (Ansari et al., 2024; Hoo et al., 2025) show that temporal order is preserved implicitly through 5A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+patch ordering and self-attention due to the presence of causal attention which encodes positional information when there are more than one stacked transformer layers. This de-sign also improves robustness to variable sequence lengths, heterogeneous temporal granularity across examples, and irregular observation patterns. 3.4.2. H IERARCHICAL ATTENTION FUSION 
+
+To learn temporal and variate dependencies, the sequences of tokens are processed by multiple stacked Transformer lay-ers, specifically the T5 encoder (Raffel et al., 2020; Ansari et al., 2025). However, applying self-attention over all patches from all series and examples is computationally inefficient and prone to representation entanglement. We therefore adopt a three-stage hierarchical attention scheme. In the representations below we drop the layer and attention head indices, and scaling factor for brevity. 
+
+Stage 1: Individual time-series encoding. Each patched series embedding ϕ(x(j)) is processed by a shared self-attention stacked T5-encoder: 
+
+H(j) = Enc ts (ϕ(x(j))) , H(j) ∈ RP ×D.
+
+This stage captures intra-series temporal dependencies while remaining agnostic to semantic role. 
+
+Stage 2: Per-example fusion encoding. For each exam-ple Ei (or the query), encoded target and covariate series 
+
+{H(j)} are serialized along the patch dimension together with learned semantic role token embeddings ([ START ], [TARGET SERIES ], [ EXOG ]), yielding the serialized rep-resentation discussed in section 3.2, to get: Si ≡ Ser (Ei),and Sq ≡ Ser (Q), where, Si ∈ RPi×D , S q ∈ RPq ×D
+
+The example(s) and query sequence then is encoded using a shared self-attention T5-encoder: 
+
+˜Si = Enc ex (Si) ∈ RPi×D ; ˜Sq = Enc ex (Si) ∈ RPq ×D
+
+This stage enables interactions between targets and covari-ates within an example, while preserving example bound-aries via the semantic tokens. 
+
+Stage 3: Cross-example fusion via ICL rule extraction. 
+
+To aggregate information across examples, we apply pooling and fusion operations. 
+
+Example Patch pooling. Each encoded example ˜Si is sum-marized along patch dimension using mean pooling: 
+
+ei = 1
+
+PiPiX
+
+> k=1
+
+˜Si,k ∈ RD .
+
+Example pooling (ICL rule extractor). The pooled example representations are then aggregated across N examples: 
+
+rq = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+ei ∈ RD ,
+
+yielding a global ICL rule representation for the query q.
+
+Query conditioning. The rule embedding rq is concate-nated with the query representation ˜Sq and processed by a cross-example self-attention T5-encoder followed by the rule embedding as a residual connection to stabilize training: 
+
+ˆSq = Enc icl ([ ˜Sq ∥ rq ]) ∈ R(Pq +1) ×D
+
+ˆSq ← ˆSq + rq ∈ R(Pq +1) ×D
+
+Why hierarchy and mean pooling? Hierarchical fusion preserves semantic boundaries, improves scalability with respect to the number of targets, variates and examples, and stabilizes example-conditioned learning. Additionally, mean pooling is permutation-invariant, parameter-free, and robust to variable numbers of patches and examples, avoid-ing overfitting to specific example positions. 3.4.3. P ROBABILISTIC DECODER 
+
+The decoder maps the hierarchy-encoded query represen-tation ˆSq ∈ RPq ×D to task outputs using a direct, non-autoregressive formulation to predict the full forecast hori-zon in a single forward pass. 
+
+Mixture-of-experts cross-attention. Let E denote the number of experts. We introduce a learned expert embed-ding matrix Emoe ∈ RE×D , which serves as a set of ex-pert queries. The decoder performs cross-attention with Query = Emoe , Key = ˆSq , Value = ˆSq , yielding expert-conditioned hidden states: H(q) 
+
+> moe
+
+∈ RE×D .
+
+Gating and expert aggregation. A gating network maps the expert hidden states to an aggregated representation: 
+
+α = softmax(MLP( Hmoe )) ∈ RE ,h =
+
+> E
+
+X
+
+> e=1
+
+αeH(e) 
+
+> moe
+
+∈ RD .
+
+Output projection block. The aggregated representation is passed through a residual output block followed by a pro-jection head that directly produces multi-horizon quantile forecasts: ˆY fut  
+
+> q
+
+= FFN out (h) ∈ R|Q|× H , where |Q| is the number of quantiles and H is the forecast horizon. 
+
+Direct multi-horizon prediction. The decoder predicts the entire forecast horizon jointly, rather than using autore-gressive rollouts. This improves inference efficiency and 6A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+Table 3. Illustrative distribution of heterogeneous prompt structures used during training. Prompts vary in target dimensionality ( dx), covariate dimensionality ( dz ), and number of in-context examples 
+
+N , exposing the model to diverse structural configurations.                    
+
+> Prompt Structure dxdzExample Count ( N)
+> Univariate target, no covariates 101–4 Multivariate targets, no covariates 2–5 01–6 Univariate target, past-only covariates 11–3 2–6 Multivariate targets, past-only covariates 2–6 1–4 2–8 Multivariate targets, known covariates 2–8 1–6 3–10
+
+mitigates error accumulation, which is essential for long-horizon forecasting. Prior work has shown that direct multi-step prediction yields better accuracy than autoregressive decoding in time-series settings (Zeng et al., 2023). 
+
+Quantile regression loss. The model is trained using the pinball loss configured to predict |Q| = 9 distinct quan-tile levels, equidistantly spaced from 0.1 to 0.9 (Q =
+
+{0.1, 0.2, ..., 0.9}):
+
+LQR = 1
+
+|Q|H
+
+X
+
+> p∈QH
+
+X
+
+> t=1
+
+ℓp(yt, ˆy(p) 
+
+> t
+
+), where 
+
+ℓp(y, ˆy) = max  p(y − ˆy), (p − 1)( y − ˆy).
+
+Here, ground-truth y ∈ { x(j)
+
+> q, fut
+
+}d(q)
+
+> x
+> j=1
+
+, and ICL prediction 
+
+ˆy ∈ { ˆx(j)
+
+> q, fut
+
+}d(q) 
+
+> x
+> j=1
+
+for a query q containing d(q) 
+
+> x
+
+targets. 
+
+Task-agnostic decoding. The decoder architecture is shared across all tasks. Task semantics are determined en-tirely by the example futures in the in-context prompt, en-abling zero-shot task adaptation without task-specific heads. 
+
+Flexibility. This architecture supports variable numbers of targets and covariates, heterogeneous example structures, and mixed task types within a single prompt. All flexibility is handled structurally through tokenization and hierarchical fusion rather than task-specific parameters. 
+
+4. Training 
+
+4.1. Training 
+
+We train the proposed model using instruction-conditioned in-context learning prompts that expose the model to hetero-geneous time-series structures (section 4.2) and distinct 
+
+task classes (section 4.4). Training is designed to encourage the model to learn a conditional predictor fθ : ( P) 7 → ˆY fut 
+
+> q
+
+that adapts itself based on contextual demonstrations (ICL prompts P), without parameter updates at inference time. 
+
+4.2. Heterogeneous Prompt Construction 
+
+During training, each batch consists of a collection of in-context learning prompts P with many structures character-
+
+Algorithm 1 Amortized Meta-Learning via Instruction-Conditioned Training 
+
+Input: Task distribution T ; example count N ; model fθ ;serialization function Ser (·)
+
+Output: Trained parameters θ
+
+while not converged do 
+
+Sample a meta-training task τ ∼ T (Section 4.4) Sample N example demonstrations {E i}Ni=1 from task domain τ
+
+Ei = ( Xhist  
+
+> i
+
+, Z hist  
+
+> i
+
+, X fut  
+
+> i
+
+, Z fut  
+
+> i
+
+)
+
+Sample a query instance 
+
+Q = ( Xhist  
+
+> q
+
+, Z hist  
+
+> q
+
+, Z fut  
+
+> q
+
+)
+
+Withhold query targets Y fut 
+
+> q
+
+Construct the in-context prompt: 
+
+P = Ser (E1) ⊕ · · · ⊕ Ser (EN ) ⊕ Ser (Q)
+
+Predict query output ˆY fut  
+
+> q
+
+= fθ (P)
+
+Compute loss L( ˆY fut  
+
+> q
+
+, Y fut  
+
+> q
+
+)
+
+Update parameters θ ← θ − η∇θ L
+
+end while 
+
+ized by: (i) the number of target dimensions dx, (ii) the num-ber of covariates dz , and (iii) the semantic role of each com-ponent ([ TARGET SERIES ], [ EXOG ], [ FUTURE EXOG ]). We include prompts corresponding to: univariate targets (dx = 1 ), multivariate targets ( dx > 1), multivariate targets with past-only covariates, multivariate targets with known future covariates, no covariates ( dz = 0 ). Table 3 summa-rizes some of the common structures observed. The structure of the example demonstrations may match or differ from the query structure, depending on the task. This exposes the model to varying degrees of structural alignment between examples and queries, improving robustness to real-world heterogeneity. 
+
+4.3. Amortized Meta-Learning via Instruction-Conditioned Training 
+
+The model learns a conditional predictor fθ : P 7 → ˆY fut  
+
+> q
+
+,
+
+where the in-context prompt P defines both the task and the data distribution. Training proceeds by sampling prompts from a distribution over tasks and structures, meta-training the model to perform task adaptation through context. Algorithm 4.3 summarizes the proposed training procedure. The model is meta-trained across a distribution of time-series tasks and structures. Task adaptation is learned during training and executed at inference time via a single forward pass conditioned on in-context demonstrations. The model is trained to minimize the expected loss: 
+
+min  
+
+> θ
+
+EP∼ p(P)
+
+L(fθ (P), Y fut  
+
+> q
+
+)
+
+where L(·, ·) is the quantile regression loss (section 3.4.3). 7A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+Table 4. Implementation mapping of example and query components for different meta-training tasks. Each task is instantiated using the same instruction-conditioned example–query format, with task semantics defined by the example futures. All tasks also include the covariate variables Zhist  
+
+> i
+
+, Z fut  
+
+> i
+
+, Z hist  
+
+> q
+
+, Z fut  
+
+> q
+
+unless specified. 
+
+Task Example History Example Future Query History Model Output Meta-Training Inference Adaptation 
+
+Forecasting Xhist  
+
+> i,t :t+L
+
+Xfut  
+
+> i,t +L:t+L+H
+
+Xhist  
+
+> q
+
+ˆY fut  
+
+> q
+
+✓ ✓
+
+Imputation / Recon. ˜Xhist  
+
+> i
+
+Xhist  
+
+> i
+
+˜Xhist  
+
+> q
+
+ˆXhist  
+
+> q
+
+✓ ✗
+
+(masked) (clean) (missing) (reconstructed) Anomaly Detection Xhist  
+
+> i, corr
+
+Xhist  
+
+> i, clean
+
+Xhist  
+
+> q, corr
+
+ˆXhist  
+
+> q, clean
+
+✓ ✓( ˆY fut 
+
+> q, clean
+
+)Classification ∗ Xhist  
+
+> i
+
+ci · 1 Xhist  
+
+> q
+
+ˆcq · 1 ✓ ✓
+
+Source De-mixing ∗∗ ˜Xhist  
+
+> i
+
+, Z i = {X(1)  
+
+> i
+
+} X(2)  
+
+> i
+
+˜Xhist  
+
+> q
+
+, Z q = {X(1)  
+
+> q
+
+} ˆX(2)  
+
+> q
+
+✓ ✗ 
+
+> ∗
+
+Classification does not have Zfut  
+
+> i
+
+, Z fut  
+
+> q
+
+covariates; ∗∗ ˜Xhist  
+
+> i
+
+is a linear combination of X(1)  
+
+> i
+
+, X (2)  
+
+> i
+
+; ˜Xhist  
+
+> q
+
+is a linear combination of X(1)  
+
+> q
+
+, X (2) 
+
+> q
+
+We refer to this training procedure as amortized meta-learning : the model is meta-trained across a distribution of tasks, and task adaptation is amortized into a single for-ward pass conditioned on demonstrations. 
+
+4.4. Meta-Training Task Classes 
+
+We meta-train the model on a collection of time-series tasks that are directly analogous to the self-supervised and super-vised objectives used to train large language models (Table 2). Each task defines a mapping from ICL demonstrations to a query prediction and are constructed from raw univariate or multivariate time series with or without covariates. Below we describe how each task is constructed from raw data and instantiated within the in-context learning prompt. 4.4.1. F ORECASTING (ANALOGOUS TO NEXT -TOKEN PREDICTION ). The forecasting task trains the model to predict future values given historical context, mirroring next-token prediction in language models. 
+
+Data generation. Given a raw time series X = {xt}Tt=1 , we sample a window of length L and define: 
+
+Xhist = Xt:t+L, Xfut = Xt+L:t+L+H ,
+
+where H is the forecast horizon. If covariates Z are avail-able, we slice them analogously, including future covariates 
+
+Zfut when known. 
+
+ICL instantiation. Each example Ei provides a histori-cal–future pair (Xhist  
+
+> i
+
+, Z hist  
+
+> i
+
+, Z fut  
+
+> i
+
+) 7 → Xfut  
+
+> i
+
+. The query Q
+
+contains only (Xhist  
+
+> q
+
+, Z hist  
+
+> q
+
+, Z fut  
+
+> q
+
+), and the model predicts 
+
+Y fut  
+
+> q
+
+= Xfut  
+
+> q
+
+.4.4.2. I MPUTATION / RECONSTRUCTION (ANALOGOUS TO MASKED SPAN PREDICTION ). This task trains the model to reconstruct missing seg-ments of a time series, analogous to span corruption in encoder–decoder language models. 
+
+Data generation. Given a valid window X, we sample a binary mask M ∈ { 0, 1}T using random patch masking, and construct a corrupted input: 
+
+˜X = X ⊙ (1 − M ).
+
+The mask M is provided as an additional covariate to indi-cate missingness. 
+
+ICL instantiation. Examples demonstrate reconstruction by mapping corrupted inputs to clean outputs. For the query, masked values are withheld and the model predicts Y fut  
+
+> q
+
+=
+
+Xhist  
+
+> q
+
+, corresponding to the full reconstructed series. 4.4.3. A NOMALY DETECTION (ANALOGOUS TO DENOISING ). This task trains the model to recover a clean signal from corrupted or anomalous input time-series. 
+
+Data generation. Starting from a clean series X, we inject synthetic anomalies such as spikes, level shifts, or additive noise to obtain: 
+
+Xcorr = X + ϵ, 
+
+where ϵ denotes structured noise. 
+
+ICL instantiation. Examples demonstrate the mapping from corrupted to clean series. For the query, the corrupted seg-ment is withheld, and the model predicts a corrected output 
+
+Y fut  
+
+> q
+
+= Xhist  
+
+> q
+
+. At inference time, anomaly detection is per-formed by comparing the model’s prediction or prediction intervals against observed values. 8A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+4.4.4. P ROPERTY PREDICTION / CLASSIFICATION 
+
+(ANALOGOUS TO SEQUENCE CLASSIFICATION ). This task trains the model to identify global properties of a time series, such as seasonality, trend, and regime. 
+
+Data generation. Labels are be obtained from raw data via: (i) synthetic generator KernelSynth (Ansari et al., 2024) that produce series with known properties (kernels), (ii) intro-ducing synthetic properties into series - Censor Augmenta-tion and Spike Injection (Auer et al., 2025), (iii) statistical tests with feature-based heuristics (e.g., seasonality, stability, trend strength) using methods in (Yang et al., 2024), and (iv) clustering of time-series into classes using dataset-domain as seeds (Saha et al., 2022). Class labels are encoded as constant target series: Xfut  
+
+> i
+
+=
+
+ci · 1, where ci is a class-specific scalar. 
+
+ICL instantiation. Since the model predicts time-series outputs, class labels are encoded as constant target series: 
+
+Y fut = c · 1, where c is a class-specific scalar. Examples demonstrate different label mappings, and the query prediction corresponds to the inferred class. 4.4.5. S OURCE DE -MIXING (ANALOGOUS TO UNSHUFFLING / SEPARATION ). This task trains the model to separate mixed signals into constituent components, analogous to unshuffling or source separation objectives in NLP and vision. 
+
+Data generation. Given two source time-series compo-nents X(1) , X (2) we construct a mixed target series ˜X =
+
+w1X(1) + w2X(2) , where w1, w 2 are mixing coefficients. One source component (e.g., X(1) ) is provided as a covari-ate, Z = {X(1) }, while the mixed signal ˜X is treated as the target input. 
+
+ICL instantiation. Each example Ei demonstrates how to recover a component from a mixture: 
+
+(Xhist  
+
+> i
+
+= ˜Xhist  
+
+> i
+
+, Z hist  
+
+> i
+
+= {X(1) ,hist  
+
+> i
+
+}) 7 → Xfut  
+
+> i
+
+= X(2) ,fut  
+
+> i
+
+.
+
+The query Q contains a mixed target series ˜Xhist  
+
+> q
+
+and the known source component Zhist  
+
+> q
+
+= {X(1) ,hist  
+
+> q
+
+}.The model predicts Y fut  
+
+> q
+
+= X(2) ,fut  
+
+> q
+
+, corresponding to the remaining unmixed component, or equivalently the residual 
+
+˜Xfut  
+
+> q
+
+− w1X(1) ,fut  
+
+> q
+
+when future covariates are available. 
+
+4.5. Inference and Task Adaptation 
+
+The model, with its fixed parameters θ, infers the time-series task at hand solely through conditioning on in-context demonstrations provided in the prompt P. Formally, given a set of example demonstrations S = {E i}Ni=1 and a query 
+
+Q, the model predicts: 
+
+ˆY fut  
+
+> q
+
+= fθ (P),
+
+where P = Ser (E1) ⊕ · · · ⊕ Ser (EN ) ⊕ Ser (Q) and the examples implicitly specify the task to be performed. 
+
+Forecasting. For forecasting, the query Q is formed as 
+
+Q = ( Xhist  
+
+> q
+
+, Z hist  
+
+> q
+
+, Z fut  
+
+> q
+
+), and the target is Y fut  
+
+> q
+
+= Xfut  
+
+> q
+
+. Each example Ei demonstrates a forecasting mapping: Ei =(Xhist  
+
+> i
+
+, Z hist  
+
+> i
+
+, X fut  
+
+> i
+
+, Z fut  
+
+> i
+
+).
+
+If external demonstrations are available (e.g., from related time series or domains), they are provided directly as exam-ples. When no external examples are available, one or more examples may be constructed from the query time series itself by sampling historical windows: 
+
+Xhist  
+
+> i
+
+= Xq [ti : ti +L], Xfut  
+
+> i
+
+= Xq [ti +L : ti +L+H],
+
+with corresponding covariate slices. These windows may partially or fully overlap with the query history, enabling zero-shot forecasting. 
+
+Classification. For classification, the query is defined as 
+
+Q = ( Xhist  
+
+> q
+
+, Z hist  
+
+> q
+
+), and the target output corresponds to a class label encoded as a constant future target series: Y fut  
+
+> q
+
+=
+
+c · 1, where c denotes a class-specific scalar. Each example Ei demonstrates a labeled mapping: Ei =(Xhist  
+
+> i
+
+, Z hist  
+
+> i
+
+, X fut  
+
+> i
+
+), where Xfut  
+
+> i
+
+encodes the class label. To ensure unambiguous task specification, the example set S
+
+must contain at least one demonstration for each class. 
+
+Anomaly detection. Anomaly detection at inference time is formulated as a forecasting-based comparison task. Given a query time series Xq , we select a segment of interest 
+
+[t∗ : t∗ + H] and form: 
+
+Xhist  
+
+> q
+
+= Xq [: t∗], Xfut  
+
+> q
+
+= Xq [t∗ : t∗ + H].
+
+The query Q contains (Xhist  
+
+> q
+
+, Z hist  
+
+> q
+
+, Z fut  
+
+> q
+
+), and the model pre-dicts ˆY fut  
+
+> q
+
+using example demonstrations constructed analo-gously to the forecasting case. Anomalies are detected by comparing the observed values Xfut  
+
+> q
+
+against the predicted distribution ˆY fut  
+
+> q
+
+, using quantile thresholds. 
+
+Scope of inference tasks. We evaluate forecasting, clas-sification, and anomaly detection at inference time. Other tasks, such as imputation, reconstruction, and source de-mixing, primarily serve as self-supervised objectives during training. While these tasks improve representation quality and in-context learning capability, they are not directly eval-uated at inference time due to the difficulty of specifying them solely through demonstrations in practical settings. 9A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+4.6. Curriculum Learning 
+
+Both the proposed architecture and training objective ex-hibit varying levels of complexity. The hierarchical attention fusion stack progressively aggregates information from indi-vidual time-series representations to cross-example rule ex-traction, while amortized meta-learning exposes the model to a distribution of time-series tasks with increasing func-tional difficulty. To stabilize optimization and improve gen-eralization, we adopt a curriculum learning strategy (Elman, 1993; Sanger, 2002; Bengio et al., 2009; Wu et al., 2020). Concretely, we begin training with shorter contexts, fewer in-context examples, and simpler tasks (forecasting and im-putation), and gradually increases context length, number of demonstrations, and task complexity to include anomaly detection, classification, and source de-mixing. In parallel, the mixture-of-experts decoder is initialized with uniform expert weights and gradually learns adaptive gating. This curriculum improves convergence speed and final perfor-mance by aligning the difficulty of the learning problem with the evolving representational capacity of the model. This has also been shown to benefit in-context learning in Transformers (Garg et al., 2022). 
+
+5. Training Data 
+
+Recent work has shown that the scale, diversity, and struc-ture of training data are often more critical to foundation-model performance than architectural choices alone. Mo-tivated by this observation, and enabled by the availability of large-scale time-series corpora (Woo et al., 2024; Ansari et al., 2024; Aksu et al., 2024), we construct a diverse train-ing dataset designed to support instruction-conditioned in-context learning across heterogeneous time-series tasks. 
+
+5.1. Base corpora. 
+
+We incorporate a subset of datasets from the Chronos pre-training corpus (Ansari et al., 2024) and the GIFT-Eval pretraining corpus (Aksu et al., 2024). To maintain compati-bility with recent evaluation benchmarks such as fev-bench (Shchur et al., 2025), we carefully exclude datasets that appear in the downstream test sets. The Chronos corpus contributes approximately 30 million univariate time series, spanning diverse domains and temporal granularities. From the GIFT-Eval pretraining corpus, we include approximately 2.5 million additional time series. 
+
+5.2. Data augmentation and synthesis. 
+
+To increase diversity and induce controllable relationships, we augment the base corpora using three complementary strategies. 
+
+Time-series mixup augmentation (TSMixup). First, we apply the TSMixup (Ansari et al., 2024) procedure in-troduced in Chronos, which generates synthetic mixtures of time series to increase diversity and induce composi-tional structure. For each augmented sample, we first draw a random integer k ∼ U{ 1, K }, and a segment length 
+
+ℓ ∼ U{ ℓmin , ℓ max }. We then sample k univariate time-series segments. To ensure compatibility across different magnitudes and scales, each segment is normalized using z-score scaling. Mixing weights λ are sampled from a symmetric Dirichlet distribution, λ ∼ Dir (α), and the aug-mented series is formed as a convex combination: 
+
+xTSMixup  
+
+> 1: ℓ
+
+=
+
+> k
+
+X
+
+> i=1
+
+λi ˜x(i)1: ℓ.
+
+In our implementation, we set K = 3, ℓmin = 128 ,
+
+ℓmax = 2048 , and α = 1 .5, and generate approximately 30 million augmented univariate time series. Unlike prior usage focused primarily on forecasting, these mixed series later serve as inputs for multiple task classes, including source de-mixing and anomaly correction. 
+
+Kernel-based synthetic generation (KernelSynth). Sec-ond, we synthetic time series generated using the Kernel-Synth (Ansari et al., 2024) procedure from Chronos, to fur-ther enrich the training distribution with controlled temporal structures. It is a Gaussian-process-based synthetic data gen-erator which constructs a covariance function by randomly composing kernels from a bank K, including Linear (trend), RBF (smooth local variation), Periodic (seasonality), Ra-tional Quadratic (multi-scale variation), White Noise, and Constant kernels. For each synthetic instance, we sample a number of basis kernels and compose them using random binary operations op ∈ { +, ×} , where addition corresponds to superposition of independent processes and multiplication induces interactions (e.g., modulating seasonality by trend). This yields a composite kernel function κ(t, t ′). A synthetic time series is then sampled from a Gaussian process: 
+
+x ∼ GP (0 , κ (t, t ′)) 
+
+Using this procedure, we generate approximately 10 million synthetic univariate time series with diverse spectral and structural properties. 
+
+Multivariate construction with covariate relations. 
+
+Third, leveraging the augmented univariate corpus, we con-struct multivariate time series with endogenous and exoge-nous covariate relationships using a custom multivariate generation pipeline. The methodology is described in 5.2.1 This yields approximately 50 million multivariate series with varying numbers of targets and covariates. 10 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+5.2.1. M ULTIVARIATE CONSTRUCTION WITH COVARIATE RELATIONS .To generate multivariate time series with structured endoge-nous and exogenous dependencies, we introduce a multivari-ate construction pipeline that imposes explicit mathematical relationships between independently sampled univariate se-ries. The goal is to synthesize entangled systems in which target components ( endogenous ) depend on auxiliary drivers (exogenous ) through a diverse family of causal, nonlinear, and temporally lagged transformations. 
+
+Initialization and normalization. We begin by sampling a set of N independent univariate time-series segments 
+
+{x(1) , . . . , x (N )}, x(i) ∈ RL,
+
+from a source pool (e.g., real data, TSMixup, or Kernel-Synth). The segment length L is sampled randomly, and each series is sliced using a cyclic iterator to ensure uniform coverage. To enable stable mathematical composition across hetero-geneous magnitudes, each series is normalized by its mean absolute value: 
+
+˜x(i) 
+
+> t
+
+= x(i)
+
+> t
+> 1
+> L
+
+PLs=1 |x(i) 
+
+> s
+
+| .
+
+Role assignment. The normalized series are partitioned into: • endogenous (target) subsets and • exogenous (covariate) subsets. We enforce that at least 60% of the components are as-signed as endogenous. Exogenous components may influ-ence endogenous ones, but not vice versa, thereby enforcing a causal direction consistent with forecasting settings. 
+
+Time-dependent transformations. We introduce time-dependent dependencies by modifying target series over aligned time intervals [tstart , t end ] using a selected base se-ries xbase , which may be endogenous or exogenous. For a target series y, we apply one or more of the following transformations: 
+
+Linear combination. 
+
+yt ← αx base ,t + βy t + ϵt, ϵt ∼ N (0 , σ 2),
+
+where we use α ∼ U (0 .3, 0.6) , β ∼ U (0 .3, 0.7) , and σ is set to 10% of the standard deviation of the base segment. 
+
+Nonlinear modulation. 
+
+yt ← yt + γf (xbase ,t ),
+
+where γ is a scaling coefficient and f (·) is sampled from a library of nonlinear functions, including logarithmic, expo-nential, power-law, and hyperbolic tangent transformations. 
+
+Trend modification. We estimate the linear trend of y as 
+
+mold t + c and replace it with a modified trend: 
+
+ynew  
+
+> t
+
+= ( yt − mold t − c) + mnew t, 
+
+where mnew is obtained by increasing, decreasing, or revers-ing the original slope. 
+
+Seasonality injection. A sinusoidal component is injected with amplitude modulated by the base series: 
+
+St = A sin 
+
+ 2πt P
+
+
+
+(1 + α · norm (xbase ,t )) , yt ← yt+St.
+
+We use α = 0 .3.
+
+Shock injection. Discrete shocks are added synchronously across target series: 
+
+yt ← yt + s · M · d(t),
+
+where s ∈ {± 1}, M is the shock magnitude, and d(t) is a decay function (constant, linear, or exponential). 
+
+Time-lagged transformations. To induce temporal de-pendencies, we introduce lagged relationships between a leader series xleader and a follower series yfollower .
+
+Lagged influence. 
+
+yfollower ,t ← yfollower ,t + αx leader ,t −ℓ.
+
+Cointegration (error correction). 
+
+ϵt = yfollower ,t −xleader ,t , yfollower ,t ← yfollower ,t −λϵ t−ℓ.
+
+Granger-style influence. 
+
+yfollower ,t ← yfollower ,t +
+
+> K
+
+X
+
+> k=1
+
+αe −βk xleader ,t −k.
+
+Stabilization and output. To prevent numerical instabil-ity, all series are clipped to lie within ±5 standard devia-tions of their empirical mean. The final output consists of a multivariate target set X, a covariate set Z, and metadata describing the induced dependencies. These constructed sys-tems serve as inputs for downstream instruction-conditioned meta-training tasks. 
+
+5.3. Final training mixture. 
+
+Across all sources, we obtain a pool of approximately 66 million univariate and multivariate time series. During train-ing, series are sampled from this pool using a fixed mixture: 11 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks        
+
+> 0.00.20.40.60.81.01.21.4
+> Aggregate Score
+> iAmTime
+> Chronos-2
+> TiRex
+> TimesFM-2.5
+> Chronos-2-Synth
+> Moirai 2.0
+> Toto 1.0
+> TabPFN-TS
+> Chronos-Bolt Base
+> PatchTST
+> TFT
+> N-BEATS
+> DLinear
+> DeepAR
+> Auto ARIMA
+> Seasonal Naive
+> Auto Theta
+> Auto ETS
+> 0.68
+> 0.70
+> 0.72
+> 0.71
+> 0.72
+> 0.73
+> 0.75
+> 0.77
+> 0.81
+> 0.85
+> 0.92
+> 0.94
+> 1.06
+> 1.34
+> 1.07
+> 1.00
+> 1.09
+> 1.21
+> 0.47
+> 0.49
+> 0.49
+> 0.49
+> 0.50
+> 0.52
+> 0.52
+> 0.54
+> 0.57
+> 0.59
+> 0.60
+> 0.82
+> 0.85
+> 0.85
+> 0.91
+> 1.00
+> 1.24
+> GIFT-Eval Agg Score
+> (sorted by CRPS)
+> Zero Shot
+> Task Specific
+> Local
+> CRPS
+> MASE
+
+Figure 1. Results of the GIFT-Eval benchmark: Aggregated scores of the overall benchmark. Lower values are better. ”Zero-shot Models” are not trained on this data. The In-domain Models are partly trained on the dataset (Overlap:: Moirai 2.0 19%, TimesFM-2.5 10%, TTM: 16%). 
+
+10% KernelSynth-generated series, 50% multivariate series with covariates, and 40% univariate series. These series are then used to construct instruction-conditioned in-context prompts for the meta-training task classes described in Sec-tion 4.4. This combination of large-scale real data, structured aug-mentation, and synthetic generation enables the model to observe a wide distribution of temporal patterns, structural configurations, and task semantics, which is essential for robust amortized meta-learning and in-context task adapta-tion. 
+
+6. Experiments 
+
+We evaluate the proposed instruction-conditioned in-context time-series model across a diverse set of large-scale fore-casting benchmarks. Our goals are to assess (i) zero-shot forecasting performance across domains, frequencies, and horizons, (ii) probabilistic calibration, and (iii) robustness relative to strong time-series foundation models and classi-cal statistical baselines.      
+
+> 0.00.20.40.60.81.0
+> Aggregate Score
+> iAmTime
+> Chronos-2
+> TimesFM-2.5
+> TiRex
+> TabPFN-TS
+> Toto-1.0
+> Moirai-2.0
+> Chronos-Bolt Base
+> AutoARIMA
+> Stat. Ensemble
+> AutoTheta
+> Seasonal Naive
+> AutoETS
+> 0.63
+> 0.65
+> 0.64
+> 0.70
+> 0.72
+> 0.72
+> 0.72
+> 0.73
+> 0.88
+> 0.83
+> 0.89
+> 1.00
+> 0.98
+> 0.48
+> 0.48
+> 0.49
+> 0.53
+> 0.54
+> 0.55
+> 0.55
+> 0.57
+> 0.74
+> 0.76
+> 0.92
+> 1.00
+> fev-bench Agg Score
+> (sorted by CRPS)
+> Zero Shot
+> Local
+> CRPS
+> MASE
+
+Figure 2. Results of the fev-bench benchmark: Aggregated scores of the overall benchmark. Lower values are better. ”Zero-shot Models” are not trained on this data. 
+
+6.1. Benchmarks 
+
+We conduct experiments on two comprehensive forecasting benchmarks that are widely used to evaluate time-series foundation models. 
+
+fev-bench. fev-bench (Shchur et al., 2025) consists of 100 forecasting tasks spanning diverse real-world domains and data characteristics. The benchmark includes tasks with and without covariates and provides the most comprehensive coverage of forecasting scenarios among existing evalu-ations. None of the datasets or tasks in fev-bench were included in the training corpus of our model. 
+
+GIFT-Eval. The GIFT-Eval benchmark (Aksu et al., 2024) comprises 24 datasets evaluated across multiple con-figurations, including short-, medium-, and long-term fore-casting horizons and different temporal granularities. In total, GIFT-Eval defines 97 evaluation settings. We ensure that the pretraining corpus used for our model does not overlap with the test portions of any GIFT-Eval task. 
+
+6.2. Baselines 
+
+We compare against state-of-the-art time-series foundation models that report strong performance on these benchmarks, including: Chronos-2 (Ansari et al., 2025), TiRex (Auer et al., 2025), TimesFM-2.5 (Das et al., 2024a), Toto-1.0 (Co-hen et al., 2025), Moirai-2.0 (Woo et al., 2024), TabPFN-TS (Hoo et al., 2025), and Chronos-Bolt (Ansari et al., 2024). 12 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+Table 5. The average win rate and skill score with respect to WQL metric, on the fev-bench dataset. Higher values are better for both. Baseline results and the imputation strategy for handling data leakage in certain tasks are both taken from Shchur et al. 2025.                                                            
+
+> Avg. Win Skill Median Leakage Model Rate (%) Score (%) runtime (s) (%)
+> iAmTime 81.3 51.9 4.8 0Chronos-2 79.7 51.5 2.7 0TimesFM-2.5 69.0 50.8 16.9 10 TiRex 66.2 46.7 1.4 1Toto-1.0 57.3 45.3 90.7 8TabPFN-TS 52.4 45.8 305.5 0Moirai-2.0 50.9 44.9 2.5 28 Chronos-Bolt Base 45.2 43.2 1.0 0Stat. Ensemble 28.3 21.8 690.6 0AutoARIMA 25.4 23.4 186.8 0AutoETS 19.1 -27.0 17.0 0AutoTheta 13.3 7.8 9.3 0Seasonal Naive 8.3 0.0 2.3 0
+
+As additional baselines, we include classical statistical fore-casting methods: AutoARIMA, AutoETS, AutoTheta, and their ensemble (Petropoulos & Svetunkov, 2020), represent-ing well-established approaches from the statistical forecast-ing literature (Hyndman & Athanasopoulos, 2018). 
+
+6.3. Evaluation Metrics 
+
+We follow the official evaluation protocols of each bench-mark. Point forecast accuracy is measured using mean absolute scaled error (MASE), while probabilistic perfor-mance is evaluated using the continuous ranked probability score (CRPS). In practice, CRPS is approximated by the mean weighted quantile loss (WQL) computed over nine quantiles: Q = {0.1, 0.2, . . . , 0.9}.
+
+To aggregate results across, each evaluation score is nor-malized by the seasonal naive baseline. Following (Shchur et al., 2025), we additionally report average win rates ( W )and skill scores ( S). The win rate measures the fraction of pairwise comparisons in which a model outperforms other methods, while the skill score reflects the average percent-age improvement over the seasonal naive baseline. 
+
+6.4. Results 
+
+Across all two benchmarks, the proposed model achieves competitive or superior performance relative to strong foundation-model baselines. We observe consistent im-provements in both point and probabilistic forecasting met-rics, particularly on tasks involving heterogeneous struc-tures, covariates, and longer horizons. Notably, our model demonstrates strong zero-shot performance without task-specific fine-tuning, indicating effective in-context task adaptation and amortized meta-learning provide advantages beyond scaling historical context alone. 
+
+Table 6. Aggregated scores of the overall GIFT-Eval benchmark on the short- , medium- , and long-term performances (top 5 models).                                                 
+
+> MASE CRPS CRPS Rank Term length Model long
+> iAmTime 0.739 0.451 3.095 TiRex 0.767 0.467 5.190 Chronos-2 0.757 0.472 5.571 TimesFM-2.5 0.751 0.475 5.190 Chronos-2-Synth 0.792 0.492 7.762 medium
+> iAmTime 0.716 0.451 4.048 Chronos-2-Synth 0.747 0.470 7.048 Chronos-2 0.725 0.471 4.857 TimesFM-2.5 0.724 0.472 5.571 TiRex 0.750 0.474 5.286 short
+> iAmTime 0.654 0.479 3.673 Chronos-2 0.667 0.496 5.436 TiRex 0.685 0.502 5.564 TimesFM-2.5 0.681 0.504 6.673 Chronos-2-Synth 0.685 0.508 6.891
+
+Fig 2 shows that on fev-bench, iAmTime achieves the strongest overall performance among all evaluated meth-ods. It attains the lowest aggregate CRPS and MASE scores across the 100 forecasting tasks, outperforming recent time-series foundation models. Notably, this performance is achieved in a fully zero-shot setting. Classical statistical methods (AutoARIMA, AutoETS, AutoTheta, and their ensemble) perform substantially worse, highlighting the ad-vantage of large-scale pretraining and contextual adaptation. Also, in Table 5, iAmTime outperforms all models by a sub-stantial margin on this benchmark that includes univariate, multivariate, and covariate-informed forecasting tasks. On GIFT-eval iAmTime achieves the lowest aggregate CRPS and among the lowest MASE scores (Fig 1), out-performing all other foundation-model baselines. In con-trast, task-specific deep learning models (e.g., N-BEATS, DLinear, DeepAR) and classical baselines lag significantly behind, particularly in probabilistic forecasting. Table 6 also shows iAmTime outperforms all competing methods across short- and long-term forecasting tasks. Results for additional forecasting metrics are provided in the Appendix B. 
+
+6.5. Ablation Study 
+
+Table 11,12 in Appendix C presents an ablation study on fev-bench evaluating the contributions of instruction-conditioned in-context learning components. Removing in-context examples during training (iAmTime-NoExmp) leads to a substantial drop in win rate and skill score, indi-cating that learning from demonstration structure is critical. Eliminating semantic tokens (iAmTime-NoToks) causes the largest degradation in skill score, highlighting the im-portance of explicit role and boundary encoding for stable 13 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+task inference. Training without meta-learning objectives (iAmTime-NoMeta), i.e., using forecasting-only supervi-sion, also significantly reduces performance, confirming the benefit of multi-task amortized meta-learning. Together, these results show that examples, semantic tokenization, and instruction-conditioned training are all essential for achiev-ing strong and robust in-context adaptation. 
+
+Impact Statement 
+
+This work advances time-series modeling by introducing instruction-conditioned in-context learning as a general mechanism for adapting foundation models to new fore-casting and analysis tasks without retraining. By enabling flexible task specification through contextual demonstra-tions, the proposed approach has the potential to reduce the cost and latency associated with deploying and main-taining specialized models across domains such as energy systems, supply-chain planning, healthcare monitoring, and financial risk management. The methodology may also encourage more reusable and data-efficient forecasting sys-tems, particularly in settings where labeled data or retraining infrastructure is limited. At the same time, as with other large-scale predictive mod-els, the approach inherits limitations related to data quality, representativeness, and downstream decision-making. Fore-casts and anomaly signals produced by the model should be used as decision support rather than automated control, especially in high-stakes applications. Future work should explore robustness, interpretability, and responsible deploy-ment practices to mitigate potential misuse and unintended consequences. 
+
+References 
+
+Aksu, T., Woo, G., Liu, J., Liu, X., Liu, C., Savarese, S., Xiong, C., and Sahoo, D. Gift-eval: A benchmark for general time series forecasting model evaluation. arXiv preprint arXiv:2410.10393 , 2024. Ansari, A. F., Stella, L., Turkmen, C., Zhang, X., Mercado, P., Shen, H., Shchur, O., Rangapuram, S. S., Arango, S. P., Kapoor, S., et al. Chronos: Learning the language of time series. arXiv preprint arXiv:2403.07815 , 2024. Ansari, A. F., Shchur, O., K ¨uken, J., Auer, A., Han, B., Mercado, P., Rangapuram, S. S., Shen, H., Stella, L., Zhang, X., et al. Chronos-2: From univariate to universal forecasting. arXiv preprint arXiv:2510.15821 , 2025. Audibert, J., Michiardi, P., Guyard, F., Marti, S., and Zu-luaga, M. A. Usad: Unsupervised anomaly detection on multivariate time series. In Proceedings of the 26th ACM SIGKDD international conference on knowledge discovery & data mining , pp. 3395–3404, 2020. Auer, A., Podest, P., Klotz, D., B ¨ock, S., Klambauer, G., and Hochreiter, S. Tirex: Zero-shot forecasting across long and short horizons with enhanced in-context learning. 
+
+arXiv preprint arXiv:2505.23719 , 2025. Bengio, Y., Louradour, J., Collobert, R., and Weston, J. Curriculum learning. In Proceedings of the 26th annual international conference on machine learning , pp. 41–48, 2009. Box, G. E. and Jenkins, G. M. Some recent advances in forecasting and control. Journal of the Royal Statistical Society. Series C (Applied Statistics) , 17(2):91–109, 1968. Brown, T., Mann, B., Ryder, N., Subbiah, M., Kaplan, J. D., Dhariwal, P., Neelakantan, A., Shyam, P., Sastry, G., Askell, A., et al. Language models are few-shot learners. 
+
+Advances in neural information processing systems , 33: 1877–1901, 2020. Cao, W., Wang, D., Li, J., Zhou, H., Li, L., and Li, Y. Brits: Bidirectional recurrent imputation for time series. 
+
+Advances in neural information processing systems , 31, 2018. Challu, C., Olivares, K. G., Oreshkin, B. N., Ramirez, F. G., Canseco, M. M., and Dubrawski, A. Nhits: Neural hi-erarchical interpolation for time series forecasting. In 
+
+Proceedings of the AAAI conference on artificial intelli-gence , volume 37, pp. 6989–6997, 2023. Cohen, B., Khwaja, E., Doubli, Y., Lemaachi, S., Lettieri, C., Masson, C., Miccinilli, H., Ram ´e, E., Ren, Q., Ros-tamizadeh, A., et al. This time is different: An observabil-ity perspective on time series foundation models. arXiv preprint arXiv:2505.14766 , 2025. Das, A., Faw, M., Sen, R., and Zhou, Y. In-context fine-tuning for time-series foundation models. arXiv preprint arXiv:2410.24087 , 2024a. Das, A., Kong, W., Sen, R., and Zhou, Y. A decoder-only foundation model for time-series forecasting. In 
+
+Forty-first International Conference on Machine Learn-ing , 2024b. Dosovitskiy, A. An image is worth 16x16 words: Trans-formers for image recognition at scale. arXiv preprint arXiv:2010.11929 , 2020. Elman, J. L. Learning and development in neural networks: The importance of starting small. Cognition , 48(1):71–99, 1993. Evgeniou, T. and Pontil, M. Regularized multi–task learning. In Proceedings of the tenth ACM SIGKDD international conference on Knowledge discovery and data mining , pp. 109–117, 2004. 14 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+Fawaz, H. I. Deep learning for time series classification. 
+
+arXiv preprint arXiv:2010.00567 , 2020. Finn, C., Abbeel, P., and Levine, S. Model-agnostic meta-learning for fast adaptation of deep networks. In Interna-tional conference on machine learning , pp. 1126–1135. PMLR, 2017. Garg, S., Tsipras, D., Liang, P. S., and Valiant, G. What can transformers learn in-context? a case study of sim-ple function classes. Advances in neural information processing systems , 35:30583–30598, 2022. Gneiting, T. and Katzfuss, M. Probabilistic forecasting. 
+
+Annual Review of Statistics and Its Application , 1(1):125– 151, 2014. Haviv, A., Ram, O., Press, O., Izsak, P., and Levy, O. Transformer language models without positional encod-ings still learn positional information. arXiv preprint arXiv:2203.16634 , 2022. Holtzman, A., West, P., Shwartz, V., Choi, Y., and Zettle-moyer, L. Surface form competition: Why the highest probability answer isn’t always right. arXiv preprint arXiv:2104.08315 , 2021. Hoo, S. B., M ¨uller, S., Salinas, D., and Hutter, F. From tables to time: How tabpfn-v2 outperforms special-ized time series forecasting models. arXiv preprint arXiv:2501.02945 , 2025. Hyndman, R. J. and Athanasopoulos, G. Forecasting: prin-ciples and practice . OTexts, 2018. Kim, T., Kim, J., Tae, Y., Park, C., Choi, J.-H., and Choo, J. Reversible instance normalization for accurate time-series forecasting against distribution shift. In International conference on learning representations , 2021. Lim, B., Arık, S. ¨O., Loeff, N., and Pfister, T. Temporal fusion transformers for interpretable multi-horizon time series forecasting. International journal of forecasting ,37(4):1748–1764, 2021. Lu, J., Sun, Y., and Yang, S. In-context time series predictor. 
+
+arXiv preprint arXiv:2405.14982 , 2024. Min, S., Lewis, M., Zettlemoyer, L., and Hajishirzi, H. Metaicl: Learning to learn in context. In Proceedings of the 2022 conference of the North American chapter of the Association for Computational Linguistics: Human Language Technologies , pp. 2791–2809, 2022. Mishra, S., Khashabi, D., Baral, C., and Hajishirzi, H. Cross-task generalization via natural language crowdsourcing instructions. In Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 3470–3487, 2022. Nie, Y. A time series is worth 64words: Long-term forecast-ing with transformers. arXiv preprint arXiv:2211.14730 ,2022. Oreshkin, B. N., Carpov, D., Chapados, N., and Bengio, Y. N-beats: Neural basis expansion analysis for interpretable time series forecasting. arXiv preprint arXiv:1905.10437 ,2019. Petropoulos, F. and Svetunkov, I. A simple combination of univariate models. International journal of forecasting ,36(1):110–115, 2020. Raffel, C., Shazeer, N., Roberts, A., Lee, K., Narang, S., Matena, M., Zhou, Y., Li, W., and Liu, P. J. Exploring the limits of transfer learning with a unified text-to-text transformer. Journal of machine learning research , 21 (140):1–67, 2020. Rangapuram, S. S., Seeger, M. W., Gasthaus, J., Stella, L., Wang, Y., and Januschowski, T. Deep state space models for time series forecasting. Advances in neural information processing systems , 31, 2018. Ruder, S. An overview of multi-task learning in deep neural networks. arXiv preprint arXiv:1706.05098 , 2017. Saha, A., Ananthram, A., Allaway, E., Ji, H., and McKe-own, K. Seeded hierarchical clustering for expert-crafted taxonomies. In Findings of the Association for Computa-tional Linguistics: EMNLP 2022 , pp. 1595–1609, 2022. Salinas, D., Flunkert, V., Gasthaus, J., and Januschowski, T. Deepar: Probabilistic forecasting with autoregressive recurrent networks. International journal of forecasting ,36(3):1181–1191, 2020. Sanger, T. D. Neural network learning control of robot manipulators using gradually increasing task difficulty. 
+
+IEEE transactions on Robotics and Automation , 10(3): 323–333, 2002. Shchur, O., Ansari, A. F., Turkmen, C., Stella, L., Erickson, N., Guerron, P., Bohlke-Schneider, M., and Wang, Y. fev-bench: A realistic benchmark for time series forecasting. 
+
+arXiv preprint arXiv:2509.26468 , 2025. Vilalta, R. and Drissi, Y. A perspective view and survey of meta-learning. Artificial intelligence review , 18(2):77–95, 2002. Wei, J., Bosma, M., Zhao, V. Y., Guu, K., Yu, A. W., Lester, B., Du, N., Dai, A. M., and Le, Q. V. Finetuned lan-guage models are zero-shot learners. arXiv preprint arXiv:2109.01652 , 2021. Wei, J., Wang, X., Schuurmans, D., Bosma, M., Xia, F., Chi, E., Le, Q. V., Zhou, D., et al. Chain-of-thought prompting 15 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+elicits reasoning in large language models. Advances in neural information processing systems , 35:24824–24837, 2022. Woo, G., Liu, C., Kumar, A., Xiong, C., Savarese, S., and Sahoo, D. Unified training of universal time series fore-casting transformers. 2024. Wu, X., Dyer, E., and Neyshabur, B. When do curricula work? arXiv preprint arXiv:2012.03107 , 2020. Yang, Z., Ghosh, M., Saha, A., Xu, D., Shmakov, K., and Lee, K.-c. A comprehensive forecasting framework based on multi-stage hierarchical forecasting reconciliation and adjustment. In 2024 IEEE International Conference on Big Data (BigData) , pp. 1151–1160. IEEE, 2024. Zeng, A., Chen, M., Zhang, L., and Xu, Q. Are transformers effective for time series forecasting? In Proceedings of the AAAI conference on artificial intelligence , volume 37, pp. 11121–11128, 2023. Zhao, Z., Wallace, E., Feng, S., Klein, D., and Singh, S. Calibrate before use: Improving few-shot performance of language models. In International conference on machine learning , pp. 12697–12706. PMLR, 2021. Zhong, R., Lee, K., Zhang, Z., and Klein, D. Adapt-ing language models for zero-shot learning by meta-tuning on dataset and prompt collections. arXiv preprint arXiv:2104.04670 , 2021. 16 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+A. Datasets 
+
+A.1. Training Data  
+
+> Table 7. List of training datasets used from Chronos pre-training corpus, published by (Ansari et al., 2024)
+
+Name Domain # Series Avg. Length 
+
+Mexico City Bikes Mobility / Transport 494 78,313 Brazilian Cities Temperature Weather / Climate 12 757 Solar (5 Min.) Energy 5,166 105,120 Solar (Hourly) Energy 5,166 105,120 Spanish Energy and Weather Energy / Weather 66 35,064 Taxi (Hourly) Mobility / Transport 2,428 739 USHCN Weather / Climate 6,090 38,653 Weatherbench (Hourly) Weather / Climate 225,280 350,639 Weatherbench (Daily) Weather / Climate 225,280 14,609 Weatherbench (Weekly) Weather / Climate 225,280 2,087 Wiki Daily (100k) Web / Information 100,000 2,741 Wind Farms (Hourly) Energy 100,000 8,514 Wind Farms (Daily) Energy 100,000 354 Electricity (15 Min.) Energy 370 113,341 Electricity (Hourly) Energy 321 26,304 Electricity (Weekly) Energy 321 156 KDD Cup 2018 Energy 270 10,897 London Smart Meters Energy 5,560 29,951 M4 (Daily) Business / Economics 4,227 2,371 M4 (Hourly) Business / Economics 414 901 M4 (Monthly) Business / Economics 48,000 234 M4 (Weekly) Business / Economics 359 1,035 Pedestrian Counts Mobility / Urban 66 47,459 Rideshare Mobility / Transport 2,340 541 Taxi (30 Min.) Mobility / Transport 2,428 1,478 Temperature–Rain Weather / Climate 32,072 725 Uber TLC (Hourly) Mobility / Transport 262 4,344 Uber TLC (Daily) Mobility / Transport 262 181 17 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks  
+
+> Table 8. Subset of pre-training datasets used from GiftEvalPretrain, published by (Aksu et al., 2024)
+
+Name Domain # Series Avg. Length 
+
+azure vm traces 2017 Cloud / Systems 159,472 5,553 borg cluster data 2011 Cloud / Systems 143,386 3,749 bdg-2 panther Energy 105 8,760 bdg-2 fox Energy 135 17,219 bdg-2 rat Energy 280 16,887 bdg-2 bear Energy 91 16,289 lcl Energy 713 13,385 smart Energy 5 19,142 ideal Energy 217 5,785 sceaux Energy 1 34,223 borealis Energy 15 5,551 buildings 900k Energy 1,795,256 8,761 largest 2017 Climate 8,196 105,120 largest 2018 Climate 8,428 105,120 largest 2019 Climate 8,600 105,120 largest 2020 Climate 8,561 105,408 largest 2021 Climate 8,548 105,120 PEMS03 Transport 358 26,208 PEMS04 Transport 307 16,992 PEMS07 Transport 883 28,224 PEMS08 Transport 170 17,856 PEMS BAY Transport 325 52,128 LOS LOOP Transport 207 34,272 BEIJING SUBWAY 30MIN Transport 276 1,572 SHMETRO Transport 288 8,809 HZMETRO Transport 80 2,377 Q-TRAFFIC Transport 45,148 5,856 subseasonal Climate 862 16,470 subseasonal precip Climate 862 11,323 wind power Energy 1 7,397,147 solar power Energy 1 7,397,222 kaggle web traffic weekly Web 14,563 114 kdd2022 Energy 134 35,280 godaddy Web 3,135 41 favorita sales Retail 111,840 1,244 china air quality Environment 437 13,133 beijing air quality Environment 12 35,064 residential load power Energy 271 538,725 residential pv power Energy 233 537,935 cdc fluview ilinet Healthcare 75 852 cdc fluview who Healthcare 74 564 
+
+A.2. Evaluation Data 
+
+18 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+Table 9. Benchmark datasets dataset summary of GIFT-Eval (Aksu et al., 2024). The benchmark provides various settings for evaluating horizons (H) in terms of short/mid/long term forecasts. Each dataset is evaluated over W windows. 
+
+Dataset Domain Freq. # Series Series Length # Target Short-term Med-term Long-term Avg Min Max Variate H W H Windows H W
+
+Jena Weather Nature 10T 1 52,704 52,704 52,704 21 48 20 480 1 720 8Jena Weather Nature H 1 8,784 8,784 8,784 21 48 19 480 2 720 2Jena Weather Nature D 1 366 366 366 21 30 2BizITObs - Application Web/CloudOps 10S 1 8,834 8,834 8,834 2 60 15 600 2 900 1BizITObs - Service Web/CloudOps 10S 21 8,835 8,835 8,835 2 60 15 600 2 900 1BizITObs - L2C Web/CloudOps 5T 1 31,968 31,968 31,968 7 48 20 480 7 720 5BizITObs - L2C Web/CloudOps H 1 2,664 2,664 2,664 7 48 6 480 1 720 1Bitbrains - Fast Storage Web/CloudOps 5T 1,250 8,640 8,640 8,640 2 48 18 480 2 720 2Bitbrains - Fast Storage Web/CloudOps H 1,250 721 721 721 2 48 2Bitbrains - rnd Web/CloudOps 5T 500 8,640 8,640 8,640 2 48 18 480 2 720 2Bitbrains - rnd Web/CloudOps H 500 720 720 720 2 48 2Restaurant Sales D 807 358 67 478 1 30 1ETT1 Energy 15T 1 69,680 69,680 69,680 7 48 20 480 15 720 10 ETT1 Energy H 1 17,420 17,420 17,420 7 48 20 480 4 720 3ETT1 Energy D 1 725 725 725 7 30 3ETT1 Energy W-THU 1 103 103 103 7 8 2ETT2 Energy 15T 1 69,680 69,680 69,680 7 48 20 480 15 720 10 ETT2 Energy H 1 17,420 17,420 17,420 7 48 20 480 4 720 3ETT2 Energy D 1 725 725 725 7 30 3ETT2 Energy W-THU 1 103 103 103 7 8 2Loop Seattle Transport 5T 323 105,120 105,120 105,120 1 48 20 480 20 720 15 Loop Seattle Transport H 323 8,760 8,760 8,760 1 48 19 480 2 720 2Loop Seattle Transport D 323 365 365 365 1 30 2SZ-Taxi Transport 15T 156 2,976 2,976 2,976 1 48 7 480 1 720 1SZ-Taxi Transport H 156 744 744 744 1 48 2M DENSE Transport H 30 17,520 17,520 17,520 1 48 20 480 4 720 3M DENSE Transport D 30 730 730 730 1 30 3Solar Energy 10T 137 52,560 52,560 52,560 1 48 20 480 11 720 8Solar Energy H 137 8,760 8,760 8,760 1 48 19 480 2 720 2Solar Energy D 137 365 365 365 1 30 2Solar Energy W-FRI 137 52 52 52 1 8 1Hierarchical Sales Sales D 118 1,825 1,825 1,825 1 30 7Hierarchical Sales Sales W-WED 118 260 260 260 1 8 4M4 Yearly Econ/Fin A-DEC 22,974 37 19 284 1 6 1M4 Quarterly Econ/Fin Q-DEC 24,000 100 24 874 1 8 1M4 Monthly Econ/Fin M 48,000 234 60 2,812 1 18 1M4 Weekly Econ/Fin W-SUN 359 1,035 93 2,610 1 13 1M4 Daily Econ/Fin D 4,227 2,371 107 9,933 1 14 1M4 Hourly Econ/Fin H 414 902 748 1,008 1 48 2Hospital Healthcare M 767 84 84 84 1 12 1COVID Deaths Healthcare D 266 212 212 212 1 30 1US Births Healthcare D 1 7,305 7,305 7,305 1 30 20 US Births Healthcare D 1 7,305 7,305 7,305 1 30 20 US Births Healthcare W-TUE 1 1,043 1,043 1,043 1 8 14 US Births Healthcare M 1 240 240 240 1 12 2Saugeen Nature D 1 23,741 23,741 23,741 1 30 20 Saugeen Nature W-THU 1 3,391 3,391 3,391 1 8 20 Saugeen Nature M 1 780 780 780 1 12 7Temperature Rain Nature D 32,072 725 725 725 1 30 3KDD Cup 2018 Nature H 270 10,898 9,504 10,920 1 48 20 480 2 720 2KDD Cup 2018 Nature D 270 455 396 455 1 30 2Car Parts Sales M 2,674 51 51 51 1 12 1Electricity Energy 15T 370 140,256 140,256 140,256 1 48 20 480 20 720 20 Electricity Energy H 370 35,064 35,064 35,064 1 48 20 480 8 720 5Electricity Energy D 370 1,461 1,461 1,461 1 30 5Electricity Energy W-FRI 370 208 208 208 1 8 3
+
+19 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+Table 10. Benchmark datasets dataset summary of fev-bench (Shchur et al., 2025). This benchmark contains 100 tasks including the ones listed here and overlapping tasks from GIFT-Eval on the BizITObs - L2C, ETT, Hierarchical Sales, Hospital, Jena Weather, Loop Seattle, M-DENSE, SZ Taxi, Solar tasks. 
+
+Task Domain Freq. H W Median length # series # targets # past cov. # known cov. # static cov. 
+
+Australian Tourism econ Q 8 2 36 89 1 0 0 0FRED-MD - CEE econ M 12 20 798 1 3 4 0 0FRED-MD - Macro econ M 12 20 798 1 51 0 0 0FRED-QD - CEE econ Q 8 20 266 1 3 4 0 0FRED-QD - Macro econ Q 8 20 266 1 51 0 0 0GVAR econ Q 8 10 178 33 6 3 0 0US Consumption econ M 12 10 792 31 1 0 0 0US Consumption econ Q 8 10 262 31 1 0 0 0US Consumption econ Y 5 10 64 31 1 0 0 0World CO2 Emissions econ Y 5 9 60 191 1 0 0 0World Life Expectancy econ Y 5 10 74 237 1 0 0 0World Tourism econ Y 5 2 21 178 1 0 0 0ENTSO-e Load energy 15T 96 20 175292 6 1 0 3 0ENTSO-e Load energy 30T 96 20 87645 6 1 0 3 0ENTSO-e Load energy H 168 20 43822 6 1 0 3 0EPF-BE energy H 24 20 52416 1 1 0 2 0EPF-DE energy H 24 20 52416 1 1 0 2 0EPF-FR energy H 24 20 52416 1 1 0 2 0EPF-NP energy H 24 20 52416 1 1 0 2 0EPF-PJM energy H 24 20 52416 1 1 0 2 0ERCOT energy D 28 20 6452 8 1 0 0 0ERCOT energy H 168 20 154872 8 1 0 0 0ERCOT energy M 12 15 211 8 1 0 0 0ERCOT energy W 13 20 921 8 1 0 0 0GFC12 energy H 168 10 39414 11 1 0 1 0GFC14 energy H 168 20 17520 1 1 0 1 0GFC17 energy H 168 20 17544 8 1 0 1 0Solar with Weather energy 15T 96 20 198600 1 1 2 7 0Solar with Weather energy H 24 20 49648 1 1 2 7 0BOOMLET-1062 cloud 5T 288 20 16384 1 21 0 0 0BOOMLET-1209 cloud 5T 288 20 16384 1 53 0 0 0BOOMLET-1225 cloud T 60 20 16384 1 49 0 0 0BOOMLET-1230 cloud 5T 288 20 16384 1 23 0 0 0BOOMLET-1282 cloud T 60 20 16384 1 35 0 0 0BOOMLET-1487 cloud 5T 288 20 16384 1 54 0 0 0BOOMLET-1631 cloud 30T 96 20 10463 1 40 0 0 0BOOMLET-1676 cloud 30T 96 20 10463 1 100 0 0 0BOOMLET-1855 cloud H 24 20 5231 1 52 0 0 0BOOMLET-1975 cloud H 24 20 5231 1 75 0 0 0BOOMLET-2187 cloud H 24 20 5231 1 100 0 0 0Favorita Store Sales retail M 12 2 54 1579 1 1 1 6Favorita Store Sales retail W 13 10 240 1579 1 1 1 6Favorita Store Sales retail D 28 10 1688 1579 1 1 2 6Favorita Transactions retail M 12 2 54 51 1 1 0 5Favorita Transactions retail W 13 10 240 51 1 1 0 5Favorita Transactions retail D 28 10 1688 51 1 1 1 5KDD Cup 2022 energy D 14 10 243 134 1 9 0 0KDD Cup 2022 energy 10T 288 10 35279 134 1 9 0 0KDD Cup 2022 energy 30T 96 10 11758 134 1 9 0 0M5 retail M 12 1 58 30490 1 0 8 5M5 retail W 13 1 257 30490 1 0 8 5M5 retail D 28 1 1810 30490 1 0 8 5Restaurant retail D 28 8 296 817 1 0 0 4Rossmann retail W 13 8 133 1115 1 1 4 10 Rossmann retail D 48 10 942 1115 1 1 5 10 Walmart retail W 39 1 143 2936 1 0 10 4ECDC ILI healthcare W 13 10 201 25 1 0 0 0Hospital Admissions healthcare D 28 20 1731 8 1 0 0 0Hospital Admissions healthcare W 13 16 246 8 1 0 0 0UK COVID - Nation - Cumulative healthcare D 28 20 729 4 3 5 0 0UK COVID - Nation - New healthcare D 28 20 729 4 3 5 0 0UK COVID - UTLA - Cumulative healthcare W 13 5 104 214 1 0 0 0UK COVID - UTLA - New healthcare D 28 10 721 214 1 0 0 0
+
+20 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks        
+
+> 0.02.55.07.510 .012 .515 .017 .5
+> Aggregate Score
+> iAmTime
+> Chronos-2
+> TiRex
+> TimesFM-2.5
+> Chronos-2-Synth
+> Toto 1.0
+> Moirai 2.0
+> TabPFN-TS
+> Chronos-Bolt Base
+> PatchTST
+> TFT
+> DeepAR
+> Auto ARIMA
+> N-BEATS
+> DLinear
+> Seasonal Naive
+> Auto Theta
+> Auto ETS
+> 3.54
+> 4.66
+> 6.51
+> 6.00
+> 6.71
+> 9.25
+> 8.79
+> 11.29
+> 9.81
+> 13.36
+> 14.60
+> 17.74
+> 15.66
+> 15.29
+> 17.10
+> 16.71
+> 17.01
+> 16.99
+> 3.63
+> 5.34
+> 5.42
+> 6.11
+> 7.11
+> 8.71
+> 9.05
+> 10.34
+> 10.43
+> 12.30
+> 12.48
+> 15.80
+> 16.78
+> 16.95
+> 17.72
+> 17.80
+> 17.91
+> 18.09
+> GIFT-Eval Avg Model Rank
+> (sorted by CRPS Rank)
+> Zero Shot
+> Task Specific
+> Local
+> CRPS Rank
+> MASE Rank
+
+(a) Overall CRPS and MASE scores on GIFT-Eval. Lower values are better. “Zero-shot Models” are not trained on this data. In-domain models are partly trained.        
+
+> 0.00.20.40.60.81.01.21.4
+> Score
+> iAmTime
+> TiRex
+> Chronos-2
+> TimesFM-2.5
+> Chronos-2-Synth
+> Toto 1.0
+> Moirai 2.0
+> PatchTST
+> TabPFN-TS
+> TFT
+> Chronos-Bolt Base
+> N-BEATS
+> DLinear
+> DeepAR
+> Seasonal Naive
+> Auto ARIMA
+> Auto Theta
+> Auto ETS
+> 0.74
+> 0.77
+> 0.76
+> 0.75
+> 0.79
+> 0.81
+> 0.79
+> 0.88
+> 0.86
+> 0.96
+> 0.93
+> 1.06
+> 1.15
+> 1.00
+> 1.42
+> 0.45
+> 0.47
+> 0.47
+> 0.47
+> 0.49
+> 0.50
+> 0.51
+> 0.53
+> 0.54
+> 0.54
+> 0.61
+> 0.81
+> 0.81
+> 0.90
+> 1.00
+> 1.15
+> GIFT-Eval - Long - Agg Score
+> Zero Shot
+> Task Specific
+> Local
+> CRPS
+> MASE
+
+(b) Aggregated CRPS-Rank and MASE-Rank on long-term GIFT-Eval results. Lower values are better. “Zero-shot Models” are not trained on this data. 
+
+Figure 3. Overall and long-term performance on the GIFT-Eval benchmark. (Train-evaluation overlap: Moirai 2.0 19%, TimesFM-2.5 10%, TTM 16%) 
+
+B. Extended Evaluations 
+
+This section presents additional experimental results complementing Section 6.4. 
+
+B.1. Zero-shot generalization on GIFT-Eval 
+
+First, we talk about the overall CRPS-Rank and MASE-Rank on the zero-shot evaluation of GIFT-Eval benchmark. This rank based metric is helpful as it averages rank across evaluation settings ensure robustness metrics against outlier performance. Followed by this, we show the short- , medium- , long-term, and univariate-multivariate forecasts from GIFT-Eval. iAmTime achieves the strongest overall performance in the zero-shot setting on GIFT-Eval, attaining the best or near-best aggregated CRPS and MASE ranks across all evaluation slices (Figure 3a). Despite no training on the benchmark data, iAmTime consistently outperforms or matches task-specific and locally trained models, including methods with partial train–evaluation overlap. This advantage persists across long-, medium-, and short-term horizons (Figures 3b,4a,4b) as well as univariate and multivariate inputs (Figures 5a,5b) , demonstrating robust zero-shot generalization across diverse forecasting conditions. Performance trends are stable across evaluation slices and including horizon length. It is also stable across input structure, and to make this point more explicit, Table 14 isolate the performance on only the multivariate subset. In majority of the cases iAmTime achieves the top rank. This indicates robustness to both forecasting horizon and input dimensionality. In contrast, classical statistical baselines and fully local models generally underperform, especially on longer horizons, while other foundation models show competitive but less consistent rankings across settings. 21 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4
+
+Score 
+
+iAmTime 
+
+Chronos-2-Synth 
+
+Chronos-2 
+
+TimesFM-2.5 
+
+TiRex 
+
+Toto 1.0 
+
+Moirai 2.0 
+
+TabPFN-TS 
+
+PatchTST 
+
+TFT 
+
+Chronos-Bolt Base 
+
+DeepAR 
+
+N-BEATS 
+
+DLinear 
+
+Auto ARIMA 
+
+Seasonal Naive 
+
+Auto Theta 
+
+Auto ETS 
+
+> 0.72
+> 0.75
+> 0.73
+> 0.72
+> 0.75
+> 0.77
+> 0.76
+> 0.82
+> 0.86
+> 0.95
+> 0.90
+> 1.34
+> 1.04
+> 1.10
+> 1.03
+> 1.00
+> 1.18
+> 0.45
+> 0.47
+> 0.47
+> 0.47
+> 0.47
+> 0.50
+> 0.52
+> 0.54
+> 0.55
+> 0.56
+> 0.61
+> 0.76
+> 0.81
+> 0.81
+> 0.99
+> 1.00
+
+GIFT-Eval - Medium - Agg Score 
+
+Zero Shot 
+
+Task Specific 
+
+Local 
+
+CRPS 
+
+MASE 
+
+(a) Aggregated CRPS and MASE scores on medium-term GIFT-Eval results. Lower values are better. “Zero-shot Models” are not trained on this data. 
+
+0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4
+
+Score 
+
+iAmTime 
+
+Chronos-2 
+
+TiRex 
+
+TimesFM-2.5 
+
+Chronos-2-Synth 
+
+Moirai 2.0 
+
+Toto 1.0 
+
+TabPFN-TS 
+
+Chronos-Bolt Base 
+
+PatchTST 
+
+TFT 
+
+Auto ARIMA 
+
+N-BEATS 
+
+DLinear 
+
+DeepAR 
+
+Auto Theta 
+
+Seasonal Naive 
+
+Auto ETS 
+
+> 0.65
+> 0.67
+> 0.68
+> 0.68
+> 0.69
+> 0.69
+> 0.72
+> 0.72
+> 0.73
+> 0.83
+> 0.88
+> 0.93
+> 0.86
+> 1.02
+> 1.20
+> 0.96
+> 1.00
+> 0.98
+> 0.48
+> 0.50
+> 0.50
+> 0.50
+> 0.51
+> 0.52
+> 0.53
+> 0.55
+> 0.55
+> 0.63
+> 0.65
+> 0.81
+> 0.82
+> 0.87
+> 0.87
+> 0.90
+> 1.00
+> 1.48
+
+GIFT-Eval - Short - Agg Score 
+
+Zero Shot 
+
+Task Specific 
+
+Local 
+
+CRPS 
+
+MASE 
+
+(b) Aggregated CRPS and MASE scores on short-term GIFT-Eval results. Lower values are better. “Zero-shot Models” are not trained on this data. 
+
+Figure 4. Term length performance on the GIFT-Eval benchmark. (Train-evaluation overlap: Moirai 2.0 19%, TimesFM-2.5 10%, TTM 16%) 
+
+0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4
+
+Score 
+
+iAmTime 
+
+Chronos-2 
+
+TiRex 
+
+TimesFM-2.5 
+
+Chronos-2-Synth 
+
+Moirai 2.0 
+
+TabPFN-TS 
+
+Toto 1.0 
+
+Chronos-Bolt Base 
+
+TFT 
+
+PatchTST 
+
+DeepAR 
+
+Auto ARIMA 
+
+N-BEATS 
+
+DLinear 
+
+Seasonal Naive 
+
+Auto Theta 
+
+Auto ETS 
+
+> 0.67
+> 0.69
+> 0.70
+> 0.69
+> 0.71
+> 0.71
+> 0.74
+> 0.74
+> 0.72
+> 0.81
+> 0.81
+> 1.02
+> 0.91
+> 0.89
+> 0.94
+> 1.00
+> 1.15
+> 1.11
+> 0.49
+> 0.50
+> 0.51
+> 0.51
+> 0.52
+> 0.53
+> 0.54
+> 0.55
+> 0.55
+> 0.60
+> 0.61
+> 0.76
+> 0.83
+> 0.84
+> 0.87
+> 1.00
+> 1.33
+
+GIFT-Eval - Univariate - Agg Score 
+
+Zero Shot 
+
+Task Specific 
+
+Local 
+
+CRPS 
+
+MASE 
+
+(a) Aggregated CRPS and MASE scores on univariate GIFT-Eval results. Lower values are better. “Zero-shot Models” are not trained on this data. 
+
+0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4
+
+Score 
+
+iAmTime 
+
+Chronos-2-Synth 
+
+TiRex 
+
+Chronos-2 
+
+TimesFM-2.5 
+
+Toto 1.0 
+
+Moirai 2.0 
+
+TabPFN-TS 
+
+PatchTST 
+
+Chronos-Bolt Base 
+
+TFT 
+
+N-BEATS 
+
+DLinear 
+
+DeepAR 
+
+Seasonal Naive 
+
+Auto ARIMA 
+
+Auto Theta 
+
+Auto ETS 
+
+> 0.71
+> 0.74
+> 0.74
+> 0.71
+> 0.72
+> 0.77
+> 0.75
+> 0.82
+> 0.91
+> 0.93
+> 1.07
+> 1.00
+> 1.23
+> 1.00
+> 1.32
+> 1.02
+> 1.35
+> 0.44
+> 0.46
+> 0.46
+> 0.46
+> 0.47
+> 0.48
+> 0.50
+> 0.54
+> 0.56
+> 0.60
+> 0.61
+> 0.79
+> 0.82
+> 0.99
+> 1.00
+> 1.03
+> 1.14
+
+GIFT-Eval - Multivariate - Agg Score 
+
+Zero Shot 
+
+Task Specific 
+
+Local 
+
+CRPS 
+
+MASE 
+
+(b) Aggregated CRPS and MASE scores on multivariate GIFT-Eval results. Lower values are better. “Zero-shot Models” are not trained on this data. 
+
+Figure 5. Result on univariate and multivariate inputs on the GIFT-Eval benchmark. (Train-evaluation overlap: Moirai 2.0 19%, TimesFM-2.5 10%, TTM 16%) 
+
+22 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+C. Ablations         
+
+> Table 11. Win rate and skill score with respect to MASE on fev-bench dataset. iAmTime is the base version trained using Meta-training tasks. iAmTime-NoExmp ablates the examples (0 examples) while training (and removes the classification task). iAmTime-NoToks
+> ablates the use of semantic tokens while training. iAmTime-NoMeta uses only forecasting tasks to train the model.
+
+Win Skill Median Leakage Model Rate (%) Score (%) Runtime (s) %
+
+iAmTime 86.1 37.2 4.8 0Chronos-2 79.1 35.5 2.7 0
+
+iAmTime-NoExmp 70.9 32.9 3.4 0TimesFM-2.5 67.9 35.6 16.9 10 TiRex 62.9 30.1 1.4 1
+
+iAmTime-NoToks 61.3 20.5 4.5 10 
+
+iAmTime-NoMeta 59.1 30.6 4.8 8Toto-1.0 54.8 28.5 90.7 8Moirai-2.0 46.8 28.1 2.5 28 TabPFN-TS 46.3 27.6 305.5 0Chronos-Bolt 44.3 26.5 1.0 0Seasonal Naive 11.2 0.0 2.3 0        
+
+> Table 12. Metrics sorted with respect to CRPS on the GIFT-Eval dataset. iAmTime is the base version trained using Meta-training tasks.
+> iAmTime-NoExmp ablates the examples (0 examples) while training (and removes the classification task). iAmTime-NoToks ablates the use of semantic tokens while training. iAmTime-NoMeta uses only forecasting tasks to train the model.
+
+MASE MASE Rank CRPS CRPS Rank Model 
+
+iAmTime 0.685 3.536 0.467 3.629 Chronos-2 0.698 4.660 0.485 5.340 
+
+iAmTime-NoExmp 0.705 6.134 0.487 5.773 TiRex 0.716 6.505 0.488 5.423 TimesFM-2.5 0.705 6.000 0.490 6.113 Chronos-2-Synth 0.720 6.711 0.496 7.113 
+
+iAmTime-NoMeta 0.725 8.031 0.500 7.454 Moirai2 0.728 8.794 0.516 9.052 
+
+iAmTime-NoToks 0.727 8.014 0.510 7.773 Toto 1.0 0.750 9.247 0.517 8.711 TabPFN-TS 0.771 11.289 0.544 10.340 Chronos-bolt base 0.808 9.814 0.574 10.433 Seasonal Naive 1.000 16.711 1.000 17.804 
+
+C.1. Training Method Ablations 
+
+To isolate the contributions of instruction-conditioned in-context learning, we evaluate four variants of our model under a controlled training and inference setup to create targeted ablations that remove one component at a time while keeping all other factors fixed. All variants are evaluated under the same inference protocol on fev-bench and GIFT-Eval, allowing us to attribute performance differences directly to the presence or absence of each instruction-conditioned component. The ablation results in Table 11,12 can be explained by how each component contributes to learning a conditional predictor under the in-context learning formulation. 
+
+iAmTime The full model (iAmTime) is trained using heterogeneous meta-training tasks with explicit example–query prompts and structured semantic tokens. This method performs the best on all tasks. 23 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+iAmTime-NoExmp Removes example demonstrations during training (i.e., zero in-context examples). Removing example demonstrations during training (iAmTime-NoExmp) deprives the model of explicit input–output pair structure, forcing it to rely solely on implicit temporal patterns rather than learning to infer task mappings from context. As a result, the model cannot internalize the alignment between historical inputs and future outputs that is required for effective in-context adaptation at inference time. 
+
+iAmTime-NoMeta Restricts training to forecasting-only supervision, eliminating meta-training across task classes. Training without meta-learning objectives (iAmTime-NoMeta) reduces performance by collapsing the training distribution to a single forecasting task. This prevents the model from learning a distribution over task mappings and forces specialization to a fixed objective, eliminating the amortized adaptation behavior required for general in-context learning. Together, these findings confirm that instruction-conditioned meta-training, and example-based supervision are not additive heuristics, but jointly necessary to enable reliable in-context task adaptation in time-series models. 
+
+C.2. Structural Ablations iAmTime-NoToks Removes semantic role tokens and relies on raw numeric concatenation. Ablating semantic tokens (iAmTime-NoToks) leads to the largest degradation in skill score because the model loses discrete boundary and role information that separates targets, covariates, examples, and queries. Without these anchors, attention mechanisms are forced to infer structure implicitly from raw numeric sequences, increasing representation leakage and ambiguity in cross-example interactions, which directly undermines the stability of learned task inference. These ablation setups closely parallels the MetaICL framework (Min et al., 2022), where models are explicitly trained on demonstration–query episodes rather than relying on emergent in-context behavior from scale alone. In MetaICL, removing meta-training or demonstration structure substantially degrades ICL performance, even when model capacity is held fixed. Similarly, our ablations show that eliminating examples, semantic role tokens, or multi-task meta-training collapses the model’s ability to infer task mappings from context. In both cases, effective in-context learning arises not merely from architectural capacity, but from training on structured in-context objectives that align training and inference formats, enabling task adaptation to be amortized into a single forward pass. 
+
+C.3. Robustness to Distribution Shift during Inference 
+
+To study this, we train the model by selecting subset of data belonging to domain CT , and perform inference on a non-overlapping subset of domains CI such that CT ∩ CI = ∅. While doing inference, we provide ICL examples from classes 
+
+CE in three ways: • CE ⊂ CI ,• CE ⊂ CT , and • repeat 1 but perform perturbations on the example time-series.  
+
+> Table 13. Results on subset of fev-bench observing the robustness to distribution shift
+
+Inference Win Rate (%) Skill Score (%) ICL Variant 
+
+CE ⊂ CI 71.3 50.1 
+
+CE ⊂ CT 69.0 50.8 
+
+CE ⊂ CI + random perturbations 66.2 46.7 We do this by training the full iAmTime model, using all meta-training task-classes. We let CT = all domains other than 
+
+{”Climate”, ”Healthcare” }, and CI = {”Climate”, ”Healthcare” } domains. The pre-training is done by sampling the pre-training datasets from domains CT (Tables 7, 8). The model is then evaluated on the forecasting-task by creating queries Q from CI in the benchmark datasets (see Tables 10, 9). For the CE ⊂ CI variant, examples {E i}Ni=1 are constructed by randomly selecting time-series from CI . For 24 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks 
+
+CE ⊂ CT , the examples are sampled from from CT . For the third variant, the same (Q, {E i}Ni=1 ) pairs are used from the first variant. Then, perturbations are made on all the example time-series {E i}Ni=1 , by randomly applying one or more of the ”Time-dependent transformation” functions discussed in Section 5.2.1. Table 13 evaluates robustness to distribution shift during inference by varying the source of in-context examples provided to the model. When example demonstrations are drawn from the same unseen target-domain class set as the query ( CE ⊂ CI ), the model achieves the highest win rate, indicating that in-context examples effectively anchor the model to the test-time data distribution. When examples are instead drawn from the training-domain classes ( CE ⊂ CT ), performance degrades very slightly but remains strong, demonstrating that the model can still transfer learned forecasting strategies across domains through contextual adaptation. Introducing random perturbations to in-domain examples further reduces performance, confirming that the quality and distributional alignment of demonstrations directly influence the effectiveness of in-context task inference. These results suggest that the model uses in-context examples primarily as distributional and functional references rather than relying on memorized domain-specific parameters, enabling robust zero-shot generalization under 
+
+moderate distribution shifts. 
+
+C.4. Example selection ablation 
+
+25 A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks  
+
+> Table 14. CRPS scores of iAmTime compared with various baseline models on the multivariate data subset of GIFT-Eval benchmark. Models achieving the best and second-best scores are highlighted.
+
+Dataset 
+
+> iAmTime
+> Chronos-2 TiRex TimesFM-2.5 Toto 1.0 Moirai 2.0 Chronos-Bolt Base TabPFN-TS PatchTST Seasonal Naive
+
+bitbrains fast storage/5T/long 0.667 0.703 0.672 0.831 0.669 0.807 0.748 0.885 0.669 1.177 bitbrains fast storage/5T/medium 0.647 0.623 0.638 0.766 0.629 0.694 0.755 0.949 0.642 1.198 bitbrains fast storage/5T/short 0.390 0.391 0.380 0.397 0.371 0.427 0.454 0.662 0.471 1.210 bitbrains fast storage/H/short 0.616 0.664 0.700 0.782 0.623 0.615 0.774 0.670 0.549 1.022 bitbrains rnd/5T/long 0.568 0.873 0.632 0.743 0.589 0.570 0.756 0.819 0.664 1.175 bitbrains rnd/5T/medium 0.678 1.005 0.604 0.846 0.628 0.596 0.605 0.819 0.620 1.169 bitbrains rnd/5T/short 0.401 0.416 0.404 0.408 0.399 0.404 0.438 0.608 0.474 1.102 bitbrains rnd/H/short 0.580 0.804 0.611 0.610 0.593 0.670 0.624 0.742 0.603 1.243 bizitobs application/10S/long 0.049 0.045 0.052 0.053 0.053 0.056 0.109 0.049 0.054 0.046 bizitobs application/10S/medium 0.025 0.026 0.038 0.033 0.034 0.037 0.104 0.041 0.047 0.043 bizitobs application/10S/short 0.010 0.010 0.011 0.009 0.012 0.013 0.054 0.015 0.022 0.035 bizitobs l2c/5T/long 0.237 0.298 0.269 0.279 0.533 0.300 0.738 0.306 0.324 0.648 bizitobs l2c/5T/medium 0.254 0.247 0.251 0.241 0.316 0.261 0.445 0.261 0.332 0.520 bizitobs l2c/5T/short 0.069 0.069 0.076 0.072 0.069 0.084 0.074 0.084 0.074 0.262 bizitobs l2c/H/long 0.260 0.267 0.268 0.273 0.369 0.321 0.278 0.292 0.291 0.941 bizitobs l2c/H/medium 0.209 0.236 0.252 0.237 0.356 0.274 0.254 0.237 0.263 0.904 bizitobs l2c/H/short 0.167 0.176 0.212 0.179 0.199 0.235 0.189 0.210 0.217 0.521 bizitobs service/10S/long 0.051 0.051 0.053 0.050 0.051 0.054 0.113 0.052 0.057 0.053 bizitobs service/10S/medium 0.016 0.022 0.023 0.018 0.027 0.034 0.096 0.041 0.045 0.048 bizitobs service/10S/short 0.011 0.010 0.012 0.010 0.011 0.014 0.051 0.019 0.025 0.040 ett1/15T/long 0.229 0.241 0.234 0.255 0.251 0.268 0.298 0.259 0.247 0.340 ett1/15T/medium 0.245 0.233 0.237 0.251 0.260 0.260 0.281 0.253 0.250 0.322 ett1/15T/short 0.158 0.165 0.161 0.157 0.162 0.160 0.158 0.167 0.191 0.241 ett1/D/short 0.283 0.274 0.277 0.300 0.284 0.287 0.287 0.298 0.304 0.408 ett1/H/long 0.258 0.275 0.281 0.288 0.267 0.323 0.311 0.295 0.297 0.471 ett1/H/medium 0.252 0.261 0.268 0.287 0.254 0.287 0.303 0.283 0.273 0.435 ett1/H/short 0.171 0.179 0.176 0.188 0.194 0.185 0.181 0.194 0.190 0.240 ett1/W/short 0.234 0.271 0.278 0.241 0.263 0.249 0.296 0.284 0.323 0.312 ett2/15T/long 0.090 0.093 0.092 0.097 0.088 0.102 0.111 0.101 0.098 0.133 ett2/15T/medium 0.088 0.087 0.089 0.094 0.093 0.098 0.110 0.100 0.094 0.124 ett2/15T/short 0.062 0.062 0.066 0.063 0.068 0.066 0.067 0.073 0.076 0.096 ett2/D/short 0.090 0.094 0.094 0.092 0.111 0.093 0.094 0.126 0.131 0.153 ett2/H/long 0.103 0.105 0.114 0.101 0.108 0.109 0.117 0.139 0.130 0.208 ett2/H/medium 0.103 0.109 0.107 0.101 0.102 0.111 0.115 0.121 0.125 0.186 ett2/H/short 0.064 0.064 0.064 0.064 0.065 0.064 0.063 0.073 0.074 0.089 ett2/W/short 0.093 0.090 0.087 0.087 0.106 0.085 0.088 0.099 0.142 0.134 jena weather/10T/long 0.048 0.051 0.049 0.050 0.050 0.060 0.064 0.053 0.066 0.237 jena weather/10T/medium 0.048 0.050 0.048 0.049 0.049 0.059 0.057 0.054 0.065 0.212 jena weather/10T/short 0.025 0.030 0.027 0.028 0.027 0.036 0.033 0.034 0.064 0.155 jena weather/D/short 0.043 0.047 0.044 0.045 0.051 0.043 0.045 0.047 0.053 0.211 jena weather/H/long 0.056 0.059 0.059 0.055 0.057 0.058 0.062 0.103 0.076 0.419 jena weather/H/medium 0.050 0.050 0.053 0.051 0.053 0.055 0.054 0.058 0.069 0.343 jena weather/H/short 0.040 0.042 0.041 0.043 0.042 0.042 0.042 0.042 0.050 0.154 
+
+26
