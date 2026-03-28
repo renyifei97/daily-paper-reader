@@ -1,0 +1,594 @@
+Title: TRACE: Trajectory Recovery with State Propagation Diffusion for Urban Mobility
+
+URL Source: https://arxiv.org/pdf/2603.19474v1
+
+Published Time: Mon, 23 Mar 2026 00:15:55 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# TRACE: Trajectory Recovery with State Propagation Diffusion for Urban Mobility 
+
+# Jinming Wang 
+
+University of Exeter Department of Computer Science Exeter, United Kingdom jw1294@exeter.ac.uk 
+
+# Hai Wang 
+
+Jingdong Logistics Beijing, China hai@seu.edu.cn 
+
+# Hongkai Wen 
+
+University of Warwick Department of Computer Science Coventry, United Kingdom hongkai.wen@warwick.ac.uk 
+
+# Geyong Min 
+
+University of Exeter Department of Computer Science Exeter, United Kingdom G.Min@exeter.ac.uk 
+
+# Man Luo* 
+
+University of Exeter Department of Computer Science Exeter, United Kingdom M.Luo@exeter.ac.uk 
+
+## Abstract 
+
+High-quality GPS trajectories are essential for location-based web services and smart city applications, including navigation, ride-sharing and delivery. However, due to low sampling rates and limited infrastructure coverage during data collection, real-world trajectories are often sparse and feature unevenly distributed loca-tion points. Recovering these trajectories into dense and continuous forms is essential but challenging, given their complex and irreg-ular spatio-temporal patterns. In this paper, we introduce a novel diffusion model for TRA jectory r EC overy named TRACE , which reconstruct dense and continuous trajectories from sparse and in-complete inputs. At the core of TRACE, we propose a State Propa-gation Diffusion Model (SPDM), which integrates a novel memory mechanism, so that during the denoising process, TRACE can retain and leverage intermediate results from previous steps to effectively reconstruct those hard-to-recover trajectory segments. Extensive experiments on multiple real-world datasets show that TRACE out-performs the state-of-the-art, offering >26% accuracy improvement without significant inference overhead. Our work strengthens the foundation for mobile and web-connected location services, ad-vancing the quality and fairness of data-driven urban applications. Code is available at: https://github.com/JinmingWang/TRACE 
+
+## CCS Concepts 
+
+• Information systems → Incomplete data ; Location based ser-vices ; Temporal data. 
+
+## Keywords 
+
+Diffusion Models, Trajectory Recovery, Location-based Services, Urban Mobility  
+
+> *Corresponding author.
+> This work is licensed under a Creative Commons Attribution 4.0 International License.
+> WWW ’26, Dubai, United Arab Emirates.
+> ©2026 Copyright held by the owner/author(s). ACM ISBN 979-8-4007-2307-0/2026/04 https://doi.org/10.1145/3774904.3792461
+
+ACM Reference Format: 
+
+Jinming Wang, Hai Wang, Hongkai Wen, Geyong Min, and Man Luo*. 2026. TRACE: Trajectory Recovery with State Propagation Diffusion for Urban Mobility. In Proceedings of the ACM Web Conference 2026 (WWW ’26), April 13–17, 2026, Dubai, United Arab Emirates. ACM, New York, NY, USA, 9 pages. https://doi.org/10.1145/3774904.3792461 
+
+## 1 Introduction 
+
+The proliferation of GPS-enabled devices has woven a digital fabric over our urban landscapes, generating vast streams of trajectory data. Location-based web services and smart city applications rely on high-quality trajectories - for navigation, ride-hailing, last-mile delivery, and traffic management. The promise of these technologies - optimized routes, efficient traffic management, and equitable ser-vice access - hinges on the availability of continuous, high-quality trajectory data. In the wild, however, trajectories recorded by mo-bile and edge devices are often sparse and irregular : sampling rates may drop to save energy, infrastructure coverage is uneven across regions, and device storage constraints limit logging. As a result, real-world trajectories are frequently sampled at low rates, yielding spatially skewed location points with large, uneven time gaps. As shown in Fig. 1, such fragmented paths can misrepresent actual movement, degrading downstream task accuracy and fairness. To bridge this gap, trajectory recovery serves as an essential pre-processing step, aiming to reconstruct dense and uniform tra-jectories from sparse and incomplete observations. This task is naturally conditional generation : given i) a sparse observation and ii) a set of query timestamps, infer the missing locations, so as to ob-tain a complete and dense trajectory. While various methods have been developed, they face significant limitations. Map-matching techniques [ 15 , 16 ] are constrained by the availability of detailed digital road networks, which is not always accessible everywhere, while sequence models like RNNs [ 6, 24 ] often suffer from error accumulation over long, unobserved segments. Transformer-based architectures [ 23 , 27 ] show promise by capturing long-range depen-dencies, but still struggle when spatio-temporal distribution of input locations is highly skewed. Generative models like VAEs [ 2, 10 , 19 ]and GANs [ 5, 9] have framed recovery as a conditional genera-tion task, thus improving fidelity of the generated trajectories, but VAEs can over-smooth or suffer posterior collapse, GANs risk mode  
+
+> arXiv:2603.19474v1 [cs.LG] 19 Mar 2026 WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates. Jinming Wang, Hai Wang, Hongkai Wen, Geyong Min, and Man Luo Logistics &
+> Delivery
+> Traffic
+> Managing
+> Route
+> Planning
+> Data -Driven
+> Applications
+> Sparse And Irregular Trajectory
+> Dense And Uniform Trajectory
+
+Figure 1: The trajectories collected from mobile edge devices are usually irregular and sparse, which fail to precisely de-scribe the behavior of moving agents, thus cannot be used in data-driven applications. 
+
+collapse and unstable - and neither explicitly aggregates evidence across long, irregular gaps. Recently, diffusion models [ 7 , 17 ] have emerged as a dominant force in generative modeling, demonstrating remarkable success in related tasks including trajectory generation [ 26 , 28 , 29 ] and recovery of time-series [12]. Applying them naively to trajectory recovery, however, over-looks domain-specific irregularities: unlike typical time-series data, observations (i.e. of agent locations) arrive at uneven, often long time gaps, are spatially constrained by road topology and agent kinematics, and the query timestamps to be filled rarely align with the observed ones. In standard diffusion, each denoising step treats the input almost in isolation: a UNet-style denoising network [ 18 ]repeatedly re-encodes the same sparse evidence and static condi-tions (timestamps, masks, coarse priors) without carrying forward the intermediate features, i.e. what was already inferred. Early steps - dominated by low SNR noise - tend to wash out weak cues from distant observations; later steps then lack a consolidated memory to resolve long, ambiguous gaps, leading to over-smoothed trajec-tory segments, temporal jitter, or hallucinated detours — especially under fast sampling schedules. To overcome these challenges, we introduce TRACE, a novel diffusion-based trajectory recovery framework specifically engi-neered for the irregular spatio-temporal structure of trajectory data. At the core of TRACE is the State Propagation Diffusion Model (SPDM), which fundamentally redesigns the denoising processes to be memoryful rather than step-wise isolated. Given sparse observa-tions and a set of query timestamps, TRACE first builds a unified conditioning context that fuses observation/query masks, time gaps, and lightweight priors (e.g., linear interpolation for easy segments; optional context such as day-of-week or user/route IDs). The pro-posed SPDM then performs conditional denoising while carrying a compact, multi-scale hidden state across diffusion steps, i.e., its stateful denoising network acts as a memory mechanism, allowing multi-scale spatio-temporal features to be retained, accumulated, and reused across successive denoising steps. This propagated state summarizes geometry and motion cues discovered early and feeds them forward, turning a sequence of isolated denoising steps into a coherent, memoryful refinement process. Concretely, in TRACE a UNet backbone processes the conditioning context, while a step-aware state propagation module updates the hidden state to con-centrate capacity on long, uncertain gaps and avoid re-processing those stable regions. This not only avoids redundant computation but also provides richer, evolving context, i.e., knowledge from previous denoising steps can now serve as auxiliary conditions for subsequent steps, empowering the model to reconstruct challeng-ing, irregular segments with far greater accuracy. The technical contributions of this paper are summarized as follows: 
+
+• To the best of our knowledge, we are the first to formalize trajectory recovery as conditional generation under severe spatial/temporal irregularity, and propose a novel diffusion-based framework, TRACE, that is explicitly designed to handle the sparse and irregular nature of real-world trajectory data. This provides a more reliable data foundation for a broad spec-trum of downstream applications, including location-based web services. 
+
+• We introduce the State Propagation Diffusion Model (SPDM), a novel architecture that augments the standard diffusion models with a step-aware state propagation mechanism. SPDM carries compact, multi-scale states across the denoising process - by reusing this intermediate knowledge as conditioning, SPDM avoids redundant processing but concentrates capacity on the hard-to-recover segments while skipping the already stable ones. 
+
+• We evaluate TRACE across multiple real-world datasets and sparsity regimes. Extensive experiments show that TRACE consistently outperforms strong baselines by significant mar-gins. Ablations confirm that the proposed SPDM mechanism is the key, achieving up to a 26.65% improvement in recovery accuracy over the standard diffusion model, establishing a new state-of-the-art without significant inference overhead. 
+
+## 2 Preliminaries 2.1 Problem Formulation 
+
+Timestamps: Let 𝑆 = {𝑠 1, 𝑠 2, ...𝑠 𝑁 } denote a set of 𝑁 timestamps where 𝑠 𝑖 ∈ R+ represents the exact time of a GPS recording. Times-tamps are ordered ( 𝑠 1 < 𝑠 2 < ... < 𝑠 𝑁 ) but are usually irregularly spaced, reflecting real-world constraints such as energy-saving sampling or signal loss. 
+
+Trajectory: Given timestamps 𝑆 , a corresponding trajectory 𝜏 𝑆 =
+
+{𝑝 𝑠 1 , 𝑝 𝑠 2 , ...𝑝 𝑠 𝑁 } is a sequence of GPS coordinates, where each point 
+
+𝑝 𝑠 𝑖 records the longitude and latitude of the moving agent at time 
+
+𝑠 𝑖 be a location point recording longitude and latitude. 
+
+Sample Interval: For consecutive timestamps 𝑠 𝑖 and 𝑠 𝑖 +1, the sam-ple interval Δ𝑠 𝑖 = 𝑠 𝑖 +1 − 𝑠 𝑖 quantifies temporal sparsity. Small and constant sample intervals computed from 𝑆 and 𝜏 𝑆 indicate a dense and uniform trajectory, otherwise the trajectory is sparse and ir-regular. 
+
+Query: The query 𝑄 = {𝑞 1, 𝑞 2, ...𝑞 𝑀 } specifies 𝑀 timestamps where the corresponding GPS coordinates {𝑝 𝑞 1 , 𝑝 𝑞 2 , ...𝑝 𝑞 𝑀 } are to be in-ferred. Note that these coordinates form a complementary trajec-tory denoted as 𝜏 𝑄 . Non-trivial trajectory recovery occurs when 
+
+𝑄 ∩ 𝑆 = ∅, requiring inference of locations at unobserved times. 
+
+Trajectory Recovery: Given a trajectory 𝜏 with large or irregular sample intervals, its corresponding 𝑆 , a query 𝑄 , and other types TRACE: Trajectory Recovery with State Propagation Diffusion for Urban Mobility WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates. (a) Merge Timestamps                                     
+
+> (e) Apply Denoising with SPDM
+> Recovery Mask 𝕄 ∈ℝ𝑳 ×𝟏
+> Sparse Traj 𝝉 𝑺
+> Noise Points 𝝉 𝑻
+> 𝑸
+> 𝝉 𝑻
+> 𝑺 ∪𝑸 ∈ℝ𝑳 ×𝟐
+> Interpolated Traj 𝝉 𝑳 ∈ℝ𝑳 ×𝟐
+> 𝑠 0𝑠 3𝑠 5
+> 𝑞 1𝑞 2𝑞 4
+> Observed
+> Timestamps 𝑺
+> Querying
+> Timestamps 𝑸
+> 010101
+> 𝑠 0𝑞 1𝑞 2𝑠 3𝑞 4𝑠 5
+> (b) Fill Gaps with Noise
+> 𝑺 ∪𝑸 ∈ℝ𝑳 ×𝟏
+> (c) Include Prior Knowledge (d) Multi -modal Contexts
+> 𝑪 𝟏
+> 𝑪 𝟐
+> 𝑪 𝒌
+> 𝑬 𝟏 ∈ℝ𝑳 ×𝑫 𝟏
+> 𝑬 𝟐 ∈ℝ𝑳 ×𝑫 𝟐
+> 𝑬 𝒌 ∈ℝ𝑳 ×𝑫 𝒌
+> Embedder 1
+> Embedder k
+> Embedder 2
+
+ഥ𝒉 𝑻 =𝟎 
+
+𝑨 𝑻 ∈ ℝ𝑳 ×(𝟔 +𝑫 𝟏 +⋯+𝑫 𝒌 )
+
+State Propagation Pipeline 
+
+ഥ𝒉 𝒕 −𝟏 ← 𝑴𝑪𝑮𝑹𝑼 (ഥ𝒉 𝒕 , 𝒉 𝒕 −𝟏 , 𝒕 )
+
+Denoising 
+
+Step 𝑻 − 𝟏 
+
+Denoising 
+
+Step 𝑻 
+
+Denoising 
+
+Step 1 𝑨 𝑻 −𝟏  𝑨 𝟎 
+
+ഥ𝒉 𝑻 −𝟏  ഥ𝒉 𝟏 
+
+Dense Traj 
+
+𝝉 𝟎  
+
+> 𝑺 ∪𝑸
+
+∈ ℝ𝑳 ×𝟐 𝒉 𝑻 −𝟏  𝒉 𝑻 −𝟐 
+
+Concat       
+
+> 𝑺 ∪𝑸 𝝉 𝑻
+> 𝑺 ∪𝑸 𝕄 𝝉 𝑳
+> 𝑬 𝟏 𝑬 𝟐 𝑬 𝒌
+
+# ⋮ ⋮ ⋮ ⋮
+
+# ⋯
+
+Figure 2: TRACE Framework. (a) Merge querying timestamps into observed timestamps in chronological order. (b) Initialize missing points with Gaussian noise. (c) Prior knowledge are included to explicitly tell the model where to recover. (d) The embedding of multi-modal contextual information. (e) The denoising process with SPDM that generates the dense trajectory. 
+
+of auxiliary contexts C such as date, user ID and waybills. The objective of the trajectory recovery task is to find a function that produces prediction ˆ𝜏 𝑄 and minimizes the error between ˆ𝜏 𝑄 and the ground-truth 𝜏 𝑄 .
+
+## 2.2 Diffusion Models 
+
+Denoising diffusion probabilistic models (DDPM) [ 7 ] is constructed on the foundation of a forward Markov chain, which progressively corrupts clean data by adding Gaussian noise at each discrete step. The model trains a denoising neural network to accurately predict the noise introduced at each step of the forward process. Once trained, the network can be used to generate clean data such as trajectory points, starting from pure Gaussian noise. Given a clean data sample x0 drawn from the training distribution 
+
+x0 ∼ 𝑝 data (x). The forward Markov process is defined by a noise schedule 𝛽 1, 𝛽 2, . . . , 𝛽 𝑇 , specifying the variance of Gaussian noise added at each time step. At step 𝑡 , the noisy data x𝑡 is obtained through a conditional distribution: 
+
+𝑞 (x𝑡 |x𝑡 −1) = N ( x𝑡 ;√︁ 1 − 𝛽 𝑡 x𝑡 −1, 𝛽 𝑡 I)
+
+𝑥 𝑡 = √𝛼 𝑡 𝑥 𝑡 −1 +√︁ 𝛽 𝑡 𝜀 𝑡 −1: 𝑡 
+
+(1) where 𝛼 𝑡 = 1 − 𝛽 𝑡 and 𝜀 𝑡 :𝑡 +1 ∼ N ( 0, 1) is single-step noise added. Alternatively, x𝑡 can be expressed directly in terms of the clean data initial x0 as: 
+
+𝑞 (x𝑡 |x0) = N ( x𝑡 ; √ ¯𝛼 𝑡 x0, (1 − ¯𝛼 𝑡 )I)
+
+𝑥 𝑡 = √ ¯𝛼 𝑡 𝑥 0 + √1 − ¯𝛼 𝑡 𝜀 0: 𝑡 
+
+(2) where ¯𝛼 𝑡 = Î 𝑖 = 1𝑡 𝛼 𝑖 , the notation 𝜀 0: 𝑡 ∼ N ( 0, 1) is the multi-step noise, and x1, x2, . . . , x𝑇 represent the intermediate states. As 𝑇 be-comes sufficiently large, the forward process effectively transforms the data distribution 𝑝 data (x0) into a standard Gaussian distribution. To enable the reverse process, the model learns a denoising network parameterized by 𝜽 , which approximates the reverse tran-sition distribution 𝑝 𝜽 (x𝑡 −1 |x𝑡 ) by minimizing the divergence from the true posterior 𝑞 (x𝑡 −1 |x𝑡 , x0). This is achieved by training a noise predictor 𝜺 0: 𝑡,𝜃 (x𝑡 , 𝑡 ), which estimates the noise 𝜺 0: 𝑡 introduced at each step. During inference, the generation process involves iterative sam-pling of the learned reverse transitions 𝑝 𝜽 , guided by the denoising network 𝜺 𝜃 . Additionally, the framework can incorporate condi-tional signals to improve generation quality. For instance, when conditioning on auxiliary information c, the model can be extended to train a conditional denoising network 𝜀 0: 𝑡,𝜃 (x𝑡 , 𝑡, c) using an anal-ogous loss function, thus enhancing the fidelity and control of the generated data. There exist other formulations of diffusion processes that at-tempt to improve sampling efficiency through fewer generation steps. Such models include DDIM [ 20 ], score-based models [ 21 ], or PNDM [ 11 ]. However, as long as the model still involves a multi-step denoising procedure, the redundancy persists, and they can be used jointly with our SPDM. 
+
+## 3 Methodology 3.1 TRACE Overview 
+
+Trajectory recovery requires the integration of heterogeneous data, including trajectories, timestamps, contextual metadata (e.g., date and trip duration), and other user-specific features, which must be processed to a unified representation compatible with diffusion frameworks. These input data — serving as the condition for tra-jectory recovery — are illustrated in Fig. 2(a-d), and the details will be discussed in Sec. 3.2. The aggregated representation is then fed into the denoising process, shown in Fig. 2(e), which iteratively reconstructs the querying locations by removing noise from an initial Gaussian noise. Crucially, TRACE replaces the conventional WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates. Jinming Wang, Hai Wang, Hongkai Wen, Geyong Min, and Man Luo 
+
+denoising pipeline with SPDM to address the spatio-temporal irreg-ularity problem. It introduces a state propagation mechanism that propagates multi-scale spatio-temporal features across denoising steps. The architecture of SPDM, including the specially designed neural networks used in each denoising step and the state propa-gation pipeline, will be explained in Sect. 3.3. Lastly, the training procedure for TRACE is very different from the training of tra-ditional diffusion models. This difference stems from the unique inter-step dependency introduced by the state propagation pipeline, and Sec. 3.4 will present the details of new training algorithm. 
+
+## 3.2 Condition Aggregation Stage 
+
+To enable robust trajectory recovery under spatio-temporal irregu-larities, we integrate various prior knowledge to guide the recovery process. The sparse trajectory 𝜏 𝑆 and associated timestamps 𝑆 are the primary observation that the recovery process can rely on, while the query timestamps 𝑄 specifies target timestamps with unknown coordinates 𝜏 𝑄 , which is initialized as Gaussian noise. The query timestamps can be manually or procedurally selected, ensuring highly flexible and customizable recovery pattern. To synchronize observation and query, we merge 𝑆 and 𝑄 into a chronologically or-dered sequence denoted 𝑆 ∪𝑄 of length 𝐿 . Similarly, we construct an assembled trajectory 𝜏 𝑆 ∪𝑄 following the same chronological order. To explicitly indicate which coordinates in 𝜏 𝑆 ∪𝑄 should undergo recovery, we label the missing point indices with a binary mask 
+
+M ∈ { 0, 1}𝐿 , where M𝑘 = 1 indicates that the 𝑘 -th timestamp in 
+
+𝑆 ∪𝑄 comes from 𝑄 and the 𝑘 -th coordinate in 𝜏 𝑆 ∪𝑄 comes from 𝜏 𝑄 .Moreover, we realize that simple linear interpolation is sufficient to recover some trajectory segments, e.g., straight paths, smooth and dense trajectory segments. Therefore, we introduce a linearly interpolated trajectory 𝑙𝑒𝑟𝑝 (𝜏 ) over 𝑆 ∪ 𝑄 to augment the input. Concretely, it fills the unknown coordinates with linearly interpo-lated values inferred from nearby points, providing the model with a geometrically plausible prior. Industrial applications usually provide a variety of heteroge-neous contexts {𝐶 1, 𝐶 2, ...𝐶 𝐾 } associated with trajectories, e.g. week-day, date, user ID, waybill details. Since the embedding part is not the focus of our method, we assume that one module is specially designed for each context, where each module consists of several simple operations such as linear or convolutional layers. In the end, each context 𝐶 𝑖 is converted to a 𝑑 𝑖 dimensional sequential feature 
+
+𝐸 𝑖 ∈ R𝐿 ×𝑑 𝑖 aligned with the trajectories. At the end of this stage, the final aggregated feature tensor 
+
+𝐴 ∈ R𝐿 ×𝐷 is constructed as: 
+
+𝐴 ← 𝐶𝑜𝑛𝑐𝑎𝑡𝑒𝑛𝑎𝑡𝑒 (𝜏 𝑆 ∪𝑄 , 𝑆 ∪ 𝑄, M, 𝑙𝑒𝑟𝑝 (𝜏 ), 𝐸 1, ...𝐸 𝐾 ) (3) where 𝐷 is the final dimensionality of the features. To conclude, this formulation ensures sparse and irregular query regions, enriched with various prior knowledge and contextual information, enabling adaptive recovery of complex trajectory segments. 
+
+## 3.3 Denoising With SPDM 
+
+Traditional diffusion models iteratively denoise the input noise 𝑥 𝑇 
+
+over 𝑇 steps, transforming it into clean data 𝑥 0. In the proposed framework, our input is denoted as 𝐴 𝑇 , which will be recovered to 
+
+𝐴 0 through intermediate steps {𝐴 𝑇 −1, 𝐴 𝑇 −2...𝐴 1 }. In fact, although ഥ𝒉 𝒕     
+
+> ഥ𝒉 𝒕 −𝟏
+> MCGRU
+> UNet
+> 𝒇 𝒕 −𝟏 ;𝒊
+> 𝑨 𝒕 ො𝜺 𝟎 :𝒕
+> Res 1D
+> Concat
+> 𝒕
+> ത𝒇 𝒕 ;𝒊
+> Split
+> Resize
+> Conv
+> input
+> ou tput
+> CGRU
+> 𝒕 Linea r
+> Linea r
+> ത𝒇 𝒕 ;𝒊 ത𝒇 𝒕 −𝟏 ;𝒊
+> Unet Basic Block
+> CGRU With t
+
+Figure 3: The architecture of the modified UNet (upper, red) and the proposed MCGRU (lower, green). 
+
+𝐴 𝑡 is the input for step 𝑡 , the denoising operation only applies to 𝜏 𝑄 𝑡 , which is a portion inside 𝐴 𝑡 corresponding to the noisy coordinates, while the other portion of 𝐴 𝑡 is fixed throughout the entire denoising process. A novel formulation for the denoising step is essential to enable effective state propagation in SPDM. We begin by defining the states: let ℎ𝑡 be the single-step hidden state that encapsulates the local features extracted at step 𝑡 , and let ¯ℎ𝑡 be the multi-step hidden state containing all useful knowledge from previous steps [𝑡 + 1,𝑇 ].To enhance feature richness and reusability, we define both single-and multi-step hidden states as multi-scale sequential features, i.e. ℎ𝑡 = {𝑓 𝑡 ;1 , 𝑓 𝑡 ;2 , ...𝑓 𝑡 ;𝑏 } and ¯ℎ𝑡 = { ¯𝑓 𝑡 ;1 , ¯𝑓 𝑡 ;2 , ... ¯𝑓 𝑡 ;𝑏 }, where 𝑏 is the number of sequential features in the state. Under this formulation, for each denoising step 𝑡 , the denoising network takes 𝐴 𝑡 , ¯ℎ𝑡 and 
+
+𝑡 as inputs and produces ℎ𝑡 −1 along with the predicted noise ˆ𝜀 0: 𝑡 .Subsequently, the state propagation network accepts ¯ℎ𝑡 , ℎ𝑡 −1 and 𝑡 
+
+to output the updated state ¯ℎ𝑡 −1.Based on this formulation, our neural network architecture is implemented accordingly. The denoising network in TRACE is built upon a UNet architecture, which inherently supports multi-scale feature extraction and aligns well with our state definitions. To accommodate state propagation, the UNet is modified as illustrated in the upper part of Fig. 3. Specifically, the UNet comprises exactly 
+
+𝑏 basic blocks — matching the number of features in the states. Building on top of traditional UNet blocks, each modified block 𝑖 
+
+also processes additional input ¯𝑓 𝑡 ;𝑖 ∈ ¯ℎ𝑡 to generate the correspond-ing output feature 𝑓 𝑡 −1; 𝑖 . Finally, all output features of the 𝑏 UNet blocks are assembled to ℎ𝑡 −1.After we get ℎ𝑡 −1 generated by the denoising UNet, the state propagation network is responsible for updating the cumulative knowledge and producing ¯ℎ𝑡 −1. Concretely, we implement a novel Multi-scale Convolutional Gated Recurrent Unit (MCGRU) with diffusion step awareness, shown in the lower part of Fig. 3. MCGRU contains 𝑏 CGRU blocks in parallel, mirroring the UNet’s hierarchy. Building on top of traditional CGRU, the modified version also takes into account the diffusion time 𝑡 , which enhances its compatibility with the multi-step denoising pipeline. TRACE: Trajectory Recovery with State Propagation Diffusion for Urban Mobility WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates. 
+
+## 3.4 Training of TRACE 
+
+In traditional diffusion model training for trajectory recovery, a dense trajectory with corresponding timestamps is provided, which are then divided into the observation part ( 𝑆 , 𝜏 𝑆 ) and the query part ( 𝑄 , 𝜏 𝑄  
+
+> 0
+
+). With a randomly selected time step 𝑡 ∈ [ 1,𝑇 ], the forward diffusion process is applied to generate 𝜏 𝑄 𝑡 by adding noise 
+
+𝜀 0: 𝑡 ∈ N ( 0, 1). Then, the denoising network is trained to predict 
+
+𝜀 0: 𝑡 . However, during TRACE training, the SPDM denoising step 
+
+𝑡 requires the state ¯ℎ𝑡 from previous iterations. This disables ran-dom step sampling and necessitates a sequential training paradigm, where each data sample iterates through all steps from 𝑡 = 𝑇 to 
+
+𝑡 = 1, so that ¯ℎ𝑡 is always available. The above solution makes the training of the denoising network possible, yet we also have to train the state propagation network, i.e., each state ¯ℎ𝑡 must contain useful knowledge for the subsequent steps. This requirement imposes two sub-constraints: i) the denois-ing network at step 𝑡 should output appropriate ℎ𝑡 −1 and ii) the state propagation network should effectively aggregate or filter knowledge to yield beneficial ¯ℎ𝑡 −1. Intuitively, the ideal strategy is to jointly train the entire denoising process, with the overall objective being: 
+
+min 
+
+> 𝜃 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+𝑀𝑆𝐸 ( ¯𝜀 0: 𝑡 , 𝜀 0: 𝑡 ) (4) where 𝜃 represents the learnable parameters of the models. How-ever, incorporating all tens to hundreds of denoising steps in each training iteration is computationally impractical. Instead, we parti-tion the denoising process into smaller segments comprising several consecutive steps, e.g. including two steps in one training iteration: 
+
+min  
+
+> 𝜃
+
+(𝑀𝑆𝐸 ( ˆ𝜀 0: 𝑡 , 𝜀 0: 𝑡 ) + 𝑀𝑆𝐸 ( ˆ𝜀 0: 𝑡 −1, 𝜀 0: 𝑡 −1)) (5) Another challenge in training TRACE arises from the noise sam-pling process. The standard diffusion model training algorithm sam-ples 𝜀 0: 𝑡 ∼ N ( 0, 1) independently in each training iteration, because it does not involve the complex inter-step dependencies introduced by the state-propagation mechanism. In contrast, our algorithm it-erates 𝑡 from 𝑇 to 1 for each data sample, and one training iteration involves at least two denoising steps. Consequently, the training of TRACE cannot ignore the dependency among noises, i.e., multi-step noises 𝜀 0: 𝑡 and 𝜀 0: 𝑡 −1. To derive a set of dependent noise samples, we first sample a list of single-step noises {𝜀 0:1 , 𝜀 1:2 , ..., 𝜀 𝑇 −1: 𝑇 }, where each 𝜀 𝑡 −1: 𝑡 ∼ N ( 0, 1) is always independent. Then, starting with 
+
+𝐴 0, we recursively apply single-step diffusion forward using Eq. 1 to obtain 𝐴 1 to 𝐴 𝑇 . Next, we apply following equation to compute the multi-step noise 𝜀 0: 𝑡 for each 𝑡 :
+
+𝜀 0: 𝑡 = 𝐴 𝑡 − √ ¯𝛼 𝑡 𝐴 0
+
+√1 − ¯𝛼 𝑡 
+
+(6) This equation is a changed form of Eq. 2, it ensures that the depen-dency among the noises is respected within each training iteration, as well as during the entire life cycle of a data sample. Now, the gen-eral principles of training TRACE have finally been established, and a naive procedure of the proposed training algorithm is presented in Algorithm 1. 
+
+Algorithm 1 Training One Sample (2-step)  
+
+> 0:
+
+Input : 𝑆, 𝑄, 𝜏 𝑆 , 𝜏 𝑄  
+
+> 0
+
+, 𝑙𝑒𝑟𝑝 (𝜏 ), M, 𝐶 1, 𝐶 2, · · · 𝐶 𝐾 . 
+
+> 1:
+
+Generate {𝜀 𝑡 −1: 𝑡 |𝑡 ∈ [ 1,𝑇 ]} . 
+
+> 2:
+
+Derive {𝜀 0: 𝑡 |𝑡 ∈ [ 1,𝑇 ]} with Eq. 6.  
+
+> 3:
+
+Apply diffusion to 𝜏 𝑄  
+
+> 0
+
+to get {𝜏 𝑄 𝑡 |𝑡 ∈ [ 1,𝑇 ]} . 
+
+> 4:
+
+ℎ𝑇 ← 0 
+
+> 5:
+
+for 𝑡 ← 𝑇 to 1 do  
+
+> 6:
+
+𝐸 𝑖 ← 𝐸𝑚𝑏𝑒𝑑 𝑖 (𝐶 𝑖 ) for 𝑖 ∈ { 1, ...𝐾 }. 
+
+> 7:
+
+Obtain 𝐴 𝑡 −1, 𝐴 𝑡 using concatenation as in Eq. 3.  
+
+> 8:
+
+// Train the first step  
+
+> 9:
+
+ˆ𝜀 0: 𝑡 , ℎ 𝑡 −1 ← UNet (𝐴 𝑡 , ¯ℎ𝑡 , 𝑡 ) 
+
+> 10:
+
+// Update hidden state  
+
+> 11:
+
+¯ℎ𝑡 −1 ← MCGRU ( ¯ℎ𝑡 , ℎ 𝑡 −1, 𝑡 ) 
+
+> 12:
+
+// Train the second step  
+
+> 13:
+
+ˆ𝜀 0: 𝑡 −1, ℎ 𝑡 −2 ← UNet (𝐴 𝑡 −1, ¯ℎ𝑡 −1, 𝑡 − 1) 
+
+> 14:
+
+Compute loss with Eq. 5. and do optimization.  
+
+> 15:
+
+end for Batch 
+
+> Index
+> Training Iteration
+> Batch
+> Index
+> Batch
+> Index
+> Lifespan of a
+> Data Sample
+> During Training
+> Load this
+> t= T
+> t= T-1
+> t= T-2
+> …
+> …
+> …
+> …
+> …
+> …
+> t=3
+> t=2
+> t=1
+> Load next
+
+Figure 4: Three ways of batch management. Top: Shared 𝑡 
+
+among all samples in a batch. Middle: Different 𝑡 for each sample with little offset. Bottom: Uniformly distributed 𝑡 
+
+over the range [1,𝑇 ].
+
+Although the above design is sufficient for training, practical im-plementation demands additional techniques. As mentioned above, each data sample in the training batch undergoes 𝑇 training itera-tions with a synchronized countdown of 𝑡 across the entire batch (Fig. 4, top). Consequently, the model overfits to a narrow range of denoising steps and cannot generalize to the full range of 𝑡 . To ad-dress this, we implement a dynamic batch management technique that assigns a private 𝑡 to each sample in a batch, with an offset among them (Fig. 4, middle). We can further promote generalization across the entire range of 𝑡 by uniformly assigning 𝑡 ∈ [ 1,𝑇 ] to each data sample, as illustrated in Fig. 4 bottom. In this scheme, the 
+
+𝑡 of each sample is updated independently, and a new sample is loaded in-place once its 𝑡 reaches 0. 
+
+## 4 Experiments 4.1 Experimental Settings 
+
+Datasets. We evaluate TRACE on three datasets. Two of them comprise dense and smooth taxi trajectories collected in Xi’an city and Chengdu city, China. To assess the model’s performance across WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates. Jinming Wang, Hai Wang, Hongkai Wen, Geyong Min, and Man Luo                                                                   
+
+> Metric Method Dataset Xi’an Chengdu Logistics MSE ↓DeepMove 5.297 26.857 30.060 (×10 −3)AttnMove 0.068 0.234 3.201 PriSTI 0.019 0.292 2.206 DT + RP 0.326 6.919 4.250
+> TRACE w/o SPDM 0.017 0.202 2.025
+> TRACE 0.010 0.159 0.449
+> NDTW ↓DeepMove 36.295 169.470 72.814 (×10 −3)AttnMove 2.257 5.458 22.652 PriSTI 1.174 3.975 12.656 DT + RP 8.473 28.773 13.006
+> TRACE w/o SPDM 1.156 3.809 11.062
+> TRACE 1.154 3.597 5.520
+> MAE ↓DeepMove 31.695 149.169 94.151 (×10 −3)AttnMove 3.119 7.250 33.744 PriSTI 1.587 2.397 2.233 DT + RP 3.195 112.212 21.458
+> TRACE w/o SPDM 1.352 4.646 21.796
+> TRACE 1.335 1.725 2.121
+
+Table 1: The overall comparisons of six models with three metrics on three dataset. The trajectory length is 512 points, with 50% GPS points erased and the models are asked to recover the erased points. 5.00e-04       
+
+> 5.05e-02
+> 1.01e-01
+> 0.00 0.04 0.08 0.12 0.16
+> Spatial Irregularity
+> 1.02e-04
+> 2.02e-04
+> 3.02e-04
+> 4.02e-04
+> MSE  5.00e-04
+> 5.05e-02
+> 1.01e-01
+> 0.000 0.001 0.002
+> Temporal Irregularity
+> 1.02e-04
+> 2.02e-04
+> 3.02e-04
+> 4.02e-04
+> MSE
+> DeepMove
+> AttnMove
+> DT + RP
+> PriSTI
+> TRACE w/o SP
+> TRACE
+
+Figure 5: The trend of recovery errors as the trajectory gets more irregular in terms of spatial and temporal distributions. There are breaks in y-axis because the magnitude of MSE differs a lot for different methods. Tested on Xi’an with 70% points erased and trajectory length of 512 points. 
+
+diverse mobility patterns and metadata, we also include a dataset from last-mile logistics, capturing courier movements in residential areas with irregular sampling intervals. For conditional contexts and metadata, we extract the trajectory starting date and time, the moving agent’s ID, and trip duration. In addition, the logistics data set includes information for package delivery and receiving. All GPS coordinates undergo z-score normalization, and the time stamp sequence of each trajectory is rescaled to the range [0, 1].
+
+Metrics. Trajectory recovery focuses on the exact spatial similar-ity between the recovered coordinates and the ground truth ones. Therefore, we adopt three evaluation metrics: The Mean Squared Error (MSE), the Mean Absolute Error (MAE), and the Normalized Dynamic Time Warping (NDTW). Lower values are preferable for all metrics. 
+
+Baselines. We evaluate TRACE against four baselines. i) Deep-Move [ 4]: An RNN-based trajectory forecasting model adapted for recovery via auto-regressive imputation. ii) AttnMove [27 ]: A Transformer-based approach fusing intra-/inter-trajectory contexts via self- and cross-attention. iii) PriSTI [12 ]: A diffusion model for time-series imputation, modified for trajectories by treating GPS co-ordinates as 2D signals. iv) DT+RP : Combines DiffTraj [ 28 ] (UNet-based trajectory generation) with RePaint [ 13 ] (image inpainting via diffusion), which is capable of adapting content generation dif-fusion models to recovery tasks. Additionally, we ablate TRACE by replacing SPDM with a standard diffusion pipeline ( TRACE w/o SPDM ), which aims to test the effectiveness of SPDM. 
+
+## 4.2 Results 
+
+4.2.1 Overall Comparison. Table 1 summarizes the performance of TRACE against the baselines. Non-diffusion methods (DeepMove, AttnMove) exhibit significantly higher errors, underscoring the limitations of auto-regressive and attention-based architectures in handling sparse, irregular trajectories. In contrast, Diffusion-based baselines show marked improvements except for the approach combining DiffTraj with RePaint, which emphasizes the need to design and train diffusion models specific for recovery tasks. The ablation study (TRACE without SPDM) highlights the need for state propagation, while competitive, it underperforms TRACE in most test cases, highlighting the importance of SPDM. 
+
+4.2.2 Addressing Spatio-Temporal Irregularity. We prove the effec-tiveness of SPDM on addressing the challenge of spatio-temporal irregularity inherent to trajectory data. Given a trajectory to be recovered 𝜏 𝑆 , we compute two metrics to measure the spatial and temporal irregularities: i) the standard deviation of distances be-tween consecutive point pairs and ii) the standard deviation of sample intervals. A large variance indicates that the trajectory is ir-regular and skewed; otherwise, the trajectory points are uniformly distributed. The results are shown in Fig. 5. As the trajectory gets increasing irregular, all methods tend to have worse performance. However, the proposed TRACE is apparently more robust to such irregularities. When comparing TRACE with and without SPDM, we can see that the SPDM achieves significant improvement when dealing with irregular trajectories, showcasing the effective and successful design of SPDM. 
+
+4.2.3 Scalability. The length and sparsity of trajectories can vary greatly in industrial scenarios. In this experiment, we study the scalability of the proposed method with different trajectory lengths and sparsity levels. As illustrated in Fig. 6, we first select the three strongest methods: PriSTI, TRACE without SPDM, and TRACE. The left column presents three error metrics with trajectory length varying from 64 to 512, and the right column shows the slowly increasing errors as the trajectory gets more sparse. The sparsity is measured by the percentage of points removed from a dense trajectory. As we can see, the plots exhibit parallel trends, while TRACE consistently outperforms other methods. TRACE: Trajectory Recovery with State Propagation Diffusion for Urban Mobility WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates. 100 200 300 400 500                       
+
+> Length
+> −12.0
+> −11.4
+> −10.8
+> −10.2
+> −9.6
+> log MSE
+> 100 200 300 400 500
+> Length
+> −6.4
+> −6.2
+> −6.0
+> −5.8
+> −5.6
+> log NDTW
+> 100 200 300 400 500
+> Length
+> −10.8
+> −10.2
+> −9.6
+> −9.0
+> log JSD
+> 0.3 0.4 0.5 0.6 0.7
+> Sparsity
+> −12.0
+> −11.2
+> −10.4
+> −9.6
+> log MSE
+> 0.3 0.4 0.5 0.6 0.7
+> Sparsity
+> −6.6
+> −6.3
+> −6.0
+> −5.7
+> −5.4
+> log NDTW
+> 0.3 0.4 0.5 0.6 0.7
+> Sparsity
+> −11.4
+> −10.8
+> −10.2
+> −9.6
+> −9.0
+> log JSD
+> TRACE TRACE w/o SPDM PriSTI
+
+Figure 6: The comparison among sparsity levels and trajec-tory lengths. 
+
+Method Steps Time MSE NDTW MAE (s) ×10 −3 ×10 −3 ×10 −3
+
+500 119.176 0.0432 2.01 3.068 DDIM 51 12.36 0.0349 2.868 2.221 26 6.65 0.0351 2.897 2.239 11 3.18 0.0490 3.083 2.365 DDIM 500 129.57 0.0356 2.750 2.502 With 51 13.02 0.0272 2.332 1.847 State 26 7.03 0.0256 2.320 1.822 Prop 11 3.58 0.0260 2.420 1.914 
+
+Table 2: The comparison of recovery time and quality with and without state propagation pipeline. Tested on Xi’an with 70% points erased and trajectory length of 512 points. 
+
+4.2.4 Efficiency. DDIM [ 20 ] is a variant in the diffusion model family that can speed up recovery by skipping some intermedi-ate denoising steps, trading result quality for faster recovery. We compare the recovery time and quality of TRACE using DDIM with or without state propagation to demonstrate the superior efficiency of TRACE, and the results are shown in Table 2. The denoising times are recorded with 100 samples in a batch on a NVIDIA GeForce RTX 3070 Ti Laptop GPU. For plain DDIM, the 11 denoising steps version is 119 .176 /3.18 = 37 .48 faster than the full 500-step version, but the recovery quality is decreased by (0.0490 − 0.0432 )/ 0.0490 × 100% = −11 .84% . In contrast, build-ing a state propagation pipeline on top of the 11-step DDIM in-troduces only 12% more parameters and 0.4 seconds of running Method Parameters MACs FLOPs 
+
+TRACE 6.28M 1.13G 2.28G 
+
+TRACE w/o SPDM 6.17M 0.99G 2.01G DT + RP 9.10M 0.63G 1.27G 
+
+PriSTI 7.32M 3.24G 6.51G AttnMove 8.15M 3.94G 7.92G DeepMove 10.11M 1.94G 9.93G 
+
+Table 3: The number of parameters, multiply-accumulate operations (MACs), and floating point operations (FLOPs) of all methods. 
+
+Average Speed Moving Distance (m/s) (km) Ground Truth 1 1Sparse Traj 0.6180 0.5788 Recovered Traj 0.8252 0.8480 
+
+Table 4: The moving speed and distance estimations com-puted from trajectories after normalization. 
+
+time, and also improves the upper bound of recovery quality by 
+
+(0.0349 − 0.0256 )/ 0.0349 × 100% = 26 .65% . This indicates that the proposed SPDM can be jointly used with other diffusion sampling techniques that accelerate recovery, while achieving even higher recovery quality. We also provide a table describing the computational cost of all baselines, shown as Table 3. In particular, we present the number of parameters, multiply-accumulate operations (MACs), and floating point operations (FLOPs) of all baselines. We notice that TRACE is very parameter-efficient due to its efficient design. The SPDM only introduces a small number of parameters and computations to our diffusion model, this further proves its effectiveness. One thing to note is that the diffusion models require iteratively denoising, so the cost should be multiplied by the denoising steps, making them computationally costly compared to non-diffusion-based baselines. 
+
+4.2.5 Effectiveness of Training Algorithms. We analyze the effective-ness of the proposed training algorithms and techniques introduced in Sect. 3.4. First, we want to study the effect of different number of denoising steps included in a single training iteration, as shown in Fig. 7a. The result indicates that the number of steps trained in each iteration do not have a great influence on the final performance, and 2-step is preferable since it requires the least training time. Second, we show the importance of dynamic batch management during training. As we can see in Fig. 7b, the uniformly distributed 
+
+𝑡 for each data sample within a batch leads to the best convergence, while a shared 𝑡 for the entire batch results in the worst recovery quality. This study highlights the necessity of the proposed training algorithm. 
+
+## 4.3 Case Study 
+
+A case study was conducted using courier trajectories in a logistics scenario. Analyzing the speed and distance of moving people or vehicles is crucial for many location-based data-driven Web appli-cations, such as navigation and last-mile delivery. The trajectory WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates. Jinming Wang, Hai Wang, Hongkai Wen, Geyong Min, and Man Luo 0
+
+> 0.4
+> 0.8
+> 1.2
+> 1.6
+
+2-step 3-step 4-step 
+
+> MSE (x 1e -5)
+
+Xi'an Logistics Chengdu 
+
+> (a) Steps in each iteration 0
+> 0.8
+> 1.6
+> 2.4
+> 3.2
+
+Shared Consecutive Uniform 
+
+> MSE (x 1e -5)
+
+Xi'an Logistics Chengdu 
+
+> (b) Batch managing methods
+
+Figure 7: The comparisons among: (a) Number of denoising steps included in single training iteration. (b) Three ways of batch managing introduced in Fig 4. Tested on Xi’an with 70% points erased and trajectory length of 512 points.  
+
+> (a) Ground truth trajectory (b) Sparse trajectory
+> (c) Recovered trajectory
+
+Figure 8: The dataset of: (a) Dense trajectories as ground truth. (b) Trajectories with the same sparsity as usual logistics scenario. (c) Recovered trajectories using TRACE. 
+
+of the user is usually collected to compute the speed and the mov-ing distance. However, these trajectories are usually sparse due to constrained device-server communication rates, limited sampling rates, and unstable signal conditions. In addition, storing massive amounts of trajectories for large-scale web-service can be costly. All these limitations hinder accurate computation of user speed and moving distance. We collected very dense trajectories in a crowded apartment region. A subset was sampled from each dense trajectory according to a normal last-mile delivery sampling interval, resulting in only 30% of the points remaining. TRACE was trained to recover these sparse trajectories to dense ones. We used the moving distances and speed computed from the very dense trajectories as ground truth and then computed the estimation using the sparse and the recovered trajectories. For more direct comparison, we normalized the ground truth speed to 1 meter per second and the moving distance to 1 kilometer, and the results are shown in Table 4. We observed that the estimations using sparse trajectories captured 60% of the actual speed and distance, while the recovered trajectories increased this percentage to around 83%. An illustration of the trajectory before and after recovery is shown in Figure 8. 
+
+## 5 Related Work 
+
+Trajectory Recovery. Numerous efforts have been made to in-crease the accuracy of trajectory recovery. Certain map-based meth-ods [ 3, 8, 14 , 16 ] utilize a predefined set of points of interest (POI) or a pre-collected road network as strong prior knowledge. In contrast, DHTR [ 25 ] performs free-space trajectory recovery using RNN, which eliminates the need for road network information. However, for very long and sparse trajectories, RNNs struggle to capture dependencies among points. TrajBERT [ 19 ] and AttnMove [ 27 ]are methods based on Transformers [ 23 ], which excel in capturing long-term dependencies within sequence. 
+
+Diffusion-based Trajectory Generation/Recovery. Existing approaches have successfully applied diffusion models to generate or recover time series data, including CSDI [ 22 ] and SSSD [ 1 ]. In particular, PriSTI [ 12 ] is a diffusion-based method designed for time series re-covery, using spatio-temporal conditions and geographic factors for more accurate recovery. Moreover, another thread of existing work uses diffusion models for trajectory generation rather than recovery. For example, DiffTraj [ 28 ] employs UNet [ 18 ] to perform denoising steps with several simple contexts such as trajectory length, starting and ending points. More recently, some diffusion-based methods utilize road networks to guide the generation process, such works include Diff-RNTraj [26] and ControlTraj [29]. 
+
+## 6 Conclusion 
+
+In conclusion, this paper presents TRACE, a diffusion-based frame-work for robust trajectory recovery. At its core, TRACE incorporates the State Propagation Diffusion Model (SPDM), which introduces a novel state propagation pipeline that enables knowledge shar-ing across denoising steps. This design effectively addresses the spatio-temporal irregularities of real-world trajectory data, leading to more accurate reconstruction of sparse segments while reducing redundant computation. Extensive experiments on multiple real-world datasets confirm the superior robustness and efficiency of TRACE over state-of-the-art methods. By providing precise and effi-cient trajectory recovery, our work enhances the data reliability for large-scale location-based web services and smart city applications. TRACE: Trajectory Recovery with State Propagation Diffusion for Urban Mobility WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates. 
+
+## References 
+
+[1] Juan Miguel Lopez Alcaraz and Nils Strodthoff. 2023. Diffusion-based Time Series Imputation and Forecasting with Structured State Space Models. arXiv:2208.09399 [cs.LG] [2] Xinyu Chen, Jiajie Xu, Rui Zhou, Wei Chen, Junhua Fang, and Chengfei Liu. 2021. TrajVAE: A Variational AutoEncoder model for trajectory generation. 
+
+Neurocomputing 428 (2021), 332–339. doi:10.1016/j.neucom.2020.03.120 [3] Yuqi Chen, Hanyuan Zhang, Weiwei Sun, and Baihua Zheng. 2022. RNTrajRec: Road Network Enhanced Trajectory Recovery with Spatial-Temporal Trans-former. arXiv:2211.13234 [cs.LG] [4] Jie Feng, Yong Li, Chao Zhang, Funing Sun, Fanchao Meng, Ang Guo, and Depeng Jin. 2018. DeepMove: Predicting Human Mobility with Attentional Recurrent Networks. In Proceedings of the 2018 World Wide Web Conference (Lyon, France) 
+
+(WWW ’18) . International World Wide Web Conferences Steering Committee, Republic and Canton of Geneva, CHE, 1459–1468. doi:10.1145/3178876.3186058 [5] Ian J. Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and Yoshua Bengio. 2014. Generative Adversarial Networks. arXiv:1406.2661 [stat.ML] [6] Alex Graves. 2012. Supervised Sequence Labelling . Vol. 385. Springer, Berlin, Heidelberg, 5–13. doi:10.1007/978-3-642-24797-2_2 [7] Jonathan Ho, Ajay Jain, and Pieter Abbeel. 2020. Denoising Diffusion Probabilistic Models. CoRR abs/2006.11239 (2020). arXiv:2006.11239 https://arxiv.org/abs/ 2006.11239 [8] Fujin Hou, Xiaowei Lan, Jingrong Chen, Yuhuan Dong, Xucai Zhuang, and Jianqing Wu. 2021. A Sparse Taxi Trajectory Data Recovery and Calibrate Algorithm. In 2021 China Automation Congress (CAC) . IEEE, 5414–5419. doi:10. 1109/CAC53003.2021.9728679 [9] Wenjun Jiang, Wayne Xin Zhao, Jingyuan Wang, and Jiawei Jiang. 2023. Con-tinuous Trajectory Generation Based on Two-Stage GAN. Proceedings of the AAAI Conference on Artificial Intelligence 37, 4 (Jun. 2023), 4374–4382. doi:10.1609/aaai.v37i4.25557 [10] Diederik P Kingma and Max Welling. 2022. Auto-Encoding Variational Bayes. arXiv:1312.6114 [stat.ML] [11] Luping Liu, Yi Ren, Zhijie Lin, and Zhou Zhao. 2022. Pseudo Numerical Methods for Diffusion Models on Manifolds. arXiv:2202.09778 [cs.CV] https://arxiv.org/ abs/2202.09778 [12] Mingzhe Liu, Han Huang, Hao Feng, Leilei Sun, Bowen Du, and Yanjie Fu. 2023. PriSTI: A Conditional Diffusion Framework for Spatiotemporal Imputation. In 
+
+2023 IEEE 39th International Conference on Data Engineering (ICDE) . IEEE, 1–10. doi:10.1109/icde55515.2023.00150 [13] Andreas Lugmayr, Martin Danelljan, Andrés Romero, Fisher Yu, Radu Tim-ofte, and Luc Van Gool. 2022. RePaint: Inpainting using Denoising Diffu-sion Probabilistic Models. CoRR abs/2201.09865 (2022), –. arXiv:2201.09865 https://arxiv.org/abs/2201.09865 [14] Junwei Ma, Chao Yang, Shiwen Mao, Jian Zhang, Senthilkumar CG Periaswamy, and Justin Patton. 2022. Human Trajectory Completion with Transformers. In 
+
+ICC 2022 - IEEE International Conference on Communications . IEEE, 3346–3351. doi:10.1109/ICC45855.2022.9838743 [15] Paul Newson and John Krumm. 2009. Hidden Markov map matching through noise and sparseness. In Proceedings of the 17th ACM SIGSPATIAL International Conference on Advances in Geographic Information Systems (Seattle, Washington) 
+
+(GIS ’09) . Association for Computing Machinery, New York, NY, USA, 336–343. doi:10.1145/1653771.1653818 [16] Huimin Ren, Sijie Ruan, Yanhua Li, Jie Bao, Chuishi Meng, Ruiyuan Li, and Yu Zheng. 2021. MTrajRec: Map-Constrained Trajectory Recovery via Seq2Seq Multi-task Learning. In Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining (Virtual Event, Singapore) (KDD ’21) . Association for Computing Machinery, New York, NY, USA, 1410–1419. doi:10.1145/3447548. 3467238 [17] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. 2021. High-Resolution Image Synthesis with Latent Diffusion Models. 
+
+CoRR abs/2112.10752 (2021), 1–10. arXiv:2112.10752 https://arxiv.org/abs/2112. 10752 [18] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. 2015. U-Net: Convolutional Networks for Biomedical Image Segmentation. CoRR abs/1505.04597 (2015), 1–10. arXiv:1505.04597 http://arxiv.org/abs/1505.04597 [19] Junjun Si, Jin Yang, Yang Xiang, Hanqiu Wang, Li Li, Rongqing Zhang, Bo Tu, and Xiangqun Chen. 2024. TrajBERT: BERT-Based Trajectory Recovery With Spatial-Temporal Refinement for Implicit Sparse Trajectories. IEEE Transactions on Mobile Computing 23, 5 (2024), 4849–4860. doi:10.1109/TMC.2023.3297115 [20] Jiaming Song, Chenlin Meng, and Stefano Ermon. 2020. Denoising Diffusion Implicit Models. CoRR abs/2010.02502 (2020), 1–10. arXiv:2010.02502 https: //arxiv.org/abs/2010.02502 [21] Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. 2020. Score-based generative modeling through stochastic differential equations. arXiv preprint arXiv:2011.13456 1 (2020), –. [22] Yusuke Tashiro, Jiaming Song, Yang Song, and Stefano Ermon. 2021. CSDI: Con-ditional Score-based Diffusion Models for Probabilistic Time Series Imputation. arXiv:2107.03502 [cs.LG] [23] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia Polosukhin. 2017. Attention Is All You Need. CoRR abs/1706.03762 (2017), 1–10. arXiv:1706.03762 http: //arxiv.org/abs/1706.03762 [24] Jingyuan Wang, Ning Wu, Xinxi Lu, Wayne Xin Zhao, and Kai Feng. 2021. Deep Trajectory Recovery with Fine-Grained Calibration using Kalman Filter. IEEE Transactions on Knowledge and Data Engineering 33, 3 (2021), 921–934. doi:10. 1109/TKDE.2019.2940950 [25] Jingyuan Wang, Ning Wu, Xinxi Lu, Wayne Xin Zhao, and Kai Feng. 2021. Deep Trajectory Recovery with Fine-Grained Calibration using Kalman Filter. IEEE Transactions on Knowledge and Data Engineering 33, 3 (2021), 921–934. doi:10. 1109/TKDE.2019.2940950 [26] Tonglong Wei, Youfang Lin, Shengnan Guo, Yan Lin, Yiheng Huang, Chenyang Xiang, Yuqing Bai, Menglu Ya, and Huaiyu Wan. 2024. Diff-RNTraj: A Structure-aware Diffusion Model for Road Network-constrained Trajectory Generation. arXiv:2402.07369 [cs.LG] https://arxiv.org/abs/2402.07369 [27] Tong Xia, Yong Li, Yunhan Qi, Jie Feng, Fengli Xu, Funing Sun, Diansheng Guo, and Depeng Jin. 2023. History-enhanced and Uncertainty-aware Trajectory Recovery via Attentive Neural Network. ACM Trans. Knowl. Discov. Data 18, 3, Article 53 (dec 2023), 22 pages. doi:10.1145/3615660 [28] Yuanshao Zhu, Yongchao Ye, Shiyao Zhang, Xiangyu Zhao, and James J. Q. Yu. 2023. DiffTraj: Generating GPS Trajectory with Diffusion Probabilistic Model. arXiv:2304.11582 [cs.LG] [29] Yuanshao Zhu, James Jianqiao Yu, Xiangyu Zhao, Qidong Liu, Yongchao Ye, Wei Chen, Zijian Zhang, Xuetao Wei, and Yuxuan Liang. 2024. ControlTraj: Controllable Trajectory Generation with Topology-Constrained Diffusion Model. arXiv:2404.15380 [cs.LG] https://arxiv.org/abs/2404.15380

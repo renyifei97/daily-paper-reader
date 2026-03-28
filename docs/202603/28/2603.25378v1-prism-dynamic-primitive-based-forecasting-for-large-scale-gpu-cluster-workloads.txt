@@ -1,0 +1,711 @@
+Title: PRISM: Dynamic Primitive-Based Forecasting for Large-Scale GPU Cluster Workloads
+
+URL Source: https://arxiv.org/pdf/2603.25378v1
+
+Published Time: Fri, 27 Mar 2026 00:59:49 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# PRISM: Dynamic Primitive-Based Forecasting for Large-Scale GPU Cluster Workloads 
+
+## Xin Wu 1, Fei Teng 1,2∗, Xingwang Li 1, Bin Zheng 3, Qiang Duan 4
+
+> 1
+
+Southwest Jiaotong University 2Engineering Research Center of Sustainable Urban Intelligent Transportation 
+
+> 3
+
+Beijing University of Posts and Telecommunications 4The Pennsylvania State University 
+
+> ∗
+
+Corresponding author: fteng@swjtu.edu.cn 
+
+## Abstract 
+
+Accurately forecasting GPU workloads is essential for AI infrastruc-ture, enabling efficient scheduling, resource allocation, and power management. Modern workloads are highly volatile, multiple peri-odicity, and heterogeneous, making them challenging for traditional predictors. We propose PRISM, a primitive-based compositional forecasting framework combining dictionary-driven temporal de-composition with adaptive spectral refinement. This dual represen-tation extracts stable, interpretable workload signatures across di-verse GPU jobs. Evaluated on large-scale production traces, PRISM achieves state-of-the-art results. It significantly reduces burst-phase errors, providing a robust, architecture-aware foundation for dy-namic resource management in GPU-powered AI platforms. 
+
+## CCS Concepts 
+
+• Applied computing → Forecasting ; • Computing method-ologies → Artificial intelligence ; • Distributed architectures →
+
+Cloud computing .
+
+## Keywords 
+
+Workload Prediction, Large-Scale GPU Clustering, AI Infrastructure, Data Center 
+
+ACM Reference Format: 
+
+Xin Wu 1, Fei Teng 1,2∗, Xingwang Li 1, Bin Zheng 3, Qiang Duan 4. 2026. PRISM: Dynamic Primitive-Based Forecasting for Large-Scale GPU Cluster Workloads. In Proceedings of the 63rd ACM/IEEE Design Automation Confer-ence (DAC ’26), July 26–29, 2026, Long Beach, CA, USA. ACM, New York, NY, USA, 7 pages. https://doi.org/10.1145/3770743.3804350 
+
+## 1 INTRODUCTION 
+
+Effective resource management is a cornerstone of modern, large-scale GPU AI infrastructure [ 1, 7, 10 , 23 ]. The rapid growth of deep learning services has introduced unprecedented workload dynamics, ranging from fine-grained fractional-GPU jobs to coarse-grained multi-GPU allocations [ 9 , 22 ]. Such heterogeneity creates fundamental conflicts with static resource allocation policies, in-tensifying the trade-off between resource efficiency and quality-of-service guarantees. Fig. 1 illustrates this polarization in GPU demand in a production cluster. These challenges highlight the urgent need for adaptive, architecture-aware methodologies that enable intelligent scheduling [ 5, 11 , 12 , 18 ], and system-level opti-mization for next-generation AI platforms [26, 27]. To achieve such adaptive scheduling, accurate workload forecast-ing is indispensable. Yet, classical statistical models such as ARIMA 
+
+> DAC ’26, Long Beach, CA, USA
+> 2026. ACM ISBN 978-1-4503-9857-0 https://doi.org/10.1145/3770743.3804350
+
+Figure 1: Contrast in resource request profiles between two large-scale production clusters. Workload profiles show sig-nificant differences. The 2020 cluster profile included a 60.1% CPU-based majority [ 6]. In contrast, the 2024 cluster profile is GPU-centric and polarized, centering on single-GPU re-quests (67.5%) while expanding toward coarse-grained (13.2%) and fine-grained (10.5%) allocations [4]. 
+
+[ 3] assume stationarity, making them poorly suited to the highly stochastic behavior of GPU workloads [ 2, 14 ]. As a result, they struggle with extreme volatility and nonlinear periodicities, often incurring large errors. AI-based approaches have therefore emerged, including Transformer-style architectures such as Autoformer [ 21 ], TimesNet [ 20 ], and MetaEformer [ 8], as well as simplified MLP and linear models such as TimeXer [ 19 ] and Dlinear [ 25 ]. However, these methods share a core limitation: they function as monolithic global learners. They treat aggregated demand, which is actually a dynamic superposition of heterogeneous micro-entities [ 13 ], as if it were a homogeneous signal. By attempting to model a nonex-istent "average user", they regress to the mean and systematically smooth out critical peaks. This inability to disentangle heterogene-ity ultimately undermines their reliability for risk-aware resource scheduling [15, 17, 26]. In this work, we present PRISM (Pr imitive-based Interpretable 
+
+Signal Mixture), a novel solution that provides a compositional and interpretable framework for modeling large-scale GPU workloads. (1) Decomposability: The framework decomposes the complex aggregated signal into a set of interpretable base units that reflect foundational behaviors. (2) Heterogeneity Modeling: Instead of learning a single average pattern, the model reconstructs the high-level heterogeneity of the multi-tenant environment [ 24 ] through the dynamic combination of these primitives, adapting to the unique               
+
+> arXiv:2603.25378v1 [cs.DC] 26 Mar 2026 DAC ’26, July 26–29, 2026, Long Beach, CA, USA Xin Wu et al. Valley Peak
+> (b) Observation 2:Diurnal View and Weekly View
+> (a) Observation 1: Overall View
+> (c) Observation 3: Task -Level View and Organization -Level View
+
+Figure 2: A multi-faceted analysis revealing GPU demand volatility, periodicity, and heterogeneity. 
+
+patterns of diverse user groups. As illustrated in Fig. 2, our method-ology is predicated on three key observations: 
+
+• Observation 1: The inherent conflict between extreme work-load volatility and static resource allocation. Observational data reveal that the non-stationary nature of the total cluster GPU demand results in an exceptionally wide dynamic range, with a peak-to-trough ratio of up to 19.83x . The regular dy-namic range (95% confidence interval) is also 6.52x . This severe volatility traps static allocation strategies in an in-escapable provisioning dilemma: over-provisioning based on peaks leads to immense cost waste, while under-provisioning based on the mean induces service-level agreement (SLA) violations during bursts. 
+
+• Observation 2: The workload is not merely stationary; it re-sults from a non-linear superposition of periodic patterns oc-curring at multiple time scales, including diurnal and weekly cycles. Notably, there is a distinctive weekly pattern charac-terized by a "Friday dip and weekend rebound." This com-plexity presents a significant challenge for predictive models that assume a single, fixed periodicity. 
+
+• Observation 3: Significant heterogeneity exists in user be-havior patterns. The aggregated workload emerges from the dynamic superposition of numerous micro-entities exhibit-ing diverse behaviors. This heterogeneity is evident along two dimensions: task type, distinguishing high-priority (HP) from low-priority Spot tasks, and user temporal patterns, dif-ferentiating users with distinct active periods, such as morn-ing and afternoon peaks. Such pronounced heterogeneity makes any monolithic global model attempting to represent an "average user" fundamentally ill-posed. In response to these challenges, PRISM abandons the traditional single global model approach and adopts a compositional forecast-ing paradigm through a dual-component encoder. One component, the primitive dictionary decomposition module, learns basic tem-poral patterns, such as diurnal cycles. The other component, the adaptive spectral refinement module, improves the signal represen-tation in the frequency domain. A dynamic mixture network then combines these decomposed and refined features to reconstruct complex and heterogeneous workload patterns adaptively. The contributions of this paper are summarized as follows: 
+
+• We propose PRISM, a compositional forecasting framework designed to handle the extreme volatility and multiple peri-odicity of large-scale GPU workloads. Its core innovation is a dual-component encoder that combines primitive dictionary decomposition with adaptive spectral refinement, enabling precise capture of complex signal dynamics that monolithic models fail to represent. 
+
+• We introduce an interpretable decomposition paradigm that bridges the gap between black-box forecasting and action-able system insights. By disentangling aggregated workloads into learnable, semantically meaningful primitives, PRISM provides the granular transparency essential for risk-aware resource scheduling, surpassing the capabilities of traditional global fitting approaches. 
+
+• We conduct a comprehensive evaluation on a large-scale, real-world production trace from Alibaba Cloud. Experi-ments demonstrate that PRISM significantly outperforms state-of-the-art baselines, achieving a low MSE of 0.0753 and a high 𝑅 2-score of 0.9131. 
+
+## 2 OVERVIEW OF PRISM 
+
+As introduced in the prolegomenon, aggregated workloads in large-scale GPU clusters exhibit prominent non-stationarity and multi-component heterogeneity. This complexity arises from the super-position of numerous concurrent, heterogeneous micro-dynamics (e.g., job submissions with diverse SLAs, bursty data analytics tasks). Consequently, the conventional assumption of modeling the ag-gregated signal as a singular, homogeneous process is no longer tenable for automated resource orchestration and SLA assurance in modern data centers. To address this challenge, we propose the PRISM framework. The central tenet of PRISM is to decompose the complex, seemingly stochastic aggregated signal into a set of simpler, interpretable, and dynamically combinable foundational primitive signals. This methodology is conceptually analogous to an optical prism, which decomposes white light into its constituent spectral components. Fig. 3 presents an overview of the PRISM framework, whose execution flow is structured into three sequential phases: (1) Phase 1: We construct an input representation that is robust to scale heterogeneity and rich in contextual information. The raw signal is first subject to instance-wise normalization to mitigate drastic statistical shifts. Subsequently, the nor-malized sequence is patched and deeply fused with multiple temporal features (e.g., intra-day, intra-week periodicities) to construct a high-dimensional temporal tensor. PRISM: Dynamic Primitive-Based Forecasting for Large-Scale GPU Cluster Workloads DAC ’26, July 26–29, 2026, Long Beach, CA, USA (b) Adaptive Spectral Refinement               
+
+> Spectral Filtering ℱ!" ⨀##$%&
+> Fourier Transform (ℱ)
+> Split ℱ!"# ℱ$%&$ Low Frequency High Frequency
+> Gating Mechanism $(#'['()* ||'+!'+ ])
+> '()* '+!'+
+> Adaptive Fusion (+⨀'()* +(1−+)⨀'+!'+ )
+
+Instance 
+
+Normalization 
+
+Temporal Embedding 
+
+Denormalization 
+
+Multi -Head Attention 
+
+Primitive Dictionary 
+
+Decomposition (a) 
+
+Adaptive Spectral 
+
+Refinement (b) 
+
+Raw Data ( !)
+
+Outputs ( #$)
+
+×'
+
+> Phase 1  Phase 2  Phase 3
+
+Time 
+
+Features 
+
+(()
+
+Phase 2   
+
+> Raw Data Time Features
+> Adaptive
+> Gating
+> Spectral
+> Decomposition
+> Primitive
+> Decomposition "'
+> "(
+> ")"*
+> ⋯
+
+Phase 3 
+
+Phase 1 
+
+(a) Primitive Dictionary Decomposition               
+
+> Linear Projection ( #,)Linear Projection ( #-)
+> Cross -Attention /(0.1/
+> 0)
+> Primitives Features (ℱ.$!1 )
+> !Primitives (0.)
+> Weighted Sum & Broadcast & Project
+> Compute Primitives Features
+> ℱ.$!1 =A45/
+> 6263646"⋯
+
+Figure 3: An overview of the PRISM framework. 
+
+(2) Phase 2: We implement the core of our framework as an 
+
+𝑁 -layer deep encoder. At each layer, we apply a synergistic dual-component process to the temporal tensor, achieving decomposability and dynamic modeling. This process con-sists of: (a) Primitive Dictionary Decomposition , where we dynamically decompose the sequence into a weighted combination of learnable, globally-shared primitive patterns, and (b) Adaptive Spectral Refinement , where we explic-itly refine its representation in the frequency domain. (3) Phase 3: We feed the hierarchically refined and decomposed features into a prediction head. This head synthesizes the abstract representations and projects them onto the future forecast horizon 𝐻 . We then optimize the model parameters via a composite objective function. In the following sections, we delve into the details of the PRISM framework. 
+
+## 3 METHODOLOGY 3.1 Phase 1: Representation and Embedding 
+
+The workload forecasting task is formally defined as: given a histor-ical observation sequence 𝑋 = {𝑥 1, · · · , 𝑥 𝐿 }, where 𝑥 𝑡 ∈ R𝐶 (with 
+
+𝐶 = 1 in this work), the goal is to learn a mapping F to predict the future 𝐻 -step sequence 𝑌 = {𝑥 𝐿 +1, · · · , 𝑥 𝐿 +𝐻 }, such that ˆ𝑌 = F ( 𝑋 ).To handle the scale heterogeneity introduced by multi-tenancy and diverse job types, each input instance 𝑋 is independently nor-malized via instance-wise normalization: 
+
+𝑋 N = 𝑋 − 𝜇 𝑋 1√︃ 
+
+𝜎 2 
+
+> 𝑋
+
++ 𝜖 , (1) where 𝜇 𝑋 = 1
+
+> 𝐿
+
+Í𝐿 𝑡 =1 𝑥 𝑡 and 𝜎 2 
+
+> 𝑋
+
+= 1
+
+> 𝐿
+
+Í𝐿 𝑡 =1 (𝑥 𝑡 − 𝜇 𝑋 )2 are the mean and variance of 𝑋 over the 𝐿 dimension, 1 ∈ R𝐿 is a vector of ones, and 𝜖 is a small constant for numerical stability. Subsequently, 𝑋 N is partitioned into 𝑁 𝑝 overlapping patches of length 𝑃 with stride 𝑆 . Let P : R𝐿 ×𝐶 → R𝑁 𝑝 × ( 𝑃 ·𝐶 ) be the patching operator. We embed these patches into the 𝐷 -dimensional space via a learnable linear projection 𝑊 𝑝 ∈ R(𝑃 ·𝐶 ) × 𝐷 :
+
+𝑋 𝑝 = P ( 𝑋 N )𝑊 𝑝 ∈ R𝐵 ×𝑁 𝑝 ×𝐷 , (2) where 𝐵 is the batch size. Concurrently, the corresponding times-tamps {𝜏 𝑖 }𝑁 𝑝  
+
+> 𝑖 =1
+
+are fed into a temporal embedding function E𝑡 to generate the temporal representation 𝑋 𝑡 = E𝑡 ({ 𝜏 𝑖 }𝑁 𝑝 
+
+> 𝑖 =1
+
+) ∈ R𝐵 ×𝑁 𝑝 ×𝐷 .The final output of Phase 1, 𝑋 (0) , is the element-wise sum of these two representations: 
+
+𝑋 (0) = 𝑋 𝑝 + 𝑋 𝑡 . (3) 
+
+## 3.2 Phase 2: Synergistic Decomposition and Spectral Refinement 
+
+This phase, which forms the core of our encoder, consists of a stack of 𝑁 identical layers. Each layer is designed to hierarchi-cally decompose the input signal, refine its structure, and learn a robust representation of the input signal. Let 𝑋 (𝑙 −1) ∈ R𝐵 ×𝑁 𝑝 ×𝐷 
+
+be the input to the 𝑙 -th layer, where 𝐵 is the batch size, 𝑁 𝑝 is the sequence length, and 𝐷 is the model dimension. The processing flow, augmented with residual connections and layer normalization, proceeds as follows. First, a standard multi-head attention module captures the intra-sequence temporal dependencies: 
+
+𝑋 ′ 
+
+> 𝑙
+
+= LN 
+
+
+
+𝑋 (𝑙 −1) + MHA (𝑋 (𝑙 −1) )
+
+
+
+. (4) 
+
+𝑋 ′ 
+
+> 𝑙
+
+is then processed by two sequential sub-modules designed to model the compositional and spectral nature of time series explic-itly. 
+
+(a) Primitive Dictionary Decomposition . The objective of this module is to disentangle the complex input signal into a combina-tion of simpler, semantically meaningful patterns. We introduce a DAC ’26, July 26–29, 2026, Long Beach, CA, USA Xin Wu et al. 
+
+learnable dictionary of 𝐾 primitives, 𝑄 𝑝 ∈ R𝐾 ×𝐷 . Crucially, unlike standard latent embeddings, these primitives act as behavioral pro-totypes, effectively clustering recurrent workload dynamics (e.g., stable periodic cycles vs. transient bursty events) into distinct basis vectors. To achieve this, the input 𝑋 ′ 
+
+> 𝑙
+
+is first projected into Key (𝐾 𝑥 = 𝑋 ′ 
+
+> 𝑙
+
+𝑊 𝐾 ) and Value ( 𝑉 𝑥 = 𝑋 ′ 
+
+> 𝑙
+
+𝑊 𝑉 ) matrices. A set of primitive features, F𝑝𝑟𝑖𝑚 ∈ R𝐵 ×𝐾 ×𝐷 , is then extracted by computing scaled dot-product attention 𝐴 between the dictionary 𝑄 𝑝 (as Query) and the sequence’s 𝐾 𝑥 and 𝑉 𝑥 . This attention 𝐴 ∈ R𝐵 ×𝑁 𝐻 ×𝐾 ×𝑁 𝑝 is nor-malized over the sequence length 𝑁 𝑝 (Eq. 5), and the resulting 𝐾 
+
+primitive features are calculated via 𝐴𝑉 𝑥 .
+
+𝐴 = Softmax 𝑄 𝑝 𝐾 𝑇 𝑥 
+
+√𝑑 𝑘 
+
+!
+
+. (5) Concurrently, a set of global selection weights, 𝛼 ∈ R𝐵 ×𝐾 , is com-puted to aggregate these primitives. This 𝛼 is derived by averaging the pre-softmax attention logits across both heads ( 𝑁 𝐻 ) and se-quence length ( 𝑁 𝑝 ), followed by a softmax over the 𝐾 primitives. 
+
+¯𝑠 𝑏,𝑘 = 1
+
+𝑁 𝐻 𝑁 𝑝 𝑁 𝐻 ∑︁ 
+
+> ℎ=1
+> 𝑁 𝑝
+
+∑︁ 
+
+> 𝑖 =1
+
+𝑄 𝑝 𝐾 𝑇 𝑥 
+
+√𝑑 𝑘 
+
+!
+
+> 𝑏,ℎ,𝑘,𝑖
+
+, (6) 
+
+𝛼 = Softmax (¯𝑠 ). (7) These weights 𝛼 serve as an explicit compositional recipe. By in-specting 𝛼 , we can transparently identify which primitive dom-inates the current timeframe, thereby explaining the prediction source (e.g., a spike driven by a burst primitive). This design inten-tionally decouples the global selection of a primitive ( 𝛼 ) from the localized information extraction used to construct it ( 𝐴 ). Crucially, to ensure this dictionary captures a rich and com-prehensive set of patterns, we introduce a diversity-preservation objective inspired by OOD generalization principles. We posit that a robust dictionary must span the worst-case scenario of latent distributions. Therefore, we introduce an auxiliary loss, L𝑑𝑖𝑣 , dur-ing training. This loss maximizes the pairwise divergence (e.g., 
+
+H -divergence or cosine distance) among the 𝐾 extracted prim-itive features {F 𝑝𝑟𝑖𝑚,𝑘 }𝐾 𝑘 =1. Conceptually, this enforces semantic orthogonality, compelling each primitive to specialize in a unique, non-redundant sub-domain of the workload. This prevents mode collapse and ensures that the decomposed patterns remain dis-tinct and human-readable. Finally, the aggregated feature vector 
+
+ℎ𝑎𝑔𝑔 = Í𝐾 𝑘 =1 𝛼 𝑘 · F 𝑝𝑟𝑖𝑚,𝑘 is broadcast to match the sequence length and injected back into the sequence via a residual connection: 
+
+𝑋 ′′  
+
+> 𝑙
+
+= LN  𝑋 ′ 
+
+> 𝑙
+
++ Broadcast (ℎ𝑎𝑔𝑔 )𝑊 𝑂 
+
+ . (8) 
+
+(b) Adaptive Spectral Refinement . The motivation for this mod-ule is to explicitly refine the signal’s representation in the frequency domain, enabling the model to learn its complex spectral properties adaptively. The signal 𝑋 ′′  
+
+> 𝑙
+
+undergoes a filter-and-refine process. It is first projected into the frequency domain via a real fast Fourier Transform ( F ), yielding F𝑖𝑛 = F ( 𝑋 ′′  
+
+> 𝑙
+
+) ∈ C𝐵 ×𝐹 ×𝐷 , where 𝐹 is the number of frequency components. An adaptive filtering step is then performed, where a learnable frequency-wise weight filter 
+
+𝑊 𝑓 𝑟𝑒𝑞 ∈ C𝐹 ×𝐷 is applied via the element-wise product: 
+
+F𝑤 = F𝑖𝑛 ⊙ 𝑊 𝑓 𝑟𝑒𝑞 . (9) 
+
+Algorithm 1: Training Procedure of PRISM Input: Training data D = {( 𝑋 𝑖 , 𝑌 𝑖 )} 𝑀 𝑖 =1; model parameters 
+
+Θ; hyperparameters 𝑁 , 𝐾, 𝜆 1, 𝜆 𝑑𝑖𝑣 .
+
+Output: Trained model parameters Θ∗. 
+
+> 1
+
+for each training iteration until convergence do  
+
+> 2
+
+Randomly sample mini-batch {𝑋, 𝑌 } from D 
+
+> 3
+
+𝑋 N, 𝜇 𝑋 , 𝜎 𝑋 ← NormalizeInstance (𝑋 ) 
+
+> 4
+
+𝑋 𝑝 ← PatchEmbed (𝑋 N ) // Patch and embed  
+
+> 5
+
+𝑋 𝑡 ← E 𝑡 ({ 𝜏 𝑖 }) // Time embedding  
+
+> 6
+
+Initialize encoder input 𝑋 (0) ← 𝑋 𝑝 + 𝑋 𝑡  
+
+> 7
+
+L𝑑𝑖𝑣 _𝑡𝑜𝑡𝑎𝑙 ← 0 
+
+> 8
+
+for 𝑙 = 1 to 𝑁 do  
+
+> 9
+
+𝑋 ′ 
+
+> 𝑙
+
+← LN (𝑋 (𝑙 −1) + MHA (𝑋 (𝑙 −1) )) 
+
+// Primitive Dictionary Decomposition  
+
+> 10
+
+𝐾 𝑥 ← 𝑋 ′ 
+
+> 𝑙
+
+𝑊 𝐾 , 𝑉 𝑥 ← 𝑋 ′ 
+
+> 𝑙
+
+𝑊 𝑉  
+
+> 11
+
+𝐴 ← Softmax (𝑄 𝑝 𝐾 𝑇 𝑥 /√𝑑 𝑘 ) // Local attention  
+
+> 12
+
+Fprim ← Concat ℎ (𝐴 ℎ𝑉 ℎ ) // K primitives  
+
+> 13
+
+𝛼 ← Softmax (Mean ℎ,𝑖 (𝑄 𝑝 𝐾 𝑇 𝑥 /√𝑑 𝑘 )) // Global  
+
+> 14
+
+ℎ𝑎𝑔𝑔 ← Í𝐾 𝑘 =1 𝛼 𝑘 · F prim ,𝑘  
+
+> 15
+
+𝑋 ′′  
+
+> 𝑙
+
+← LN (𝑋 ′ 
+
+> 𝑙
+
++ Broadcast (ℎ𝑎𝑔𝑔 )𝑊 𝑂 ) 
+
+> 16
+
+L (𝑙 ) 
+
+> 𝑑𝑖𝑣
+
+← ComputeDiversityLoss (F prim ) 
+
+> 17
+
+L𝑑𝑖𝑣 _𝑡𝑜𝑡𝑎𝑙 ← L 𝑑𝑖𝑣 _𝑡𝑜𝑡𝑎𝑙 + L (𝑙 )
+
+> 𝑑𝑖𝑣
+
+// Adaptive Spectral Refinement  
+
+> 18
+
+F𝑖𝑛 ← F ( 𝑋 ′′  
+
+> 𝑙
+
+) 
+
+> 19
+
+F𝑤 ← F 𝑖𝑛 ⊙ 𝑊 freq // Complex Weight Filtering  
+
+> 20
+
+F𝑙𝑜𝑤 , Fℎ𝑖𝑔ℎ ← MaskSplit (F 𝑤 ) // Freq Masking  
+
+> 21
+
+𝑋 𝑙𝑜𝑤 ← F −1 (F 𝑙𝑜𝑤 )𝑊 𝑙𝑜𝑤  
+
+> 22
+
+𝑋 ℎ𝑖𝑔ℎ ← F −1 (F ℎ𝑖𝑔ℎ )𝑊 ℎ𝑖𝑔ℎ  
+
+> 23
+
+𝑔 ← 𝜎 (𝑊 𝑔 [𝑋 𝑙𝑜𝑤 ∥ 𝑋 ℎ𝑖𝑔ℎ ] + 𝑏 𝑔 ) // Gating  
+
+> 24
+
+𝑋 ′′′  
+
+> 𝑙
+
+← LN (𝑋 ′′  
+
+> 𝑙
+
++ ( 𝑔 ⊙ 𝑋 𝑙𝑜𝑤 + ( 1 − 𝑔 ) ⊙ 𝑋 ℎ𝑖𝑔ℎ ))  
+
+> 25
+
+𝑋 (𝑙 ) ← LN (𝑋 ′′′  
+
+> 𝑙
+
++ FFN (𝑋 ′′′  
+
+> 𝑙
+
+))  
+
+> 26
+
+ℎ𝑐 ← MeanPooling (𝑋 (𝑁 ) ), ˆ𝑌 N ← MLP (ℎ𝑐 ) 
+
+> 27
+
+ˆ𝑌 ← Denormalize ( ˆ𝑌 N, 𝜇 𝑋 , 𝜎 𝑋 ) 
+
+> 28
+
+L𝑝𝑟𝑒 ← E[∥ ˆ𝑌 − 𝑌 ∥22] + 𝜆 1 · E[∥ ˆ𝑌 − 𝑌 ∥1] 
+
+> 29
+
+L𝑡𝑜𝑡𝑎𝑙 ← L 𝑝𝑟𝑒 + 𝜆 𝑑𝑖𝑣 · L 𝑑𝑖𝑣 _𝑡𝑜𝑡𝑎𝑙  
+
+> 30
+
+Θ ← OptimizerStep (Θ, ∇Θ L𝑡𝑜𝑡𝑎𝑙 ) 
+
+> 31
+
+return Θ∗
+
+The filtered signal F𝑤 is decomposed into low-frequency F𝑙𝑜𝑤 and high-frequency Fℎ𝑖𝑔ℎ components via a frequency masking strategy (zeroing out components beyond/below a cutoff) to preserve the temporal scale. These components are transformed back to the time domain via the inverse FFT ( F −1) and passed through independent linear layers 𝑊 𝑙𝑜𝑤 and 𝑊 ℎ𝑖𝑔ℎ to obtain 𝑋 𝑙𝑜𝑤 and 𝑋 ℎ𝑖𝑔ℎ , respectively. A dynamic gating mechanism is then employed to fuse these two refined components. A gate 𝑔 is computed based on the concatena-tion of both components (Eq. 10), which in turn determines their weighted contribution to the final output (Eq. 11). 
+
+𝑔 = 𝜎  𝑊 𝑔 [𝑋 𝑙𝑜𝑤 ∥ 𝑋 ℎ𝑖𝑔ℎ ] + 𝑏 𝑔 
+
+ , (10) 
+
+𝑋 ′′′  
+
+> 𝑙
+
+= LN  𝑋 ′′  
+
+> 𝑙
+
++ ( 𝑔 ⊙ 𝑋 𝑙𝑜𝑤 + ( 1 − 𝑔 ) ⊙ 𝑋 ℎ𝑖𝑔ℎ ) . (11) PRISM: Dynamic Primitive-Based Forecasting for Large-Scale GPU Cluster Workloads DAC ’26, July 26–29, 2026, Long Beach, CA, USA 
+
+Finally, 𝑋 ′′′  
+
+> 𝑙
+
+passes through a standard position-wise feed-forward network (FFN) to produce the layer’s final output 𝑋 (𝑙 ) :
+
+𝑋 (𝑙 ) = LN  𝑋 ′′′  
+
+> 𝑙
+
++ FFN (𝑋 ′′′  
+
+> 𝑙
+
+) . (12) 
+
+## 3.3 Phase 3: Predictive and Optimization 
+
+After 𝑁 refinement layers, the final output 𝑋 (𝑁 ) ∈ R𝐵 ×𝑁 𝑝 ×𝐷 en-capsulates the high-dimensional representation of the sequence. For forecasting, we first extract a consolidated context vector ℎ𝑐 ∈
+
+R𝐵 ×𝐷 by applying a permutation-invariant operator (mean pooling) over the time dimension ( 𝑁 𝑝 ): 
+
+ℎ𝑐 = MeanPooling (𝑋 (𝑁 ) ) = 1
+
+𝑁 𝑝 𝑁 𝑝 ∑︁ 
+
+> 𝑖 =1
+
+𝑋 (𝑁 )[:,𝑖, :] . (13) This fixed-size representation is then fed into a multi-layer per-ceptron head to project it to the 𝐻 -step forecast ˆ𝑌 N ∈ R𝐵 ×𝐻 :
+
+ˆ𝑌 N = MLP (ℎ𝑐 ). ˆ𝑌 N is subsequently denormalized (per Phase 1) to produce the final prediction ˆ𝑌 .The model parameters Θ are optimized by minimizing a joint objective function L𝑡𝑜𝑡𝑎𝑙 (Θ). This objective integrates the primary forecasting error with the auxiliary diversity regularization from Phase 2 to ensure both predictive accuracy and representation robustness: 
+
+L𝑝𝑟𝑒 = E𝑋 ,𝑌 
+
+∥ ˆ𝑌 − 𝑌 ∥22
+
+ + 𝜆 1 · E𝑋 ,𝑌 
+
+∥ ˆ𝑌 − 𝑌 ∥1
+
+ , (14) 
+
+L𝑡𝑜𝑡𝑎𝑙 (Θ) = L𝑝𝑟𝑒 + 𝜆 𝑑𝑖𝑣 ·
+
+> 𝑁
+
+∑︁ 
+
+> 𝑙 =1
+
+L (𝑙 )
+
+> 𝑑𝑖𝑣
+
+, (15) where L𝑓 𝑜𝑟𝑒𝑐𝑎𝑠𝑡 combines mean squared error (MSE) and mean absolute error (MAE), and L (𝑙 ) 
+
+> 𝑑𝑖𝑣
+
+is the diversity-preservation loss computed in the 𝑙 -th encoder layer (as defined in Phase 2). 𝜆 1 and 
+
+𝜆 𝑑𝑖𝑣 are hyperparameters balancing the loss components. 
+
+## 3.4 Complexity and Latency Analysis 
+
+We analyze the efficiency using 𝑁 layers, 𝑁 𝑝 patches where 𝑁 𝑝 ≪ 𝐿 ,dimension 𝐷 , and 𝐾 primitives. The time complexity scales as 
+
+𝑂 (𝑁 (𝑁 2 
+
+> 𝑝
+
+𝐷 +𝑁 𝑝 𝐷 2)) , effectively reducing the quadratic dependency from 𝑂 (𝐿 2) to 𝑂 (𝑁 2 
+
+> 𝑝
+
+) to achieve the millisecond-level inference latency essential for real-time scheduling. In terms of space com-plexity , the training phase requires 𝑂 (𝐵𝑁 𝐻 𝑁 2 
+
+> 𝑝
+
+) memory for at-tention maps, whereas the inference phase is bounded only by the model parameters 𝑂 (𝑁 (𝐷 2 + 𝐾𝐷 )) . This efficiency facilitates lightweight deployment on cluster management nodes. The overall procedure of the proposed PRISM algorithm is out-lined in Algorithm 1. 
+
+## 4 EXPERIMENTAL RESULTS 
+
+To demonstrate the practical effectiveness and interpretability of PRISM for forecasting GPU cluster workloads, we utilize a large-scale, real-world trace dataset from an Alibaba production GPU cluster. This dataset chronicles the complete lifecycle of 466,867 AI tasks, spanning 184.07 days from April to October 2024. The cluster is equipped with 10,412 GPUs (e.g., A10, A100, and A800); detailed resource configuration and allocation are presented in Table 1. 
+
+Table 1: GPU resource configuration and allocation overview. 
+
+GPU Model Config. Nodes GPUs Alloc. Rate A10 1×GPU 2,494 2,494 A100-SXM4-80GB 8×GPU 432 3,456 A800-SXM4-80GB 8×GPU 22 176 GPU-series-1 Mixed 989 1,558 GPU-series-2 8×GPU 122 976 H800 8×GPU 219 1,752 Note: GPU-series-1 is a mixed cluster (902 x 1-GPU nodes, 77 x 8-GPU nodes, 10 x 4-GPU nodes). Utilization levels: Over-subscribed (>100%); Near-capacity (70-99%); Moderate (40-69%); Under-utilized ( <40%). We present PRISM against 9 SOTA baselines: Autoformer, Dlin-ear, Fedformer [ 29 ], Informer [ 28 ], TimesNet, TimeXer [ 19 ], Wp-Mixer [ 16 ], MetaEformer, and Orglinear [ 4]. We compared perfor-mance across multiple prediction horizons using standard metrics, including MSE, MAE, Root Mean Squared Error (RMSE), and 𝑅 2.
+
+## 4.1 Prediction Results 
+
+Overall Performance Comparison . We conducted a comprehen-sive quantitative comparison of PRISM against nine state-of-the-art baselines. As summarized in Fig. 4 and Fig. 5, PRISM consistently and significantly outperforms all competing methods across all evaluation metrics and prediction horizons. This overarching supe-riority is detailed in the following breakdown of error magnitude and goodness-of-fit. First, in terms of error magnitude and long-term robustness (Fig. 4), PRISM achieves dramatically lower errors than all baselines. In Fig. 4a, where large deviations are heavily penalized, PRISM consistently avoids catastrophic failures, unlike models such as OrgLinear whose MSE values are an order of magnitude higher. This behavior ensures stable system performance even when handling the extreme peaks shown in Fig. 2. A similar pattern appears in Fig. 4b, where the gap between PRISM and the baselines grows as the prediction length increases. At the 48-hour horizon, PRISM maintains exceptionally low and stable errors that are barely visible compared with the high bars of OrgLinear and TimeXer, which highlights its robustness in scenarios where other baselines lose reliability. Second, regarding goodness-of-fit (Fig. 5), PRISM further solidi-fies its dominance from an 𝑅 2 perspective. The heatmap (left) con-firms that PRISM achieves the highest 𝑅 2 score across all horizons, with a unique trend of improvement at longer horizons, peaking at 0.9131 at 48h. The scatter plot (right) contextualizes this perfor-mance, showing that PRISM occupies the ideal top-left quadrant (lowest MAE, highest 𝑅 2) for all prediction lengths, distinguishing it clearly from the competing methods. 
+
+Ablation Study . As shown in Table 2, our ablation study confirms the necessity of PRISM’s components. Focusing on the primitive and spectral, we observe that removing either one (w/o-primitive or w/o-spectral) degrades performance. Critically, removing both DAC ’26, July 26–29, 2026, Long Beach, CA, USA Xin Wu et al. 6 12 24 48 
+
+Prediction Length    
+
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> (a) MSE Comparison
+> 612 24 48
+
+Prediction Length    
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> (b) MAE Comparison
+> 612 24 48
+
+Prediction Length          
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> (c) RMSE Comparison
+> Autoformer Dlinear Fedformer Informer TimesNet TimeXer WpMixer MetaEformer OrgLinear PRISM (Ours)
+
+Figure 4: Main forecasting results of PRISM and baseline models at prediction lengths of 6, 12, 24, and 48. 
+
+Figure 5: Performance comparison of PRISM against base-lines. 8000              
+
+> 10000
+> 12000
+> GPU Demand
+> Actual (HP Task)
+> Predicted (HP Task)
+> 0100 200 300 400 500
+> Time Step
+> 0
+> 500
+> 1000
+> 1500
+> GPU Demand
+> Actual (Spot Task)
+> Predicted (Spot Task)
+> 120 140
+> 7000
+> 8000
+> 9000
+> 10000
+> 11000
+> Prediction Error
+> Actual
+> Predicted
+> 240 260 280
+> 8000
+> 10000
+> 12000
+> 14000 Prediction Error
+> Actual
+> Predicted
+> 60 80
+> 0
+> 50
+> 100
+> 150
+> 200
+> 250 Prediction Error
+> Actual
+> Predicted
+> 420 440
+> 0
+> 500
+> 1000
+> 1500 Prediction Error
+> Actual
+> Predicted
+
+(a) Fine-grained prediction for HP and Spot tasks. 
+
+(b) Diurnal patterns of three organizations. 
+
+Figure 6: Case study on large-scale GPU cluster workloads. 
+
+(w/o-prim-spec) results in a disproportionately severe performance drop of 15.27% (MSE). This degradation, which far exceeds the sum of their individual impacts, suggests a powerful synergistic effect be-tween the primitive and spectral, indicating that their combination is crucial for the model’s high accuracy. 
+
+Table 2: PRISM ablation model performance, as a percentage change relative to the full model (first row). 
+
+Methods Pat. Prim. Spec. MSE ( ↓) MAE ( ↓) RMSE ( ↓) R 2(↑)PRISM ✓ ✓ ✓ 0.0753 0.1926 0.2744 0.9131 w/o-patch ✗ ✓ ✓ +11.82% +5.87% +5.72% -1.09% w/o-primitive ✓ ✗ ✓ +1.33% +0.52% +0.62% -0.12% w/o-spectral ✓ ✓ ✗ +3.19% +1.77% +1.57% -0.29% w/o-prim-spec ✓ ✗ ✗ +15.27% +5.66% +0.95% -0.19% Baseline ✗ ✗ ✗ +21.91% +10.64% +10.42% -2.03% 
+
+## 4.2 Case Study 
+
+To qualitatively validate PRISM’s superior performance, our case study in Fig. 6 visually corroborates the data challenges identified in Fig. 2. Fig. 6a demonstrates that PRISM successfully captures task-level heterogeneity (from Fig. 2c), achieving high-fidelity pre-dictions by accurately tracking sharp peaks for both volatile HP tasks and bursty Spot tasks. Concurrently, Fig. 6b reveals its ability to model the diverse organizational patterns (from Fig. 2b and Fig. 2c), such as the distinct "morning peak" vs. "afternoon peak", suc-cessfully avoiding the pitfall of fitting a non-existent "average user". This simultaneous ability to precisely model heterogeneous tasks and organizations is key to PRISM’s robust forecasting accuracy. 
+
+## 5 CONCLUSION 
+
+In this work, we introduce PRISM, a novel compositional frame-work for managing the volatility, periodicity, and heterogeneity of large-scale GPU workloads. By decomposing the signal into a dynamic mixture of interpretable primitives, PRISM overcomes the limitations of monolithic models. Comprehensive experiments on a real-world dataset validated PRISM’s state-of-the-art performance and its ability to model heterogeneous patterns via its synergistic core components. PRISM provides a robust and interpretable tool for automated resource management in modern AI infrastructure. 
+
+## ACKNOWLEDGMENTS 
+
+This work was supported by the National Natural Science Founda-tion of China (No. 62272398) and the Sichuan Science and Technol-ogy Program (No. 2024NSFJQ0019). PRISM: Dynamic Primitive-Based Forecasting for Large-Scale GPU Cluster Workloads DAC ’26, July 26–29, 2026, Long Beach, CA, USA 
+
+## References 
+
+[1] Sergi Alcaide, Leonidas Kosmidis, Carles Hernandez, and Jaume Abella. 2019. High-Integrity GPU Designs for Critical Real-Time Automotive Systems. In 
+
+Proceedings of the 28th Design, Automation and Test in Europe Conference and Exhibition (DATE) . 824–829. https://doi.org/10.23919/DATE.2019.8715177 [2] Jing Bi, Haisen Ma, Haitao Yuan, and Jia Zhang. 2023. Accurate Prediction of Workloads and Resources With Multi-Head Attention and Hybrid LSTM for Cloud Data Centers. IEEE Transactions on Sustainable Computing 8, 3 (2023), 375–384. https://doi.org/10.1109/TSUSC.2023.3259522 [3] Rodrigo N. Calheiros, Enayat Masoumi, Rajiv Ranjan, and Rajkumar Buyya. 2015. Workload Prediction Using ARIMA Model and Its Impact on Cloud Applications’ QoS. IEEE Transactions on Cloud Computing 3, 4 (2015), 449–458. https://doi.org/ 10.1109/TCC.2014.2350475 [4] Jiaang Duan, Shenglin Xu, Shiyou Qian, Dingyu Yang, Kangjin Wang, Chenzhi Liao, Yinghao Yu, Qin Hua, Hanwen Hu, Qi Wang, et al . 2025. GFS: A Preemption-aware Scheduling Framework for GPU Clusters with Predictive Spot Instance Management. In Proceedings of the 30th International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS) . https: //doi.org/10.48550/arXiv.2509.11134 [5] Hajar Falahati, Negin Mahani, Adrian Cristal, and Osman Unsal. 2025. VISTA: Optimizing GPU Scheduling through Versatile Locality-Aware Data Sharing. In 
+
+Proceedings of the 62nd ACM/IEEE Design Automation Conference (DAC) . 1–7. https://doi.org/10.1109/DAC63849.2025.11133076 [6] Qinghao Hu, Peng Sun, Shengen Yan, Yonggang Wen, and Tianwei Zhang. 2021. Characterization and prediction of deep learning workloads in large-scale GPU datacenters. In Proceedings of the 33rd International Conference for High Performance Computing, Networking, Storage and Analysis (SC) . https: //doi.org/10.1145/3458817.3476223 [7] Shan Huang, Jinhao Li, Zhen Yu, Jiancai Ye, Jiaming Xu, Ningyi Xu, and Guohao Dai. 2025. LLSM: LLM-enhanced Logic Synthesis Model with EDA-guided CoT Prompting, Hybrid Embedding and AIG-tailored Acceleration. In Proceedings of the 30th Asia and South Pacific Design Automation Conference (ASP-DAC) . 974–980. https://doi.org/10.1145/3658617.3697618 [8] Shaoyuan Huang, Tiancheng Zhang, Zhongtian Zhang, Xiaofei Wang, Lanjun Wang, and Xin Wang. 2025. MetaEformer: Unveiling and Leveraging Meta-Patterns for Complex and Dynamic Systems Load Forecasting. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining (KDD) . 991–1002. https://doi.org/10.1145/3711896.3737047 [9] Jiho Kim, John Kim, and Yongjun Park. 2020. Navigator: Dynamic Multi-kernel Scheduling to Improve GPU Performance. In Proceedings of the 57th ACM/IEEE Design Automation Conference (DAC) . 1–6. https://doi.org/10.1109/DAC18072. 2020.9218711 [10] Reika Kinoshita, Chihiro Matsui, Atsuya Suzuki, Shouhei Fukuyama, and Ken Takeuchi. 2020. Workload-aware Data-eviction Self-adjusting System of Multi-SCM Storage to Resolve Trade-off between SCM Data-retention Error and Storage System Performance. In 2020 25th Asia and South Pacific Design Automation Conference (ASP-DAC) . 319–324. https://doi.org/10.1109/ASP-DAC47756.2020. 9045469 [11] Haeseung Lee and Mohammad Abdullah Al Faruque. 2014. GPU-EvR: Run-time event based real-time scheduling framework on GPGPU platform. In Proceedings of the Design, Automation and Test in Europe Conference and Exhibition (DATE) .1–6. https://doi.org/10.7873/DATE.2014.233 [12] Wan Luan Lee, Dian-Lun Lin, Cheng-Hsiang Chiu, Ulf Schlichtmann, and Tsung-Wei Huang. 2025. HyperG: Multilevel GPU-Accelerated k-way Hypergraph Partitioner. In Proceedings of the 30th Asia and South Pacific Design Automation Conference (ASP-DAC) . 1031–1040. https://doi.org/10.1145/3658617.3697551 [13] Junhan Liu, Zinuo Cai, Yumou Liu, Hao Li, Zongpu Zhang, Ruhui Ma, and Rajkumar Buyya. 2025. SMore: Enhancing GPU Utilization in Deep Learning Clusters by Serverless-Based Co-Location Scheduling. IEEE Transactions on Parallel and Distributed Systems 36, 5 (2025), 903–917. https://doi.org/10.1109/ TPDS.2025.3548320 [14] Ruichao Mo, Weiwei Lin, Shengsheng Lin, Simon Fong, and Keqin Li. 2025. NoSPF: Non-stationary Long-term Power Consumption Forecasting for Servers in Cloud Data Centers. IEEE Transactions on Computers (2025), 1–13. https: //doi.org/10.1109/TC.2025.3624486 [15] Chedi Morchdi, Cheng-Hsiang Chiu, Yi Zhou, and Tsung-Wei Huang. 2024. A Resource-efficient Task Scheduling System using Reinforcement Learning. In 
+
+Proceedings of the 29th Asia and South Pacific Design Automation Conference (ASP-DAC) . 89–95. https://doi.org/10.1109/ASP-DAC58780.2024.10473960 [16] Md Mahmuddun Nabi Murad, Mehmet Aktukmak, and Yasin Yilmaz. 2025. Wp-mixer: Efficient multi-resolution mixing for long-term time series forecasting. In 
+
+Proceedings of the 39th AAAI Conference on Artificial Intelligence (AAAI) , Vol. 39. 19581–19588. https://doi.org/10.1609/aaai.v39i18.34156 [17] Li-Wei Shieh, Kun-Chih Chen, Hsueh-Chun Fu, Po-Han Wang, and Chia-Lin Yang. 2017. Enabling fast preemption via Dual-Kernel support on GPUs. In 
+
+Proceedings of the 22nd Asia and South Pacific Design Automation Conference (ASP-DAC) . 121–126. https://doi.org/10.1109/ASPDAC.2017.7858307 [18] Zain Taufique, Antonio Miele, Pasi Liljeberg, and Anil Kanduri. 2024. Adaptive Workload Distribution for Accuracy-aware DNN Inference on Collaborative Edge Platforms. In Proceedings of the 29th Asia and South Pacific Design Automation Conference (ASP-DAC) . 109–114. https://doi.org/10.1109/ASP-DAC58780.2024. 10473987 [19] Yuxuan Wang, Haixu Wu, Jiaxiang Dong, Guo Qin, Haoran Zhang, Yong Liu, Yunzhong Qiu, Jianmin Wang, and Mingsheng Long. 2024. TimeXer: Empowering Transformers for Time Series Forecasting with Exogenous Variables. In Proceed-ings of the 38th Advances in Neural Information Processing Systems (NeurIPS) ,Vol. 37. 469–498. https://doi.org/10.52202/079017-0015 [20] Haixu Wu, Tengge Hu, Yong Liu, Hang Zhou, Jianmin Wang, and Mingsheng Long. 2023. TimesNet: Temporal 2D-Variation Modeling for General Time Se-ries Analysis. In Proceedings of the 11th International Conference on Learning Representations (ICLR) . https://openreview.net/pdf?id=ju_Uqw384Oq [21] Haixu Wu, Jiehui Xu, Jianmin Wang, and Mingsheng Long. 2021. Autoformer: Decomposition Transformers with Auto-Correlation for Long-Term Series Fore-casting. In Proceedings of the 35th Advances in Neural Information Processing Systems (NeurIPS) , Vol. 34. 22419–22430. https://proceedings.neurips.cc/paper_ files/paper/2021/file/bcc0d400288793e8bdcd7c19a8ac0c2b-Paper.pdf [22] Xi Xie, Hongwu Peng, Amit Hasan, Shaoyi Huang, Jiahui Zhao, Haowen Fang, Wei Zhang, Tong Geng, Omer Khan, and Caiwen Ding. 2023. Accel-GCN: High-Performance GPU Accelerator Design for Graph Convolution Networks. In Pro-ceedings of the 42nd IEEE/ACM International Conference on Computer Aided Design (ICCAD) . 01–09. https://doi.org/10.1109/ICCAD57390.2023.10323722 [23] Jiaming Xu, Jinhao Li, Jun Liu, Hao Zhou, and Guohao Dai. 2025. Accelerator for LLM-Enhanced GNN with Product Quantization and Unified Indexing. In 
+
+Proceedings of the 30th Asia and South Pacific Design Automation Conference (ASP-DAC) . 534–540. https://doi.org/10.1145/3658617.3697645 [24] Yongbo Yu, Fuxun Yu, Zhi Tian, and Xiang Chen. 2025. GACER: Granularity-Aware ConcurrEncy Regulation for Multi-Tenant Deep Learning. In Proceedings of the 43rd IEEE/ACM International Conference on Computer-Aided Design (ICCAD) .https://doi.org/10.1145/3676536.3676718 [25] Ailing Zeng, Muxi Chen, Lei Zhang, and Qiang Xu. 2023. Are Transformers Effective for Time Series Forecasting?. In Proceedings of the 37th AAAI Conference on Artificial Intelligence (AAAI) , Vol. 37. 11121–11128. https://doi.org/10.1609/ aaai.v37i9.26317 [26] Youpeng Zhao and Jun Wang. 2025. ALISE: Accelerating Large Language Model Serving with Speculative Scheduling. In Proceedings of the 43rd IEEE/ACM Inter-national Conference on Computer-Aided Design (ICCAD) . https://doi.org/10.1145/ 3676536.3676659 [27] Shuzhang Zhong, Ling Liang, Yuan Wang, Runsheng Wang, Ru Huang, and Meng Li. 2025. AdapMoE: Adaptive Sensitivity-based Expert Gating and Management for Efficient MoE Inference. In Proceedings of the 43rd IEEE/ACM International Conference on Computer-Aided Design (ICCAD) . https://doi.org/10.1145/3676536. 3676741 [28] Haoyi Zhou, Shanghang Zhang, Jieqi Peng, Shuai Zhang, Jianxin Li, Hui Xiong, and Wancai Zhang. 2021. Informer: Beyond Efficient Transformer for Long Sequence Time-Series Forecasting. In Proceedings of the 35th AAAI Conference on Artificial Intelligence (AAAI) , Vol. 35. 11106–11115. https://doi.org/10.1609/aaai. v35i12.17325 [29] Tian Zhou, Ziqing Ma, Qingsong Wen, Xue Wang, Liang Sun, and Rong Jin. 2022. FEDformer: Frequency Enhanced Decomposed Transformer for Long-term Series Forecasting. In Proceedings of the 39th International Conference on Machine Learning (ICML) , Vol. 162. 27268–27286. https://proceedings.mlr.press/v162/ zhou22g.html
