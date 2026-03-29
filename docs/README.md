@@ -6,79 +6,64 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-03-28
-- 运行时间：2026-03-28 20:09:36 UTC
+- 最新运行日期：2026-03-29
+- 运行时间：2026-03-29 20:11:40 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：7
+- 本次总论文数：14
+- 精读区：2
 - 速读区：12
 
 ### 今日简报（AI）
-今日精选 19 篇前沿论文，深度解析时间序列自相关建模与环境感知的扩散人群仿真技术。
-重点关注自相关模型在时序预测中的理论突破，以及结合环境约束与个体交互提升模拟真实感的创新方案。
-建议关注图结构与时序生成的跨界融合，探索其在 GPU 集群负载预测及城市系统建模中的实战价值。
-- 详情：[/202603/28/README](/202603/28/README)
+今日精选 14 篇前沿论文，重点攻克了时空预测精度与应急交通协同控制两大核心难题。
+推荐关注结合小波变换与双域门控的 WaveSFNet 模型，以及能显著提升应急车辆通行效率的可扩展分布式控制算法。
+建议深入探索时空智能在电力反窃电及行人流冲突规避等实际场景中的跨领域应用。
+- 详情：[/202603/29/README](/202603/29/README)
 
 ### 精读区论文标签
-1. [Deep Autocorrelation Modeling for Time-Series Forecasting: Progress and Prospects](/202603/28/2603.19899v1-deep-autocorrelation-modeling-for-time-series-forecasting-progress-and-prospects)  
+1. [WaveSFNet: A Wavelet-Based Codec and Spatial--Frequency Dual-Domain Gating Network for Spatiotemporal Prediction](/202603/29/2603.23284v1-wavesfnet-a-wavelet-based-codec-and-spatial--frequency-dual-domain-gating-network-for-spatiotemporal-prediction)  
    标签：评分：8.0/10、query:urt-pf
-   evidence：深度学习时间序列预测与自相关建模综述
-2. [EnvSocial-Diff: A Diffusion-Based Crowd Simulation Model with Environmental Conditioning and Individual-Group Interaction](/202603/28/2603.23874v1-envsocial-diff-a-diffusion-based-crowd-simulation-model-with-environmental-conditioning-and-individual-group-interaction)  
+   evidence：基于历史观测的时空预测学习
+2. [Distributed Real-Time Vehicle Control for Emergency Vehicle Transit: A Scalable Cooperative Method](/202603/29/2603.25000v1-distributed-real-time-vehicle-control-for-emergency-vehicle-transit-a-scalable-cooperative-method)  
    标签：评分：8.0/10、query:urt-c
-   evidence：基于扩散模型的行人轨迹建模与人群仿真
-3. [Embracing Heteroscedasticity for Probabilistic Time Series Forecasting](/202603/28/2603.24254v1-embracing-heteroscedasticity-for-probabilistic-time-series-forecasting)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：针对非平稳动态的概率时间序列预测
-4. [LATS: Large Language Model Assisted Teacher-Student Framework for Multi-Agent Reinforcement Learning in Traffic Signal Control](/202603/28/2603.24361v1-lats-large-language-model-assisted-teacher-student-framework-for-multi-agent-reinforcement-learning-in-traffic-signal-control)  
-   标签：评分：8.0/10、query:urt-c
-   evidence：多智能体强化学习用于交通信号控制
-5. [CoordLight: Learning Decentralized Coordination for Network-Wide Traffic Signal Control](/202603/28/2603.24366v1-coordlight-learning-decentralized-coordination-for-network-wide-traffic-signal-control)  
-   标签：评分：8.0/10、query:urt-c
-   evidence：用于全网交通信号控制的多智能体强化学习
-6. [CROSS: A Mixture-of-Experts Reinforcement Learning Framework for Generalizable Large-Scale Traffic Signal Control](/202603/28/2603.24930v1-cross-a-mixture-of-experts-reinforcement-learning-framework-for-generalizable-large-scale-traffic-signal-control)  
-   标签：评分：8.0/10、query:urt-c
-   evidence：用于大规模交通信号控制的强化学习
-7. [Ultra-fast Traffic Nowcasting and Control via Differentiable Agent-based Simulation](/202603/28/2603.25068v1-ultra-fast-traffic-nowcasting-and-control-via-differentiable-agent-based-simulation)  
-   标签：评分：8.0/10、query:urt-c
-   evidence：用于交通控制的可微智能体仿真
+   evidence：用于交通的分布式实时车辆控制与强化学习
 
 ### 速读区论文标签
-1. [PRISM: Dynamic Primitive-Based Forecasting for Large-Scale GPU Cluster Workloads](/202603/28/2603.25378v1-prism-dynamic-primitive-based-forecasting-for-large-scale-gpu-cluster-workloads)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：针对波动性和周期性工作负载的组合预测框架
-2. [Discovering Governing Spatial Interaction Mechanisms in Dynamic Urban Systems](/202603/28/2603.19537v1-discovering-governing-spatial-interaction-mechanisms-in-dynamic-urban-systems)  
+1. [Spatio-Temporal Grid Intelligence: A Hybrid Graph Neural Network and LSTM Framework for Robust Electricity Theft Detection](/202603/29/2603.20488v1-spatio-temporal-grid-intelligence-a-hybrid-graph-neural-network-and-lstm-framework-for-robust-electricity-theft-detection)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：城市时空动态现象的控制方程
-3. [Graph2TS: Structure-Controlled Time Series Generation via Quantile-Graph VAEs](/202603/28/2603.19970v1-graph2ts-structure-controlled-time-series-generation-via-quantile-graph-vaes)  
-   标签：评分：7.0/10、query:urt-pf
-   evidence：针对波动信号的时间序列生成
-4. [Operator Learning for Smoothing and Forecasting](/202603/28/2603.20359v1-operator-learning-for-smoothing-and-forecasting)  
-   标签：评分：7.0/10、query:urt-pf
-   evidence：用于动力系统预测的算子学习
-5. [Spatio-Temporal Grid Intelligence: A Hybrid Graph Neural Network and LSTM Framework for Robust Electricity Theft Detection](/202603/28/2603.20488v1-spatio-temporal-grid-intelligence-a-hybrid-graph-neural-network-and-lstm-framework-for-robust-electricity-theft-detection)  
-   标签：评分：7.0/10、query:urt-pf
-   evidence：结合GNN与LSTM处理时空动态特征
-6. [StreamTGN: A GPU-Efficient Serving System for Streaming Temporal Graph Neural Networks](/202603/28/2603.21090v1-streamtgn-a-gpu-efficient-serving-system-for-streaming-temporal-graph-neural-networks)  
-   标签：评分：7.0/10、query:urt-pf
-   evidence：动态任务中时空图神经网络的高效推理
-7. [Multilayer public transport networks](/202603/28/2603.21130v1-multilayer-public-transport-networks)  
+   evidence：用于时空动态分析的GNN与LSTM混合框架
+2. [Conflict Avoidance in Pedestrian Merging in Controlled Experiments by Variance Indicator](/202603/29/2603.20593v1-conflict-avoidance-in-pedestrian-merging-in-controlled-experiments-by-variance-indicator)  
    标签：评分：7.0/10、query:urt-c
-   evidence：公共交通研究中的多层网络科学方法
-8. [Emergent Detailed Balance in Human Mobility under Temporal Coarse-Graining](/202603/28/2603.21552v1-emergent-detailed-balance-in-human-mobility-under-temporal-coarse-graining)  
+   evidence：交叉口行人拥挤与流量分析
+3. [Centrality-Based Pruning for Efficient Echo State Networks](/202603/29/2603.20684v1-centrality-based-pruning-for-efficient-echo-state-networks)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：分析城市间流动数据和人口迁移
-9. [TRACE: Trajectory Recovery with State Propagation Diffusion for Urban Mobility](/202603/28/2603.19474v1-trace-trajectory-recovery-with-state-propagation-diffusion-for-urban-mobility)  
+   evidence：用于非线性时间序列预测的回声状态网络
+4. [StreamTGN: A GPU-Efficient Serving System for Streaming Temporal Graph Neural Networks](/202603/29/2603.21090v1-streamtgn-a-gpu-efficient-serving-system-for-streaming-temporal-graph-neural-networks)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：时序图神经网络的高效推理
+5. [Multilayer public transport networks](/202603/29/2603.21130v1-multilayer-public-transport-networks)  
+   标签：评分：7.0/10、query:urt-c
+   evidence：公共交通系统的多层网络建模
+6. [Delineating hierarchical activity space from high-resolution urban mobility flows](/202603/29/2603.21507v1-delineating-hierarchical-activity-space-from-high-resolution-urban-mobility-flows)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：从城市移动流中描绘活动空间
+7. [On the Limits of Prediction: Forecastability Profiles and Information Decay in Time Series](/202603/29/2603.20546v1-on-the-limits-of-prediction-forecastability-profiles-and-information-decay-in-time-series)  
    标签：评分：6.0/10、query:urt-pf
-   evidence：城市移动轨迹恢复中的时空模式
-10. [Performance Guarantees for Data-Driven Sequential Decision-Making](/202603/28/2603.20553v1-performance-guarantees-for-data-driven-sequential-decision-making)  
+   evidence：时间序列预测极限的信息论工具
+8. [Large Neighborhood Search meets Iterative Neural Constraint Heuristics](/202603/29/2603.20801v1-large-neighborhood-search-meets-iterative-neural-constraint-heuristics)  
    标签：评分：6.0/10、query:urt-c
-   evidence：近似动态规划的性能保证
-11. [Centrality-Based Pruning for Efficient Echo State Networks](/202603/28/2603.20684v1-centrality-based-pruning-for-efficient-echo-state-networks)  
+   evidence：约束满足和邻域搜索的迭代神经启发式算法
+9. [Physics-Informed Graph Neural Jump ODEs for Cascading Failure Prediction in Power Grids](/202603/29/2603.20838v1-physics-informed-graph-neural-jump-odes-for-cascading-failure-prediction-in-power-grids)  
    标签：评分：6.0/10、query:urt-pf
-   evidence：使用回声状态网络进行非线性时间序列预测
-12. [A reliability-aware randomized simheuristic for the team orienteering problem with stochastic travel times](/202603/28/2603.20766v1-a-reliability-aware-randomized-simheuristic-for-the-team-orienteering-problem-with-stochastic-travel-times)  
+   evidence：用于时间演化预测的物理信息图神经 ODE
+10. [ReLaMix: Residual Latency-Aware Mixing for Delay-Robust Financial Time-Series Forecasting](/202603/29/2603.20869v1-relamix-residual-latency-aware-mixing-for-delay-robust-financial-time-series-forecasting)  
+   标签：评分：6.0/10、query:urt-pf
+   evidence：延迟观测下的鲁棒时间序列预测
+11. [Deep Adaptive Rate Allocation in Volatile Heterogeneous Wireless Networks](/202603/29/2603.20926v1-deep-adaptive-rate-allocation-in-volatile-heterogeneous-wireless-networks)  
    标签：评分：6.0/10、query:urt-c
-   evidence：用于随机定向和路径规划的仿真启发式算法
+   evidence：强化学习用于车载网络动态分配
+12. [Neural Inference Functions for Margins for Time Series Copula Models](/202603/29/2603.21075v1-neural-inference-functions-for-margins-for-time-series-copula-models)  
+   标签：评分：6.0/10、query:urt-pf
+   evidence：多元时间序列Copula模型的神经推理
 
 
 <div class="dpr-home-promo-card">

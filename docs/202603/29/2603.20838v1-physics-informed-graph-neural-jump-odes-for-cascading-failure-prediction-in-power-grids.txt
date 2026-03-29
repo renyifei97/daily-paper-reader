@@ -1,0 +1,591 @@
+Title: Physics-Informed Graph Neural Jump ODEs for Cascading Failure Prediction in Power Grids
+
+URL Source: https://arxiv.org/pdf/2603.20838v1
+
+Published Time: Tue, 24 Mar 2026 00:48:52 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+> 1
+
+# Physics-Informed Graph Neural Jump ODEs for Cascading Failure Prediction in Power Grids 
+
+Birva Sevak, Shrenik Jadhav, and Van-Hai Bui Senior Member, IEEE 
+
+Abstract —Cascading failures in power grids pose severe risks to infrastructure reliability, yet real-time prediction of their progression remains an open challenge. Physics-based simulators require minutes to hours per scenario, while existing graph neural network approaches treat cascading failures as static classification tasks, ignoring temporal evolution and physical laws. This paper proposes Physics-Informed Graph Neural Jump ODEs (PI-GN-JODE), combining an edge-conditioned graph neural network encoder, a Neural ODE for continuous power redistribution, a jump process handler for discrete relay trips, and Kirchhoff-based physics regularization. The model simul-taneously predicts edge and node failure probabilities, severity classification, and demand not served, while an autoregressive extension enables round-by-round temporal cascade prediction. Evaluated on the IEEE 24-bus and 118-bus systems with 20,000 scenarios each, PI-GN-JODE achieves a Precision–Recall Area Under the Curve of 0.991 for edge failure detection, 0.973 for node failure detection, and a coefficient of determination of 0.951 for demand-not-served regression on the 118-bus system, outperforming a standard graph convolutional network baseline (0.948, 0.925, and 0.912, respectively). Ablation studies reveal that the four components function synergistically, with the physics-informed loss alone contributing +9.2 points to demand-not-served regression. Performance improves when scaling to larger grids, and the architecture achieves the highest balanced accuracy (0.996) on the PowerGraph benchmark using data from adifferent simulation framework. 
+
+Index Terms —Cascading failure prediction, Graph neural net-works, Physics-informed machine learning, Power grid resilience, Multi-task learning. 
+
+I. I NTRODUCTION 
+
+# CASCADING failures in power grids remain one of the most consequential threats to modern infrastructure. A single initiating event, such as a transmission line tripping due to thermal overload or a generator outage, can trigger a chain reaction of successive component failures that propagates across the network within minutes. The resulting blackouts can affect tens of millions of people and impose billions of dollars in economic losses. The August 2003 blackout in the northeastern United States and Canada left approximately 50 million people without power for up to four days after a sequence of line trips escalated into the largest blackout in North American history [1]. More recently, Winter Storm Uri in February 2021 caused the loss of over 61,000 MW of generation capacity across 1,045 units in the south-central United States, leaving roughly 4.5 million customers in Texas without electricity for days [2]. Statistical analyses of historical 
+
+Birva Sevak and Shrenik Jadhav are with the Department of Computer and Information Science, University of Michigan–Dearborn, Michigan, USA. Van-Hai Bui is with the Department of Electrical and Computer Engineer-ing, University of Michigan–Dearborn, Michigan, USA. Corresponding author: Van-Hai Bui (e-mail: vhbui@umich.edu). 
+
+blackout data have consistently shown that the size distribution of such events follows a heavy-tailed power law, meaning that large-scale cascading failures occur far more frequently than normal distributions would predict [3]. This persistent vulner-ability, combined with the growing complexity introduced by renewable energy integration and distributed generation, makes it increasingly urgent to develop predictive tools that can an-ticipate cascade progression and support proactive intervention by grid operators. Traditional approaches to cascading failure analysis rely on detailed physical simulation, including the OPA model [4], the Manchester model [5], and DCSIMSEP [6], among others surveyed by the IEEE PES CAMS Task Force [7]. Although these approaches faithfully capture the physics of cascade propagation, their computational cost grows rapidly with sys-tem size. Running thousands of Monte Carlo simulations on large-scale grids can require hours or days of computation, making them impractical for real-time decision support during evolving grid emergencies. This computational bottleneck has motivated machine learn-ing approaches, from early SVM-based methods [8] to graph neural networks (GNNs) that respect the underlying network topology [9], [10]. The PowerGraph benchmark [11] provides standardized datasets for systematic GNN evaluation on power grids, and our prior work [12] demonstrated topology-aware gated message passing for AC power flow estimation. Despite these advances, most existing GNN approaches treat cascad-ing failure prediction as a static, one-shot classification task without modeling the temporal progression of the cascade, and purely data-driven models often lack physical consistency. A key insight motivating the present work is that cascading failures are inherently dynamic processes: between successive failures, power flows redistribute continuously according to Kirchhoff’s laws, while at discrete moments, relay activations cause abrupt topological changes. Neural ODEs [13] and their graph extensions [14], [15] provide frameworks for modeling continuous-time dynamics on graph-structured data, while neural jump SDEs [16] handle discrete discontinuities through state-dependent jump processes. Physics-informed machine learning [17], [18] offers a com-plementary strategy by embedding domain knowledge into the learning process. In power systems, PINNs have been applied to transient stability [19] and power flow analysis [20], [21]. For cascading failure prediction, enforcing physical constraints such as power balance at buses ensures that predictions cor-respond to physically realizable grid states. The sequential nature of cascade propagation has been established by Sch¨ afer et al. [22], who showed that nonlinear transient dynamics can trigger cascade modes invisible to static 
+
+> arXiv:2603.20838v1 [eess.SY] 21 Mar 2026 2
+
+analysis, and Hines et al. [23], who demonstrated that the effective propagation topology of cascading outages differs from the physical grid topology. These findings motivate models that predict the round-by-round progression of failures. From an architectural perspective, standard GCNs [24] cannot represent heterogeneous line properties; edge-conditioned con-volution [25] and neural message passing [26], [27] address this by incorporating branch parameters directly into the message-passing computation. In this paper, we propose Physics-Informed Graph Neural Jump ODEs (PI-GN-JODE), which unifies these elements into a single framework for cascading failure prediction. The model combines an edge-conditioned GNN encoder, a Neural ODE for continuous dynamics, a jump handler for discrete relay trips, and Kirchhoff-based physics regularization, simultane-ously predicting edge failures, node failures, severity, and demand not served. We validate on the IEEE 24-bus [28] and 118-bus systems using pandapower [29], benchmark against the PowerGraph dataset [11], and demonstrate multi-round cascade prediction via autoregressive unrolling with scheduled sampling [30]. To our knowledge, this is the first framework combining GNNs, Neural ODEs, jump processes, and physics constraints for temporal cascade prediction. The main contributions of this paper are as follows: 1) We introduce PI-GN-JODE, a unified architecture com-bining edge-conditioned GNNs, Neural ODE continuous dynamics, discrete jump handlers, and Kirchhoff-based physics constraints for multi-task cascading failure pre-diction. 2) We demonstrate through ablation studies that each component makes a synergistic contribution, with the physics-informed loss providing the largest single im-provement to DNS regression (+9.2 points in R2). 3) We validate on IEEE 24-bus and 118-bus systems (Edge PR-AUC 0.991, Node PR-AUC 0.973, DNS R2 0.951 on 118-bus) and extend to multi-round temporal cascade prediction via autoregressive unrolling with scheduled sampling. Section II presents the methodology, Section III reports experimental results, and Section IV concludes with future directions. II. M ETHODOLOGY 
+
+A. Problem Formulation 
+
+We represent a power grid as a directed graph G = ( V, E)
+
+where each bus corresponds to a node vi ∈ V and each transmission branch (line or transformer) corresponds to a pair of directed edges (vi, v j ), (vj , v i) ∈ E . The bidirectional representation enables asymmetric message passing, reflecting the fact that power flows and losses differ by direction. Each node vi is associated with a feature vector xi ∈ Rdv
+
+derived from the pre-contingency power flow solution, and each directed edge (vi, v j ) carries a feature vector eij ∈ Rde
+
+encoding the electrical properties of the corresponding branch. Given the graph G with an initial contingency specification encoded as binary masks within the features, the model predicts four targets simultaneously: 1) Edge failure probabilities: ˆyedge ∈ [0 , 1] |E| , the prob-ability that each transmission branch trips during the cascade. 2) Node failure probabilities: ˆynode ∈ [0 , 1] |V| , the proba-bility that each bus experiences load shedding or isola-tion. 3) Severity classification: ˆysev ∈ R2, logits for a binary safe/unsafe classification based on whether demand not served exceeds 5%. 4) Demand not served (DNS): ˆydns ∈ [0 , 1] , the fraction of total system load lost to the cascade. The framework supports two prediction modes. In one-shot mode, a single forward pass maps the initial contingency state to the final cascade outcome. In multi-round mode, the model autoregressively predicts the cascade state at each relay operation round, producing a temporal trajectory of failure progression. Both modes share the same base architecture; the multi-round extension unrolls the model’s continuous-discrete dynamics across sequential cascade rounds. This formulation goes beyond prior graph-level approaches [11] by providing component-level predictions (which specific lines trip and which buses fail) alongside system-level severity assessments and, in the multi-round setting, the temporal ordering of failures. 
+
+B. Cascade Simulation and Dataset Generation 
+
+Training data are generated through Monte Carlo simulation of cascading failures on the IEEE 24-bus Reliability Test Sys-tem [28] and the IEEE 118-bus system using pandapower [29]. For each system, diverse operating points are sampled by ran-domly scaling the base-case load profile, and a full AC power flow is solved using the Newton-Raphson method to obtain the pre-contingency steady state. Initial N-k contingencies are then selected through a screening procedure that retains only outage scenarios where at least one remaining branch exceeds a minimum effective loading threshold, biasing the dataset toward scenarios with cascade potential. Branches are chosen with probability proportional to their loading, and a leaf-bus bias mechanism preferentially selects lines near low-degree load buses to produce a diverse range of DNS outcomes. Each contingency is propagated through a relay-based ther-mal overload model in discrete rounds. Branches exceeding 120% of their thermal rating trip immediately; those between 95–120% trip if the overload persists for 2–3 rounds. Buses with voltage below 0.8 p.u. are failed, and the cascade termi-nates when no further trips occur or the power flow diverges. The demand not served is: DNS = 1 −
+
+P 
+
+> i∈V served
+
+P post 
+
+> d,i
+
+P 
+
+> i∈V
+
+P pre 
+
+> d,i
+
+(1) where P pre  
+
+> d,i
+
+and P post  
+
+> d,i
+
+denote the active load demand at bus i
+
+before and after the cascade. Four target labels are extracted per sample: edge labels yedge , node labels ynode , a binary severity label, and the continuous DNS value. For multi-round training, these are decomposed into per-round targets 
+
+y(r) 
+
+> edge
+
+and y(r)
+
+> node
+
+. The train/validation/test split is performed at the operating-point level to prevent data leakage. Table I summarizes the dataset configuration. 3                                                                                                       
+
+> TABLE I DATASET CONFIGURATION FOR EACH IEEE T EST SYSTEM
+> Parameter IEEE 24-Bus IEEE 118-Bus
+> Buses / branches / directed edges 24 / 38 / 76 118 / 186 / 372 Total samples 20,000 20,000 Train / Val / Test split 70% / 15% / 15% 70% / 15% / 15% Cascade rate 51.9% 16.0% Edge positive rate ∼2.5% ∼0.08% Node positive rate ∼6.7% ∼7.2% Severity (Safe / Unsafe) 71% / 29% 84% / 16% Load scaling range [0 .6,1.4] [1 .0,1.6]
+> N-kdistribution (1/2/3/4) 70/25/5/– 10/45/35/10% Hard-trip / soft-trip threshold 120% / 100% 120% / 95% Max cascade rounds Rmax 20 30 Max observed cascade depth 5 rounds 2 rounds TABLE II NODE FEATURE VECTOR xi∈R11 FOR EACH BUS
+> Index Feature Source
+> 0Bus type (PQ/PV/Slack) Network topology 1–2 Voltage magnitude, angle AC power flow 3–4 Net P,Qinjection (MW, MVAr) AC power flow 5–6 Load Pd,Qd(MW, MVAr) Load tables 7–8 Generator Pg(MW), status Generator tables 9Topological degree Network topology 10 Initial contingency mask Contingency def. TABLE III EDGE FEATURE VECTOR eij ∈R12 FOR EACH DIRECTED EDGE
+> Index Feature Source
+> 0Loading percentage (% of rating) AC power flow 1–4 Pfrom ,Qfrom ,Pto ,Qto (MW, MVAr) AC power flow 5–6 Resistance r, reactance x(p.u.) Line parameters 7Thermal rating Imax (kA) Line parameters 8In-service status (binary) Network state 9Parallel circuits Line parameters 10 Initial contingency mask Contingency def. 11 Branch type (line/transformer) Network topology
+
+C. Input Representation 
+
+The input graph is constructed from the pre-contingency steady-state power flow solution (after the initial outage, before cascade propagation). Tables II and III detail the node and edge feature vectors. All electrical quantities are obtained from the validated Newton-Raphson AC power flow solution. The initial contin-gency masks encode which components were removed as the trigger event, providing the model with the necessary context to predict the subsequent cascade. In the multi-round setting, these masks are updated at each round to reflect the cumulative failure state. 
+
+D. PI-GN-JODE Architecture 
+
+The PI-GN-JODE architecture consists of four processing stages that mirror the physical processes underlying cascading failures: (1) an edge-conditioned GNN encoder, (2) a neural ODE for continuous dynamics, (3) a jump process handler for discrete relay trips, and (4) multi-task decoders with Kirchhoff physics regularization. In one-shot mode, these stages execute once. In multi-round mode, they are unrolled across cascade rounds with shared weights, producing a temporal sequence of predictions. The complete one-shot forward pass is: 
+
+G(X, E) GNN 
+
+−−−→ H0ODE 
+
+−−−→ Hc
+
+> Jump
+
+−−−→ Hf
+
+> Decoders
+
+−−−−−−→ (ˆ yedge , ˆynode , ˆysev , ˆydns )
+
+(2) 
+
+1) Edge-Conditioned GNN Encoder: The encoder trans-forms raw features into d-dimensional hidden representa-tions through L layers of edge-conditioned message passing with multi-head attention. Unlike standard GCNs [24] and GATs [31], our convolution incorporates branch electrical properties directly into the attention computation follow-ing [25]. The input features are first projected into the hidden space: 
+
+h(0)  
+
+> i
+
+= LayerNorm (ReLU (Wv xi + bv )) (3) 
+
+e′ 
+
+> ij
+
+= LayerNorm (ReLU (Weeij + be)) (4) where Wv ∈ Rd×dv and We ∈ Rd×de . At each layer l, multi-head attention is computed with edge modulation. For each head k = 1 , . . . , K :
+
+α(k) 
+
+> ji
+
+=exp 
+
+ q(k)⊤   
+
+> i(k(k)
+> j+W(k)
+> Ee′
+> ji )
+
+√d/K 
+
+P  
+
+> j′∈N (i)
+
+exp 
+
+ q(k)⊤   
+
+> i(k(k)
+> j′+W(k)
+> Ee′
+> j′i)
+
+√d/K 
+
+ (5) where q(k) 
+
+> i
+
+= W(k) 
+
+> Q
+
+h(l−1)  
+
+> i
+
+, k(k) 
+
+> j
+
+= W(k) 
+
+> K
+
+h(l−1)  
+
+> j
+
+are the query and key projections, N (i) denotes the neighbors of node i, and 
+
+W(k) 
+
+> E
+
+is a per-head edge projection. The edge term W(k) 
+
+> E
+
+e′
+
+> ji
+
+modulates the key, allowing branch impedance and loading to directly influence message weights. Each layer also computes an MLP-based message mji = MLP ([ h(l−1)  
+
+> j
+
+∥h(l−1)  
+
+> i
+
+∥e′
+
+> ji
+
+]) and updates the node state with a residual connection: 
+
+h(l) 
+
+> i
+
+= LayerNorm 
+
+
+
+h(l−1) 
+
+> i
+
++ Dropout   Attn (l) 
+
+> i
+
++ FFN( m(l) 
+
+> i
+
+) (6) where FFN is a two-layer feed-forward network with GELU activation [32] and layer normalization [33]. After L layers, the encoder produces node embeddings H0 ∈ R|V|× d and edge embeddings E′ ∈ R|E|× d.
+
+2) Neural ODE for Continuous Dynamics: Between dis-crete relay trip events, power flows redistribute continuously through the network as the system seeks a new equilibrium. We model this temporal evolution of node embeddings using a neural ODE [13]: 
+
+dH
+
+dt = fθ (H(t), G), H(0) = H0 (7) where fθ is parameterized by a single edge-conditioned graph convolution layer followed by a linear transformation with 
+
+tanh activation: 
+
+fθ (H, G) = tanh( Wf · EdgeCondConv (H, G) + bf ) (8) 4 
+
+> Fig. 1. PI-GN-JODE architecture. The input graph is processed by a GNN encoder, neural ODE, jump handler, and physics-regularized multi-task decoders to generate four predictions.
+
+The tanh activation bounds the derivative, preventing un-bounded state growth during integration. The ODE is inte-grated from t = 0 to t = T using a fixed-step Euler solver: 
+
+Hc = H0 + T · fθ (H0, G) (9) with T = 1 .0 treated as an abstract integration horizon rather than physical time. The Euler solver with a single function evaluation is chosen for memory efficiency, as adaptive solvers store activations for each sub-step, causing prohibitive GPU memory consumption on batched graphs. 
+
+3) Jump Process Handler: Cascading failures are inher-ently hybrid dynamical systems: continuous power flow redis-tribution is punctuated by discrete relay trip events. The jump handler models these transitions in the latent space through two stages. First, an MLP-based trip predictor estimates the probability that each edge will trip: 
+
+ptrip  
+
+> ij
+
+= σ MLP trip ([ hci ∥hcj ∥e′ 
+
+> ij
+
+])  (10) where hci , hcj ∈ Hc are the post-ODE node embeddings. For edges with ptrip  
+
+> ij
+
+> 0.5, a jump transform MLP computes state perturbations at both endpoints: 
+
+δs = MLP jump ([ hcs∥e′ 
+
+> ij
+
+]) , s ∈ { i, j } (11) These perturbations are aggregated across all tripped edges via scatter-add operations. The final node embeddings blend the continuous and jumped states using a learnable scale parameter 
+
+γ (initialized at 0.1): 
+
+hfi = (1 − wi) · hci + wi · (hci + γ · ∆hi) (12) where wi = max j:( i,j )∈E ptrip  
+
+> ij
+
+quantifies the maximum trip influence on node i. Nodes far from any tripped edge retain their continuous-state embeddings, while nodes adjacent to tripped edges incorporate the discrete perturbation. The im-plementation is fully vectorized using batched MLP calls and scatter-add aggregation. 
+
+4) Prediction Heads and Physics Regularization: Three decoder heads produce the four prediction targets from the final node embeddings Hf . The node failure decoder maps each node embedding through an MLP ( d → d → d/ 2 → 1) to a failure logit. The edge failure decoder concatenates source, destination, and edge embeddings ( 3d → d → d/ 2 → 1)to produce per-edge trip logits. For graph-level predictions, an attention-based pooling mechanism learns which buses are most critical: 
+
+g =
+
+"X
+
+> i∈V
+
+αihfi
+
+1
+
+|V| 
+
+X
+
+> i∈V
+
+hfi
+
+#
+
+∈ R2d,αi = softmax i
+
+
+
+MLP attn (hfi )
+
+ (13) A severity head ( 2d → d → 2) produces classification logits and a DNS head ( 2d → d → 1) with sigmoid activation outputs the continuous demand-not-served prediction. To encourage physically consistent internal representations, we introduce a soft Kirchhoff power balance regularizer. Two lightweight extractors learn approximate power quan-tities from the hidden states: a power injection predictor 
+
+ˆpi = MLP inj (hfi ) ∈ R2 and a flow predictor ˆfij =
+
+MLP flow ([ hfi ∥hfj ]) ∈ R2, each outputting active and reactive power components. The Kirchhoff violation loss penalizes power imbalance at each node: 
+
+Lphysics = 1
+
+|V| 
+
+X
+
+> i∈V
+
+ˆpi + X
+
+> j:( j,i )∈E
+
+ˆfji − X
+
+> j:( i,j )∈E
+
+ˆfij 
+
+> 22
+
+(14) 5
+
+This acts as a soft regularizer: the model is not required to solve the power flow equations exactly, but its learned repre-sentations are encouraged to respect fundamental conservation laws. 
+
+5) Multi-Round Autoregressive Extension: In the multi-round formulation, the base architecture is applied iteratively with shared weights across cascade rounds r = 0 , 1, . . . , R −1:
+
+G(r) GNN 
+
+−−−→ H(r)0ODE 
+
+−−−→ H(r)
+
+> c
+> Jump
+
+−−−→ H(r)
+
+> f
+> Decoders
+
+−−−−−−→
+
+
+
+ˆy(r)edge , ˆy(r)node 
+
+ (15) The graph state G(r) is updated between rounds to reflect the cumulative failures. The edge and node contingency masks are augmented with the failures predicted (or observed, during teacher forcing) in all previous rounds, and a learnable state updater module transforms the node embeddings to account for the changed topology: 
+
+˜h(r) 
+
+> i
+
+= MLP update 
+
+
+
+[hf, (r−1)  
+
+> i
+
+∥c(r) 
+
+> i
+
+]
+
+
+
+(16) where c(r) 
+
+> i
+
+∈ R2 encodes the local failure context at node 
+
+i (whether the node itself failed and the fraction of incident edges that tripped in the previous round). This updated rep-resentation is re-encoded through the GNN at the next round, reflecting how the electrical state of the entire network changes when lines trip. Severity and DNS predictions are produced only at the final round, as these are system-level outcomes of the complete cascade. Edge and node failure predictions are produced at every round, providing the temporal trajectory of failure progression. The cascade terminates when the model predicts no further failures (all ptrip  
+
+> ij
+
+< 0.5) or when the maximum round count R is reached. 
+
+E. Training and Evaluation 1) Loss Function and Optimization: The total one-shot training loss is a weighted sum of five components: 
+
+L = λnLnode +λeLedge +λsLsev +λdLdns +λp(t)Lphysics (17) where Lnode and Ledge are binary cross-entropy with positive-class weights (capped at 30 and 100, respectively), Lsev is cross-entropy with square-root inverse frequency weights, and 
+
+Ldns is MSE. The weights are λn=1 .0, λe=1 .0, λs=0 .3,
+
+λd=1 .0 (see Table IV for per-system values). 
+
+λp(t) = 
+
+(
+
+λtarget  
+
+> p
+
+· t/T w if t < T w
+
+λtarget  
+
+> p
+
+if t ≥ Tw
+
+(18) where λtarget  
+
+> p
+
+= 0 .15 and Tw is the warm-up duration. This schedule prevents the physics loss from destabilizing early training, when hidden representations have not yet learned meaningful power-related features. For multi-round training, the loss is summed over cascade rounds with a discount factor β = 0 .95 that gives slightly less                                          
+
+> TABLE IV PI-GN-JODE H YPERPARAMETER CONFIGURATION
+> Hyperparameter One-Shot Multi-Round
+> Hidden dimension d64 (96 †)64 (96 †)GNN layers L/ Attn heads K3 / 4 (4 / 4 †)3 / 4 (4 / 4 †)ODE solver / time TEuler / 1.0 Euler / 1.0 Dropout 0.1 0.1 Batch size 16 16 Optimizer AdamW, lr = 10 −3(3×10 −4†), wd = 10 −5
+> LR scheduler OneCycleLR, cosine Gradient clip norm 1.0 (0.5 †)1.0 (0.5 †)Max epochs / patience 100 / 15 100 / 30 Weight init Xavier uniform [36]
+> λn, λ e, λ s, λ d1.0, 1.0 (0.3 †), 0.3, 1.0
+> λtarget
+> p/Tw0.15 / 30 ep. (50 †)0.15 / 30 ep. (50 †)Round discount β–0.95 TF decay Tss –60 ep. (24-bus), 120 ep. (118-bus) Max rounds R–10 (24-bus), 2 (118-bus)
+> Values shown are for the IEEE 24-bus system. †IEEE 118-bus values were different.
+
+weight to later rounds, where autoregressive error accumula-tion makes the targets inherently noisier: 
+
+LMR =
+
+> R−1
+
+X
+
+> r=0
+
+βr 
+
+λnL(r)node + λeL(r)edge 
+
+
+
++ λsL(R)sev + λdL(R)dns + λp(t)Lphysics 
+
+(19) where the severity and DNS losses are computed only at the final round. Multi-round training employs scheduled sampling [30] to bridge the gap between training (where ground-truth states can be provided) and inference (where the model must rely on its own predictions). The teacher forcing ratio τ controls the probability of using ground-truth versus predicted failures for state updates between rounds: 
+
+τ (t) = max 
+
+
+
+0, 1 − tTss 
+
+
+
+(20) where Tss is the scheduled sampling decay period. At τ = 1 .0
+
+(early training), state updates always use ground-truth failures; at τ = 0 .0 (late training and inference), the model is fully autoregressive. This gradual transition allows the model to learn to recover from its own prediction errors. All models are trained using AdamW [34] with learning rate 
+
+10 −3, weight decay 10 −5, and a OneCycleLR scheduler [35] (10% warm-up, cosine annealing). Gradient norms are clipped to 1.0. Training proceeds for up to 100 epochs with early stopping on validation loss. After training, decision thresholds for node and edge predictions are calibrated on the validation set via grid search to maximize F1. Table IV summarizes all hyperparameters. 
+
+2) Evaluation Metrics: Given the severe class imbalance (1.4% edge and 6.9% node failure rates on the 118-bus system), we use PR-AUC [37] as the primary metric, sup-plemented by F1 at calibrated thresholds, binary Severity F1, and DNS R2.
+
+3) Ablation and Baseline Design: To quantify the con-tribution of each architectural component, we evaluate four 6
+
+ablation variants that systematically remove individual com-ponents while keeping all other settings identical. GN-JODE 
+
+(No Physics) removes Kirchhoff regularization; PI-GN-ODE 
+
+(No Jump) removes the jump handler; PI-GN-J (No ODE) removes the neural ODE; and GNN-Only removes the ODE, jump handler, and physics loss simultaneously, isolating the combined contribution and interaction effects. Three architecture baselines replace the edge-conditioned encoder: GCN [24] uses standard spectral convolution with only the binary adjacency; GAT [31] employs multi-head attention without edge conditioning; and MLP processes each node and edge independently with no message passing. To validate that the architecture generalizes across simulation frameworks, we additionally evaluate on the PowerGraph benchmark [11], where the same PI-GN-JODE architecture is trained and tested on data generated using MATPOWER with AC optimal power flow. For multi-round evaluation, we compare the autoregressive model against the one-shot baseline on the same test set to isolate the contribution of temporal unrolling from differences in model capacity. III. R ESULTS AND DISCUSSION 
+
+We evaluate PI-GN-JODE across four experimental dimen-sions: (1) one-shot cascade prediction with comprehensive ablation analysis on the IEEE 118-bus system, (2) scalability from 24-bus to 118-bus grids, (3) architectural benchmark-ing against the PowerGraph NeurIPS 2024 benchmark, and (4) multi-round temporal cascade prediction. All results are reported on held-out test sets using group-based splits that prevent operating-point leakage between train, validation, and test partitions. Given the severe class imbalance in cascade prediction, only 1.4% of edges and 6.9% of nodes experience failures on the IEEE 118-bus system in any given scenario. We adopt Precision Recall Area Under the Curve (PR-AUC) as the primary metric for edge-level and node-level failure detection, as it is more informative than ROC-AUC under extreme imbalance [37]. We additionally report F1 scores at optimized thresholds, Severity F1 for the binary severity classification (Safe/Unsafe, with the threshold at DNS ≥ 5%), and the coefficient of determination ( R2) for Demand Not Served (DNS) regression. DNS measures the fraction of total system load shed during a cascade, providing a direct estimate of blackout severity. 
+
+A. Training Methodology and Convergence Behavior 
+
+Multi-round training employs teacher forcing with linear decay from 1.0 to 0.0. Fig. 2 shows the 24-bus training dynamics over 75 epochs, with the best validation epoch at 42 (residual TF ratio ≈ 0.4). The rising training loss reflects TF decay, not divergence. On the 118-bus system, convergence is smoother due to its larger effective dataset (118 ×372 vs. 24 ×76 features per sample), with the best epoch at 72 (TF ≈ 0.3) and DNS R2 exhibiting delayed onset until classification heads partially converge. Across both systems, performance peaks at TF ≈ 0.3 and degrades below 0.2, suggesting that a residual TF floor may improve autoregressive stability.   
+
+> Fig. 2. Multi-round training on the IEEE 24-bus system over 75 epochs. (a) Loss with best epoch at 42. (b) Edge and node PR-AUC. (c) DNS R2,severity F1, and teacher-forcing ratio.
+
+B. One-Shot Prediction and Component Analysis 
+
+Table V presents the one-shot cascade prediction results on the IEEE 118-bus system for the full PI-GN-JODE model, four ablation variants, and three baseline architectures. The full model achieves an Edge PR-AUC of 0.991 and Node PR-AUC of 0.973, demonstrating near-perfect ranking of failure-prone components despite the highly imbalanced label distribution. DNS regression performance is equally strong, with R2 = 0 .951 indicating that the model explains over 95% of the variance in system-level load shedding. Notably, no ablation or baseline matches PI-GN-JODE’s joint performance across all six metrics. GCN achieves a competitive DNS R2 of 0.912, suggesting that simpler ar-7                                                                                                 
+
+> TABLE V ONE -S HOT CASCADE PREDICTION RESULTS ON IEEE 118-B US SYSTEM
+> Model Edge Edge Node Node Sev. DNS PR-AUC F1 PR-AUC F1 F1 R2
+> Full model
+> PI-GN-JODE 0.991 0.975 0.973 0.929 0.974 0.951
+> Ablation variants
+> No Physics 0.960 0.929 0.932 0.898 0.923 0.858 No Jump 0.945 0.910 0.923 0.894 0.930 0.844 No ODE 0.929 0.907 0.922 0.892 0.930 0.848 GNN-Only 0.949 0.912 0.940 0.893 0.929 0.855
+> Baseline architectures
+> GCN 0.948 0.911 0.925 0.890 0.949 0.912 GAT 0.948 0.909 0.936 0.894 0.945 0.876 MLP 0.946 0.910 0.914 0.881 0.932 0.855 TABLE VI ABLATION ANALYSIS : P ERFORMANCE DEGRADATION (∆) W HEN
+> REMOVING EACH COMPONENT FROM THE FULL PI-GN-JODE ON IEEE 118-B US
+> Removed ∆Edge ∆Node ∆Sev. ∆DNS Component PR-AUC PR-AUC F1 R2
+> Physics Loss −0.031 −0.041 −0.051 −0.093 Jump Handler −0.046 −0.050 −0.044 −0.107 Neural ODE −0.062 −0.051 −0.044 −0.103 All (GNN-Only) −0.042 −0.033 −0.045 −0.096
+
+chitectures suffice for aggregate impact estimation, but its Edge PR-AUC of 0.948 falls 4.3 points short, confirming that fine-grained failure localization requires PI-GN-JODE’s richer representation. To isolate the contribution of each architectural component, we conduct a systematic ablation study where individual modules are removed while all other components and hy-perparameters remain fixed. Fig. 3 presents the cumulative component build-up from the MLP baseline to the full PI-GN-JODE model, illustrating how each addition affects Edge PR-AUC and DNS R2.The build-up reveals that the GNN encoder provides modest edge-level gains (+0.003 Edge PR-AUC) but substantial node-level improvement ( 0.914 → 0.940 ), as bus failure prediction depends more on network connectivity than local conditions. The Neural ODE causes a transient dip (Edge PR-AUC: 
+
+0.949 → 0.929 ) due to the harder joint optimization landscape, but the converged model relies heavily on it (removal degrades Edge PR-AUC by 6.2 points). The Jump Handler recovers this dip and adds +3.1 points to Edge PR-AUC. The Physics Loss contributes the largest single improvement to DNS R2
+
+(+9.2 points, from 0.858 to 0.951), confirming that encoding conservation laws provides a strong inductive bias for system-level impact prediction. On Edge PR-AUC, the Physics Loss and Jump Handler contribute equally (+3.1 points each). Table VI summarizes the performance degradation when each component is removed from the full model, providing a complementary view to the build-up analysis. A notable finding is that GNN-Only sometimes yields smaller degradation than individual ablations (e.g., Edge PR-AUC of 0.949 vs No ODE’s 0.929). This occurs because GNN- 
+
+> Fig. 3. Component build-up on IEEE 118-bus. (a) Edge PR-AUC and (b) DNS
+> R2improve overall, with a brief dip after the Neural ODE that is recovered by the Jump Handler and Physics Loss.
+
+Only converges to a different solution that avoids the ODE’s optimization difficulty, while the No ODE variant creates an architectural mismatch by retaining the Jump Handler without the temporally-evolved states it expects. This underscores the synergistic design of PI-GN-JODE’s components. 
+
+C. Scalability and Cross-Simulator Generalization 
+
+Fig. 4 compares performance across the IEEE 24-bus and 118-bus systems. Counter-intuitively, the model performs better on the larger grid (Edge PR-AUC: 0.868 → 0.991 ;DNS R2: 0.708 → 0.951 ), attributable to more structural context per prediction (5.2 vs 1.9 edge positives per sample), a cleaner severity distribution, and richer message-passing neighborhoods. Table VII reports the 24-bus multi-seed results, confirming stable convergence (all standard deviations below 0.02). PI-GN-JODE’s advantage over the MLP is more pronounced on the 24-bus system (37.4-point Edge PR-AUC gap vs 4.5 points on 118-bus), reflecting the harder classification task at lower edge positive rates ( ∼2.5%). To test cross-simulator generalization, we evaluate PI-GN-JODE on the PowerGraph IEEE 24-bus benchmark [11], 8
+
+Fig. 4. One-shot performance comparison between the IEEE 24-bus and IEEE 118-bus systems. Performance improves on all metrics for the larger grid, with the largest gains in DNS R2 and node PR-AUC. TABLE VII IEEE 24-B US ONE -S HOT RESULTS (M EAN ± STD OVER 3 S EEDS )
+
+Metric PI-GN-JODE MLP Baseline 
+
+Edge PR-AUC 0.868 ± 0.009 0.494 ± 0.012 
+
+Edge F1 0.830 ± 0.009 0.365 ± 0.015 
+
+Node PR-AUC 0.832 ± 0.008 0.447 ± 0.014 
+
+Node F1 0.776 ± 0.009 0.389 ± 0.018 
+
+Severity F1 0.909 ± 0.010 0.703 ± 0.021 
+
+DNS R2 0.708 ± 0.018 0.412 ± 0.025 
+
+TABLE VIII ARCHITECTURAL COMPARISON ON THE POWER GRAPH IEEE 24-B US 
+
+BENCHMARK 
+
+Source Model Bal. Acc. DNS MSE 
+
+Published baselines [11] 
+
+PowerGraph GCN (2L, 32h) 0.8769 0.0028 PowerGraph GAT (3L, 32h) 0.9067 0.2900 PowerGraph GINe (3L, 32h) 0.9800 0.0029 PowerGraph Transformer (3L, 16h) 0.9910 0.0027 
+
+Ours (PI-GN-JODE architecture) 
+
+Ours GNN-Only 0.995 ± 0.001 0.0002 
+
+Ours PI-GN-JODE 0.996 ± 0.002 0.0003 
+
+All models trained and tested within the PowerGraph framework using identical data splits. PI-GN-JODE uses the same architecture as in our pandapower experiments without modification. DNS MSE reported on logarithmic scale in Fig. 5(b). Our GNN-Only achieves the lowest DNS MSE (0.0002); PI-GN-JODE achieves the highest balanced accuracy (0.996). 
+
+training and testing within its data splits for direct comparison. Table VIII and Fig. 5 present the results. PI-GN-JODE achieves a balanced accuracy of 0.996 ±
+
+0.002 , outperforming the best published baseline (Trans-former: 0.991) by 0.5 points without any architectural modifi-cation, confirming generalization to MATPOWER-based data. On DNS regression, both PI-GN-JODE (MSE = 0.0003) and GNN-Only (MSE = 0.0002) achieve errors an order of magni-tude below the best baseline (0.0027); GNN-Only’s marginal advantage reflects the single-step setting where ODE and Jump components have limited opportunity to contribute. 
+
+Fig. 5. Performance comparison on the PowerGraph IEEE 24-bus bench-mark [11]. (a) Binary balanced accuracy for cascade detection. (b) DNS mean squared error on a log scale. PI-GN-JODE achieves the highest accuracy with the second-lowest DNS error. 
+
+D. Temporal Cascade Prediction 
+
+In multi-round mode, PI-GN-JODE autoregressively pre-dicts the cascade state at each round using its own predictions, producing temporal failure trajectories rather than single-step outcome mappings. Fig. 6 compares one-shot and multi-round performance on both test systems. Table IX provides the corresponding numerical results. On the 24-bus system, the multi-round model exhibits moderate degradation: Edge PR-AUC decreases by 2.6 points (from 0.868 to 0.842) while DNS R2 drops by 6.0 points (from 0.708 to 0.648). Notably, Node F1 improves by 1.1 points in the multi-round setting ( 0.776 → 0.787 ), suggesting that the temporal unrolling provides additional signal for bus-level failure detection even as it introduces autoregressive error accumulation on other metrics. On the 118-bus system, gaps are larger (Edge PR-AUC: 
+
+−10.4; DNS R2: −22.3) due to error compounding over 372 edges, limited cascade depth (max 2 rounds), and the 9                                                            
+
+> Fig. 6. One-shot versus multi-round performance comparison. (a) IEEE 24-bus: moderate drops across metrics, with the largest decline in DNS R2. (b) IEEE 118-bus: larger drops across all metrics, again led by DNS R2.TABLE IX MULTI -R OUND CASCADE PREDICTION RESULTS
+> Grid Mode Edge Node DNS Sev. Edge Node PR-AUC PR-AUC R2F1 F1 F1
+> 24-Bus OS 0.868 0.832 0.708 0.909 0.830 0.776 MR 0.842 0.750 0.648 0.789 0.798 0.787
+> ∆−0.026 −0.083 −0.060 −0.120 −0.032 +0.011 118-Bus OS 0.991 0.973 0.951 0.974 0.975 0.929 MR 0.887 0.796 0.728 0.829 0.826 0.824
+> ∆−0.104 −0.177 −0.223 −0.145 −0.149 −0.105 OS = One-Shot; MR = Multi-Round. ∆= MR −OS. The 24-bus model predicts up to 5 cascade rounds; the 118-bus model predicts up to 2 rounds (reflecting the network’s meshed topology).
+
+exceptionally strong one-shot baseline leaving less headroom. Despite this, the multi-round model achieves practically useful performance (Edge PR-AUC 0.887, Node PR-AUC 0.796) while providing operators with failure trajectories rather than static snapshots. 
+
+E. Discussion 1) Architectural Synergy and the Role of Physics: The ablation results confirm that PI-GN-JODE’s four components are synergistic: the Neural ODE’s transient dip during build-up (Fig. 3) and GNN-Only’s occasionally smaller degrada-tion than partial ablations (Table VI) both indicate an in-tegrated system rather than independently additive modules. The Physics Loss provides the largest single contribution to DNS R2 (+9.2 points), with its warm-up schedule avoiding early optimization conflicts and enabling 5 × longer productive training. 
+
+2) Cascade Dynamics and Practical Implications: The maximum cascade depth (3–5 rounds on 24-bus vs 2 rounds on 118-bus) reflects the meshed 118-bus topology, which either absorbs contingencies or collapses in a single wave. PI-GN-JODE produces predictions in ∼5 ms on a GPU ( 100 –
+
+400 × faster than pandapower), enabling real-time contingency screening with temporal failure trajectories unavailable from static analysis. 
+
+3) Limitations: Several limitations should be noted. First, the multi-round model exhibits substantial DNS degradation on the 118-bus system ( R2 from 0.951 to 0.728), indicating that autoregressive error accumulation remains a challenge for system-level impact estimation on large grids. Second, the cascade simulation uses a simplified relay model (deterministic thermal overload trips) without modeling protection system hidden failures, operator actions, or remedial action schemes that influence real cascades. Third, while we demonstrate scalability from 24 to 118 buses, the transition to realistic bulk power systems with thousands of buses will likely re-quire architectural modifications such as hierarchical graph representations or graph coarsening to manage computational complexity. Finally, the PowerGraph benchmark comparison, while demonstrating that the architecture performs well on data from a different simulator, is limited to the 24-bus topology; extending this validation to larger benchmark grids as they become available will strengthen the generalization claims. IV. C ONCLUSION 
+
+This paper introduced PI-GN-JODE, a unified framework that combines edge-conditioned graph neural networks, Neu-ral ODE continuous dynamics, discrete jump processes, and Kirchhoff-based physics regularization for cascading failure prediction in power grids. Evaluation on the IEEE 24-bus and 118-bus systems demonstrated strong multi-task perfor-mance (Edge PR-AUC 0.991, Node PR-AUC 0.973, DNS R2
+
+0.951 on 118-bus), with ablation studies confirming synergistic component interactions and the physics loss providing the largest single contribution (+9.2 points in R2). The archi-tecture generalizes across simulation frameworks, achieving the highest balanced accuracy (0.996) on the PowerGraph benchmark. The multi-round autoregressive extension provides temporal failure trajectories, though autoregressive error accu-mulation on larger grids remains an open challenge. Future work includes error-aware autoregressive training, scaling to bulk power systems via hierarchical graph representations, 10 
+
+incorporating more realistic cascade dynamics, and real-time contingency screening deployment. ACKNOWLEDGMENT 
+
+This work was supported in part by the U.S. National Science Foundation (NSF) under Award No. 2509993 and in part by the University of Michigan-Dearborn Experience+ Student Independent Research Grant. REFERENCES [1] U.S.-Canada Power System Outage Task Force, “Final report on the au-gust 14, 2003 blackout in the united states and canada,” U.S. Department of Energy and Natural Resources Canada, Tech. Rep., Apr. 2004. [2] FERC, NERC, and Regional Entity Staff, “The February 2021 cold weather outages in Texas and the south central United States,” Federal Energy Regulatory Commission, Tech. Rep., Nov. 2021. [Online]. Available: https://www.ferc.gov/media/february-2021-cold-weather-outages-texas-and-south-central-united-states-ferc-nerc-and [3] I. Dobson, B. A. Carreras, V. E. Lynch, and D. E. Newman, “Complex systems analysis of series of blackouts: Cascading failure, critical points, and self-organization,” Chaos: An Interdisciplinary Journal of Nonlinear Science , vol. 17, no. 2, p. 026103, 2007. [4] B. A. Carreras, V. E. Lynch, I. Dobson, and D. E. Newman, “Complex dynamics of blackouts in power transmission systems,” Chaos: An Interdisciplinary Journal of Nonlinear Science , vol. 14, no. 3, pp. 643– 652, 2004. [5] D. P. Nedic, I. Dobson, D. S. Kirschen, B. A. Carreras, and V. E. Lynch, “Criticality in a cascading failure blackout model,” International Journal of Electrical Power & Energy Systems , vol. 28, no. 9, pp. 627–633, 2006. [6] M. J. Eppstein and P. D. H. Hines, “A “random chemistry” algorithm for identifying collections of multiple contingencies that initiate cascading failure,” IEEE Transactions on Power Systems , vol. 27, no. 3, pp. 1698– 1705, 2012. [7] M. Vaiman, K. Bell, Y. Chen, B. Chowdhury, I. Dobson, P. Hines, M. Papic, S. Miller, and P. Zhang, “Risk assessment of cascading outages: Methodologies and challenges,” IEEE Transactions on Power Systems , vol. 27, no. 2, pp. 631–641, 2012. [8] S. Gupta, R. Kambli, S. Wagh, and F. Kazi, “Support-vector-machine-based proactive cascade prediction in smart grid using probabilistic framework,” IEEE Transactions on Industrial Electronics , vol. 62, no. 4, pp. 2478–2486, 2015. [9] B. Donon, R. Cl´ ement, B. Donnot, A. Marot, I. Guyon, and M. Schoe-nauer, “Neural networks for power flow: Graph neural solver,” Electric Power Systems Research , vol. 189, p. 106547, 2020. [10] S. Chadaga, X. Wu, and E. Modiano, “Power failure cascade prediction using graph neural networks,” in 2023 IEEE International Conference on Communications, Control, and Computing Technologies for Smart Grids (SmartGridComm) , Glasgow, United Kingdom, 2023, pp. 1–7, arXiv:2404.16134. [11] A. Varbella, K. Amara, B. Gjorgiev, M. El-Assady, and G. Sansavini, “PowerGraph: A power grid benchmark dataset for graph neu-ral networks,” in Advances in Neural Information Processing Sys-tems 37 (NeurIPS 2024), Datasets and Benchmarks Track , 2024, arXiv:2402.02827. [12] S. Jadhav, B. Sevak, S. Das, W. Su, and V.-H. Bui, “Enhancing power flow estimation with topology-aware gated graph neural networks,” 
+
+arXiv preprint arXiv:2507.02078 , 2025, arXiv:2507.02078. [13] R. T. Q. Chen, Y. Rubanova, J. Bettencourt, and D. K. Duvenaud, “Neural ordinary differential equations,” in Advances in Neural Infor-mation Processing Systems 31 (NeurIPS 2018) , 2018, pp. 6571–6583, arXiv:1806.07366. [14] M. Poli, S. Massaroli, J. Park, A. Yamashita, H. Asama, and J. Park, “Graph neural ordinary differential equations,” arXiv preprint arXiv:1911.07532 , 2019, arXiv:1911.07532. [15] L.-P. A. C. Xhonneux, M. Qu, and J. Tang, “Continuous graph neu-ral networks,” in Proc. 37th International Conference on Machine Learning (ICML 2020) , ser. PMLR, vol. 119, 2020, pp. 10 432–10 441, arXiv:1912.00967. [16] J. Jia and A. R. Benson, “Neural jump stochastic differential equations,” in Advances in Neural Information Processing Systems 32 (NeurIPS 2019) , 2019, pp. 9847–9858, arXiv:1905.10403. [17] M. Raissi, P. Perdikaris, and G. E. Karniadakis, “Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations,” 
+
+Journal of Computational Physics , vol. 378, pp. 686–707, 2019. [18] G. E. Karniadakis, I. G. Kevrekidis, L. Lu, P. Perdikaris, S. Wang, and L. Yang, “Physics-informed machine learning,” Nature Reviews Physics ,vol. 3, no. 6, pp. 422–440, 2021. [19] G. S. Misyris, A. Venzke, and S. Chatzivasileiadis, “Physics-informed neural networks for power systems,” in 2020 IEEE Power & Energy Society General Meeting (PESGM) , 2020, pp. 1–5. [20] X. Hu, H. Hu, S. Verma, and Z.-L. Zhang, “Physics-guided deep neural networks for power flow analysis,” IEEE Transactions on Power Systems , vol. 36, no. 3, pp. 2082–2092, 2021. [21] B. Huang and J. Wang, “Applications of physics-informed neural networks in power systems: A review,” IEEE Transactions on Power Systems , vol. 38, no. 1, pp. 572–588, 2023. [22] B. Sch¨ afer, D. Witthaut, M. Timme, and V. Latora, “Dynamically induced cascading failures in power grids,” Nature Communications ,vol. 9, p. 1975, 2018. [23] P. D. H. Hines, I. Dobson, and P. Rezaei, “Cascading power outages propagate locally in an influence graph that is not the actual grid topology,” IEEE Transactions on Power Systems , vol. 32, no. 2, pp. 958–967, 2017. [24] T. N. Kipf and M. Welling, “Semi-supervised classification with graph convolutional networks,” in International Conference on Learning Rep-resentations (ICLR) , 2017, arXiv:1609.02907. [25] M. Simonovsky and N. Komodakis, “Dynamic edge-conditioned filters in convolutional neural networks on graphs,” in 2017 IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , 2017, pp. 3693– 3702. [26] J. Gilmer, S. S. Schoenholz, P. F. Riley, O. Vinyals, and G. E. Dahl, “Neural message passing for quantum chemistry,” in Proc. 34th Inter-national Conference on Machine Learning (ICML 2017) , ser. PMLR, vol. 70, 2017, pp. 1263–1272, arXiv:1704.01212. [27] P. W. Battaglia, J. B. Hamrick, V. Bapst, A. Sanchez-Gonzalez, V. Zam-baldi, M. Malinowski, A. Tacchetti, D. Raposo, A. Santoro, R. Faulkner, C. Gulcehre, F. Song, A. Ballard, J. Gilmer, G. Dahl, A. Vaswani, K. Allen, C. Nash, V. Langston, C. Dyer, N. Heess, D. Wierstra, P. Kohli, M. Botvinick, O. Vinyals, Y. Li, and R. Pascanu, “Relational inductive biases, deep learning, and graph networks,” arXiv preprint arXiv:1806.01261 , 2018, arXiv:1806.01261. [28] IEEE Committee, “IEEE reliability test system,” IEEE Transactions on Power Apparatus and Systems , vol. PAS-98, no. 6, pp. 2047–2054, 1979. [29] L. Thurner, A. Scheidler, F. Sch¨ afer, J.-H. Menke, J. Dollichon, F. Meier, S. Meinecke, and M. Braun, “pandapower—an open-source Python tool for convenient modeling, analysis, and optimization of electric power systems,” IEEE Transactions on Power Systems , vol. 33, no. 6, pp. 6510– 6521, 2018. [30] S. Bengio, O. Vinyals, N. Jaitly, and N. Shazeer, “Scheduled sampling for sequence prediction with recurrent neural networks,” in Advances in Neural Information Processing Systems 28 (NeurIPS 2015) , 2015, pp. 1171–1179. [31] P. Veliˇ ckovi´ c, G. Cucurull, A. Casanova, A. Romero, P. Li` o, and Y. Bengio, “Graph attention networks,” in International Conference on Learning Representations (ICLR) , 2018, arXiv:1710.10903. [32] D. Hendrycks and K. Gimpel, “Gaussian error linear units (GELUs),” 
+
+arXiv preprint arXiv:1606.08415 , 2016, arXiv:1606.08415. [33] J. L. Ba, J. R. Kiros, and G. E. Hinton, “Layer normalization,” arXiv preprint arXiv:1607.06450 , 2016, arXiv:1607.06450. [34] I. Loshchilov and F. Hutter, “Decoupled weight decay regularization,” in International Conference on Learning Representations (ICLR) , 2019, arXiv:1711.05101. [35] L. N. Smith and N. Topin, “Super-convergence: Very fast training of neural networks using large learning rates,” Artificial Intelligence and Machine Learning for Multi-Domain Operations Applications , vol. 11006, pp. 369–386, 2019. [36] X. Glorot and Y. Bengio, “Understanding the difficulty of training deep feedforward neural networks,” in International Conference on Artificial Intelligence and Statistics (AISTATS) , 2010, pp. 249–256. [37] T. Saito and M. Rehmsmeier, “The precision-recall plot is more informa-tive than the ROC plot when evaluating binary classifiers on imbalanced datasets,” PLOS ONE , vol. 10, no. 3, p. e0118432, 2015.

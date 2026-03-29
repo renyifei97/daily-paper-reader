@@ -1,0 +1,326 @@
+Title: ReLaMix: Residual Latency-Aware Mixing for Delay-Robust Financial Time-Series Forecasting
+
+URL Source: https://arxiv.org/pdf/2603.20869v1
+
+Published Time: Tue, 24 Mar 2026 00:51:53 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# ReLaMix: Residual Latency-Aware Mixing for Delay-Robust Financial Time-Series Forecasting 
+
+Tianyou Lai 1† , Wentao Yue 1† , Jiayi Zhou 1† , Chaoyuan Hao 1,Lingke Chang 2, Qingyu Mao 3, Zhibo Niu 4, Qilei Li 5* 
+
+1Lanzhou University, Lanzhou, China 
+
+2Brandeis University, Waltham, USA 
+
+3Shenzhen University, Shenzhen, China 
+
+4Central University of Finance and Economics, Beijing, China 
+
+5Central China Normal University, Wuhan, China 
+
+Abstract —Financial time-series forecasting in real-world high-frequency markets is often hindered by delayed or partially stale observations caused by asynchronous data acquisition and transmission latency. To better reflect such practical conditions, we investigate a simulated delay setting where a portion of historical signals is corrupted by a Zero-Order Hold (ZOH) mechanism, significantly increasing forecasting difficulty through stepwise stagnation artifacts. In this paper, we propose Re-LaMix (Residual Latency-Aware Mixing Network), a lightweight extension of TimeMixer that integrates learnable bottleneck compression with residual refinement for robust signal recovery under delayed observations. ReLaMix explicitly suppresses re-dundancy from repeated stale values while preserving informative market dynamics via residual mixing enhancement. Experi-ments on a large-scale second-resolution PAXGUSDT benchmark demonstrate that ReLaMix consistently achieves state-of-the-art accuracy across multiple delay ratios and prediction horizons, outperforming strong mixer and Transformer baselines with substantially fewer parameters. Moreover, additional evaluations on BTCUSDT confirm the cross-asset generalization ability of the proposed framework. These results highlight the effective-ness of residual bottleneck mixing for high-frequency financial forecasting under realistic latency-induced staleness. 
+
+Index Terms —Financial time-series forecasting; Simulated la-tency; Residual learning; Bottleneck compression; Mixing net-works; Delay-aware prediction 
+
+I. I NTRODUCTION 
+
+“The future is already here — it’s just not very evenly distributed.” — William Gibson High-frequency trading (HFT) is central to modern financial markets, where predictive algorithms increasingly depend on real-time streams of raw Limit Order Book (LOB) signals to capture microstructure dynamics [1], [2]. Despite the common assumption of continuously available observations, practical trading systems operate under unavoidable physical constraints [3]. Network congestion, hardware latency, and ex-change interface bottlenecks frequently disrupt data transmis-sion, producing stale and asynchronously updated price sig-nals [4]. Such disruptions often manifest as Zero-Order Hold (ZOH) stagnation, where the observed values remain constant until new updates arrive. Importantly, this phenomenon in-troduces statistical bias rather than benign technical noise: 
+
+> †
+
+Co-first authors contributed equally. 
+
+> *
+
+Corresponding author: qilei.li@ccnu.edu.cn Data Center  
+
+> Row 1: The Naive Approach
+> Imputation (e.g.,CSDI)
+> Data
+> Overfitting to Noise
+> Row 2: The Two-Stage Approach
+> Forecaster
+> Cumulative Error+
+> High Latency
+> Row 3: ReLaMix (Ours)
+> End-to-End Bottleneck Automatic Filtering Low Latency+ High Fidelity
+> Corrupted
+> Observation
+> Corrupted
+> Observation
+> Corrupted
+> Observation
+> direct transmission nonlinear noise
+
+Fig. 1. Comparison of High-Frequency Signal Recovery Paradigms. Row 1: Naive models overfit ZOH noise. Row 2: Two-stage pipelines introduce additional latency. Row 3 (Ours): ReLaMix employs an end-to-end bottleneck mixer to efficiently recover clean signals. 
+
+recent evidence shows that staleness can be misidentified as artificial price jumps or spuriously low volatility, undermining the reliability of downstream forecasting models [4]–[6]. Unlike explicit missing values (e.g., NaNs) considered in standard imputation settings [7], [8], ZOH corruption presents as repetitions of numerically valid observations, forming step-function artifacts that conceal true market fluctuations [1]. As illustrated in Fig. 1, recovering clean high-frequency dynamics under such latency-induced stagnation requires models that can suppress redundancy while remaining computationally efficient for real-time deployment. Existing deep forecasting architectures face distinct limi-tations in this regime. Sequential recurrent models such as LSTM [9] and GRU [10] lack global receptive fields to dis-entangle ZOH artifacts from meaningful temporal dynamics. Meanwhile, long-horizon predictors—including convolution-based architectures such as TimesNet [11] and attention-based Transformers like PatchTST [12] and LiT [13]—excel in long-range modeling but incur substantial computational overhead for short high-frequency recovery tasks [14]. This complexity leads to unacceptable inference latency in HFT environments. 
+
+> arXiv:2603.20869v1 [cs.AI] 21 Mar 2026
+
+Even efficient mixer-style designs such as TimeMixer [15] remain limited, as pooling-based downsampling can over-smooth sharp ZOH step-functions, causing critical information loss. Moreover, over-parameterized networks tend to memorize stagnation patterns and underestimate latent volatility, result-ing in poor generalization under delayed observations [8], [16]. To bridge the gap between recovery accuracy and deploy-ment efficiency, we propose ReLaMix , a lightweight Residual Latency-Aware Mixing framework. Grounded in the Infor-mation Bottleneck principle [17], ReLaMix introduces an explicit Bottleneck Compression module to filter ZOH-induced redundancy by projecting noisy inputs into a compact latent space [18]. To preserve expressive power, we further integrate an Expand–Compress strategy within a pre-activation residual mixing block, enabling the model to capture nonlinear market dynamics with minimal parameter overhead [19]. This design supports a “less-is-more” paradigm for high-frequency fore-casting under latency constraints [20], [21]. The main contributions are summarized as follows:  
+
+> •
+
+We formalize high-frequency forecasting under ZOH stagnation, and reveal the key failure modes of existing deep forecasting architectures, including noise overfitting and computational redundancy under delayed observa-tions.  
+
+> •
+
+We propose ReLaMix , a principled and lightweight resid-ual bottleneck mixing network that explicitly suppresses latency-induced staleness while preserving nonlinear mar-ket dynamics for robust signal recovery.  
+
+> •
+
+We design a strictly non-overlapping segmented evalua-tion protocol to prevent temporal leakage, and demon-strate state-of-the-art performance on second-resolution PAXGUSDT forecasting benchmarks, with consistent generalization to BTCUSDT and substantially fewer pa-rameters than strong mixer and Transformer baselines. II. R ELATED WORK 
+
+High-frequency financial forecasting has shifted from aggre-gated daily indicators to raw intraday streams to better capture market microstructure [1]. Such high-resolution observations are inevitably affected by asynchrony and latency, often producing ZOH-type staleness. Recent econometrics studies emphasize that staleness constitutes a distinct source of bias rather than simple missingness: Kolokolov et al. [5] showed that untreated stagnation may be misinterpreted as price jumps, while Kong et al. [4] introduced factor-based quantification of this friction. Compared to these assumption-driven statistical treatments, we pursue an efficient deep learning approach for signal recovery under delayed observations. Handling irregular or delayed measurements is a long-standing challenge in time-series learning. Classical pipelines typically rely on imputation, including diffusion-based mod-els such as CSDI [7]. However, Yang et al. [8] argued that imputation-then-prediction can induce distribution shifts, motivating end-to-end learning through the Information Bot-tleneck principle [17]. Continuous-time formulations, such as Neural Controlled Differential Equations [22], provide Input Layer Bottleneck Projection: Information Bottleneck 
+
+> Efficient Mixing Block 3
+> Efficient Mixing Block 1
+> Efficient Mixing Block 2
+> Output Layer:
+> Prediction Head
+> Weighted
+> Skip Sum
+> Overall Data Flow
+> Input
+> Norm (LayerNorm)
+> Transpose
+> Linear
+> [Global Time Mixing]
+> Transpose Back
+> Time Mixing
+> Expand Layer
+> Activation: GELU
+> Compress Layer
+> Dropout
+> Feature Mixing - The Expand-Compress
+
+++
+
+> Residual Add Residual Add Output Efficient Mixing Block
+> Efficient Mixing Block Details
+> Norm (LayerNorm)
+
+Fig. 2. Overview of ReLaMix. The model combines an information bottleneck projection with stacked mixing blocks and dense residual refinement for robust forecasting under ZOH-delayed observations. 
+
+theoretical flexibility but remain computationally costly for latency-sensitive forecasting. ReLaMix follows the end-to-end philosophy of [8] while adopting a substantially lighter architecture tailored for real-time inference. Meanwhile, recent work has discussed potential limitations of Transformer-based forecasting models in terms of com-putational overhead and inductive suitability [21], motivat-ing efficient MLP-style mixers such as TSMixer [20] and TimeMixer [15]. However, these architectures are not explic-itly designed for latency-corrupted inputs: pooling-based de-composition may blur sharp ZOH-induced stagnation and gen-uine low-volatility dynamics. In contrast, ReLaMix employs learnable bottleneck compression to suppress redundancy from repeated observations, combined with residual refinement to preserve informative market signals, while retaining mixer-level efficiency. III. METHODOLOGY In this section, we formalize the signal recovery problem un-der ZOH latency constraints and introduce ReLaMix (Resid-ual Latency-Aware Mixing Network), a lightweight framework for forecasting with delayed observations. As illustrated in Fig. 2, ReLaMix first compresses high-dimensional corrupted inputs into a compact bottleneck space ( Din → 32 ), and then progressively refines representations through stacked Efficient Mixing Blocks and multi-level skip connections. Each block couples temporal mixing with an Expand–Compress feature pathway ( 32 → 64 → 32 ) to suppress ZOH-induced artifacts while preserving nonlinear market dynamics. We detail these components below. 
+
+A. Problem Formulation and ZOH Modeling 
+
+Let X = {x1, x2, . . . , xT } denote the underlying clean second-resolution financial time series (ground truth), where 
+
+xt ∈ RDin is the multivariate market feature vector at time step t, including standard OHLCV (Open, High, Low, Close, and Volume) indicators. In realistic high-frequency trading environments, observa-tions are often corrupted by stochastic transmission latency, producing delayed or stale inputs. We denote the observed sequence as Xobs , generated from X via a Zero-Order Hold (ZOH) mechanism. Specifically, we introduce a binary latent state st ∈ { 0, 1}, where st = 0 indicates a stagnation event (no update received) and st = 1 denotes a valid observation update. Accordingly, the observed value at time step t is recursively defined as 
+
+xobs t =
+
+(
+
+xt if st = 1 
+
+xobs t−1 if st = 0 (1) As shown in Eq. (1), ZOH latency produces step-function arti-facts, where observed prices remain artificially constant during stagnation intervals. Such stale signals obscure true market fluctuations and substantially increase forecasting difficulty. Given a corrupted historical window Xobs t−L+1: t of length 
+
+L, our goal is to learn a parameterized predictor fθ (·) that robustly recovers the future clean market state at horizon k,i.e., ˆxt+k = fθ !  Xobs t−L+1: t
+
+ , (2) despite the presence of ZOH-induced information staleness. This formulation defines a delay-robust financial signal recov-ery and forecasting problem, which serves as the foundation of our proposed ReLaMix framework. 
+
+B. Information Bottleneck Compression 
+
+Standard deep forecasting models often encode inputs into high-dimensional latent spaces to capture complex temporal dependencies. However, under ZOH corruption, the observed stream Xobs contains substantial redundancy: latency-induced stagnation produces repeated stepwise artifacts that can dom-inate representation learning. Directly projecting such inputs into an over-parameterized space may thus encourage overfit-ting to stale patterns rather than recovering informative market dynamics. To mitigate this issue, ReLaMix adopts the Information Bottleneck principle by compressing features into a low-dimensional bottleneck space. This explicit compression filters task-irrelevant ZOH noise while retaining the most predictive components for forecasting. Formally, given an observed window Xobs ∈ RL×Din , we apply a learnable bottleneck projection: 
+
+H(0) = σ Xobs Win + bin 
+
+ , (3) where Win ∈ RDin ×db is the compression matrix, bin is the bias, σ(·) denotes a nonlinear activation (e.g., GELU), and 
+
+db ≪ Din is the bottleneck dimension. In practice, we set 
+
+db = 12 Dmodel for a lightweight design. This compact encoding suppresses ZOH-induced repeated-value artifacts, reducing overfitting to stale observations and preserving predictive signals before subsequent temporal mix-ing and residual refinement. 
+
+C. Residual Latency-Aware Mixing Block 
+
+The core component of ReLaMix is the proposed Residual Latency-Aware Mixing Block, which serves as the funda-mental building module for robust representation learning under ZOH-corrupted observations. To balance computational efficiency with sufficient representational capacity, we adopt a lightweight pre-activation (pre-norm) residual design, where normalization is applied before each mixing operation. Each block consists of two complementary sub-modules: Time Mixing, which captures temporal dependencies along the sequence dimension, and Feature Mixing, which models cross-variable interactions through an efficient bottleneck expan-sion–compression mechanism. 
+
+1) Time Mixing: Capturing Temporal Dependencies: The Time Mixing module is designed to capture temporal depen-dencies from the compressed bottleneck representations. Given the input hidden state H(l−1) ∈ RL×db at layer l−1, we adopt a pre-normalization scheme to stabilize training: 
+
+˜H = LayerNorm 
+
+
+
+H(l−1) 
+
+. (4) To explicitly model interactions across time steps, ReLaMix performs linear mixing along the temporal dimension. Specif-ically, we transpose the sequence representation and apply a learnable temporal transformation: 
+
+Htemp =
+
+ ˜H⊤Wt + bt
+
+⊤
+
+, (5) where Wt ∈ RL×L denotes the temporal mixing matrix shared across feature channels, and bt is the bias term. In prac-tice, this operation is implemented using a lightweight linear layer followed by nonlinearity and dropout for regularization. Finally, we add a residual connection to preserve the signal and improve robustness to latency-induced staleness: 
+
+H(l) = H(l−1) + Htemp . (6) This temporal mixing operation enables the model to aggre-gate historical information across multiple time steps, effec-tively smoothing local discontinuities introduced by the ZOH mechanism and recovering informative market dynamics. 
+
+2) Feature Mixing: Expand–Compress Mechanism: After Time Mixing aggregates temporal dependencies, the model must further capture nonlinear interactions among finan-cial variables (e.g., price–volume coupling). Conventional residual blocks often preserve a constant high-dimensional width, which can introduce parameter redundancy under ZOH-corrupted inputs. To balance efficiency and expressiveness, ReLaMix adopts an expand–compress feature mixing mech-anism, analogous to inverted residual designs in lightweight architectures. Formally, given the temporally mixed representation Htime ,we first apply pre-normalization: 
+
+˜H = LayerNorm( Htime ) . (7) We then expand the bottleneck features into a higher-dimensional latent space to enhance interaction modeling: 
+
+Hexp = σ
+
+ ˜HW exp + bexp 
+
+
+
+, (8) followed by a compression step that projects the enriched representation back to the bottleneck dimension: 
+
+Hcomp = Hexp Wcomp + bcomp . (9) Finally, a residual connection is introduced to preserve the original signal: 
+
+H(l) = Htime + Hcomp . (10) Here, Wexp ∈ Rdb×Dmodel and Wcomp ∈ RDmodel ×db
+
+denote the expansion and compression matrices, respectively. In our implementation, we set db = 32 and Dmodel = 64 , cor-responding to an intermediate expansion from 32 → 64 → 32 .3.05      
+
+> 3.10
+> 3.15
+> 3.20
+> 3.25
+> 3.30
+> 3.35
+> Price
+> Truth (Up) Truth (Dn) Pred Delay Truth Trend Pred Trend
+> Time Step
+> 0.00
+> 0.06
+> 0.12
+> Vol Fig. 3. Qualitative visualization of ReLaMix signal recovery on PAXGUSDT. ReLaMix restores high-frequency K-line dynamics and trading volume vari-ations under simulated ZOH delays.
+
+Nonlinear activation (e.g., GELU) and dropout are applied for regularization in practice. This expand–compress design ensures that ReLaMix main-tains sufficient capacity to disentangle informative market dynamics from ZOH-induced staleness, while only propagat-ing compact representations across layers, consistent with the Information Bottleneck principle. 
+
+D. Multi-Level Skip Connections 
+
+Deep mixing networks may suffer from degraded gradi-ent propagation as depth increases, especially when model-ing volatile and latency-degraded financial streams. To en-hance training stability and promote robust information flow across layers, ReLaMix incorporates multi-level skip refine-ment through cumulative residual connections. Specifically, at the l-th layer, we aggregate transformed representations from all preceding layers to form an additional skip signal: S(l) = α
+
+> l−1
+
+X
+
+> j=0
+
+gj
+
+
+
+H(j)
+
+, (11) where gj (·) denotes a lightweight linear projection, and α
+
+is a scaling coefficient (set to 0.1 in our implementation). The layer update is then defined as: 
+
+H(l) = MixBlock 
+
+
+
+H(l−1) 
+
++ S(l). (12) This dense residual pathway acts as an information highway, allowing low-level predictive cues to directly reach deeper layers without being attenuated by intermediate bottleneck processing. Consequently, ReLaMix achieves faster conver-gence and improved robustness under ZOH-induced observa-tion staleness. 
+
+E. Training Objective 
+
+ReLaMix is trained end-to-end in a corrupted-to-clean man-ner, learning to recover future market dynamics from ZOH-corrupted histories. Given an input window Xobs , the network predicts ˆY ∈ Rk×Dout over the next k steps, supervised by the corresponding clean target sequence Y.We optimize the model parameters by minimizing the mean squared error (MSE) loss: 
+
+L = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+ˆYi − Yi
+
+> 2
+> F
+
+, (13) where N denotes the number of training samples. This objective encourages ReLaMix to accurately reconstruct the underlying continuous financial dynamics, while suppressing the persistence of latency-induced ZOH artifacts in the pre-dicted trajectories. IV. EXPERIMENTS In this section, we evaluate the proposed ReLaMix frame-work under a simulated latency setting with ZOH-corrupted observations. We compare ReLaMix against a broad set of state-of-the-art time-series forecasting models, including strong mixer-based baselines such as TimeMixer. Our experi-ments assess performance from two complementary perspec-tives: (i) recovery and forecasting accuracy across varying delay ratios, and (ii) computational efficiency in terms of parameter footprint and inference cost. Overall, the results validate the effectiveness of residual bottleneck mixing for robust second-resolution financial forecasting under realistic delayed observation scenarios. 
+
+A. Experimental Setup 
+
+We conduct experiments on high-frequency PAXGUSDT trading data collected from the Binance exchange. The dataset consists of multivariate OHLCV features sampled at 1-second 
+
+resolution. Following chronological order, the full series is split into training (70%), validation (15%), and testing (15%) subsets. To further examine model robustness, we additionally report generalization results on BTCUSDT under the same evaluation protocol. To simulate realistic transmission latency, we inject random stagnation events into the historical inputs: when a time step is flagged as stagnant, its observation is held constant by repeating the previous value under a ZOH mechanism, producing step-function artifacts and information staleness. Given a corrupted history window of length L = 20 , the model aims to recover the corresponding clean future sequence over a prediction horizon of k = 1 , 5, 7, 10 steps. All models are implemented in PyTorch and trained end-to-end using MSE loss with the Adam optimizer (learning rate 
+
+1 × 10 −3) and batch size 32. Experiments are conducted on a single NVIDIA GeForce RTX 4090 GPU, and early stopping based on validation loss is applied to prevent overfitting. 
+
+B. Comparison with State-of-the-Art Methods 
+
+Table I reports the performance comparison on the second-resolution PAXGUSDT benchmark under simulated ZOH de-lays. Overall, ReLaMix consistently achieves the best forecast-ing accuracy across all delay ratios and prediction horizons, while maintaining the smallest parameter footprint among all competing methods. As further visualized in Fig. 3, Re-LaMix can effectively recover fine-grained K-line dynamics and volume variations under ZOH corruption, highlighting its capability to suppress stagnation artifacts while preserving informative market fluctuations. TABLE I SOTA COMPARISON AND ABLATION RESULTS ON PAXGUSDT UNDER SIMULATED ZOH DELAYS . T HE BEST AND SECOND -BEST RESULTS ARE HIGHLIGHTED IN RED AND BLUE , RESPECTIVELY . A BLATION VARIANTS ARE EXCLUDED FROM THE RANKING .
+
+Model Type Metric Delay 15% Delay 25% Delay 35% 
+
+k=1 k=5 k=7 k=10 k=1 k=5 k=7 k=10 k=1 k=5 k=7 k=10 
+
+LSTM [9] RNN MSE 0.73306 1.003 1.073 1.194 0.74987 1.076 1.12 1.112 0.70363 1.166 1.176 1.094 MAE 0.61313 0.69925 0.78572 0.82405 0.65159 0.72386 0.81053 0.78591 0.61939 0.76006 0.84618 0.7905 
+
+R2 0.77519 0.70017 0.67701 0.6388 0.77004 0.67859 0.66273 0.66387 0.78422 0.65142 0.64606 0.66352 Params 51,781 53,081 53,731 54,706 51,781 53,081 53,731 54,706 51,781 53,081 53,731 54,706 GRU [10] RNN MSE 0.44374 0.5643 0.57861 0.65081 0.40418 0.6381 0.60754 0.63042 0.51218 0.59574 0.68202 0.72566 MAE 0.45089 0.53354 0.60384 0.61127 0.44136 0.57014 0.63112 0.61941 0.49958 0.54633 0.64548 0.63309 
+
+R2 0.86392 0.82695 0.82257 0.80043 0.87605 0.80433 0.8137 0.80669 0.84294 0.81734 0.79088 0.77751 Params 38,917 40,217 40,867 41,842 38,917 40,217 40,867 41,842 38,917 40,217 40,867 41,842 TimeMixer [15] Mixer MSE 0.07898 0.09565 0.12284 0.15056 0.09318 0.13007 0.13632 0.14141 0.13169 0.13601 0.15294 0.19659 MAE 0.20345 0.2084 0.23464 0.26635 0.21755 0.2397 0.24684 0.24445 0.26531 0.24685 0.26825 0.29751 
+
+R2 0.97578 0.97067 0.96234 0.95384 0.97143 0.96012 0.95821 0.95665 0.95963 0.95831 0.95312 0.93975 Params 41,293 41,953 42,283 42,778 41,293 41,953 42,283 42,778 41,293 41,953 42,283 42,778 TimesNet [11] CNN MSE 0.04904 0.07108 0.10347 0.10499 0.07111 0.10615 0.11821 0.14739 0.08286 0.10134 0.14467 0.18356 MAE 0.19467 0.21985 0.25941 0.2419 0.22219 0.25151 0.26074 0.27065 0.23656 0.24434 0.28872 0.28923 
+
+R2 0.98496 0.9782 0.96826 0.9678 0.97819 0.96745 0.96376 0.95483 0.97459 0.96894 0.95566 0.94658 Params 228,741 229,401 229,731 230,226 228,741 229,401 229,731 230,226 228,741 229,401 229,731 230,226 PatchTST [12] Transformer MSE 0.05093 0.06559 0.06896 0.11279 0.07386 0.09787 0.11675 0.146 0.0811 0.10967 0.14339 0.17122 MAE 0.20297 0.20605 0.21076 0.25748 0.22547 0.24022 0.26153 0.27372 0.22884 0.25374 0.28907 0.29024 
+
+R2 0.98438 0.97988 0.97885 0.96542 0.97735 0.96999 0.9642 0.95525 0.97513 0.96637 0.95605 0.94373 Params 101,637 102,297 102,627 103,122 101,637 102,297 102,627 103,122 101,637 102,297 102,627 103,122 
+
+ReLaMix (Ours) Mixer 
+
+MSE 0.02928 0.03537 0.0446 0.04535 0.03218 0.0477 0.05176 0.06314 0.05458 0.08843 0.11387 0.17428 MAE 0.06109 0.06525 0.08058 0.07723 0.06421 0.08656 0.09153 0.11175 0.09452 0.13301 0.16316 0.28758 
+
+R2 0.99103 0.98917 0.98634 0.98611 0.99014 0.98538 0.98414 0.98066 0.98327 0.9729 0.96511 0.94752 Params 13,933 14,593 14,923 15,418 13,933 14,593 14,923 15,418 13,933 14,593 14,923 15,418 ReLaMix w/o Compression Ablation MSE 0.0307 0.03357 0.03882 0.04399 0.03917 0.04471 0.05571 0.06373 0.04074 0.0641 0.07684 0.11839 MAE 0.05195 0.06149 0.0666 0.08041 0.06952 0.07942 0.09549 0.10964 0.07253 0.11147 0.12523 0.16515 
+
+R2 0.99058 0.9897 0.98809 0.98651 0.988 0.9863 0.98293 0.98048 0.98752 0.98036 0.97646 0.96372 Params 45,453 46,113 46,443 46,938 45,453 46,113 46,443 46,938 45,453 46,113 46,443 46,938 ReLaMix w/o Residual Ablation MSE 0.23709 0.22368 0.22027 0.23014 0.21815 0.23976 0.2538 0.26705 0.23145 0.24142 0.27429 0.30958 MAE 0.32774 0.31816 0.30261 0.33219 0.32887 0.31861 0.34351 0.35568 0.33553 0.33762 0.36544 0.39962 
+
+R2 0.92729 0.9314 0.93245 0.92942 0.93309 0.92647 0.92217 0.91811 0.929 0.92595 0.91588 0.90507 Params 15,853 16,513 16,843 17,338 15,853 16,513 16,843 17,338 15,853 16,513 16,843 17,338 
+
+1) Accuracy under ZOH latency.: ReLaMix achieves sub-stantial error reductions over strong baselines. At delay ratio 
+
+15% and horizon k = 1 , it reaches an MSE of 0.02928 ,outperforming TimesNet (0.04904) and TimeMixer (0.07898). This advantage remains consistent under higher delays (25% and 35%), indicating robust recovery from stale observations. Moreover, ReLaMix attains the lowest MAE and highest R2
+
+across all settings, confirming accurate signal reconstruction. 
+
+2) Efficiency and practical deployment.: Beyond accuracy, ReLaMix is highly compact, requiring only 13 –15 K param-eters, which is markedly smaller than TimeMixer ( ∼41K), PatchTST ( ∼102K), and TimesNet ( ∼229K). This lightweight design is particularly desirable for latency-sensitive forecasting in high-frequency trading environments, where computational overhead directly constrains real-time applicability. 
+
+3) Summary.: These results validate that residual bottleneck mixing provides an effective balance between forecasting fidelity and inference efficiency, enabling state-of-the-art high-frequency financial prediction under realistic delayed observa-tion scenarios. 
+
+C. Ablation Study 
+
+To verify the effectiveness of the proposed components in ReLaMix, we conduct an ablation study by removing the two key modules: bottleneck compression and residual refinement. The results are reported in Table I. When the compression module is disabled ( ReLaMix w/o Compression ), the parameter count increases substantially from ∼14K to 
+
+∼46K, and forecasting accuracy consistently degrades across all delay ratios, indicating that explicit bottleneck projection is crucial for suppressing ZOH-induced redundancy and filtering stale observations in a compact latent space. More notably, removing residual refinement ( ReLaMix w/o Residual ) leads to a dramatic performance collapse: for example, at delay ratio 15% and horizon k = 1 , the MSE rises sharply from 
+
+0.02928 to 0.23709 , with similarly severe degradation under larger delays and longer horizons. This confirms that resid-ual pathways are essential for preserving predictive market dynamics and preventing information loss under aggressive ZOH stagnation. Overall, the full ReLaMix model, which integrates both compression and residual mixing, achieves the best trade-off between accuracy and efficiency, attaining the TABLE II SOTA RESULTS ON BTCUSDT UNDER SIMULATED ZOH DELAYS . B EST AND SECOND -BEST RESULTS ARE HIGHLIGHTED IN RED AND BLUE .                                                                                     
+
+> Model Type Metric Delay 25% Delay 35%
+> k=5 k=10 k=5 k=10
+> LSTM [9] RNN MSE 0.0332 0.0307 0.0334 0.0305 MAE 0.0287 0.0297 0.0307 0.0302
+> R20.7700 0.7831 0.7681 0.7845 GRU [10] RNN MSE 0.0345 0.0309 0.0345 0.0306 MAE 0.0346 0.0341 0.0351 0.0305
+> R20.7610 0.7814 0.7609 0.7832 TimeMixer [15] Mixer MSE 0.0329 0.0308 0.0342 0.0310 MAE 0.0240 0.0309 0.0386 0.0323
+> R20.7722 0.7819 0.7631 0.7806 TimesNet [11] CNN MSE 0.0334 0.0305 0.0341 0.0308 MAE 0.0277 0.0343 0.0300 0.0323
+> R20.7684 0.7841 0.7639 0.7819 PatchTST [12] Transformer MSE 0.0340 0.0308 0.0336 0.0302 MAE 0.0343 0.0323 0.0298 0.0267
+> R20.7644 0.7819 0.7668 0.7864
+> ReLaMix (Ours) Mixer
+> MSE 0.0328 0.0302 0.0331 0.0299 MAE 0.0226 0.0293 0.0234 0.0222
+> R20.7727 0.7865 0.7707 0.7882
+
+lowest errors and highest R2 while maintaining the smallest parameter footprint. These findings validate our design hy-pothesis that bottleneck compression removes latency artifacts, whereas residual refinement ensures robust signal recovery under realistic delayed observation scenarios. 
+
+D. Generalization Study 
+
+To further evaluate the cross-asset generalization ability of ReLaMix, we report additional results on the BTCUSDT benchmark under more challenging ZOH delay settings (25% and 35%) with longer prediction horizons (k = 5 and 
+
+k = 10 ). As shown in Table II, ReLaMix consistently achieves the best performance across all evaluated metrics. In particular, under delay ratio 35% and horizon k = 10 ,ReLaMix attains the lowest MSE ( 0.0299 ) and MAE ( 0.0222 ), together with the highest R2 score ( 0.7882 ), outperforming strong mixer and Transformer baselines such as TimeMixer and PatchTST. These results demonstrate that the proposed residual bottleneck mixing mechanism not only excels on the main PAXGUSDT benchmark, but also transfers effectively to highly volatile cryptocurrency markets, confirming its robust-ness under realistic delayed observation scenarios. V. C ONCLUSION 
+
+In this paper, we studied high-frequency financial fore-casting under realistic latency-induced observation staleness, where historical signals are corrupted by a ZOH mechanism. Unlike standard missing-value settings, ZOH stagnation intro-duces repeated stepwise artifacts that can mislead forecasting models and induce representational redundancy. To address this challenge, we proposed ReLaMix (Residual Latency-Aware Mixing Network), a lightweight framework integrating learnable bottleneck compression with residual refinement. By suppressing redundancy from stale observa-tions while preserving informative market dynamics, ReLaMix achieves a strong balance between recovery accuracy and computational efficiency. Experiments on the second-resolution PAXGUSDT bench-mark show that ReLaMix consistently achieves state-of-the-art results across delay ratios and prediction horizons, attaining the lowest MSE/MAE and highest R2 with only ∼14K param-eters. Furthermore, evaluations on BTCUSDT confirm robust cross-asset generalization even under severe delays (e.g., 35% ZOH corruption). Overall, ReLaMix provides an efficient solution for forecast-ing with delayed and partially stale observations. Future work will extend the framework to more complex latency patterns and explore deployment on hardware-efficient platforms for ultra-low-latency trading. REFERENCES [1] F. Moreno-Pino and S. Zohren, “DeepVol: Volatility forecasting from high-frequency data with dilated causal convolutions,” Quantitative Finance , vol. 24, no. 8, pp. 1105–1127, 2024. [2] Z. Zhang, S. Zohren, and S. Roberts, “Deeplob: Deep convolutional neural networks for limit order books,” IEEE Transactions on Signal Processing , vol. 67, no. 11, pp. 3001–3012, 2019. [3] A. Briola, S. Bartolucci, and T. Aste, “Deep limit order book forecasting: a microstructural guide,” Quantitative Finance , vol. 25, no. 7, pp. 1101– 1131, 2025. [4] X. Kong, B. Wu, and W. Ye, “Staleness factors and volatility estimation at high frequencies,” Journal of the American Statistical Association ,no. just-accepted, pp. 1–27, 2026. [5] A. Kolokolov and R. Ren` o, “Jumps or staleness?” Journal of Business & Economic Statistics , vol. 42, no. 2, pp. 516–532, 2024. [6] J. Park, J. Huh, and J. Jeon, “Reliable option pricing through deep learn-ing: An anomaly score-based approach,” Networks and Heterogeneous Media , vol. 20, no. 3, pp. 987–1009, 2025. [7] Y. Tashiro, J. Song, Y. Song, and S. Ermon, “Csdi: Conditional score-based diffusion models for probabilistic time series imputation,” Ad-vances in neural information processing systems , vol. 34, pp. 24 804– 24 816, 2021. [8] J. Yang, Y. Hu, K. Zhang, L. Niu, P. S. Yu, and K. Ding, “Revisiting multivariate time series forecasting with missing values,” arXiv preprint arXiv:2509.23494 , 2025. [9] S. Hochreiter and J. Schmidhuber, “Long short-term memory,” Neural Computation , vol. 9, no. 8, pp. 1735–1780, 1997. [10] R. Dey and F. M. Salem, “Gate-variants of gated recurrent unit (gru) neural networks,” in 2017 IEEE 60th international midwest symposium on circuits and systems (MWSCAS) . IEEE, 2017, pp. 1597–1600. [11] H. Wu, T. Hou, Y. Liu, H. Zhou, J. Wang, and M. Long, “TimesNet: Temporal 2d-variation modeling for general time series analysis,” Inter-national Conference on Learning Representations (ICLR) , 2023. [12] Y. Nie, N. Nguyen, P. Sinthong, and J. Kalagnanam, “A time series is worth 64 words: Long-term forecasting with transformers,” International Conference on Learning Representations (ICLR), 2023 , 2023. [13] Y. Xiao, C. Ventre, Y. Wang, H. Li, Y. Huan, and B. Liu, “Lit: Limit Order Book Transformer,” Frontiers in artificial intelligence , vol. 8, p. 1616485, 2025. [14] Z. Xu, A. Zeng, and Q. Xu, “FITS: Modeling time series with 10 k
+
+parameters,” in International Conference on Learning Representations (ICLR), 2024 , 2024. [15] S. Wang, H. Wu, X. Shi, T. Hu, H. Luo, L. Ma, J. Y. Zhang, and J. Zhou, “TimeMixer: Decomposable multiscale mixing for time series forecasting,” in International Conference on Learning Representations (ICLR), 2024 , 2024. [16] Y. Liu, H. Wu, J. Wang, and M. Long, “Non-stationary transformers: Exploring the stationarity in time series forecasting,” Advances in Neural Information Processing Systems , vol. 35, pp. 9881–9893, 2022. [17] A. A. Alemi, I. Fischer, J. V. Dillon, and K. Murphy, “Deep variational information bottleneck,” in International Conference on Learning Rep-resentations (ICLR), 2017 , 2017. [18] Z. Li, P. Wang, Z. Rao, L. Pan, and Z. Xu, “Ti-mae: Self-supervised masked time series autoencoders,” in International Conference on Learn-ing Representations (ICLR), 2023 , Kigali, Rwanda, 2023. [19] S. Yue, Z. Zhao, T. Lai, and J. Zhang, “A modularity-enhanced echo state network for nonlinear wind energy predicting,” Energies , vol. 18, no. 7, p. 1858, 2025. [20] S.-A. Chen, C.-L. Li, S. O. Arik, N. C. Yoder, and T. Pfister, “TSMixer: An All-MLP Architecture for Time Series Forecasting,” Transactions on Machine Learning Research , 2023. [21] A. Zeng, M. Chen, L. Zhang, and Q. Xu, “Are transformers effective for time series forecasting?” in Proceedings of the AAAI conference on artificial intelligence , vol. 37, no. 9, 2023, pp. 11 121–11 128. [22] P. Kidger, J. Morrill, J. Foster, and T. Lyons, “Neural controlled differential equations for irregular time series,” Advances in neural information processing systems , vol. 33, pp. 6696–6707, 2020.
