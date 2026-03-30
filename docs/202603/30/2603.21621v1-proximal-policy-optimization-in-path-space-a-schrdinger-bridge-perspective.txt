@@ -1,0 +1,742 @@
+Title: Proximal Policy Optimization in Path Space: A Schr\"odinger Bridge Perspective
+
+URL Source: https://arxiv.org/pdf/2603.21621v1
+
+Published Time: Tue, 24 Mar 2026 01:52:05 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# PROXIMAL POLICY OPTIMIZATION IN PATH SPACE :A S CHRÖDINGER BRIDGE PERSPECTIVE 
+
+A P REPRINT 
+
+Yuehu Gong 
+
+School of Data Science, Fudan University Shanghai, China 
+
+22307140046@m.fudan.edu.cn 
+
+Zeyuan Wang 
+
+Laboratory for Big Data and Decision National University of Defense Technology Changsha, Hunan, China 
+
+wzeyuan@nudt.edu.cn 
+
+Yulin Chen 
+
+Laboratory for Big Data and Decision National University of Defense Technology Changsha, Hunan, China 
+
+chenyulin20@nudt.edu.cn 
+
+Yanwei Fu 
+
+School of Data Science, Fudan University Shanghai Innovation Institute Shanghai, China 
+
+yanweifu@fudan.edu.cn 
+
+March 24, 2026 
+
+ABSTRACT 
+
+On-policy reinforcement learning with generative policies is promising but remains underexplored. A central challenge is that proximal policy optimization (PPO) is traditionally formulated in terms of action-space probability ratios, whereas diffusion- and flow-based policies are more naturally represented as trajectory-level generative processes. In this work, we propose GSB-PPO , a path-space formulation of generative PPO inspired by the Generalized Schrödinger Bridge (GSB). Our framework lifts PPO-style proximal updates from terminal actions to full generation trajectories, yielding a unified view of on-policy optimization for generative policies. Within this framework, we develop two concrete objectives: a clipping-based objective, GSB-PPO-Clip , and a penalty-based objective, GSB-PPO-Penalty . Experimental results show that while both objectives are compatible with on-policy training, the penalty formulation consistently delivers better stability and performance than the clipping counterpart. Overall, our results highlight path-space proximal regularization as an effective principle for training generative policies with PPO. 
+
+Keywords Generative Policy, Proximal Policy Optimization, Generalized Schrödinger Bridge 
+
+1 Introduction 
+
+Deep reinforcement learning has achieved remarkable success in continuous control, where policy optimization methods such as TRPO and PPO provide effective and stable on policy updates Schulman et al. [2015a, 2017, 2015b]. In most of these methods, however, the policy is parameterized by a relatively simple action distribution, such as a Gaussian actor. While this choice is computationally convenient, it may be restrictive when the optimal behavior is inherently multimodal or requires a more expressive action distribution. Recent advances in generative modeling provide a promising alternative. Diffusion models and flow based generators can represent complex high dimensional distributions far beyond the capacity of standard Gaussian policies Ho et al. [2020], Song et al. [2021], Lipman et al. [2023], Geng et al. [2025]. Motivated by this expressive power, generative policies have recently been introduced into reinforcement learning, especially in offline and off policy settings Janner et al. [2022], Chi et al. [2023], Wang et al. [2022], Hansen-Estruch et al. [2023], Park et al. [2025]. More recently, several works have started to explore online or on policy training with generative policies, including DIME, FLAC, DPPO, GenPO, and FPO Celik et al. [2025], Lv et al. [2026], Ren et al. [2024], Ding et al. [2025], McAllister et al. 
+
+> arXiv:2603.21621v1 [cs.LG] 23 Mar 2026
+
+Proximal Policy Optimization in Path Space: A Schrödinger Bridge Perspective A P REPRINT 
+
+[2025]. These studies suggest that expressive generative policies can be beneficial beyond offline reinforcement learning, but they also expose a key challenge: proximal policy optimization becomes much less straightforward when the policy is represented by a multi step stochastic generation process rather than an explicit one step action density. This challenge is particularly relevant for PPO. Standard PPO is formulated in action space through the ratio between new and old policy densities, together with either clipping or an explicit proximal penalty Schulman et al. [2017]. For generative policies, however, the executed action is only the terminal output of a denoising or flow trajectory, while the policy itself is more naturally defined over the full generation path. As a result, directly applying PPO in action space obscures the trajectory level structure of the generator and raises the question of how proximal updates should be defined for generative policies. In this paper, we revisit PPO for generative policies from a path space perspective inspired by the Generalized Schrödinger Bridge (GSB). GSB treats stochastic generation as an optimization problem over trajectory distributions rather than only terminal marginals Léonard [2013], Liu et al. [2024]. This viewpoint is particularly appealing for generative policies, whose action distributions are induced by multi step denoising trajectories. Building on this observation, we formulate a path space version of PPO in which the policy is represented by a trajectory distribution and proximal updates are performed directly in path space. Within this framework, we instantiate two concrete variants: a clipping based objective, GSB-PPO-Clip , and a penalty based objective, GSB-PPO-Penalty . Our formulation is 
+
+inspired by the GSB perspective, but it is not a strict GSB objective: in particular, the penalty variant remains a PPO style proximal objective rather than an exact bridge matching formulation. Our central empirical finding is that these two path space instantiations behave very differently. While the clipping objective is the most direct extension of standard PPO, it is sensitive to the accumulation of likelihood shifts across denoising steps and performs poorly in our setting. By contrast, the penalty objective provides a smoother path space update and yields substantially better stability and performance. This suggests that, for on policy optimization of generative policies, trajectory level penalty regularization is a more suitable inductive bias than direct clipping. Our contributions are summarized as follows: • We propose a path space formulation of PPO for generative policies, motivated by the GSB view that a generative policy is naturally represented as a trajectory distribution. • We instantiate this framework with two concrete objectives, GSB-PPO-Clip and GSB-PPO-Penalty , which extend PPO style clipping and proximal regularization from action space to path space. • We empirically show that the penalty formulation is substantially more effective than the clipping formulation, providing a simple and practical design insight for on policy generative reinforcement learning. 
+
+2 Related Work 
+
+2.1 On Policy Reinforcement Learning 
+
+On policy reinforcement learning has been a central paradigm for policy optimization since the early policy gradient literature Williams [1992]. To improve the stability and sample efficiency of policy gradient methods, trust region and proximal update schemes have been widely adopted, leading to representative algorithms such as TRPO and PPO Schulman et al. [2015a, 2017]. In practice, generalized advantage estimation (GAE) is often used together with PPO to reduce gradient variance and improve training stability Schulman et al. [2015b]. Our work follows this line of research and focuses on extending PPO style proximal updates to generative policies whose action distributions are induced by multi step stochastic generation trajectories. 
+
+2.2 Generative Policies in Reinforcement Learning 
+
+Generative modeling provides a flexible way to represent complex and multimodal action distributions. Early generative models, including variational autoencoders, generative adversarial networks, and normalizing flows, established powerful approaches for expressive density modeling Kingma and Welling [2013], Goodfellow et al. [2014], Dinh et al. [2014, 2016], Kingma and Dhariwal [2018]. More recently, diffusion and score based generative models Hyvärinen [2005], Ho et al. [2020], Song et al. [2020, 2021] as well as flow based approaches such as flow matching and MeanFlow Lipman et al. [2023], Geng et al. [2025] have significantly improved generation quality and efficiency. These advances make diffusion and flow matching natural candidates for policy parameterization in reinforcement learning, where expressive action distributions can be important for handling complex continuous control problems. Motivated by this trend, a growing body of work has incorporated generative models into reinforcement learning. Many early efforts focused on planning, behavior synthesis, or offline reinforcement learning, including Diffuser, Diffusion 2Proximal Policy Optimization in Path Space: A Schrödinger Bridge Perspective A P REPRINT 
+
+Policy, diffusion based policy representation learning, Diffusion-QL, CEP, IDQL, EDP, Q-score matching, QVPO, DACER, FQL and MeanFlowQL Janner et al. [2022], Chi et al. [2023], Yang et al. [2023], Wang et al. [2022], Lu et al. [2023], Hansen-Estruch et al. [2023], Kang et al. [2023], Psenka et al. [2023], Ding et al. [2024], Wang et al. [2024], Park et al. [2025], Wang et al. [2026]. These methods demonstrate that diffusion or flow based policies can substantially enrich the policy class beyond standard Gaussian actors. More recently, generative policies have also been studied in online reinforcement learning. DIME introduces diffusion policies into maximum entropy RL, while FLAC formulates maximum entropy RL through a bridge matching perspective with kinetic energy regularization Celik et al. [2025], Lv et al. [2026]. Compared with these methods, our work is not built on the maximum entropy actor critic formulation; instead, we focus on PPO style on policy optimization and study how proximal objectives should be lifted from action space to path space. 
+
+2.3 On-Policy Generative Reinforcement Learning 
+
+Only recently have generative policies been brought into explicitly on policy optimization. DPPO studies PPO style optimization for diffusion policies, while SDAC develops an online actor critic framework for diffusion policies Ren et al. [2024], Ma et al. [2025]. GenPO takes a major step toward on policy reinforcement learning with diffusion based generative policies, and FPO extends this direction to flow matching based policy gradients Ding et al. [2025], McAllister et al. [2025]. These works show that generative policies can be trained in online and on policy settings, but they also highlight the difficulty of defining stable proximal updates when the policy is represented by a multi step generation process rather than an explicit one step action density. Our work is most closely related to GenPO and FPO, but differs from them in both perspective and emphasis. Rather than deriving a specialized on policy objective for a particular generative parameterization, we adopt a GSB inspired path space viewpoint and revisit PPO itself for generative policies. This leads to a unified path space formulation that naturally yields both a clipping based objective and a penalty based objective. Empirically, we show that in this setting the penalty formulation is substantially more effective than the clipping counterpart, which provides a concrete design insight for on policy generative reinforcement learning. 
+
+3 Preliminaries 
+
+3.1 On Policy Reinforcement Learning 
+
+We consider an on policy reinforcement learning setting with stochastic policy πθ (a | s). The standard objective is 
+
+J(θ) = Eτ ∼πθ
+
+" ∞X
+
+> t=0
+
+γtr(st, a t)
+
+#
+
+, (1) where τ = ( s0, a 0, s 1, a 1, . . . ) denotes a trajectory sampled from the current policy. In practice, policy updates are performed using trajectories collected from the old policy πθold together with an advantage estimator Aπθold (s, a ).A standard policy gradient surrogate is 
+
+LPG (θ) = E(s,a )∼πθold [rθ (s, a ) Aπθold (s, a )] , rθ (s, a ) = πθ (a | s)
+
+πθold (a | s) . (2) Proximal Policy Optimization (PPO) stabilizes this update by constraining the deviation between the new and old policies. The clipped PPO objective is 
+
+LPPO clip (θ) = E(s,a )∼πθold [min( rθ (s, a )A(s, a ), clip( rθ (s, a ), 1 − ϵ, 1 + ϵ) A(s, a ))] , (3) where ϵ > 0 is the clipping parameter. An alternative proximal form uses an explicit penalty: 
+
+LPPO pen (θ) = E(s,a )∼πθold [rθ (s, a )A(s, a )] − β D(πθ , π θold ) , (4) where β > 0 controls the penalty strength and D denotes a discrepancy measure between successive policies. Standard PPO is formulated directly in action space. In this paper, however, the policy is represented by a multi step generative process. This motivates extending PPO style proximal updates from action space to path space. 3Proximal Policy Optimization in Path Space: A Schrödinger Bridge Perspective A P REPRINT 
+
+3.2 Generalized Schrödinger Bridge 
+
+The Generalized Schrödinger Bridge (GSB) is a path space variational problem. Let Ω = C([0 , 1] , Rd) denote the trajectory space, and let Pref be a reference path measure. In the one ended setting considered in this paper, GSB is defined as 
+
+min  
+
+> P
+
+αD KL (P ∥ Pref ) + EX1∼P [G(X1)] s.t. P0 = μ0, (5) where α > 0 is a regularization coefficient and G is a terminal potential. This objective seeks a path measure that remains close to the reference process while being biased toward desirable terminal states. In our setting, the policy is parameterized by a controlled stochastic generation process conditioned on state s. We use the continuous time SDE 
+
+dX t = fθ (Xt, t, s ) dt + σt dW t, X1 ∼ pprior , (6) where fθ is the learned drift and σt is a prescribed diffusion coefficient. This SDE is only a parameterization of the policy induced path measure Pθ (· | s). The GSB itself is the optimization problem in Eq. (5). For practical implementation, we discretize Eq. (6) into a reverse generation chain: 
+
+xn−1 ∼ pθ (xn−1 | xn, s ), n = N, N − 1, . . . , 1, (7) with initial noisy sample xN ∼ p(xN ). This induces the discrete path distribution 
+
+Pθ (x0: N | s) = p(xN )
+
+> N
+
+Y
+
+> n=1
+
+pθ (xn−1 | xn, s ), (8) where x0: N := ( x0, x 1, . . . , x N ) denotes the full generation trajectory. The executed action is the terminal denoised sample: 
+
+a = x0. (9) The terminal action distribution is the marginal of the path distribution: 
+
+πθ (x0 | s) = 
+
+Z
+
+Pθ (x0: N | s) dx 1: N . (10) Therefore, for any function F that depends only on the final action, 
+
+Ex0∼πθ (·| s)[F (x0)] = Ex0: N ∼Pθ (·| s)[F (x0)] . (11) Equation (11) provides the bridge from standard PPO to our path space formulation. Although the reinforcement learning objective depends only on the executed action x0, the policy is naturally represented as a trajectory distribution. 
+
+4 Method 
+
+In this section, we develop a path-space formulation of PPO for generative policies. Our construction is inspired by the GSB perspective in Eq. (5) , namely, that a generative policy is more naturally represented by a trajectory distribution than by a single-step action density. We emphasize, however, that the objectives below are still PPO-style surrogates rather than exact instances of the GSB problem. In particular, the penalty formulation should be understood as a GSB-inspired path-space proximal objective. For clarity, we denote the generative trajectory by 
+
+a(0: N ) :=  a(0) , a (1) , . . . , a (N ),
+
+where a(N ) is the initial noisy sample and the executed action is the final denoised sample a = a(0) .
+
+4.1 Path Space Formulation of Generative PPO 
+
+Given state s, the generative policy induces a path distribution 
+
+Pθ (a(0: N ) | s) = p(a(N ))
+
+> N
+
+Y
+
+> n=1
+
+pθ (a(n−1) | a(n), s ). (12) 4Proximal Policy Optimization in Path Space: A Schrödinger Bridge Perspective A P REPRINT 
+
+Its terminal action distribution is the marginal 
+
+πθ (a(0) | s) = 
+
+Z
+
+Pθ (a(0: N ) | s) da (1: N ). (13) Since the reinforcement learning objective depends only on the executed action a(0) , any terminal objective can be equivalently written under either the marginal action distribution or the joint path distribution. In particular, for the terminal advantage term we have 
+
+Ea(0) ∼πθ (·| s)
+
+h
+
+A(s, a (0) )
+
+i
+
+= Ea(0: N )∼Pθ (·| s)
+
+h
+
+A(s, a (0) )
+
+i
+
+. (14) Therefore, the same on-policy objective may be viewed either in action space or in path space. Moreover, differentiating the joint form gives 
+
+∇θ Ea(0: N )∼Pθ (·| s)
+
+h
+
+A(s, a (0) )
+
+i
+
+= Ea(0: N )∼Pθ (·| s)
+
+h
+
+A(s, a (0) )∇θ log Pθ (a(0: N ) | s)
+
+i
+
+, (15) and using Eq. (12), 
+
+log Pθ (a(0: N ) | s) = log p(a(N )) + 
+
+> N
+
+X
+
+> n=1
+
+log pθ (a(n−1) | a(n), s ). (16) Since the prior p(a(N )) is fixed, Eq. (15) becomes 
+
+∇θ Ea(0: N )∼Pθ (·| s)
+
+h
+
+A(s, a (0) )
+
+i
+
+= Ea(0: N )∼Pθ (·| s)
+
+"
+
+A(s, a (0) )∇θNX
+
+> n=1
+
+log pθ (a(n−1) | a(n), s )
+
+#
+
+. (17) Starting from the standard PPO surrogate in Eq. (2) , we lift policy optimization from action space to path space and define 
+
+Lpath (θ) = E(s,a (0: N ))∼Pθold 
+
+h
+
+rθ (s, a (0: N ))A(s, a (0) )
+
+i
+
+, (18) where the path ratio is 
+
+rθ (s, a (0: N )) := Pθ (a(0: N ) | s)
+
+Pθold (a(0: N ) | s) =
+
+> N
+
+Y
+
+> n=1
+
+pθ (a(n−1) | a(n), s )
+
+pθold (a(n−1) | a(n), s ) . (19) Equation (18) is the basic path-space analogue of the PPO surrogate, and it forms the basis of both our clipping and penalty objectives. 
+
+4.2 GSB Inspired PPO with Clipping 
+
+Our first realization extends PPO clipping from action space to path space. Using the path ratio in Eq. (19) , we define the clipping-based GSB-inspired PPO objective as 
+
+LGSB -PPO clip (θ) = E(s,a (0: N ))∼Pθold 
+
+h
+
+min 
+
+
+
+rθ (s, a (0: N ))A(s, a (0) ), clip 
+
+
+
+rθ (s, a (0: N )), 1 − ϵ, 1 + ϵ
+
+
+
+A(s, a (0) )
+
+i 
+
+.
+
+(20) This objective is the most direct path-space counterpart of clipped PPO. Compared with standard action-space PPO, however, the ratio is now defined on the full denoising trajectory rather than a single executed action. As a result, the clipping behavior is affected by the accumulation of likelihood shifts across multiple denoising steps. In our implementation, we additionally apply step-level log-ratio clipping for numerical stabilization; this is an implementation detail introduced to control numerical range and is distinct from the outer PPO clipping threshold ϵ.
+
+4.3 GSB Inspired PPO with Penalty 
+
+Our second realization replaces clipping with an explicit path-space penalty. Unlike the clipping version, the penalty form is motivated by the GSB view that updates should remain close in trajectory space, but it is not a strict GSB objective. In particular, we keep the PPO-style surrogate while introducing a path-level quadratic penalty between the old and new generators. Consider the old and new policy SDEs 
+
+da t = fθold (at, t, s ) dt + σt dW t, da t = fθ (at, t, s ) dt + σt dW t. (21) 5Proximal Policy Optimization in Path Space: A Schrödinger Bridge Perspective A P REPRINT 
+
+Inspired by the path-space discrepancy between these two stochastic generators, we use the following MSE-style path KL surrogate under old-policy state visitation: 
+
+RMSE (θ, θ old ) = E(s,a (0: N ))∼Pθold 
+
+" NX
+
+> n=1
+
+|∆tn|
+
+2 σ(tn)2 fθ (a(n), t n, s ) − fθold (a(n), t n, s ) 22
+
+#
+
+, (22) where ∆tn := tn−1 − tn denotes the step size of the denoising schedule. This is exactly the penalty used in our implementation. We then define 
+
+LGSB -PPO pen (θ) = E(s,a (0: N ))∼Pθold 
+
+h
+
+rθ (s, a (0: N ))A(s, a (0) )
+
+i
+
+− β RMSE (θ, θ old ), (23) where β > 0 is the penalty coefficient. Compared with Eq. (20) , the penalty objective does not apply the outer PPO clipping to the surrogate. Instead, it keeps the unclipped trajectory-level surrogate and regularizes the update through the quadratic path penalty in Eq. (22) . This makes the update smoother in trajectory space and matches our implementation more faithfully. 
+
+Algorithm 1 Training GSB-PPO 
+
+Require: Old parameters θold , critic parameters ϕ, actor mode ∈ { clip , penalty }
+
+1: for each on-policy iteration do 
+
+2: Collect trajectories using the old policy θold 
+
+3: for each visited state s do 
+
+4: Sample a denoising trajectory a(0: N ) ∼ Pθold (· | s)
+
+5: Store executed action a(0) and full path a(0: N )
+
+6: Store old velocity path {fθold (a(n), t n, s )}Nn=1 
+
+7: end for 
+
+8: Compute advantages ˆA and value targets using GAE 
+
+9: for each gradient epoch and minibatch do 
+
+10: Recompute current step log-likelihoods {log pθ (a(n−1) | a(n), s )}Nn=1 
+
+11: Form path ratio rθ (s, a (0: N ))
+
+12: if actor mode is clip then 
+
+13: Lactor ← − min 
+
+
+
+rθ ˆA, clip( rθ , 1 − ϵ, 1 + ϵ) ˆA
+
+
+
+14: else 
+
+15: Recompute current velocity path {fθ (a(n), t n, s )}Nn=1 
+
+16: Compute the MSE-style path KL surrogate 
+
+RMSE =
+
+> N
+
+X
+
+> n=1
+
+|∆tn|
+
+2 σ(tn)2 fθ (a(n), t n, s ) − fθold (a(n), t n, s ) 22
+
+17: Lactor ← − rθ ˆA + β RMSE 
+
+18: end if 
+
+19: Compute critic loss Lvalue 
+
+20: Update actor and critic using 
+
+Ltotal = Lactor + λv Lvalue 
+
+21: end for 
+
+22: Set θold ← θ
+
+23: end for 
+
+5 Experiments 
+
+5.1 Experimental Setup 
+
+Our implementation is built on top of the FPO playground codebase, which follows the MuJoCo Playground style JAX training framework for online continuous-control reinforcement learning. We keep the overall rollout, actor-critic optimization, and evaluation pipeline aligned with the original FPO/playground implementation, and modify only 6Proximal Policy Optimization in Path Space: A Schrödinger Bridge Perspective A P REPRINT 
+
+the actor objective to instantiate the proposed GSB-PPO variants. In this way, our experiments isolate the effect of path-space proximal design while minimizing unrelated implementation differences. We evaluate our method on ten playground environments. Our main comparison includes standard PPO, FPO, GSB-PPO-Clip, and GSB-PPO-Penalty. Among them, GSB-PPO-Clip and GSB-PPO-Penalty share the same generative policy parameterization and differ only in the actor objective: the clipping variant uses the path-space PPO-style clipping objective in Eq. (20), while the penalty variant uses the quadratic MSE-style path regularization in Eq. (23). For numerical stability, our implementation applies an additional step-level clipping to the per-step log-ratio before forming the full path ratio. This operation is introduced only to control the numerical range of accumulated trajectory likelihood shifts, and is fundamentally different from the PPO clipping threshold ϵ in Eq. (20) . The former is a numerical stabilization mechanism, while the latter defines the outer proximal surrogate. Detailed implementation settings and hyperparameters are provided in Appendix A. 
+
+5.2 Main Results on 10 Playground Environments 
+
+Our main goal is to answer two questions: (i) whether the proposed GSB inspired path space PPO improves over standard action space PPO, and (ii) how it compares with an existing on policy generative baseline based on flow matching. To this end, we present two sets of comparisons on the same ten playground environments. Figure 1 compares GSB-PPO against standard PPO. Across the tested environments, the generative path space formulation consistently improves training quality over the standard PPO baseline. This result suggests that, for these control tasks, representing the policy as a multi step generator can be beneficial even in fully on policy training. Compared with standard action space PPO, the generative formulation is able to model richer action distributions and yields stronger returns in several environments. Figure 2 compares our method with FPO, which is the closest existing on policy baseline in our implementation framework. Among the two proposed variants, GSB-PPO-Penalty is the primary method and delivers the strongest overall performance. By contrast, GSB-PPO-Clip is generally less stable and often underperforms its penalty counterpart. Taken together, these results support the central claim of this paper: when PPO is lifted from action space to generative path space, a smooth trajectory level penalty is substantially more effective than directly clipping the path ratio. We stress that the purpose of this experiment is not to provide an exhaustive benchmark against all existing generative RL methods. Instead, our focus is to isolate the effect of proximal objective design in a controlled on policy generative setting. Under this controlled comparison, the empirical evidence consistently favors the penalty formulation. 7Proximal Policy Optimization in Path Space: A Schrödinger Bridge Perspective A P REPRINT 0 20 40 60 
+
+0
+
+500 
+
+1000 
+
+> Return
+
+BallInCup 
+
+0 20 40 60 
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+CartpoleBalance 
+
+0 20 40 60 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+CheetahRun 
+
+0 20 40 60 
+
+0
+
+200 
+
+400 
+
+600 
+
+FingerSpin 
+
+0 20 40 60 
+
+200 
+
+400 
+
+600 
+
+800 
+
+FingerTurnEasy 
+
+0 20 40 60 
+
+Iterations (Steps) 
+
+200 
+
+400 
+
+600 
+
+800 
+
+> Return
+
+FingerTurnHard 
+
+0 20 40 60 
+
+Iterations (Steps) 
+
+200 
+
+400 
+
+600 
+
+FishSwim 
+
+0 20 40 60 
+
+Iterations (Steps) 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+PointMass 
+
+0 20 40 60 
+
+Iterations (Steps) 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+ReacherEasy 
+
+0 20 40 60 
+
+Iterations (Steps) 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 ReacherHard 
+
+Performance Comparison: GSB-Clip, GSB-Penalty, PPO 
+
+Algorithm 
+
+PPO 
+
+GSB-Penalty 
+
+GSB-Clip 
+
+Figure 1: Comparison between GSB-PPO and PPO on the 10 playground environments. We report step-return curves over training. 0 20 40 60 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+> Return
+
+BallInCup 
+
+0 20 40 60 
+
+250 
+
+500 
+
+750 
+
+1000 
+
+CartpoleBalance 
+
+0 20 40 60 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+CheetahRun 
+
+0 20 40 60 
+
+0
+
+200 
+
+400 
+
+600 
+
+FingerSpin 
+
+0 20 40 60 
+
+200 
+
+400 
+
+600 
+
+800 
+
+FingerTurnEasy 
+
+0 20 40 60 
+
+Iterations (Steps) 
+
+200 
+
+400 
+
+600 
+
+> Return
+
+FingerTurnHard 
+
+0 20 40 60 
+
+Iterations (Steps) 
+
+200 
+
+400 
+
+600 
+
+FishSwim 
+
+0 20 40 60 
+
+Iterations (Steps) 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+PointMass 
+
+0 20 40 60 
+
+Iterations (Steps) 
+
+250 
+
+500 
+
+750 
+
+1000 
+
+ReacherEasy 
+
+0 20 40 60 
+
+Iterations (Steps) 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 ReacherHard 
+
+Performance Comparison: GSB-Clip, GSB-Penalty, FPO 
+
+Algorithm 
+
+FPO 
+
+GSB-Penalty 
+
+GSB-Clip 
+
+Figure 2: Comparison between GSB-PPO and FPO on the 10 playground environments. We report step-return curves over training. 8Proximal Policy Optimization in Path Space: A Schrödinger Bridge Perspective A P REPRINT 
+
+5.3 Ablation on KL Regularization 0 20 40 60 
+
+> Iterations (Steps)
+> 0
+> 200
+> 400
+> 600
+> 800
+> Return
+> Ablation on KL Penalty Coefficient (CheetahRun)
+> KL Penalty
+> KL = 0.001
+> KL = 0.1
+> KL = 1.0
+> KL = 10.0
+> KL = 100.0
+
+Figure 3: KL ablation on CheetahRun. To better understand the role of path space regularization, we con-duct an ablation study on the CheetahRun environment. This abla-tion focuses on the KL regularization term in the penalty objective and studies how different regularization designs affect optimization behavior and final return. Our default penalty uses the MSE-style path KL surrogate in Eq. (22) ,which measures the discrepancy between the old and new denoising dynamics under old-policy trajectory visitation. This choice is directly motivated by the stochastic process view of the policy and is also the regularization implemented in our code. In the ablation, we compare this default design against alternative KL regularization variants. The goal is to determine whether the performance gain of GSB-PPO-Penalty comes merely from adding some regularizer, or more specifically from using the trajectory-level quadratic regularization induced by the discrepancy between successive denoising generators. 
+
+6 Conclusion 
+
+We presented GSB-PPO, a path space formulation of PPO for generative policies inspired by the Generalized Schrödinger Bridge perspective. Within this framework, we studied two practical objectives, GSB-PPO-Clip and GSB-PPO-Penalty, and showed that they lead to markedly different optimization behavior. Across ten playground environments, the penalty formulation consistently provided better stability and stronger performance than the clipping counterpart. These results suggest that for on policy generative reinforcement learning, the key challenge is not merely to transplant PPO into a generative setting, but to design proximal objectives that better respect the multi step stochastic structure of the policy. Our findings indicate that smooth path space regularization is a promising direction for this purpose. Future work will explore larger scale evaluations, alternative path space divergences, and tighter connections to bridge inspired and entropy regularized formulations. 9Proximal Policy Optimization in Path Space: A Schrödinger Bridge Perspective A P REPRINT 
+
+A Additional Experimental Details 
+
+Table 1 summarizes the main hyperparameters used for PPO, FPO, and GSB-PPO-Penalty in our playground experiments. For PPO, we follow the default MuJoCo Playground / Brax PPO configuration for each environment. For FPO, we use the default released playground configuration. For GSB-PPO-Penalty, we use the configuration defined in our 
+
+gsb_ppo.py implementation unless otherwise noted. Table 1: Main hyperparameters for PPO, FPO, and GSB-PPO-Penalty.                                                                                                                      
+
+> Hyperparameter PPO FPO GSB-PPO-Penalty
+> Shared playground training protocol
+> Training environments 2048 2048 2048 Evaluation environments 128 128 128 Total environment steps 60M 60M 60M Evaluation checkpoints 10 10 10 Episode length 1000 1000 1000 Unroll length 30 30 30 Batch size 1024 1024 1024 Number of minibatches 32 32 32 Updates per batch 16 16 16 Discount factor γ0.995 0.995 0.995 GAE λ0.95 0.95 0.95 Reward scaling 10.0 10.0 10.0 Observation normalization True True True Advantage normalization True True True
+> Method-specific hyperparameters
+> Actor network [32 ,32 ,32 ,32] [32 ,32 ,32 ,32] [32 ,32 ,32 ,32]
+> Critic network [256 ,256 ,256 ,256 ,256] [256 ,256 ,256 ,256 ,256] [256 ,256 ,256 ,256 ,256]
+> Learning rate env-dependent Brax PPO default 3×10 −43×10 −3
+> Value loss coefficient 0.25 0.25 0.10 PPO clipping ϵ0.30 0.05 N/A Flow / denoising steps N/A 10 8Timestep embedding dimension N/A 88Policy output scale N/A 0.25 0.25 Step-level log-ratio clip N/A N/A 0.2 Path-level log-ratio clip N/A N/A 1.0 KL penalty coefficient βN/A N/A 0.1 Noise setting N/A N/A exponential σ(t)
+> σmax N/A N/A 10.0
+> σmin N/A N/A 5.0
+
+Environment-specific override. Unless otherwise stated, all environments use the shared settings above. For 
+
+CartpoleBalance , we set the KL penalty coefficient in GSB-PPO-Penalty to β = 1 .0 instead of the default value 0.1,since this environment is particularly sensitive to the strength of the path-space regularization. 
+
+References 
+
+John Schulman, Sergey Levine, Pieter Abbeel, Michael Jordan, and Philipp Moritz. Trust region policy optimization. In International Conference on Machine Learning , pages 1889–1897, 2015a. John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. John Schulman, Philipp Moritz, Sergey Levine, Michael Jordan, and Pieter Abbeel. High-dimensional continuous control using generalized advantage estimation. arXiv preprint arXiv:1506.02438 , 2015b. Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In Advances in Neural Information Processing Systems , 2020. Yang Song, Jascha Sohl-Dickstein, Diederik P. Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. In International Conference on Learning Representations , 2021. 10 Proximal Policy Optimization in Path Space: A Schrödinger Bridge Perspective A P REPRINT 
+
+Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. In International Conference on Learning Representations , 2023. Zhengyang Geng, Mingyang Deng, Xingjian Bai, J. Zico Kolter, and Kaiming He. Mean flows for one-step generative modeling. arXiv preprint arXiv:2505.13447 , 2025. Michael Janner, Yilun Du, Joshua B. Tenenbaum, and Sergey Levine. Planning with diffusion for flexible behavior synthesis. arXiv preprint arXiv:2205.09991 , 2022. Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake, and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion. arXiv preprint arXiv:2303.04137 , 2023. Zhendong Wang, Jonathan J. Hunt, and Mingyuan Zhou. Diffusion policies as an expressive policy class for offline reinforcement learning. arXiv preprint arXiv:2208.06193 , 2022. Philippe Hansen-Estruch, Ilya Kostrikov, Michael Janner, Jakub Grudzien Kuba, and Sergey Levine. IDQL: Implicit q-learning as an actor-critic method with diffusion policies. arXiv preprint arXiv:2304.10573 , 2023. Seohong Park, Qiyang Li, and Sergey Levine. Flow q-learning. arXiv preprint arXiv:2502.02538 , 2025. Onur Celik, Zechu Li, Denis Blessing, Ge Li, Daniel Palanicek, Jan Peters, Georgia Chalvatzaki, and Gerhard Neumann. Dime: Diffusion-based maximum entropy reinforcement learning. arXiv preprint arXiv:2502.02316 , 2025. Lei Lv, Yunfei Li, Yu Luo, Fuchun Sun, and Xiao Ma. Flac: Maximum entropy rl via kinetic energy regularized bridge matching. arXiv preprint arXiv:2602.12829 , 2026. Allen Z. Ren, Justin Lidard, Lars L. Ankile, Anthony Simeonov, Pulkit Agrawal, Anirudha Majumdar, Benjamin Burchfiel, Hongkai Dai, and Max Simchowitz. Diffusion policy policy optimization. arXiv preprint arXiv:2409.00588 ,2024. Shutong Ding, Ke Hu, Shan Zhong, Haoyang Luo, Weinan Zhang, Jingya Wang, Jun Wang, and Ye Shi. Genpo: Generative diffusion models meet on-policy reinforcement learning. arXiv preprint arXiv:2505.18763 , 2025. David McAllister, Songwei Ge, Brent Yi, Chung Min Kim, Ethan Weber, Hongsuk Choi, Haiwen Feng, and Angjoo Kanazawa. Flow matching policy gradients. arXiv preprint arXiv:2507.21053 , 2025. Christian Léonard. A survey of the schrödinger problem and some of its connections with optimal transport. arXiv preprint arXiv:1308.0215 , 2013. Guan-Horng Liu, Yaron Lipman, Maximilian Nickel, Brian Karrer, Evangelos A. Theodorou, and Ricky T. Q. Chen. Generalized schrödinger bridge matching. In International Conference on Learning Representations , 2024. Ronald J. Williams. Simple statistical gradient-following algorithms for connectionist reinforcement learning. Machine Learning , 8(3):229–256, 1992. Diederik P. Kingma and Max Welling. Auto-encoding variational bayes. arXiv preprint arXiv:1312.6114 , 2013. Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and Yoshua Bengio. Generative adversarial nets. In Advances in Neural Information Processing Systems , 2014. Laurent Dinh, David Krueger, and Yoshua Bengio. Nice: Non-linear independent components estimation. arXiv preprint arXiv:1410.8516 , 2014. Laurent Dinh, Jascha Sohl-Dickstein, and Samy Bengio. Density estimation using real NVP. arXiv preprint arXiv:1605.08803 , 2016. Diederik P. Kingma and Prafulla Dhariwal. Glow: Generative flow with invertible 1x1 convolutions. In Advances in Neural Information Processing Systems , 2018. Aapo Hyvärinen. Estimation of non-normalized statistical models by score matching. Journal of Machine Learning Research , 6(Apr):695–709, 2005. Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. arXiv preprint arXiv:2010.02502 , 2020. Long Yang, Zhixiong Huang, Fenghao Lei, Yucun Zhong, Yiming Yang, Cong Fang, Shiting Wen, Binbin Zhou, and Zhouchen Lin. Policy representation via diffusion probability model for reinforcement learning. arXiv preprint arXiv:2305.13122 , 2023. Cheng Lu, Huayu Chen, Jianfei Chen, Hang Su, Chongxuan Li, and Jun Zhu. Contrastive energy prediction for exact energy-guided diffusion sampling in offline reinforcement learning. In International Conference on Machine Learning , pages 22825–22855, 2023. Bingyi Kang, Xiao Ma, Chao Du, Tianyu Pang, and Shuicheng Yan. Efficient diffusion policies for offline reinforcement learning. arXiv preprint arXiv:2305.20081 , 2023. 11 Proximal Policy Optimization in Path Space: A Schrödinger Bridge Perspective A P REPRINT 
+
+Michael Psenka, Alejandro Escontrela, Pieter Abbeel, and Yi Ma. Learning a diffusion model policy from rewards via q-score matching. arXiv preprint arXiv:2312.11752 , 2023. Shutong Ding, Ke Hu, Zhenhao Zhang, Kan Ren, Weinan Zhang, Jingyi Yu, Jingya Wang, and Ye Shi. Diffusion-based reinforcement learning via q-weighted variational policy optimization. arXiv preprint arXiv:2405.16173 , 2024. Yinuo Wang, Likun Wang, Yuxuan Jiang, Wenjun Zou, Tong Liu, Xujie Song, Wenxuan Wang, Liming Xiao, Jiang Wu, Jingliang Duan, and Shengbo Eben Li. Diffusion actor-critic with entropy regulator. arXiv preprint arXiv:2405.15177 ,2024. Zeyuan Wang, Da Li, Yulin Chen, Ye Shi, Liang Bai, Tianyuan Yu, and Yanwei Fu. One-step generative policies with q-learning: A reformulation of meanflow. In Proceedings of the AAAI Conference on Artificial Intelligence (AAAI) ,volume 40, pages 26751–26759, 2026. Haitong Ma, Tianyi Chen, Kai Wang, Na Li, and Bo Dai. Soft diffusion actor-critic: Efficient online reinforcement learning for diffusion policy. arXiv preprint arXiv:2502.00361 , 2025. 12

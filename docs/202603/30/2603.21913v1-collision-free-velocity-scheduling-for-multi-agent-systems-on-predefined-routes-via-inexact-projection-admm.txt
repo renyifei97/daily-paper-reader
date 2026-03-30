@@ -1,0 +1,981 @@
+Title: Collision-Free Velocity Scheduling for Multi-Agent Systems on Predefined Routes via Inexact-Projection ADMM
+
+URL Source: https://arxiv.org/pdf/2603.21913v1
+
+Published Time: Tue, 24 Mar 2026 02:16:13 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Collision-Free Velocity Scheduling for Multi-Agent Systems on Predefined Routes via Inexact-Projection ADMM 
+
+Seungyeop Lee 1 and Jong-Han Kim 1∗
+
+Abstract — In structured multi-agent transportation systems, agents often must follow predefined routes, making spatial rerouting undesirable or impossible. This paper addresses route-constrained multi-agent coordination by optimizing waypoint passage times while preserving each agent’s assigned waypoint order and nominal route assignment. A differentiable surrogate trajectory model maps waypoint timings to smooth position profiles and captures first-order tracking lag, enabling pairwise safety to be encoded through distance-based penalties evaluated on a dense temporal grid spanning the mission horizon. The resulting nonlinear and nonconvex velocity-scheduling problem is solved using an inexact-projection Alternating Direction Method of Multipliers (ADMM) algorithm that combines structured timing updates with gradient-based collision-correction steps and avoids explicit integer sequencing variables. Numerical experiments on random-crossing, bottleneck, and graph-based network scenarios show that the proposed method computes feasible and time-efficient schedules across a range of congestion levels and yields shorter mission completion times than a representative hierarchical baseline in the tested bottleneck cases. 
+
+I. INTRODUCTION Safe coordination is a fundamental requirement in multi-agent transportation systems such as urban air mobility (UAM), automated warehouse logistics, and corridor-based robotic operations. In many practical settings, agents are constrained to predefined routes due to infrastructure or operational requirements. Under such conditions, collision avoidance cannot rely on spatial rerouting and must instead be achieved by coordinating the timing of motion along the routes. Existing approaches to multi-agent collision avoidance can be broadly categorized into reactive local methods and planning-based global methods. Reactive schemes, including reciprocal collision avoidance, safety-critical control, and model predictive control, provide fast responses with low computational overhead [1]–[8]. However, their reliance on local information often leads to conservatism or deadlocks in dense environments. Global coordination methods, such as priority-based planning, conflict-based search, sequen-tial convex programming, and mixed-integer formulations, leverage global information to produce more consistent solutions [9]–[14]. Nevertheless, these approaches primarily resolve conflicts through spatial path modification, which is incompatible with route-constrained systems.   
+
+> *This work was supported by the KRIT Grant funded by DAPA (KRIT-CT-22-083, Cloud Computing-Based Learning/Inference Engine Technology). (Corresponding author: Jong-Han Kim).
+> 1The authors are with the Department of Aerospace Engineering and the Program in Aerospace Systems Convergence, Inha University, Incheon, South Korea seungyeoplee@inha.edu,jonghank@inha.ac.kr
+> Source code and interactive video demonstrations are available at https: //github.com/lsy010119/MACSPO
+
+Temporal scheduling offers a natural alternative by ad-justing agent velocities while preserving fixed paths. A representative framework determines passing orders at conflict regions via mixed-integer programming and subsequently generates dynamically feasible trajectories through convex optimization [15]. While effective for moderate problem sizes, such hierarchical methods suffer from poor scalability due to the combinatorial growth of discrete sequencing variables, and may exhibit numerical sensitivity in dense scenarios. To alleviate these limitations, recent approaches attempt to avoid explicit sequencing. For instance, [16] formulates colli-sion avoidance through projection onto nonconvex constraints at intersection points. Although this reduces combinatorial complexity, its event-based formulation is limited in handling shallow-angle crossings or prolonged proximity between agents. Motivated by these challenges, this paper proposes a distance-based velocity scheduling framework for multi-agent systems on predefined routes. Waypoint passage times are treated as optimization variables, and a differentiable surrogate trajectory model maps these timings to continuous position profiles while capturing first-order tracking dynamics. Based on this representation, pairwise safety is enforced through distance-based penalties evaluated over the mission horizon. The resulting nonlinear and nonconvex problem is solved using an inexact-projection Alternating Direction Method of Multipliers (ADMM) framework that combines structured timing updates with gradient-based collision correction, thereby avoiding explicit integer sequencing variables. The main contributions of this paper are threefold. First, we formulate route-constrained multi-agent coordination as a waypoint-time optimization problem with distance-based safety constraints defined over the mission horizon. Second, we develop a differentiable surrogate trajectory model and an inexact-projection ADMM solver tailored to the resulting nonconvex structure. Third, we validate the proposed approach in random-crossing, bottleneck, and graph-based network scenarios, and compare it with a representative hierarchical temporal-scheduling baseline [15]. The results demonstrate that the proposed method achieves feasible and time-efficient coordination across a range of congestion conditions without requiring explicit priority assignment. II. PROBLEM STATEMENT 
+
+A. Notations 
+
+Throughout this paper, scalars are denoted by non-bold symbols, vectors by lowercase bold symbols, and matrices by uppercase bold symbols. The set of integers {1, 2, . . . , N }
+
+> arXiv:2603.21913v1 [cs.RO] 23 Mar 2026
+
+Fig. 1: Illustration of the piecewise linear segment trajectory and associated notations. is abbreviated as [N ]. For a vector x ∈ RN , the difference operator ∆ is defined as ∆x := x2: N − x1: N −1, where xi:j
+
+represents the subvector of x from the i-th to the j-th element. The vertical concatenation of vectors or matrices is denoted by [x1; x2; . . . ; xN ] := [ xT 
+
+> 1
+
+, xT 
+
+> 2
+
+, . . . , xTN ]T . Furthermore, the indicator function associated with a set C, denoted by IC (x), is defined as IC (x) = 0 if x ∈ C , and IC (x) = + ∞ otherwise. 
+
+B. Assumptions 
+
+We consider a system consisting of K agents. Agent i is assigned a sequence of Ni waypoints {p(i) 
+
+> n
+
+}Ni 
+
+> n=1
+
+together with the corresponding waypoint passage times t(i) := [t(i)1 , . . . , t (i) 
+
+> Ni
+
+]T ∈ RNi .The agent motion is modeled using a segment-wise constant-velocity assumption. Specifically, the agent moves along the straight-line segment connecting p(i) 
+
+> n
+
+and p(i)
+
+> n+1
+
+with constant velocity. Let the segment duration and length be defined as ∆t(i) 
+
+> n
+
+:= t(i) 
+
+> n+1
+
+−t(i) 
+
+> n
+
+and d(i) 
+
+> n
+
+:= ∥p(i) 
+
+> n+1
+
+−p(i) 
+
+> n
+
+∥2,respectively. The velocity along segment n is therefore given by 
+
+v(i) 
+
+> n
+
+(t(i)) = p(i) 
+
+> n+1
+
+− p(i)
+
+> n
+
+∆t(i)
+
+> n
+
+, n = 1 , . . . , N i − 1. (1) Fig. 1 illustrates the waypoint-based path representation. To facilitate stable gradient-based collision handling, we later introduce a smooth trajectory approximation while preserving the same timing variables. 
+
+C. Problem Formulation 
+
+The decision variables are the waypoint passage times 
+
+{t(i)}Ki=1 . For agents with prescribed terminal times, define 
+
+Kf ⊆ { 1, . . . , K } and let Ku := {1, . . . , K } \ K f denote the remaining agents. Let P := {(i, j ) | 1 ≤ i < j ≤ K} be the set of unordered agent pairs. The objective is to minimize the sum of completion time of agents without fixed arrival constraints. This promotes early task completion while allowing agents with prescribed terminal times to satisfy their deadlines. The optimization is subject to the following constraints: (i) fixed departure times, (ii) optional fixed arrival times, (iii) speed bounds expressed as linear constraints on segment dura-tions, and (iv) continuous-time collision avoidance throughout the mission horizon. The mission time horizon is defined as 
+
+T := 
+
+h
+
+min  
+
+> i
+
+t(i)1 , max  
+
+> i
+
+t(i)
+
+> Ni
+
+i
+
+. (2) The resulting optimization problem is formulated as 
+
+minimize 
+
+> {t(i)}Ki=1
+
+X
+
+> i∈K u
+
+t(i)
+
+> Ni
+
+subject to t(i)1 = t(i) 
+
+> s
+
+, ∀i ∈ [K],t(i) 
+
+> Ni
+
+= t(i) 
+
+> f
+
+, ∀i ∈ K f ,
+
+d(i)
+
+vmax 
+
+≤ ∆t(i) ≤ d(i)
+
+vmin 
+
+, ∀i ∈ [K],
+
+p(i)(t(i), τ ) − p(j)(t(j), τ ) 2 ≥ dsafe ,
+
+∀(i, j ) ∈ P , ∀τ ∈ T .
+
+(3) where d(i) := [d(i)1 , . . . , d (i)
+
+> Ni−1
+
+]T and ∆t(i) := [∆ t(i)1 , . . . , ∆t(i)
+
+> Ni−1
+
+]T . The p(i)(t(i), τ ) denotes the position of agent i at time τ when the agent traverses its waypoint sequence according to the waypoint passage times t(i).
+
+D. Piecewise Trajectory Approximation 
+
+The segment-wise constant-velocity model produces discontin-uous switching at waypoint times, which makes the inter-agent distance function non-smooth and sensitive to tracking latency. To obtain a differentiable mapping from waypoint times to continuous-time positions, we replace the hard segment activation with smooth sigmoid transitions. Specifically, the velocity of agent i at time τ is approxi-mated as 
+
+˜v(i)(t(i), τ ) = 
+
+> Ni−1
+
+X
+
+> n=1
+
+v(i) 
+
+> n
+
+(t(i))
+
+
+
+σ β(τ −ˆt(i) 
+
+> n
+
+)−σ β(τ −ˆt(i)
+
+> n+1
+
+)
+
+,
+
+(4) where σ(x) = 1 /(1 + e−x), β > 0 controls the transition sharpness, and ˆt(i) 
+
+> n
+
+:= t(i) 
+
+> n
+
++ b introduces a time bias b to account for tracking delay. Integrating (4) yields a closed-form position model. Let 
+
+ζ(x) := log(1+ ex) denote the softplus function. The position of agent i is then given by 
+
+˜p(i)(t(i), τ ) = p(i)1 +
+
+> Ni−1
+
+X
+
+> n=1
+
+v(i) 
+
+> n
+
+(t(i))
+
+β
+
+
+
+ζ β(τ − ˆt(i) 
+
+> n
+
+)
+
+−ζ β(τ − ˆt(i)
+
+> n+1
+
+).
+
+
+
+,
+
+(5) which satisfies ˜p(i)(t(i), t (i)1 ) = p(i)1 and is differentiable with respect to both τ and t(i). For sufficiently large β,the approximation closely matches the original piecewise trajectory while remaining differentiable. In our implementation, the parameters (β, b ) are selected by matching a critically damped second-order velocity-loop model with bandwidth ω, yielding b ≈ 1.678 /ω and β ≈
+
+1.47 ω [17]. Fig. 2 illustrates that the proposed approximation reproduces smooth transitions and tracking latency while preserving the waypoint-timing structure. III. INEXACT-PROJECTION ADMM SOLVER Problem (3) is convex except for the collision-avoidance constraints, which introduce nonconvexity through inter-agent distance requirements. To efficiently handle this structure, we apply the Alternating Direction Method of Multipliers (ADMM), which separates the timing and speed constraints 0 1 2 3 4 5 6 7                          
+
+> Time [s]
+> 0
+> 1
+> 2
+> 3
+> Speed [m/s]  t(i)1<t(i)2t(i)2<t(i)3t(i)3<t(i)4t(i)4<t(i)5t(i)5<t(i)6
+> 012345678910
+> X [m]
+> -1
+> 0
+> 1
+> Y [m]
+> p(i)0
+> p(i)1
+> p(i)2
+> p(i)3
+> p(i)4
+> p(i)5
+> reference 2nd-order response approximated
+
+Fig. 2: Comparison of an ideal piecewise-constant command, a second-order velocity-loop response ( ω = 10 rad /s), and the proposed sigmoid-based approximation. The approximation captures both smooth transitions and tracking latency. from collision handling. The former admits closed-form updates, while the latter is treated through an inexact projection step [18], [19]. 
+
+A. ADMM Standard Form 
+
+To cast the problem into a standard ADMM form, we define a stacked decision vector t := [ t(1) ; . . . ; t(K)] ∈ RN that contains all waypoint passage times, where N = PKi=1 Ni.To decouple the constraints, auxiliary variables x and z are introduced to represent segment durations and a copy of the timing variables used for collision evaluation, respectively. The temporal dynamics are represented by a stacked forward-difference operator D such that 
+
+Dt = x = [∆ t(1) ; . . . ; ∆ t(K)].
+
+A boundary selector matrix E enforces all fixed-time con-straints, including initial departure times and prescribed arrival times, through 
+
+Et = e = [ t(1)  
+
+> s
+
+, . . . , t (K) 
+
+> s
+
+, {t(i) 
+
+> f
+
+}i∈K f ]T .
+
+The mission objective is represented by a selector vector 
+
+q ∈ RN such that 
+
+qT t = X
+
+> i∈K u
+
+t(i) 
+
+> Ni
+
+,
+
+where entries of q corresponding to terminal-time indices of agents in Ku are set to one and the remaining entries are zero. The physical constraints are expressed through the feasible sets for velocity limits and inter-agent safety: 
+
+V := {x : d/v max ≤ x ≤ d/v min },
+
+C := {z : ∥˜p(i)(z(i), τ ) − ˜p(j)(z(j), τ )∥2 ≥ dsafe ,
+
+∀(i, j ) ∈ P , ∀τ ∈ T .}
+
+(6) Using indicator functions IV (x) and IC (z), the optimiza-tion problem can be written in the following consensus ADMM form: 
+
+minimize  
+
+> t,x,z
+
+qT t + IV (x) + IC (z)subject to Et = e, Dt − x = 0, t − z = 0. (7) 
+
+B. ADMM Updates 
+
+To solve the reformulated problem, we construct the scaled augmented Lagrangian with penalty parameter ρ > 0 and dual variables uE , ux, and uz :
+
+Lρ(t, x, z, u) = qT t + IV (x) + IC (z) + ρ
+
+2 ∥Et − e + uE ∥22
+
++ ρ
+
+2 ∥Dt − x + ux∥22 + ρ
+
+2 ∥t − z + uz ∥22.
+
+(8) The ADMM iterations minimize (8) with respect to each primal variable sequentially. 
+
+a) t-update 
+
+The t-update solves the quadratic problem 
+
+tk+1 = arg min 
+
+> t
+
+n
+
+qT t + ρ
+
+2 ∥Et − e + ukE ∥22
+
++ ρ
+
+2 ∥Dt − xk + ukx∥22 + ρ
+
+2 ∥t − zk + ukz ∥22
+
+o
+
+.
+
+(9) Applying the first-order optimality condition yields the sparse linear system 
+
+(ET E + DT D + I)tk+1 = ET (e − ukE ) + DT (xk − ukx)+ ( zk − ukz ) − 1
+
+ρ q.
+
+(10) Since the coefficient matrix is constant, it can be factorized once prior to the iterations for efficient updates. 
+
+b) x-update 
+
+The x-update corresponds to the proximal operator of the indicator function IV . This reduces to a projection of the updated temporal differences onto the convex set V:
+
+xk+1 = Π V (Dt k+1 + ukx), (11) where ΠV (x) = min( d/v min , max( d/v max , x)) is applied element-wise. 
+
+c) z-update 
+
+Exact projection onto the nonconvex collision-free set C is computationally intractable. Instead, we perform an inex-act update using a normalized penalty function f (z) that measures safety violations over a dense temporal grid Td =
+
+{τm}Mm=1 with uniform spacing δτ over the sampled mission horizon: 
+
+f (z) = δτ NpTs
+
+X
+
+> (i,j )∈P
+
+X 
+
+> τ∈T d
+
+max 
+
+
+
+1 − ∥ ˜p(i)(z(i), τ )
+
+− ˜p(j)(z(j), τ )∥2/d safe , 0
+
+
+
+, (12) where Np is the number of agent pairs and Ts denotes the horizon length used for penalty evaluation. Starting from the proximal candidate 
+
+ˆzk := tk+1 + ukz ,
+
+the update is computed using a Polyak-type gradient step with adaptive momentum: 
+
+vk+1 = αkvk − f (ˆ zk)
+
+∥∇ f (ˆ zk)∥22 + ϵ ∇f (ˆ zk),
+
+zk+1 = ˆ zk + vk+1 ,
+
+(13) Algorithm 1 Inexact-projection ADMM for collision-free velocity scheduling 
+
+Require: Waypoints {p(i) 
+
+> n
+
+}, t(i) 
+
+> s
+
+, optional t(i) 
+
+> f
+
+for i ∈ K f ,
+
+(vmin , v max ), dsafe , ρ, δτ , Niter  
+
+> 1:
+
+Initialize t0 (e.g., vmax travel), x0 = Dt 0, z0 = t0,
+
+u0 
+
+> E
+
+= 0, u0 
+
+> x
+
+= 0, u0 
+
+> z
+
+= 0, v0 = 0 
+
+> 2:
+
+for k = 0 , . . . , N iter − 1 do  
+
+> 3:
+
+tk+1 ← solve (10)  
+
+> 4:
+
+xk+1 ← ΠV (Dtk+1 + ukx) 
+
+> 5:
+
+ˆzk ← tk+1 + ukz 
+
+> 6:
+
+zk+1 ← update by (13) ( Nref refinements)  
+
+> 7:
+
+Update (uE , ux, uz ) using (14)  
+
+> 8:
+
+if primal residuals small and f (zk+1 ) ≈ 0 then break  
+
+> 9:
+
+end if  
+
+> 10:
+
+end for 
+
+which is computed via Nref refinement steps, and ϵ > 0 is a small numerical small regularization constant introduced to prevent division by zero. We use the active correction parameter: 
+
+αk =
+
+(
+
+αactive , if |f (ˆ zk) − f (ˆ zk−mstag )| < ε ∆f ,
+
+0, otherwise ,
+
+so that momentum is activated when the decrease in the penalty term becomes negligible, allowing the iteration to escape numerical stagnation. Here, the progress test is evaluated over a downsampled interval of mstag iterations, rather than between consecutive iterates, to reduce sensitivity to small oscillations in the penalty value [20]. Finally, the dual variables are updated to enforce consensus across the linear constraints: 
+
+uk+1  
+
+> E
+
+= ukE + Et k+1 − e,
+
+uk+1  
+
+> x
+
+= ukx + Dt k+1 − xk+1 ,
+
+uk+1  
+
+> z
+
+= ukz + tk+1 − zk+1 .
+
+(14) The algorithm is terminated when both the primal residual and the safety violation are sufficiently small, i.e. ,
+
+∥rk
+
+> pri
+
+∥∞ ≤ εpri , f (zk) ≤ εf .
+
+The overall procedure of the proposed framework is summarized in Algorithm 1. IV. NUMERICAL EXAMPLES We evaluate the performance and robustness of the pro-posed method across various multi-agent scenarios, focusing on feasibility and computational efficiency under varying numbers of agents and safety distances. Although safety constraints are defined in continuous time, they are enforced on a dense temporal grid Td in the numerical implementation. All solutions are further validated on a finer grid to ensure continuous-time constraint satisfaction. 
+
+A. Experimental Setup 
+
+To ensure consistency across scenarios, all waypoint sets are generated within a square workspace [−10 , 10] m in both the 
+
+x and y directions. The safety distance dsafe is determined based on the occupancy density ϕ, which represents the ratio TABLE I: General parameter settings                         
+
+> Parameter Value Parameter Value
+> [vmin , v max ][0 .02 ,2.0] m/s ω10 rad/s
+> ρ100 αactive 0.7
+> Niter 1000 δτ 0.1s
+> Nref 1εpri , ε f1×10 −5
+> mstag 10 ε∆f10 −3
+
+between the total area covered by the agents’ safety disks and the workspace area A. Assuming that each agent is surrounded by a safety disk of diameter dsafe , the density is defined as 
+
+ϕ = K · π(dsafe /2) 2
+
+A . (15) For a given density ϕ and agent count K, the corresponding safety distance is computed as 
+
+dsafe = 2 
+
+r Aϕ Kπ . (16) This normalization allows fair comparison across scenarios 10 5 0 5 10 
+
+> x [m]
+> 10
+> 5
+> 0
+> 5
+> 10
+> y [m]
+> #1
+> #2
+> #3
+> #4
+> #5
+> #6
+> #7
+> #8
+> #9
+> #10
+> #11
+
+Fig. 3: Trajectories for the co-directional random crossing scenario. Agents traverse a central congested area toward opposing goals, with random perturbations added to waypoints for environmental stochasticity. 0 2 4 6 8 10 12 14 16          
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> Speed [m/s]
+> Setpoint Approximated
+> 0246810 12 14 16
+> Time [s]
+> 0
+> 1
+> 2
+> Distance [m]
+> Safety distance
+
+Fig. 4: Results for the co-directional scenario. (Top) Velocity profiles showing smooth adjustments for conflict resolution. (Bottom) Inter-agent distance trajectories maintaining the required safety boundary dsafe .12 6 0 6 12 
+
+> x [m]
+> 12
+> 6
+> 0
+> 6
+> 12
+> y [m]
+> #1
+> #2
+> #3
+
+(a) K = 3 12 6 0 6 12  
+
+> x [m]
+> 12
+> 6
+> 0
+> 6
+> 12
+> y [m]
+> #1
+> #2
+> #3
+> #4
+> #5
+> #6
+> #7
+
+(b) K = 7 12 6 0 6 12   
+
+> x [m]
+> 12
+> 6
+> 0
+> 6
+> 12
+> y [m]
+> #1
+> #2
+> #3
+> #4
+> #5
+> #6
+> #7
+> #8
+> #9 #10
+> #11
+
+(c) K = 11 
+
+Fig. 5: Example trajectories for the counter-directional random crossing scenario with K ∈ { 3, 7, 11 }. Each agent traverses 10 waypoints from its initial position to a goal located approximately opposite the workspace, with small random perturbations added to the goal and intermediate waypoints. 1%  
+
+> (SR: 100%)
+> 5%
+> (SR: 100%)
+> 10%
+> (SR: 100%)
+> 40
+> 60
+> 80
+> Iterations
+> to Convergence
+> 1%
+> (SR: 100%)
+> 5%
+> (SR: 100%)
+> 10%
+> (SR: 100%)
+> Occupancy Density ( )
+> 0
+> 200
+> 400
+> 600
+> Time Overhead
+> relative to  min  [%]
+
+(a) K = 3 1%   
+
+> (SR: 100%)
+> 5%
+> (SR: 100%)
+> 10%
+> (SR: 98%)
+> 100
+> 200
+> 300
+> 400
+> 500
+> Iterations
+> to Convergence
+> 1%
+> (SR: 100%)
+> 5%
+> (SR: 100%)
+> 10%
+> (SR: 98%)
+> Occupancy Density ( )
+> 0
+> 500
+> 1000
+> 1500
+> 2000
+> Time Overhead
+> relative to  min  [%]
+
+(b) K = 7 1%   
+
+> (SR: 99%)
+> 5%
+> (SR: 91%)
+> 10%
+> (SR: 54%)
+> 200
+> 400
+> 600
+> 800
+> 1000
+> Iterations
+> to Convergence
+> 1%
+> (SR: 99%)
+> 5%
+> (SR: 91%)
+> 10%
+> (SR: 54%)
+> Occupancy Density ( )
+> 0
+> 500
+> 1000
+> 1500
+> Time Overhead
+> relative to  min  [%]
+
+(c) K = 11 
+
+Fig. 6: Monte Carlo performance results for counter-directional random crossing scenarios. The upper plots show the iteration counts required for convergence, while the lower plots show the travel-time overhead relative to the minimal travel time 
+
+Tmin . Success rates (SR) are indicated along the horizontal axis. in which the number of agents varies while maintaining a consistent crowding level. The general parameters used in all simulations are summarized in Table I. 
+
+B. Random Crossing 
+
+To evaluate the proposed algorithm in congested multi-agent environments, we consider random crossing scenarios in which agents traverse a shared central region while following predefined waypoint paths. Two configurations are examined. In the co-directional case, agents move in similar directions and conflicts arise from overtaking interactions. In the counter-directional case, agents approach from opposite directions, producing head-on conflicts. Because the proposed method resolves conflicts without spatial path deviation, head-on encounters are gener-ally more challenging than overtaking interactions and may become infeasible under certain conditions [15]. Therefore, the counter-directional scenario is further evaluated through Monte Carlo simulations. 
+
+a) Overtaking (Co-Directional Random Crossing) 
+
+The co-directional random crossing scenario represents a relatively tractable case in which agents move in similar directions and conflicts occur primarily through overtaking interactions. Fig. 3 shows the waypoint trajectories for this scenario. Agents start from distributed initial positions and traverse a congested central region toward randomly perturbed goals, generating multiple potential overtaking conflicts. The resulting velocity profiles and inter-agent distances are shown in Fig. 4. The velocity trajectories exhibit smooth adjustments that resolve conflicts without altering the spatial paths. The distance trajectories confirm that all pairwise separations remain above the safety threshold dsafe = 1 mthroughout the mission. These results demonstrate that the proposed velocity-based scheduling framework resolves overtaking interactions while satisfying both speed bounds and collision-avoidance constraints. 12 6 0 6 12 
+
+> x [m]
+> 12
+> 6
+> 0
+> 6
+> 12
+> y [m]
+> #1
+> #2
+> #3
+
+(a) K = 3 12 6 0 6 12  
+
+> x [m]
+> 12
+> 6
+> 0
+> 6
+> 12
+> y [m]
+> #1
+> #2
+> #3
+> #4
+> #5
+> #6
+> #7
+
+(b) K = 7 12 6 0 6 12  
+
+> x [m]
+> 12
+> 6
+> 0
+> 6
+> 12
+> y [m]
+> #1
+> #2
+> #3
+> #4
+> #5
+> #6
+> #7
+> #8
+> #9
+> #10
+> #11
+
+(c) K = 11 
+
+Fig. 7: Example trajectories for the bottleneck scenario with K ∈ { 3, 7, 11 }. Agents depart from distributed initial positions and converge into a shared corridor ( y = 0 for x ∈ [−3, 3] m), after which they diverge toward their respective goals. 
+
+b) Head-on (Counter-Directional Random Crossing) 
+
+Head-on interactions represent a more challenging situa-tion for the proposed framework. To evaluate robustness under increasing congestion, we analyze nine cases with agent counts K ∈ { 3, 7, 11 } and occupancy densities ϕ ∈{1% , 5% , 10% }. For each configuration, 100 Monte Carlo simulations were performed using randomized waypoint perturbations. Representative trajectories are shown in Fig. 5. The statistical results are summarized in Fig. 6. Across all tested cases, the number of ADMM iterations required for convergence remains within a relatively consistent range, typically below 400 iterations, indicating rapid convergence once the adaptive momentum mechanism resolves the initial numerical deadlock. The travel-time overhead increases moderately as the occupancy density ϕ grows, reflecting higher congestion. Nevertheless, the median overhead remains limited across all cases. For example, in the K = 7 scenario, agents pass the intersection with only moderate delays. The success rates (SR) further demonstrate the robustness of the proposed framework. Near-perfect SR is observed for 
+
+K = 3 and K = 7 across all densities. For K = 11 , the SR decreases at the highest density ( ϕ = 10% ), primarily due to physical infeasibility in some randomized configurations under the imposed velocity limits. For all successful trials, however, the algorithm consistently converges to feasible solutions with relatively small travel-time overhead. 
+
+C. Bottleneck Scenario 
+
+We evaluate the proposed method in a bottleneck scenario where all agents must pass through a narrow shared corridor, as illustrated in Fig. 7. This configuration is particularly chal-lenging for methods that rely on spatial path deviation, since the corridor structure severely restricts lateral maneuvering. Consequently, collision avoidance must be achieved primarily through coordinated velocity scheduling that establishes a sequential passing order. The experiments consider nine cases with agent counts K ∈K = 3 K = 7 K = 11      
+
+> 0
+> 25
+> 50
+> 75
+> 100
+> 125
+> 150
+> 175
+> Iterations
+> to Convergence
+> = 1%
+> = 5%
+> = 10%
+> K= 3 K= 7 K= 11
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> Time Overhead
+> relative to  min  [%]
+> = 1%
+> = 5%
+> = 10%
+
+Fig. 8: Performance analysis for the bottleneck scenario. The left plot shows the number of iterations required for convergence, while the right plot presents the travel-time overhead relative to the minimal travel time. 
+
+{3, 7, 11 } and occupancy densities ϕ ∈ { 1% , 5% , 10% }. The corresponding performance statistics are summarized in Fig. 8. As expected, both the iteration count and the travel-time overhead increase as K and ϕ grow. Nevertheless, the values remain within a reasonable range. Even in the most congested case ( K = 11 , ϕ = 10% ), the algorithm successfully resolves the conflicts with a time overhead of approximately 27% .Since agents naturally form a sequential queue within the corridor, conflicts can be resolved through moderate velocity adjustments rather than drastic slowdowns, leading to efficient solutions with relatively small computational cost. 
+
+D. Graph-Based Network Scenario 
+
+To evaluate the proposed method in a more realistic network setting, we consider a graph-based trajectory environment representative of systems such as Urban Air Mobility (UAM) corridors or logistics networks. In these systems, agents travel through predefined nodes and edges rather than an open workspace. The network is generated as follows:  
+
+> •
+
+Node generation: Nodes are uniformly distributed so that the average spacing between neighboring nodes is approximately dnode . 
+
+> •
+
+Edge construction: Edges are created using Delaunay 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5               
+
+> Safety Distance [m]
+> 0
+> 200
+> 400
+> 600
+> 800
+> 1000
+> Iterations
+> to Convergence
+> Geometric Limit
+> Stable Region
+> 50
+> 60
+> 70
+> 80
+> 90
+> 100
+> Success Rate [%] 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5
+> Safety Distance [m]
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> Time Overhead
+> relative to  min  [%]
+> Geometric Limit
+> Stable Region
+> 50
+> 60
+> 70
+> 80
+> 90
+> 100
+> Success Rate [%]
+
+Fig. 9: Monte Carlo performance results for the graph trajectory scenario ( dnode = 1 .5 m, K = 11 ) across varying safety distances dsafe . The left plot shows iteration counts required for convergence, and the right plot shows the travel-time overhead relative to the minimal mission time. The red curve indicates the success rate (SR), and the shaded region denotes the stable regime where dsafe < ¯dsafe .triangulation, which is commonly used to generate efficient network structures [21].  
+
+> •
+
+Route selection: For each agent, a start node is randomly selected and a goal node is chosen from the opposite side of the network. The shortest path is obtained using Dijkstra’s algorithm. To reduce frequent head-on conflicts that may lead to infeasible situations, all edges are assumed to be one-way. A representative example of the generated network and resulting trajectories is shown in Fig. 10. To evaluate robustness on network topologies, we conducted 100 Monte Carlo simulations while varying the safety distance dsafe 
+
+relative to the average node spacing dnode = 1 .5 m . As shown in Fig. 9, the algorithm achieves a 100% success rate when 
+
+dsafe < ¯dsafe , where ¯dsafe ≈ dnode 
+
+√3/4 corresponds to the minimum distance between a node and the opposite edge in an equilateral triangle of side length dnode .When dsafe exceeds this threshold, the success rate de-creases and both the iteration count and time overhead increase significantly. This behavior reflects geometric in-feasibility of the network topology; for example, if an edge passes closer than dsafe to another node, a collision-free solution cannot exist regardless of velocity scheduling. 10 5 0 5 10 
+
+> x [m]
+> 10
+> 5
+> 0
+> 5
+> 10
+> y [m]
+> #1
+> #2
+> #3
+> #4
+> #5
+> #6
+> #7
+> #8
+> #9
+> #10
+> #11
+
+Fig. 10: Example of the generated graph environment and resulting trajectories. Nodes are uniformly distributed and connected by directed edges derived from Delaunay triangu-lation ( dnode = 1 .5 m). TABLE II: Sum of completion times under varying occupancy densities ϕ.           
+
+> Occupancy density Baseline [15] Proposed
+> ϕ= 1% 172.5 s 152.0 s
+> ϕ= 5% 221.3 s 171.4 s
+> ϕ= 10% Infeasible 187.2 s
+
+Nevertheless, for all cases satisfying dsafe < ¯dsafe , the proposed algorithm consistently converges to feasible and efficient velocity profiles. These results indicate that within the geometrically reachable region of the network, the proposed method effectively resolves conflicts in graph-based transportation systems where spatial rerouting is limited. 
+
+E. Comparative Analysis with Baseline 
+
+We compare the proposed framework with a representative hierarchical temporal scheduling method based on a MIP– SOCP formulation [15]. The comparison focuses on the quality of the resulting motion schedules. To ensure a fair evaluation, the velocity profiles from both methods are applied to a point-mass model with a PD velocity controller (Kp = 0 .1, Kd = 10 ), and the resulting trajectories are simulated. All experiments are conducted in the bottleneck scenario ( K = 11 ) using the same parameters in Table I, with occupancy density ϕ ∈ { 1, 5, 10% }.The resulting sum of mission completion times are sum-marized in Table II. Both methods produce feasible solutions at moderate densities. However, the proposed method con-sistently yields shorter mission times in the tested cases. At 
+
+ϕ = 10% , the baseline fails to produce a feasible solution in the SOCP stage, while the proposed method remains feasible. Fig. 11 shows a representative case with ϕ = 5% . Both methods maintain safety, while the proposed approach pro-duces a more compact schedule and earlier completion. These results demonstrate that the proposed direct optimization framework achieves efficient coordination without explicit priority assignment. V. CONCLUSION This paper presented a velocity-scheduling framework for route-constrained multi-agent coordination. By parameterizing 0 5 10 15 20 25       
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> Speed [m/s]  Velocity profile Velocity
+> 0510 15 20 25
+> Time [s]
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Distance [m]
+
+(a) Baseline [15] 0.0 2.5 5.0 7.5 10.0 12.5 15.0 17.5 20.0           
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> Speed [m/s]  Velocity profile Velocity
+> 0.0 2.5 5.0 7.5 10.0 12.5 15.0 17.5 20.0
+> Time [s]
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Distance [m]
+
+(b) Proposed method 
+
+Fig. 11: Velocity tracking and pairwise distances for ϕ = 5% (dsafe = 1 .12 m). Both methods satisfy the safety constraint, while the proposed approach achieves a shorter mission duration. each agent motion with waypoint passage times, the collision-avoidance problem was cast as a nonlinear optimization problem that adjusts timing along predefined routes rather than spatially rerouting the assigned waypoint sequence. The key technical ingredient is a differentiable surrogate trajectory model that maps waypoint timings to smooth posi-tion profiles and enables distance-based safety penalties to be evaluated over the mission horizon. The resulting nonconvex problem was solved using an inexact-projection ADMM algo-rithm that combines structured timing updates with gradient-based collision-correction steps while avoiding explicit integer sequencing variables. Numerical results on random-crossing, bottleneck, and graph-based network scenarios showed that the proposed method computes feasible and time-efficient schedules across a range of congestion conditions. In the tested bottleneck cases, it also achieved shorter mission completion times than a representative hierarchical MIP– SOCP baseline. Future work will focus on strengthening the theoretical characterization of the surrogate model and temporal dis-cretization, improving robustness under higher-fidelity vehicle dynamics, and extending the framework to larger networked systems with uncertainty and online replanning. REFERENCES [1] D. Bareiss and J. Van den Berg, “Generalized reciprocal collision avoidance,” Int. J. Robot. Res. , vol. 34, no. 12, pp. 1501–1514, 2015. [2] ——, “Reciprocal collision avoidance for robots with linear dynamics using LQR-obstacles,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA) ,2013, pp. 3847–3853. [3] A. Best, S. Narang, and D. Manocha, “Real-time reciprocal collision avoidance with elliptical agents,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA) , 2016, pp. 298–305. [4] U. Borrmann, L. Wang, A. D. Ames, and M. Egerstedt, “Control barrier certificates for safe swarm behavior,” IFAC-PapersOnLine , vol. 48, no. 27, pp. 68–73, 2015. [5] A. D. Ames, X. Xu, J. W. Grizzle, and P. Tabuada, “Control barrier function based quadratic programs for safety critical systems,” IEEE Trans. Autom. Control , vol. 62, no. 8, pp. 3861–3876, 2016. [6] Z.-H. Pang, C.-B. Zheng, J. Sun, Q.-L. Han, and G.-P. Liu, “Distance-and velocity-based collision avoidance for time-varying formation control of second-order multi-agent systems,” IEEE Trans. Circuits Syst. II , vol. 68, no. 4, pp. 1253–1257, 2020. [7] T. Baca, D. Hert, G. Loianno, M. Saska, and V. Kumar, “Model predictive trajectory tracking and collision avoidance for reliable outdoor deployment of unmanned aerial vehicles,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS) , 2018, pp. 6753–6760. [8] J. Hu, H. Zhang, L. Liu, X. Zhu, C. Zhao, and Q. Pan, “Convergent multiagent formation control with collision avoidance,” IEEE Trans. Robot. , vol. 36, no. 6, pp. 1805–1818, 2020. [9] W. H ¨onig, S. Kiesel, A. Tinka, J. W. Durham, and N. Ayanian, “Conflict-based search with optimal task assignment,” in Proc. Int. Conf. Auton. Agents Multiagent Syst. (AAMAS) , 2018, pp. 757–765. [10] K. Okumura, M. Machida, X. D ´efago, and Y. Tamura, “Priority inheritance with backtracking for iterative multi-agent path finding,” 
+
+Artif. Intell. , vol. 310, p. 103752, 2022. [11] Z. A. Ali and K. Yakovlev, “Safe interval path planning with kinodynamic constraints,” in Proc. AAAI Conf. Artif. Intell. , vol. 37, no. 10, 2023, pp. 12 330–12 337. [12] Y. Huang, J. Tang, and S. Lao, “Cooperative multi-UAV collision avoidance based on a complex network,” Appl. Sci. , vol. 9, no. 19, p. 3943, 2019. [13] F. Augugliaro, A. P. Schoellig, and R. D’Andrea, “Generation of collision-free trajectories for a quadrocopter fleet: A sequential convex programming approach,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS) , 2012, pp. 1917–1922. [14] A. Kushleyev, D. Mellinger, and V. Kumar, “Towards a swarm of agile micro quadrotors,” in Proc. Robot.: Sci. Syst. (RSS) , 2012. [15] W. Wu, F. Gao, L. Wang, B. Zhou, and S. Shen, “Temporal scheduling and optimization for multi-MAV planning,” in Int. Symp. Robot. Res. (ISRR) . Springer, 2019, pp. 813–831. [16] S. Lee, G. Park, J.-J. Lee, H. Ryu, and J.-H. Kim, “Velocity profile optimization for multiple UAVs collision-free mission planning,” Int. J. Aeronaut. Space Sci. , pp. 1–12, 2025. [17] G. F. Franklin, J. D. Powell, and A. Emami-Naeini, Feedback Control of Dynamic Systems . Pearson, 2018, what’s New in Engineering. [18] S. Boyd, N. Parikh, E. Chu, B. Peleato, J. Eckstein et al. , “Distributed optimization and statistical learning via the alternating direction method of multipliers,” Found. Trends Mach. Learn. , vol. 3, no. 1, pp. 1–122, 2011. [19] Y. Wang, W. Yin, and J. Zeng, “Global convergence of ADMM in nonconvex nonsmooth optimization,” J. Sci. Comput. , vol. 78, no. 1, pp. 29–63, 2019. [20] H. Zhang and W. W. Hager, “A nonmonotone line search technique and its application to unconstrained optimization,” SIAM journal on Optimization , vol. 14, no. 4, pp. 1043–1056, 2004. [21] D.-T. Lee and B. J. Schachter, “Two algorithms for constructing a Delaunay triangulation,” Int. J. Comput. Inf. Sci. , vol. 9, no. 3, pp. 219–242, 1980.
