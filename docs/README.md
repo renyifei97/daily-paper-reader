@@ -6,79 +6,73 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-03-31
-- 运行时间：2026-03-31 20:12:35 UTC
+- 最新运行日期：2026-04-01
+- 运行时间：2026-04-01 21:34:09 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：7
+- 本次总论文数：17
+- 精读区：5
 - 速读区：12
 
 ### 今日简报（AI）
-今日深度研读 19 篇前沿成果，重点聚焦轨道交通自动驾驶的视觉认知基准 RailVQA。
-核心突破在于 RailVQA 显著提升了列车运行的可解释性，而 FISformer 则尝试用模糊推理系统重塑时序预测。
-推荐优先阅读 RailVQA 框架，了解如何将高效视觉认知应用于复杂的自动化交通场景。
-- 详情：[/202603/31/README](/202603/31/README)
+今日深度解析 17 篇前沿成果，聚焦轨道交通视觉认知基准 RailVQA 与超快速交通仿真控制。
+重点推荐 RailVQA 带来的可解释自动驾驶突破，以及基于可微 Agent 模拟实现的超快速交通实时预测技术。
+建议优先研读高分视觉认知框架，并关注时序大模型在指令驱动下的上下文处理新趋势。
+- 详情：[/202604/01/README](/202604/01/README)
 
 ### 精读区论文标签
-1. [RailVQA: A Benchmark and Framework for Efficient Interpretable Visual Cognition in Automatic Train Operation](/202603/31/2603.27112v1-railvqa-a-benchmark-and-framework-for-efficient-interpretable-visual-cognition-in-automatic-train-operation)  
+1. [RailVQA: A Benchmark and Framework for Efficient Interpretable Visual Cognition in Automatic Train Operation](/202604/01/2603.27112v1-railvqa-a-benchmark-and-framework-for-efficient-interpretable-visual-cognition-in-automatic-train-operation)  
    标签：评分：9.0/10、query:urt-c
-   evidence：全自动运行系统中的视觉认知与决策
-2. [ANCHOR: Adaptive Network based on Cascaded Harmonic Offset Routing](/202603/31/2603.21718v1-anchor-adaptive-network-based-on-cascaded-harmonic-offset-routing)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：建模复杂的非平稳信号和频域先验
-3. [CoRA: Boosting Time Series Foundation Models for Multivariate Forecasting through Correlation-aware Adapter](/202603/31/2603.21828v1-cora-boosting-time-series-foundation-models-for-multivariate-forecasting-through-correlation-aware-adapter)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：使用相关性感知适配器的多元时间序列预测
-4. [Macroscopic Characteristics of Mixed Traffic Flow with Deep Reinforcement Learning Based Automated and Human-Driven Vehicles](/202603/31/2603.25328v1-macroscopic-characteristics-of-mixed-traffic-flow-with-deep-reinforcement-learning-based-automated-and-human-driven-vehicles)  
+   evidence：全自动运行系统的视觉认知与决策
+2. [Ultra-fast Traffic Nowcasting and Control via Differentiable Agent-based Simulation](/202604/01/2603.25068v1-ultra-fast-traffic-nowcasting-and-control-via-differentiable-agent-based-simulation)  
    标签：评分：8.0/10、query:urt-c
-   evidence：深度强化学习在交通流特性中的应用
-5. [Spatiotemporal System Forecasting with Irregular Time Steps via Masked Autoencoder](/202603/31/2603.25597v1-spatiotemporal-system-forecasting-with-irregular-time-steps-via-masked-autoencoder)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：通过掩码自编码器进行时空系统预测
-6. [Spatial-Temporal Nonlocal Traffic Dynamics: Analytical Properties, Adaptive Kernel Formulation, and Empirical Validation](/202603/31/2603.25859v1-spatial-temporal-nonlocal-traffic-dynamics-analytical-properties-adaptive-kernel-formulation-and-empirical-validation)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：用于驾驶员行为的时空非局部交通流模型
-7. [LiDAR for Crowd Management: Applications, Benefits, and Future Directions](/202603/31/2603.27663v1-lidar-for-crowd-management-applications-benefits-and-future-directions)  
+   evidence：用于交通临近预报和控制的可微智能体仿真
+3. [LiDAR for Crowd Management: Applications, Benefits, and Future Directions](/202604/01/2603.27663v1-lidar-for-crowd-management-applications-benefits-and-future-directions)  
    标签：评分：8.0/10、query:urt-c
-   evidence：LiDAR在人群检测、计数和跟踪中的应用
+   evidence：LiDAR在人群检测、计数和管理中的应用
+4. [MR-ImagenTime: Multi-Resolution Time Series Generation through Dual Image Representations](/202604/01/2603.28253v1-mr-imagentime-multi-resolution-time-series-generation-through-dual-image-representations)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：多分辨率时间序列预测框架
+5. [Causality-inspired Federated Learning for Dynamic Spatio-Temporal Graphs](/202604/01/2603.29384v1-causality-inspired-federated-learning-for-dynamic-spatio-temporal-graphs)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：动态时空图上的联邦学习
 
 ### 速读区论文标签
-1. [Delineating hierarchical activity space from high-resolution urban mobility flows](/202603/31/2603.21507v1-delineating-hierarchical-activity-space-from-high-resolution-urban-mobility-flows)  
+1. [A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks](/202604/01/2603.22586v1-a-foundation-model-for-instruction-conditioned-in-context-time-series-tasks)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：城市流动性流与层级活动区域
-2. [FISformer: Replacing Self-Attention with a Fuzzy Inference System in Transformer Models for Time Series Forecasting](/202603/31/2603.21724v1-fisformer-replacing-self-attention-with-a-fuzzy-inference-system-in-transformer-models-for-time-series-forecasting)  
+   evidence：用于上下文时间序列预测任务的基础模型
+2. [WaveSFNet: A Wavelet-Based Codec and Spatial--Frequency Dual-Domain Gating Network for Spatiotemporal Prediction](/202604/01/2603.23284v1-wavesfnet-a-wavelet-based-codec-and-spatial--frequency-dual-domain-gating-network-for-spatiotemporal-prediction)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：用于时间序列预测的Transformer模型及不确定性建模
-3. [Fixed Rank co-Kriging: a model for multivariate spatial prediction](/202603/31/2603.21748v1-fixed-rank-co-kriging-a-model-for-multivariate-spatial-prediction)  
+   evidence：长程动态的时空预测学习
+3. [Stochastic nonlocal traffic flow models with Markovian noise](/202604/01/2603.23683v1-stochastic-nonlocal-traffic-flow-models-with-markovian-noise)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：多元空间预测与多分辨率潜结构
-4. [A Foundation Model for Instruction-Conditioned In-Context Time Series Tasks](/202603/31/2603.22586v1-a-foundation-model-for-instruction-conditioned-in-context-time-series-tasks)  
+   evidence：随机非局部交通流模型
+4. [Reservoir-Based Graph Convolutional Networks](/202604/01/2603.24131v1-reservoir-based-graph-convolutional-networks)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：用于上下文学习时间序列任务的基础模型
-5. [WaveSFNet: A Wavelet-Based Codec and Spatial--Frequency Dual-Domain Gating Network for Spatiotemporal Prediction](/202603/31/2603.23284v1-wavesfnet-a-wavelet-based-codec-and-spatial--frequency-dual-domain-gating-network-for-spatiotemporal-prediction)  
+   evidence：用于动态数据和长程依赖的图卷积网络
+5. [Embracing Heteroscedasticity for Probabilistic Time Series Forecasting](/202604/01/2603.24254v1-embracing-heteroscedasticity-for-probabilistic-time-series-forecasting)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：用于长程动态的时空预测学习
-6. [IPatch: A Multi-Resolution Transformer Architecture for Robust Time-Series Forecasting](/202603/31/2603.24207v1-ipatch-a-multi-resolution-transformer-architecture-for-robust-time-series-forecasting)  
+   evidence：针对非平稳动态的概率时间序列预测方法
+6. [Forecasting with Guidance: Representation-Level Supervision for Time Series Forecasting](/202604/01/2603.24262v1-forecasting-with-guidance-representation-level-supervision-for-time-series-forecasting)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：用于多变量时间序列预测的Transformer架构
-7. [Mapping Travel Experience in Public Transport: Real-Time Evidence and Spatial Analysis in Hamburg](/202603/31/2603.21763v1-mapping-travel-experience-in-public-transport-real-time-evidence-and-spatial-analysis-in-hamburg)  
-   标签：评分：6.0/10、query:urt-c
-   evidence：公共交通乘客体验的空间分析
-8. [Cluster-Specific Predictive Modeling: A Scalable Solution for Resource-Constrained Wi-Fi Controllers](/202603/31/2603.21778v1-cluster-specific-predictive-modeling-a-scalable-solution-for-resource-constrained-wi-fi-controllers)  
+   evidence：使用深度学习架构的通用时间序列预测方法
+7. [A Frequency-Domain Approach for Integrating Multiple Functional Time Series](/202604/01/2603.22719v1-a-frequency-domain-approach-for-integrating-multiple-functional-time-series)  
    标签：评分：6.0/10、query:urt-pf
-   evidence：时间序列数据聚类用于预测建模
-9. [Partial Attention in Deep Reinforcement Learning for Safe Multi-Agent Control](/202603/31/2603.21810v1-partial-attention-in-deep-reinforcement-learning-for-safe-multi-agent-control)  
+   evidence：多变量函数型时间序列分析的频域框架
+8. [Fleet-Level Battery-Health-Aware Scheduling for Autonomous Mobile Robots](/202604/01/2603.22731v1-fleet-level-battery-health-aware-scheduling-for-autonomous-mobile-robots)  
    标签：评分：6.0/10、query:urt-c
-   evidence：用于自动驾驶车辆控制的深度强化学习
-10. [Collision-Free Velocity Scheduling for Multi-Agent Systems on Predefined Routes via Inexact-Projection ADMM](/202603/31/2603.21913v1-collision-free-velocity-scheduling-for-multi-agent-systems-on-predefined-routes-via-inexact-projection-admm)  
+   evidence：移动机器人的车队级调度与任务分配
+9. [Joint Task Orchestration and Resource Optimization for SC3 Closed Loop in 6G Networks](/202604/01/2603.23217v1-joint-task-orchestration-and-resource-optimization-for-sc3-closed-loop-in-6g-networks)  
    标签：评分：6.0/10、query:urt-c
-   evidence：预定义路线上的速度调度与协同
-11. [Noise Titration: Exact Distributional Benchmarking for Probabilistic Time Series Forecasting](/202603/31/2603.22219v1-noise-titration-exact-distributional-benchmarking-for-probabilistic-time-series-forecasting)  
+   evidence：用于任务编排和资源优化的Actor-Critic强化学习框架
+10. [A Comparative Study of Machine Learning Models for Hourly Forecasting of Air Temperature and Relative Humidity](/202604/01/2603.23282v1-a-comparative-study-of-machine-learning-models-for-hourly-forecasting-of-air-temperature-and-relative-humidity)  
    标签：评分：6.0/10、query:urt-pf
-   evidence：概率时间序列预测基准测试
-12. [A Frequency-Domain Approach for Integrating Multiple Functional Time Series](/202603/31/2603.22719v1-a-frequency-domain-approach-for-integrating-multiple-functional-time-series)  
-   标签：评分：6.0/10、query:urt-pf
-   evidence：多变量函数时间序列的频域分析框架
+   evidence：可迁移的时间序列预测方法，如用于城市短期预测的LSTM和CNN-LSTM
+11. [Self-Supervised Graph Neural Networks for Optimal Substation Reconfiguration](/202604/01/2603.23401v1-self-supervised-graph-neural-networks-for-optimal-substation-reconfiguration)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：用于网络拓扑优化和缓解拥堵的图神经网络方法
+12. [EnvSocial-Diff: A Diffusion-Based Crowd Simulation Model with Environmental Conditioning and Individual-Group Interaction](/202604/01/2603.23874v1-envsocial-diff-a-diffusion-based-crowd-simulation-model-with-environmental-conditioning-and-individual-group-interaction)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：受限环境下的客流模拟与管理
 
 
 <div class="dpr-home-promo-card">
