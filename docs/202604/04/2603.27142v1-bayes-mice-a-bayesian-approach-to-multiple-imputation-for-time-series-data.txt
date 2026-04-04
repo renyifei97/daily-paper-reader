@@ -1,0 +1,935 @@
+Title: Bayes-MICE: A Bayesian Approach to Multiple Imputation for Time Series Data
+
+URL Source: https://arxiv.org/pdf/2603.27142v1
+
+Published Time: Tue, 31 Mar 2026 00:32:46 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# Bayes-MICE: A Bayesian Approach to Multiple Imputation for Time Series Data 
+
+Amuche Ibenegbu a,b , Pierre Lafaye de Micheaux a,b , Rohitash Chandra a,b 
+
+> aTransitional Artificial Intelligence Research Group School of Mathematics and Statistics UNSW Sydney Australia
+> bSchool of Mathematics and Statistics UNSW Sydney Australia
+
+Abstract 
+
+Time-series analysis is often a ff ected by missing data, a common problem across several fields, including healthcare and environ-mental monitoring. Multiple Imputation by Chained Equations (MICE) has been prominent for imputing missing values through "fully conditional specification". We extend MICE using the Bayesian framework (Bayes-MICE), utilising Bayesian inference to impute missing values via Markov Chain Monte Carlo (MCMC) sampling to account for uncertainty in MICE model parameters and imputed values. We also include temporally informed initialisation and time-lagged features in the model to respect the sequen-tial nature of time-series data. We evaluate the Bayes-MICE method using two real-world datasets (AirQuality and PhysioNet), and using both the Random Walk Metropolis (RWM) and the Metropolis-Adjusted Langevin Algorithm (MALA) samplers. Our results demonstrate that Bayes-MICE reduces imputation errors relative to the baseline methods over all variables and accounts for uncertainty in the imputation process, thereby providing a more accurate measure of imputation error. We also found that MALA converges faster than RWM, achieving comparable accuracy while providing more consistent posterior exploration. Overall, these findings suggest that the Bayes-MICE framework represents a practical and e ffi cient approach to time-series imputation, balancing increased accuracy with meaningful quantification of uncertainty in various environmental and clinical settings. 
+
+Keywords: Missing value, MCMC, Imputation techniques, Time-series analysis, MICE 
+
+1. Introduction 
+
+Missing data are prevalent in time-series datasets across many domains, from the environmental sector to clinical recordings [24, 47]. Instrument errors and power challenges can lead to incomplete time-stamped data (missing data) in air quality monitoring, hindering the accuracy of analysis and forecasting [24]. Similarly, physiological time series collected in intensive Care Units (ICUs) often contain missing observa-tions due to irregular sampling, sensor errors or clinical con-straints. If not handled appropriately, these gaps can disrupt data pipelines and significantly degrade the performance of machine learning models [25]. Missing values can arise due to various reasons (missingness pattern), which can be cate-gorised into three primary cases: Missing Completely At Ran-dom (MCAR), Missing At Random (MAR), and Missing Not At Random (MNAR) [31]. MCAR occurs when missingness is independent of both observed and unobserved values, typically due to accidental loss of information. MAR describes cases where missingness depends only on the observed data, and is independent of the missing values themselves, while MNAR refers to non-ignorable missingness that depends directly on unobserved values, often requiring explicit modelling or addi-tional collection, which is often impractical [9, 44]. The two main approaches for handling missing values in-clude either naively ignoring (deletion) or imputing (filling in) them with new values using statistical [56] and machine learn-ing models [3, 49]. The deletion is suitable only when a small proportion of the data is missing; however, for a significant amount of missing data, data imputation methods provide a more practical and e ff ective solution [13]. The imputation can be categorised into single (e.g. mean, linear interpolation, etc.) and multiple imputation approaches that explicitly account for uncertainty [13, 46, 25]. Multiple Imputation by Chained Equations (MICE) [52] has become a widely used multiple imputation method for multi-variate datasets. MICE iteratively fits a sequence of univariate conditional models, imputing each variable with missing val-ues using the remaining variables as predictors [2]. This pro-cedure accounts for imputation uncertainty by producing mul-tiple completed datasets using di ff erent random seeds [11, 24]. MICE is popular because it is flexible, easy to apply, and, un-der the MAR assumption, tends to yield parameter estimates close to unbiased. This iterative mechanism is also known as a 
+
+Fully Conditional Specification (FCS) framework [55], and the updates performed by MICE can be viewed as Gibbs-style iter-ations, in which variables are successively imputed from their estimated conditionals until convergence. Regardless of its popularity, standard MICE is not designed for time-series settings. It assumes by default that observations are interchangeable and ignores temporal ordering unless time indices or lagged variables are added as predictors [10]. When applied to time series data, this assumption can lead to unrealis-tic imputations that break inherent temporal behaviour, such as trends or seasonality. This can lead to implausible imputations that disrupt time-dependent patterns, such as trends or seasonal-ity. Although the MICE approach is inspired by Bayesian ideas, it does not represent a full Bayesian framework. During each round of the MICE imputation process, the model parameters 
+
+> arXiv:2603.27142v1 [stat.ML] 28 Mar 2026
+
+are typically treated as being fixed rather than random. This is because there is no formal Bayesian propagation of uncertainty about the model parameters at each imputation round. In addi-tion, a full joint probability density function may not exist if the conditional models used in the MICE algorithm are not mutu-ally compatible. This can lead to biased posterior draws and an underestimation of the between-imputation variance, meaning that the true uncertainty associated with the missing data will not be reflected in the analysis results [34, 11]. Recently devel-oped alternatives to the imputation framework include learning-based extensions of the MICE algorithm [35]. This work fo-cused on cross-sectional datasets and has only briefly addressed issues related to temporal dependence and uncertainty propaga-tion. An alternative approach to the use of learning-based ex-tensions of MICE is to incorporate Markov Chain Monte Carlo (MCMC) methods into the imputation process [20, 38, 42]. In addition to allowing model parameters to be updated probabilis-tically, when using MCMC in conjunction with imputation, the missing values are also updated probabilistically. These challenges highlight the need for imputation frame-works that can respect temporal structure and accurately ac-count for data uncertainty. In this study, we introduce Bayes-MICE , a time-aware Bayesian extension of MICE that inte-grates MCMC sampling within the chained equation frame-work. It features temporally informed initialisation strate-gies and time-lagged features that produce imputations drawn from richer posterior distributions, thereby improving coher-ence in multivariate time-series settings. We implemented two MCMC samplers, the Random Walk Metropolis (RWM) and the Metropolis-Adjusted Langevin Algorithm (MALA), and evaluated their performance on the AirQuality and clinical Phy-sioNet datasets. This paper is organised as follows. In Section 2, related work on data imputation for time series, MICE, and MCMC is pre-sented. Section 3 outlines the methodology, including Data de-scription, MICE, and Bayes-MICE. Sections 4 and 5 present the results and Discussion respectively, and Section 6 concludes the study. 
+
+2. Related Work 
+
+2.1. Time Series Data Imputation 
+
+Past studies have evaluated numerous approaches to handling missing data in time series, including both traditional statisti-cal methods and modern machine learning and deep learning models. Most traditional statistical methods utilise temporal in-formation to predict missing values. For instance, State-Space Models with Kalman Filter can naturally treat missing values as "latent" states. As demonstrated by Moritz et al. [33], Kalman Smoothing with Structural Time-Series Models is among the best-performing univariate imputation methods, while Velicer and Colby [56] found that maximum likelihood estimation in ARIMA models does substantially better than simply substi-tuting the mean value of the corresponding variable for the missing value. Yamoah et al. [1] compared several imputation methods on an hour-based dataset and determined that Multi-ple Linear Regression and ARIMA-Kalman Smoothing were able to produce reasonably accurate imputed values. Because they are easy to apply and relatively fast, smoothing, interpola-tion [36], and spline methods [27] are widely applied; however, they rarely capture complex temporal interactions and relation-ships between variables [7]. Therefore, we use a few of these older methods as a baseline for evaluating the univariate MICE method in this study. In recent years, Machine Learning Models have been exten-sively utilised for Data Imputation. In early studies, Batista and Monard [3] demonstrated that K-Nearest Neighbours (KNN) was able to perform better than the inherent Missing-Value Handling Mechanisms in Decision Tree-based Classifiers. En-semble Learning Methods such as missForest [49] further im-proved upon the performance of earlier models by utilising Random Forests to capture non-linear relationships between variables. More recently, data imputation has been viewed from a predictive perspective. Morvan et al. [30] demonstrated that impute-then-regress strategies can be theoretically optimal for supervised learning and proposed the NeuMiss method, which integrates imputation into the prediction pipeline. However, the authors did not focus on uncertainty propagation and temporal coherence, which are central to time-series analysis. In the last decade, Deep Learning models have made sub-stantial contributions to improving time series imputation per-formance, especially with Recurrent Neural Networks (RNNs). Che et al. [7] introduced the GRU-D model, which directly in-corporates the missingness of input data and time gaps between observations into its architecture, allowing the network to learn informative missing patterns. The BRITS model [5] extended the previous model by employing a bidirectional RNN architec-ture and treating missing values as trainable parameters, yield-ing strong performance on real datasets. Some subsequent mod-els, such as CATSI [58], employed a context-aware mechanism to learn the global temporal structure and, more importantly, to capture the temporal dependencies. Bayes-CATSI [29] extends CATSI by adding Bayesian components to enhance the robust-ness and provide uncertainty estimates, particularly for clinical data. 
+
+2.2. MICE 
+
+MICE [52, 55] is one of the most commonly used methods for handling missing data within the Fully Conditional Specifi-cation (FCS) framework. It iteratively imputes missing values for each variable using a regression model conditioned on all other variables. MICE is flexible enough to accommodate a wide range of variables and model structures, and it introduces randomness to capture the uncertainty associated with the im-putation process. Several variations of MICE have been devel-oped to improve its e ffi ciency and robustness. In this regard, Brand [4] developed a version of MICE using Gibbs sampling that includes only the most important predictors for each vari-able, resulting in simpler models and improved convergence. Khan and Hoque [28], inspired by MICE, developed a new hybrid approach, known as the Single Centre Imputation from Multiple Chained Equations (SICE), that combines single and multiple imputation to handle both numerical and categorical variables. More recently, MICE has been extended to handle 2more complex data structures. Rigon and White [37], for ex-ample, developed a multi-level MICE framework that performs well even when cluster-level predictors are omitted. Naf et al. [35] addressed the theoretical and practical issues of MICE further by evaluating what makes an e ff ective impu-tation strategy in terms of robustness under the MAR mech-anism. The authors proposed MICE Distributional Random Forest (mice-DRF) as a means to e ff ectively capture the non-linear relationship and distributional changes of covariates and demonstrated the shortcomings of using RMSE metrics as a measure of uncertainty; they then presented the m-I score as a metric that measures the e ff ectiveness of imputed values to approximate the Full Conditional Distribution. Further, Grze-siak et al. [21] conducted large-scale benchmarking and found that FCS methods, especially MICE, generally preserve data distributions much better than joint modelling and Deep Learn-ing methods. Nevertheless, most MICE variants remain deter-ministic and do not e ff ectively propagate parameter uncertainty, motivating Bayesian extensions of MICE. 
+
+2.3. MCMC sampling 
+
+MCMC sampling is a family of iterative computational meth-ods used to implement Bayesian inference and to sample from the posterior distribution of unknown model parameters or missing values in the observed data. Gibbs sampling [19, 15] is a type of MCMC sampling algorithm that generates samples iteratively from conditional distributions and can therefore be used for imputing missing values when the joint distribution of the variables is complex [53]. The Data Augmentation algo-rithm for Bayesian inference with missing data was first intro-duced by Tanner and Wong [51], and it has served as the foun-dation for all modern MCMC-based imputation techniques. Schafer [45] implemented Gibbs sampling for practical use in multivariate normal and general location models. In addition to the Gibbs Sampler, several other MCMC variants can be used to improve sampling e ffi ciency in high-dimensional or structured settings. Metropolis et al. [32] developed the Random Walk Metropolis (RWM), which generates samples by proposing new states with Gaussian noise added to the current state. This al-lows the algorithm to explore the parameter space through a random walk. Later, Hastings generalised this idea [23] and proposed the Metropolis-Hastings (MH) algorithm, which al-lows the use of a wide range of proposal distributions. For even higher e ffi ciency, gradient-based samplers like the Metropolis-Adjusted Langevin Algorithm (MALA) [41] make use of the geometric properties of the posterior surface to improve the mixing of the samples by combining the information contained in the gradients with the information contained in the noise. All these improvements can be very useful when dealing with time-series and spatial imputation, since in both contexts, the posterior surfaces are often very informative but di ffi cult to ex-plore. However, the theoretical results have provided important guidelines for tuning MCMC algorithms. The di ff usion limit theory, studied by Robert et al. [16], has also provided theo-retical results on optimal scaling; in particular, they found that the optimal acceptance rate is approximately 23% for RWM in high-dimensional cases. Subsequently, Roberts and Rosen-thal [39, 40] have extended the framework of optimal scaling to a large number of Metropolis-Hasting algorithms, includ-ing MALA. Their work has demonstrated how tuning strate-gies can be applied to di ff erent variants of algorithms and how crucial the selection of the proposal’s scale is for e ffi cient ex-ploration of the posterior space. Several empirical studies have shown that integrating MCMC-based methods into the multiple imputation workflow can make valuable contributions to real-world problems. As an example, Yozgatligil et al. [60] have shown how the Monte Carlo Markov Chain based on expec-tation–maximization (EM-MCMC) algorithm outperforms the traditional EM algorithm for the imputation of Turkish mete-orological time series data, while Sun [50] has shown that the Gibbs-based multiple imputation technique is highly e ff ective in clinical datasets with complex missingness mechanisms. 
+
+3. Methodology 
+
+We demonstrate the e ff ectiveness of our proposed framework using two distinct real-world datasets and equally present the algorithms of MICE and Bayes-MICE. 
+
+3.1. Data Description 3.1.1. Air Quality Data 
+
+The dataset consists of 9,358 hourly averaged records across 15 variables, collected between March 2004 and February 2005 using a chemical multisensor device deployed at road level in a highly polluted urban area in Italy. The device captured sig-nals from five metal oxide sensors, while ground truth con-centrations of key pollutants, Carbon Monoxide (CO), Non-Methane Hydrocarbons (NMHC), Benzene (C 6H6), Nitrogen Oxides (NO x), and Nitrogen Dioxide (NO 2) were measured us-ing a certified co-located analyser. We utilised environmen-tal variables, including temperature and humidity, from this dataset. De Vito et al. [8] used the data for urban pollution monitoring and highlighted challenges such as sensor drift and cross-sensitivities. For our study, we randomly selected eight features: Date, Time, CO (GT), PT08.S1 (CO), NMHC (GT), C 6H6 (GT), PT08.S2 (NMHC), and Temperature (T). To enable time-aware initialisation in our imputation strategy, we merged the Date and Time columns into a single timestamp variable (Date-Time). We denoted missing values as -200 and, after filtering out all rows containing them, retained 863 complete observa-tions. We then introduced 20% artificial missingness under the assumption of MCAR to evaluate imputation performance un-der controlled conditions. 
+
+3.1.2. Healthcare Data 
+
+We used set A from the 2012 PhysioNet /Computing in Cardi-ology challenge, which comprises clinical time-series data from 4,000 intensive care unit (ICU) patients [48]. Each patient’s data is stored in an individual ASCII file, which may contain up to 48 hours of irregularly sampled physiological and laboratory data. These include vital signs such as heart rate, respiratory 3rate, sodium (Na +), white blood cell count (WBC), and other important ICU monitoring parameters. We converted the raw time-series data into a tabular format to enable structured analysis and imputation. Since each row in the table represented a unique patient and each column rep-resented a time-averaged parameter, we developed a custom Python pipeline to uniformly extract both static and dynamic features from the individual files. We randomly chose eight pa-rameters for this study: Record ID, Time, Glucose, Bicarbonate (HCO3 3), Magnesium (Mg), Na +, Platelet, and WBC. Prior to developing the current dataset, many patient-time records had a large number of missing values, with some rows exceeding 60%. To filter the data and improve data quality by reducing the eff ect of extreme sparseness, we removed all rows with more than 60% missingness. After this filtering step, we obtained a refined dataset of 3,774 patient-time records, with an overall missing rate of 2.87% for the selected parameters. We first removed all naturally occurring missing values (2.87%), to assess how well our imputation methods would per-form under data collection conditions similar to those found in real-world clinical applications. After removing all naturally occurring missing values, we were left with a completely ob-served subset of the data. We then added a structured pattern of missing data to the completely observed data, using a Missing-nessPattern class. More specifically, we added a MAR pattern by masking approximately 70% of the variables (i.e., 4 out of 6 physiological variables), leaving the remaining 30% unmasked (fully observed). We implemented the MAR process using a logistic regression-based masking approach, in which linear combinations of observed variables determine the probability of missingness for each variable. We assigned each masked variable a 40% probability of missingness, yielding an overall induced missingness rate of approximately 26.7%. While the induced missingness rate is significantly higher than the natural missingness rate of 2.87%, it was deliberately chosen to test the imputation frameworks’ ability under more di ffi cult, heterogeneous missingness conditions. In clinical ap-plications, missing data are often unevenly distributed and can be particularly pronounced in specific patient populations or measurement contexts (e.g., unstable patients or infrequently measured biomarkers). By inducing a structured yet high level of missingness in the data, we evaluate the robustness, reliabil-ity, and generality of the imputation models and demonstrate that they can function appropriately across a wide variety of imperfect real-world clinical settings. 
+
+3.2. Models 3.2.1. Time-Lagged MICE for Univariate Time Series 
+
+Multiple Imputation [43] provides a framework for handling missing values by accounting for uncertainty across multiple complete datasets. Each missing entry is replaced with m plau-sible values generated by an imputation model, and the final inference combines results across these datasets using Rubin’s rule. MICE is a widely used approach that implements multi-ple imputation by iteratively drawing missing values from con-ditional models using an FCS approach [55]. This approach imputes each variable sequentially (one at a time) using its con-ditional distribution, also referred to as regression switching or variable-by-variable imputation [54]. Let X = (X1, X2, . . . , Xp)⊤ be a vector of p > 1 random vari-ables measured on n individuals. The resulting dataset is stored in a rectangular table X = (xt, j) = [x1 · · · xp] of size n × p. For a given variable X j that contains missing values, we treat X j as a response variable and X− j the collection of all remaining vari-ables, which serves as predictors in the conditional imputation model. To retain the FCS structure of MICE, temporal depen-dence is introduced by augmenting the predictor set ( X− j) with lagged versions of the same variable. Each random variable X j
+
+( j = 1, . . . , p) may be partially observed, so that the vector of its n values in the j-th column of X, i.e., x j = (x1 j, . . . , xn, j)⊤,contains elements (indexed by Iobs  
+
+> j
+
+) with a value that has actu-ally been observed, while the other elements (indexed by Imiss  
+
+> j
+
+)correspond to missing values, encoded as NA (Not Available). Therefore, we have {1, . . . , n} = Iobs  
+
+> j
+
+∪ Imiss  
+
+> j
+
+with Iobs  
+
+> j
+
+∩ Imiss  
+
+> j
+
+= ∅.We also define Jmiss ⊂ { 1, . . . , p} as the set of all columns in X0
+
+that contain at least one missing value, where X0 is incomplete original dataset with time-indexed In the time-series setting, we observe each variable X j se-quentially to account for temporal dependence within the FCS framework. We then construct the set of predictors for imputing 
+
+X j from lagged observations of the same variable. Specifically, at time index t, we define a temporal predictor vector of ℓp + ℓ f
+
+added variables 
+
+X(t)   
+
+> −j
+
+=  X j,t−ℓp , . . . , X j,t−1, X j,t+1, . . . , X j,t+ℓ f
+
+,
+
+where ℓp and ℓ f denote the numbers of past and future lags, respectively, and only available observations are used. This is allowed because the objective is imputation rather than fore-casting (prediction)[53], and conditioning on both past and fu-ture observations makes sense here. Thereafter, f j denotes a regression model (e.g., linear regres-sion for quantitative responses, or logistic regression for binary responses). Conditioning on the lagged predictors, f j defines the conditional mean 
+
+E(X j | X(t)  
+
+> −j
+
+) = f j(X(t)  
+
+> −j
+
+),
+
+which partially specifies the full conditional distribution 
+
+PX j | X(t)   
+
+> −j
+
+= x(t)  
+
+> −j
+
+ .
+
+We denote the estimators of both quantities by bf j and bP j(x(t)  
+
+> −j
+
+), the latter corresponds to either an empirical or a model-based conditional distribution. In the univariate time-series setting, we consider the special case p = 1, where observations correspond to a single variable indexed over time. To make it a MICE case, we time-lagged the variable ( p = 1) as presented in Figure 1. Assuming that the data are MAR, we present the time-lagged FCS procedure in Algorithm 1. 4Figure 1: Time-lagged imputation mechanism in univariate MICE, where a missing value at time index t is imputed by conditioning on observed neigh-bouring values from past and future lags. 
+
+Algorithm 1 Time-Lagged MICE for Univariate Time Series  
+
+> 1:
+
+Input: Incomplete original dataset X0 with time-indexed variables p , lag orders ( ℓp, ℓ f ), from which we derive the index sets Jmiss and, for each j ∈ Jmiss , the subsets Iobs  
+
+> j
+
+and 
+
+Imiss  
+
+> j
+
+. Number of iterations K. 
+
+> 2:
+
+Step 1: Create a copy of X0, denoted by X, which will serve as a placeholder matrix to store the intermediate and final imputed values. Initialise X by imputing its missing entries with crude estimates (e.g., the column mean or me-dian) to obtain a complete dataset.  
+
+> 3:
+
+Step 2: Iteratively update the missing entries of X as fol-lows:  
+
+> 4:
+
+for k = 1 to K do  
+
+> 5:
+
+for each j ∈ Jmiss do  
+
+> 6:
+
+• At time index t, construct lagged predictors X(t)  
+
+> −j
+> 7:
+
+from X, excluding the current time point.  
+
+> 8:
+
+• Fit a regression model f j relating X j to X(t)  
+
+> −j
+
+using  
+
+> 9:
+
+only the observations in rows Iobs  
+
+> j
+
+of X. 
+
+> 10:
+
+• For each t ∈ Imiss  
+
+> j
+
+, draw a predicted value bxt, j from  
+
+> 11:
+
+the predictive distribution bP j(x(t)  
+
+> −j
+
+), where x(t)   
+
+> −j
+
+is  
+
+> 12:
+
+taken from X, and impute it in place at the position  
+
+> 13:
+
+(t, j) of X. 
+
+> 14:
+
+end for  
+
+> 15:
+
+end for  
+
+> 16:
+
+Store X. 
+
+> 17:
+
+Step 3: Repeat Step 2 m times with di ff erent random seeds (and starting each time with the complete dataset from 
+
+Step 1 ) to generate m imputed datasets X1, . . . , Xm. 
+
+> 18:
+
+Output: The m completed datasets. We describe the main steps of Algorithm 1 in detail to clarify its implementation. 
+
+Step 1 (Initialisation). In the univariate time-series setting, we initially impute all missing entries in X0 with simple determin-istic values (e.g., column means) to obtain a complete dataset X.This step does not produce accurate imputations but rather pro-vides a coherent starting point for constructing lagged predic-tors. In particular, initialising the series ensures that past and future lag values required by the time-lagged conditional mod-els are available at the beginning of the iterative procedure. 
+
+Step 2 (Iterative imputation). For each iteration k = 1, . . . , K,we consider the time series variable X j (with p = 1) as the response variable at time index t where observations are miss-ing. Instead of conditioning on other variables, as in classical multivariate MICE, we create the predictor set (model input) from lagged observations of the same series. Specifically, for each missing time point t ∈ Imiss  
+
+> j
+
+, we then train a regression model f j using the observed time points {(xt, j, x(t)  
+
+> −j
+
+) : t ∈ Iobs  
+
+> j
+
+}
+
+with predictors given by the available past and future lags 
+
+X(t)   
+
+> −j
+
+=  X j,t−ℓp , . . . , X j,t−1, X j,t+1, . . . , X j,t+ℓ f
+
+
+
+This model defines the estimated conditional mean bf j(x(t)  
+
+> −j
+
+) =
+
+E(X j | X(t)   
+
+> −j
+
+= x(t)  
+
+> −j
+
+), and the associated estimated conditional distribution bP(X j | X(t)   
+
+> −j
+
+= x(t)  
+
+> −j
+
+), which may be parametric or empirical. For each i ∈ Imiss  
+
+> j
+
+, a random draw 
+
+bxt, j ∼ bP X j | X(t)   
+
+> −j
+
+= x(t)  
+
+> −j
+
+)is taken, where x(t)   
+
+> −j
+
+is extracted from X. This value bxt, j is in-serted (in-place) into X. The algorithm propagates information through time via lagged dependencies by iteratively updating the series in this manner. Although no explicit joint distribu-tion is specified, the repeated conditional sampling across itera-tions yields behaviour similar to a Gibbs sampler on temporally structured conditionals. 
+
+Step 3 (Multiple imputations). Step 2 is repeated m times with di ff erent random seeds to generate m completed datasets, each representing a possible realisation of the missing values under the MAR assumption. 
+
+3.2.2. Bayes-MICE 
+
+We introduce Bayesian MICE (Bayes-MICE), a Bayesian ex-tension of the classical MICE framework for multivariate time series data using MCMC sampling. Bayes-MICE retains the FCS structure of MICE, but replaces deterministic regression updates with Bayesian regression models whose parameters and imputations are jointly sampled using MCMC. This formula-tion enables uncertainties to be propagated through both model parameters and imputed values, yielding probabilistically co-herent imputations. Let X = (X1, X2, . . . , Xp) denote a vector of p > 1 vari-ables observed sequentially over time, measured on n individ-uals, with the data stored in a rectangular matrix X = (xt, j) =
+
+[x1 · · · xp] ∈ R n×p, where t = 1, . . . , n indexes time. Each variable X j may be partially observed, with observed and miss-ing index sets denoted by Iobs  
+
+> j
+
+and Imiss  
+
+> j
+
+respectively. The set of variables containing at least one missing value is denoted by Jmiss ⊂ { 1, . . . , p}. As in classical MICE, Bayes-MICE it-eratively imputes each variable X j conditional on the others. However, to account for temporal dependence, we augment the conditional models with lagged information (past and future or just past) and time features. 5At time index t, the predictor vector for imputing X j is de-fined as 
+
+Z− j,t =  X− j,t, ht, X j,t±1: t±ℓ
+
+
+
+Z− j,t = X− j,t, ht, X j,t−1, . . . , X j,t−ℓ, X j,t+1, . . . , X j,t+ℓ
+
+,
+
+where X− j,t denotes the contemporaneous values of all pre-dictors at a time t, except X j, ht represents time-derived covari-ates (e.g., hour-of-day, and day-of-week), ℓ is the maximum lag order. Since it is an imputation and not forecasting [52], we used bidirectional lag for X j instead of strictly forward-looking, with a maximum lag of 2. For each variable X j, we specify a Bayesian regression model 
+
+P(X j,t | Z− j,t) = f j(Z⊤− j,tθ j) + ε j,t, ε j,t ∼ N (0 , τ 2 
+
+> j
+
+) (3.1) where θ j denotes the regression coe ffi cients (including the in-tercept), and τ2 
+
+> j
+
+is the residual variance. The likelihood for the observed entries is given by 
+
+P(Xobs  
+
+> j
+
+| Z− j, θ j, τ 2 
+
+> j
+
+) = 1(2 πτ 2 
+
+> j
+
+) n j
+
+> 2
+
+exp 
+
+− 12τ2
+
+> j
+
+X
+
+> t∈Iobs
+> j
+
+ x j,t − Z⊤− j,tθ j
+
+2
+
+ .
+
+(3.2) These regression parameters are treated as random variables, allowing us to capture estimation uncertainty. We assumed a multivariate Gaussian prior for θ j and a non-negative prior for 
+
+τ2, which is why we assume an inverse-Gamma distribution as done in earlier studies [6]. Therefore, we use weakly informa-tive priors to guide this process without being overly restrictive: 
+
+θ j ∼ N (0 , σ 2 I), τ2 
+
+> j
+
+∼ IG (v1, v2)These priors ensure that the data can strongly influence the posterior while preventing extreme or implausible values. In Bayesian theory, the posteriors are sampled from the combina-tion of the likelihood and the prior and inference is performed in log-posterior space. For each variable X j, we obtain the pos-terior distribution of the regression coe ffi cients θ j and variance parameter τ2 by combining the Gaussian log-likelihood of the observed data with the log-prior distributions. The resulting log-posterior is given as log P(θ j, τ 2 
+
+> j
+
+| Xobs  
+
+> j
+
+, Z− j) = log P(Xobs  
+
+> j
+
+| θ j, τ 2 
+
+> j
+
+, Z− j)
+
++ log P(θ j) + log P(τ2 
+
+> j
+
+) (3.3) which is equivalent to log pXobs  
+
+> j
+
+| θ j, τ 2 
+
+> j
+
+, Z− j
+
+ =
+
+X
+
+> t∈Iobs
+> j
+
+log pX j,t | θ j, τ 2 
+
+> j
+
+, Z− j,t
+
+ (3.4) We obtain the posterior samples of the parameters θ(s)  
+
+> j
+
+and 
+
+τ2(s)  
+
+> j
+
+at iteration s using two MCMC samplers, including Ran-dom Walk Metropolis (RWM) and the Metropolis-Adjusted Langevin Algorithm (MALA). Given parameter draws at itera-tion s, missing values are imputed from the posterior predictive distribution: ˜x(s) 
+
+> j,t
+
+∼ f j
+
+Z(s) 
+
+> −j,t
+
+, θ (s)
+
+> j
+
+ , t ∈ Imiss 
+
+> j
+
+which equivalently corresponds to: 
+
+Xmis  
+
+> j,t
+
+∼ N Z⊤− j,tθ(s) 
+
+> j
+
+, τ 2( s)
+
+> j
+
+ , t ∈ Imiss  
+
+> j
+
+.
+
+This formulation ensures that both parameter and predictive uncertainty are coherently incorporated into the imputation pro-cess, resulting in more robust and probabilistically valid impu-tations. Before the MCMC sampling process, we initialise the miss-ing values just as in standard MICE, either using mean-based initialisation, or time-aware initialisation exploiting trend and seasonality (e.g., STL decomposition) for more informed start-ing values. Finally, we apply optimal scaling principles to fine-tune the proposal distributions for both RWM and MALA. For the RWM sampler, we follow the guidelines from the literature [17, 40, 22], and adapt the proposal covariance matrix based on the dimensionality of the parameter vector. Given that suf-ficient data are available (i.e., greater than d + 5 observations), we use the empirical covariance structure of the predictors: 
+
+Σproposal = 2.38 2
+
+d · Σempirical + ϵId (3.5) We fall back to a scaled identity matrix(i.e., fewer than d + 5) when the data is limited: 
+
+Σproposal = 2.38 2
+
+d · Id (3.6) 
+
+Σempirical is the empirical covariance of the design matrix con-structed from predictors X− j, including a bias term. ϵ > 0 is a small regularisation constant (e.g., ϵ = 10 −6) to ensure positive-definiteness. d is the dimensionality of the regression model (including bias). Id is the identity matrix in Rd∗d.For the MALA sampler, we adopt the optimal-scaling rule by Roberts and Rosenthal [39], which shows that step size should scale with the parameter dimension as: 
+
+ϵMALA = 1.65 2
+
+d1/3 (3.7) which corresponds to an isotropic proposal covariance 
+
+Σproposal = ϵ2MALA · Id (3.8) 
+
+ϵMALA is the step size and d remains the parameter vector. The noise variance parameter τ2 is sampled via Gibbs updates. This approach aligns with the adaptive Metropolis method of Haario et al. [22], which adapts proposals based on the em-pirical data structure. This ensures that our MCMC samplers explore the parameter space e ffi ciently and maintain good mix-ing properties, typically aiming for acceptance rates of around 23.4% for RWM and 57.4% for MALA. We provide details of this procedure in Algorithm 2. 6Algorithm 2 Bayes-MICE for Multivariate Time Series with MCMC sampling.  
+
+> 1:
+
+Input: Incomplete time-series dataset X0 ∈ Rn×p; lag or-ders ( ℓp, ℓ f ); number of MICE iterations K; number of im-putations m. Derive index sets Jmiss and {Iobs  
+
+> j
+
+, Imiss  
+
+> j
+
+} j∈Jmiss . 
+
+> 2:
+
+Step 1: Create a copy of X0, denoted by X, which will serve as a placeholder matrix to store the intermediate and final imputed values. Initialise X by imputing its missing entries with crude estimates (mean or time-aware values).  
+
+> 3:
+
+Step 2: Iteratively update the missing entries of X as fol-lows:  
+
+> 4:
+
+for iteration k = 1 to K do  
+
+> 5:
+
+for each j ∈ Jmiss do  
+
+> 6:
+
+Step 2.1 (Design matrix construction):  
+
+> 7:
+
+• For each time index t, construct the predictor  
+
+> 8:
+
+vector  
+
+> 9:
+
+Z− j,t =  X− j,t, ht, X j,t−1, . . . , X j,t−ℓ, X j,t+1, . . . , X j,t+ℓ
+
+, 
+
+> 10:
+
+using only available values from the current X 
+
+> 11:
+
+Step 2.2 (Bayesian regression):  
+
+> 12:
+
+• Fit the Bayesian regression model 
+
+> 13:
+
+X j,t = f j(Z⊤− j,tθ j) + ε j,t, ε j,t ∼ N (0 , τ 2 
+
+> j
+
+) 
+
+> 14:
+
+using observations t ∈ Iobs  
+
+> j
+
+of X. 
+
+> 15:
+
+Step 2.3 (Posterior sampling):  
+
+> 16:
+
+• Sample ( θ j, τ 2 
+
+> j
+
+) from the posterior 
+
+p(θ j, τ 2 
+
+> j
+
+| Xobs  
+
+> j
+
+, Z− j) 
+
+> 17:
+
+using an MCMC sampler (RWM or MALA), with  
+
+> 18:
+
+adaptive proposal scaling.  
+
+> 19:
+
+Step 2.4 (Imputation):  
+
+> 20:
+
+• For each t ∈ Imiss  
+
+> j
+
+, draw a predicted value bx j,t from  
+
+> 21:
+
+the predictive distribution bP j(z− j,t), where z− j,t is  
+
+> 22:
+
+taken from X, and impute it in place at position ( t, j) 
+
+> 23:
+
+of X using 
+
+Xmis  
+
+> j,t
+
+∼ N Z⊤− j,tθ j, τ 2
+
+> j
+
+ , 
+
+> 24:
+
+end for  
+
+> 25:
+
+end for  
+
+> 26:
+
+Store X 
+
+> 27:
+
+Step 3 (Multiple imputations):  
+
+> 28:
+
+Repeat Step 1–2 with di ff erent random seeds to obtain m
+
+completed datasets X1, . . . , Xm. 
+
+> 29:
+
+Output: Multiple imputed datasets for downstream analy-sis and pooling. Our Bayes-MICE framework, as shown in Figure 2 is accom-panied by details given in Algorithm 2. The process begins with an incomplete time-series dataset X, in which missing observa-tions are indicated by red crosses in Figure 2. 
+
+Step 1 (Initialisation). A placeholder initialisation (time-aware or mean-based) temporarily fills in missing entries, providing a starting point for the iterative imputation. If the initialisation is time-aware, a preliminary time-series pattern-detection step captures temporal dependencies and autocorrelation structures to ensure that imputations preserve realistic dynamics. 
+
+Step 2 (Iterative imputation). At each of the K MICE itera-tions ( k = 1, ..., K), a target variable X j,t with missing values is selected. Its predictors consist of past and future lagged values of X j,t and contemporaneous variables X− j,t at current time t formed as Z− j,t, thereby accounting for temporal struc-ture. A Bayesian model is then defined for X j,t, specifying its conditional distribution given the predictors Z− j,t. This formulation naturally incorporates prior uncertainty and sup-ports probabilistic updating during imputation. We sample (es-timate) Bayes-MICE model parameters θ j via MCMC using either a Random Walk Metropolis (RWM) or a Metropolis-Adjusted Langevin Algorithm (MALA) scheme. Proposal scales are adaptively tuned, and acceptance is governed by the Metropolis-Hastings criterion, ensuring convergence to the pos-terior distribution. Once parameters are updated, the missing entries Xmis j,t are sampled from the posterior predictive distri-bution, Xmis j,t ∼ N(ZT 
+
+> −j,t
+
+, θ j, τ 2 
+
+> j
+
+). This guarantees that the impu-tations remain consistent with both the observed data and the estimated model parameters. 
+
+Step 3 (Multiple imputation). After completing all K iterations and generating S posterior draws, step 2 is repeated m times with di ff erent random seeds to generate m completed datasets. These are then pooled to produce the final imputed values suit-able for downstream statistical analysis, modelling, and infer-ence. 
+
+3.3. Evaluation 
+
+We assessed the imputation performance using two widely adopted error metrics: Normalised Root Mean Square (NRMSE) and Normalised Mean Absolute Error (NMAE). These metrics provide complementary insights into the accu-racy and consistency of the imputation, measuring both abso-lute and relative deviations from the true values. Let actual i
+
+be the true (ground-truth) value of the i-th item, pred i the cor-responding imputed (predicted) value, and N the total number of imputed values. Then, NRMSE and NMAE are defined as follows: 
+
+NRMS E =
+
+q 1
+
+> N
+
+PNi=1(pred i − actual i)2
+
+σactual 
+
+(3.9) NMAE =
+
+> 1
+> N
+
+PNi=1 pred i − actual i
+
+max(actual i) − min(actual i) (3.10) 7Figure 2: The proposed Bayes-MICE imputation framework. The framework consists of temporal pattern detection, placeholder initialisation, MICE loop with lagged predictors and Bayesian modelling, while MCMC (RWM or MALA) provides posterior sampling and parameter updates. The final imputation is generated via posterior predictive draws. 
+
+3.4. Experimental Settings and MCMC Convergence Diagnos-tic 
+
+This section focuses on experimental settings and MCMC convergence diagnostic criteria. We ran two independent chains per model (30,000 iterations each) and discarded the first 20% as burn-in. We deliberately initialised the chains with over-dispersed starting values. For the parameter vector θ, we used proposal distribution with adaptive step sizes targeting accep-tance rates of 0.20-0.30 (RWM) and 0.55-0.65 (MALA). We updated the residual variance τ2 via a Gibbs step in MALA and a Gaussian noise in RWM. We review the convergence visually (trace plots, autocorrelation functions, and running means) and with Arviz summaries: Gelman-Rubin ˆ R, e ff ective sample size (ESS; bulk), and standard deviation (SD). We declared conver-gence when ˆ R < 1.05, ES S bulk > 400 for key parameters, and 
+
+S D < 5% of the posterior Standard deviation, consistent with common guidance from literature [18]. 
+
+4. Experimental Analysis and Results 
+
+We present the experimental evaluation and results, organ-ised as follows: 
+
+• We first compare the performance of univariate time-lagged MICE with established time-series baseline meth-ods on a representative variable (WBC) from PhysioNet dataset. 
+
+• We then analyse the convergence behaviour of the two MCMC samplers to verify adequate posterior exploration and the reliability of the inferred results. 
+
+• Finally, we compare the proposed Bayes-MICE against MICE and BRITS across both datasets. 
+
+4.1. Performance metrics of Univariate Time-Lagged MICE 
+
+We evaluated a univariate time-lagged MICE framework that conditions each missing observation on its immediate temporal neighbours ( ℓ = 1). The approach is compared against standard time-series imputation methods, including linear interpolation, 
+
+K-Nearest Neighbours (KNN), mean and median imputation, seasonal decomposition, and Last Observation Carried Forward (LOCF). Table 1 summarises the imputation performance for the WBC feature of the dataset using the univariate time-lagged MICE model conditioned on immediate temporal neighbour-hood ( ℓ = 1) alongside several classical time-series baseline methods. We observe that the univariate time-lagged MICE achieves the lowest error across all error metrics. In partic-ular, it produced the smallest (best) RMSE (7.85) and MAE (5.07), while the normalised errors further support this obser-vation with NRMSE (0.9296) and NMAE (0.6005), suggesting reliable performance relative to the data’s variability. We fur-ther noticed that linear interpolation performed reasonably well compared to other baseline methods, while median yields the second-best result in terms of NMAE (0.6090). The poorest 8Table 1                                   
+
+> Imputation performance comparison of univariate time-lagged MICE (lag =
+> 1) with established time series baseline methods on a representative variable (WBC) from the PhysioNet dataset. We report RMSE, MAE, NMAE, and NRMSE, Boldface highlights the best value among the methods.
+> Method RMSE MAE NMAE NRMSE
+> MICE (Time-Lagged) 7.8500 5.0708 0.6005 0.9296
+> Linear Interpolation 8.0579 5.2240 0.6186 0.9542 KNN ( k=5) 8.4580 5.3885 0.6381 1.0016 Mean Imputation 8.4580 5.3885 0.6381 1.0016 Median Imputation 8.5415 5.1430 0.6090 1.0115 Seasonal Decomposition 8.7597 5.2980 0.6274 1.0373 LOCF 10.6377 6.3747 0.7549 1.2597
+
+performance is observed for LOCF, which yields substantially larger errors across all metrics. 
+
+4.2. MCMC Convergence Results 
+
+We assess MCMC convergence using two independent chains per model, and the results are presented as follows. Figure 3 presents convergence diagnostics for the variance parameter τ2 obtained from two independent chains for each MCMC sampler: RWM (panels a-b) and MALA (panels c-d). From these, it was evident that both sets of chains show sta-ble trace behaviour post-burn-in and produce highly overlap-ping marginal posterior densities, thus demonstrating conver-gence to a common unimodal posterior distribution. Further, the posterior mass appears to be highly concentrated in a rela-tively narrow range, with both samplers producing very simi-lar central tendency values; thus, both appear to be recovering consistent estimates of uncertainty for τ2. We notice, however, that the major di ff erence lies in the mixing characteristics of the two samplers. It appears that the RWM samplers exhibit strong serial correlation (i.e., slowly decaying autocorrelation functions that remain significant at approximately 15-25 lags), resulting in smaller e ff ective sample sizes than those of MALA samplers. By comparison, we observe that the MALA sampler exhibits excellent mixing, as indicated by its rapid decline in the autocorrelation function to nearly zero within a few lags. This resulted in "hairier" trace plots (as opposed to those of RWM) and indicates an improvement in the overall sampling effi ciency of MALA over RWM while maintaining equivalent posterior inference for τ2.We notice that in addition to the similar results from the vi-sual evidence (see Figure 3), the convergence diagnostics sum-marise in Table 2 also show that both RWM and MALA sam-plers have nearly identical posterior means and uncertainty in-tervals for all of the reported parameters, which indicates that they converge to the same stable posterior distribution. How-ever, we find that the MALA sampler was significantly more effi cient than the RWM sampler, as evidenced by the fact that MALA achieves a substantially higher ESS bulk (values greater than 5,000 for almost every parameter; values greater than 46,000 for the variance parameter ( τ2)). The high ESS val-ues reflect low autocorrelation and e ffi cient exploration of the posterior space. In contrast, the RWM sampler produces lower ESS values (typically less than 1,000) for almost all parame-ters, indicating stronger serial dependence and slower mixing. It is clear that this is true, especially when examining the re-gression coe ffi cients, as the MALA sampler produces an order-of-magnitude increase in e ff ective samples than the RWM. Fur-thermore, regardless of the e ffi ciency di ff erences observed be-tween the two samplers, all ˆ R statistics were equal to 1.00 for both samplers, thereby demonstrating good convergence across all chains. Thus, the table clearly illustrates that while the two samplers produce the same posterior structure, the MALA sam-pler is substantially more e ffi cient and therefore able to produce more independent information per iteration, thereby converging faster given the same computational budget. 
+
+4.3. Performance metrics of the models 
+
+We compared the performance of the proposed Bayes-MICE with the standard MICE and BRITS baseline models, and present the results below Table 3 presents the imputation performance of MICE, BRITS, and the proposed Bayes-MICE across six AirQual-ity variables under both RWM and MALA samplers. The results indicate that Bayes-MICE provide the smallest values for both NMAE and NRMSE across all variables compared to the other two methods. This shows that Bayes-MICE sub-stantially outperforms both MICE and BRITS across all vari-ables. Specifically, there was a substantial reduction in both absolute and squared errors, which indicates greater accuracy and better control over large deviations during the imputation process. We further note that the improvements from Bayes-MICE were consistent across RWM and MALA samplers, with only marginal di ff erences between them. The consistency of the improvement across both samplers indicates that the pri-mary source of benefit lies in the Bayesian modelling frame-work used and the uncertainty-aware imputation strategy em-ployed in Bayes-MICE, rather than the sampler. Conversely, the classical MICE produce the largest NMAE and NRMSE across all variables evaluated. Although BRITS exhibited sig-nificant improvements relative to the classical version of MICE, it remains inferior to the Bayes-MICE. Finally, we also observe that Bayes-MICE exhibit significantly lower standard devia-tions across the 30 experimental runs, demonstrating improved stability and robustness of this algorithm. Table 4 summarises the imputation performance on the Phys-ioNet dataset under two MCMC samplers, comparing determin-istic baselines (MICE and BRITS) with the proposed Bayes-MICE model. We report the mean and standard deviation of NMAE and NRMSE across 30 experimental runs. Compared with the deterministic methods (MICE and BRITS), we ob-serve that Bayes-MICE performs best across most of the clin-ical variables, regardless of the sampling scheme. While we see that MICE results in the largest errors across all clinical variables, this clearly illustrates that MICE has limitations in capturing temporal information and propagating its uncertainty within clinical time series data. In contrast, we find that BRITS significantly improves upon MICE across all clinical variables; therefore, highlighting the benefit of recurrent modelling for 9(a) Chain 1 — RWM MCMC (b) Chain 2 — RWM MCMC        
+
+> (c) Chain 1 — MALA MCMC (d) Chain 2 — MALA MCMC
+> Figure 3: Convergence diagnostics for τ2(trace, marginal density, and ACF) across two chains and two samplers for one of the variables (HC0 3) from the physionet dataset.
+> Table 2
+> Convergence summaries for the bicarbonate (HCO 3) variable from the PhysioNet dataset using Bayes-MICE. Results are shown for two MCMC samplers: MALA (left) and RWM (right). The table reports posterior means, standard deviations (SD), 94% highest density intervals (HDIs), e ff ective sample sizes (ESS), and ˆ R
+> statistics.
+> (a) MALA–MCMC
+
+Param Mean SD HDI 3% HDI 97% ESS ˆRb 0.000 0.017 −0.032 0.032 10 609 1.00 
+
+τ 0.563 0.018 0.530 0.597 46 291 1.00 RMSE 0.75 0.001 0.748 0.752 8311 1.00 
+
+w1 0.024 0.017 −0.007 0.056 9622 1.00 
+
+w2 0.073 0.018 0.039 0.106 7709 1.00 
+
+w3 0.082 0.018 0.047 0.117 6663 1.00 
+
+w4 −0.094 0.018 −0.128 −0.058 6812 1.00 
+
+w5 0.049 0.017 0.017 0.081 9647 1.00 
+
+w6 0.004 0.017 −0.027 0.035 10 891 1.00  
+
+> (b) RWM–MCMC
+
+Param Mean SD HDI 3% HDI 97% ESS ˆRb 0.000 0.017 −0.030 0.033 1070 1.00 
+
+τ 0.564 0.018 0.531 0.598 2539 1.00 RMSE 0.751 0.001 0.749 0.753 870 1.00 
+
+w1 0.025 0.017 −0.006 0.056 956 1.00 
+
+w2 0.071 0.018 0.040 0.106 754 1.00 
+
+w3 0.008 0.019 0.044 0.116 601 1.00 
+
+w4 ‘−0.093 0.019 −0.128 −0.057 631 1.00 
+
+w5 0.051 0.018 0.018 0.083 900 1.00 
+
+w6 0.004 0.018 −0.029 0.037 1070 1.00 
+
+time-dependent physiological signals. Moreover, we find that Bayes-MICE yields the smallest NMAE and NRMSE for HCO 3
+
+and Na, and competitive NRMSE for platelet and WBC. Con-versely, for platelets and WBC, BRITS attains the smallest NMAE, and Bayes-MICE achieves the lowest NRMSE, indi-cating better overall imputation error control. Finally, regard-ing the samplers, we note that MALA produces nearly identical posterior estimates to RWM as in the AirQuality dataset; how-ever, we do observe a slight di ff erence between the samplers. This behaviour is consistent with the convergence diagnostic and indicates that both samplers recovered a very similar pos-terior structure. Figure 4 compares prediction accuracy across imputation methods for two representative Variables: CO(GT) from the AirQuality dataset (plot a) and HCO 3 from the PhysioNet dataset (plot b). Each figure presents four complementary views: predicted versus true values, residuals against true val-ues, sorted true values with corresponding model predictions, and box plots of absolute errors. For the AirQuality CO(GT) variable, we notice that the Bayes-MICE predictions closely followed the reference line, indicating strong agreement with the true values across the full range of the data. On the other hand, the Standard MICE and BRITS methods show much greater dispersion, especially at higher concentrations. The residual plots also indicated that the Bayes-MICE predictions were much more tightly centred around zero, whereas the de-terministic baseline models show much greater variance. Addi-tionally, this behaviour could further be seen in the sorted-value plots. The Bayes-MICE predictions track the true signal much more consistently, while MICE and BRITS show noticeable de-viations from the true signal in several regions. The box plots of the absolute error support this conclusion, showing that Bayes-MICE yields a lower median absolute error and less variability compared to the baselines. For the PhysioNet HCO 3 variable, we observe a similar type of behaviour, but with a much larger dynamic range because of the greater overall variability of the data. Standard MICE shows an increasing bias as the true values increase, whereas 10 Table 3 
+
+> Imputation performance of MICE, BRITS and Bayes-MICE under two MCMC samplers (RWM /MALA). Metrics are NMAE and NRMSE (mean, standard devia-tion) across 30 experimental runs for six AirQuality variables. Boldface highlights the best value per row.
+
+RWM MALA Variable Method NMAE NRMSE NMAE NRMSE 
+
+CO(GT) MICE 0.2622 (0.0071) 0.3376 (0.0083) 0.2622 (0.0071) 0.3376 (0.0083) BRITS 0.2646 (0.0473) 0.3870 (0.0653) 0.2646 (0.0473) 0.3870 (0.0653) Bayes-MICE 0.1379 (0.0010) 0.1855 ( 0.0013) 0.1377 (0.0009) 0.1855 (0.0013) 
+
+PT08.S1(CO) MICE 0.3811 (0.0097) 0.4881 (0.0125) 0.3811 (0.0097) 0.4881 (0.0125) BRITS 0.3418 (0.0240) 0.6153 (0.0252) 0.3418 (0.0240) 0.6153 (0.0252) Bayes-MICE 0.1847 (0.0015) 0.2717 (0.0021) 0.1846 (0.0012) 0.2715 (0.0020) 
+
+NMHC(GT) MICE 0.4778 (0.0131) 0.6220 (0.0157) 0.4778 (0.0131) 0.6220 (0.0157) BRITS 0.3377 (0.0194) 0.5586 (0.0353) 0.3377 (0.0194) 0.5586 (0.0353) Bayes-MICE 0.2238 (0.0020) 0.3497 (0.0024) 0.2232 (0.0015) 0.3492 (0.0015) 
+
+C6H6(GT) MICE 0.1687 (0.0041) 0.2306 (0.0060) 0.1687 (0.0041) 0.2306 (0.0060) BRITS 0.2855 (0.0545) 0.4621 (0.0648) 0.2855 (0.0545) 0.4621 (0.0648) Bayes-MICE 0.1074 (0.0004) 0.1596 (0.0009) 0.1073 (0.0004) 0.1597 (0.0011) 
+
+PT08.S2(NMHC) MICE 0.2104 (0.0045) 0.2811 (0.0060) 0.2104 (0.0045) 0.2811 (0.0060) BRITS 0.2723 (0.0390) 0.4541 (0.0380) 0.2723 (0.0390) 0.4541 (0.0380) Bayes-MICE 0.1188 (0.0006) 0.1698 (0.0011) 0.1187 (0.0006) 0.1699 (0.0010) 
+
+TMICE 0.9968 (0.0228) 1.2539 (0.0285) 0.9968 (0.0228) 1.2539 (0.0285) BRITS 0.3144 (0.0190) 0.5653 (0.0194) 0.3144 (0.0190) 0.5653 (0.0194) Bayes-MICE 0.1381 (0.0008) 0.1931 (0.0009) 0.1384 (0.0010) 0.1933 (0.0012) 
+
+> Table 4
+> Imputation performance of MICE, BRITS and Bayes-MICE under two MCMC samplers (RWM /MALA). Metrics are NMAE and NRMSE (mean, standard devia-tion) across 30 experimental runs for four PhysioNet variables. Boldface highlights the best value per row.
+
+RWM MALA Variable Method NMAE NRMSE NMAE NRMSE 
+
+HCO3 MICE 1.1904 (0.0110) 1.4997 (0.0128) 1.1904 (0.0110) 1.4997 (0.0128) BRITS 0.7535 (0.0039) 0.9941 (0.0049) 0.7535 (0.0039) 0.9941 (0.0049) Bayes-MICE 0.7189 (0.0018) 0.9375 (0.0021) 0.7198 (0.0019) 0.9380 (0.0022) 
+
+Na MICE 1.1467 (0.0098) 1.4549 (0.0122) 1.1467 (0.0098) 1.4549 (0.0122) BRITS 0.7732 (0.0023) 1.5002 (0.0018) 0.7732 (0.0023) 1.5002 (0.0018) Bayes-MICE 0.7724 (0.0024) 1.0246 (0.0032) 0.7715 (0.0018) 1.0231 (0.0029) 
+
+Platelet MICE 1.1457 (0.0083) 1.4816 (0.0093) 1.1457 (0.0083) 1.4816 (0.0093) BRITS 0.6561 (0.0035) 0.9534 (0.0045) 0.6561 (0.0035) 0.9534 (0.0045) Bayes-MICE 0.6596 (0.0019) 0.9465 (0.0018) 0.6601 (0.0022) 0.9470 (0.0019) 
+
+WBC MICE 1.2029 (0.0080) 1.6035 (0.0125) 1.2029 (0.0080) 1.6035 (0.0125) BRITS 0.5758 (0.0040) 0.9658 (0.0057) 0.5758 (0.0040) 0.9658 (0.0057) Bayes-MICE 0.6228 (0.0022) 0.9039 (0.0026) 0.6224 (0.0030) 0.9040 (0.0028) 
+
+11 (a) Prediction accuracy comparison for CO(GT) from AirQuality dataset.   
+
+> (b) Prediction accuracy comparison for HCO 3from physionet dataset.
+
+Figure 4: Prediction accuracy comparison for the CO(GT) variable from the AirQuality dataset (top) and the HCO 3 variable from the physioNet dataset (bottom). Each subplot panel shows:(top-left) predicted versus true values, (top-right) residuals against the true values, (bottom-left) sorted true values with corresponding model predictions, and (bottom-right) box plots of absolute errors. 
+
+12 BRITS produces several large deviations from the true signal trajectory. In contrast, Bayes-MICE predictions remain closer to the true values across the entire sorted index, capturing the signal’s global trends and local fluctuations more e ff ectively. Furthermore, the residual plots of the Bayes-MICE indicate a decrease in the number of extreme negative errors, lower me-dian absolute errors, and tighter interquartile ranges compared to MICE and BRITS. Figure 5 illustrates the imputation error pattern over time across methods for two representative variables: CO(GT) from the AirQuality dataset (Fig. 5a) and HCO 3 from the PhysioNet dataset (Fig. 5b). The figure reveals clear discrepancies in both magnitude and dispersion across methods and datasets. For the AirQuality dataset (Fig. 5a), we observe that Bayes-MICE pro-duce error trajectories that are tightly concentrated around zero with relatively small fluctuations across missing indices. On the other hand, standard MICE shows greater variation, while BRITS exhibit more pronounced error spikes and greater dis-persion. For the PhysioNet HCO 3 variable (Fig. 5b), we ob-serve a similar pattern, though with larger error magnitudes due to higher intrinsic variability of the data. The Bayes-MICE again produce more concentrated error distributions with fewer extreme deviations, whereas BRITS exhibits heavier tails, and standard MICE display a wider spread of errors despite be-ing centred around zero on average. Across both datasets, we find that Bayes-MICE consistently reduces both error magni-tude and variability, resulting in smoother and more stable error profiles. Figure 6 presents the posterior predictive performance of our proposed Bayes-MICE model for two representative variables, CO(GT) (environmental) and Na (clinical), across both train-ing and test sets. As shown in the Figure, the model closely follows the observed CO(GT) temporal trajectory, accurately capturing the rapid fluctuations and seasonal-like spikes typ-ical of air-quality dynamics. We further notice that the 95% credible interval bands remain relatively tight during the train-ing phase and widen slightly in the test phase, reflecting the expected increase in uncertainty when predicting unseen data. Despite this widening, the predictive mean remains well aligned with the true CO(GT) signals, accurately tracking both sharp rises and abrupt drops, which indicates strong generalisation and model stability. A similar behaviour is observed in the Na values as the model closely tracks the observed values across both the training and test intervals. We also notice that the cred-ible intervals are wider than those for CO(GT), indicating that the model appropriately captures the higher intrinsic variability and longer temporal dependence of the clinical data. However, even with this increased uncertainty, the predictive mean con-sistently remains centred on the true Na trajectory, confirming robust learning and reliable generalisation in the presence of physiological noise and temporal variability. Figure 7 illustrates the comparative imputation accuracy and distribution of results across 30 experimental runs for the meth-ods on the PhysioNet dataset. The figure shows that Bayes-MICE consistently achieves substantially lower NRMSE than standard MICE and BRITS across all variables, with partic-ularly pronounced improvements for HCO 3, Na, and WBC. From the aggregated boxplot, we notice that Bayes-MICE not only reduce NRMSE but also exhibit markedly lower variabil-ity across runs compared to deterministic methods. Although BRITS improves upon standard MICE for some variables, the Bayesian approaches still outperformed them in both accuracy and stability. 
+
+4.4. Ablation Study 
+
+We conduct an ablation study to examine (i) sampler conver-gence behaviour across datasets with di ff erent statistical charac-teristics, and (ii) the e ff ect of the initialisation strategy by com-paring Bayes-MICE-V1 (mean-based initialisation) and Bayes-MICE-V2 (time-aware initialisation). We first examine convergence behaviour to assess the robust-ness of Bayes-MICE across datasets. The diagnostics in Table 2 for the HCO 3 variable using the PhysioNet dataset reveal that all model parameters have ˆ R values close to 1 and large e ff ec-tive sample sizes under both MCMC samplers, indicating ro-bust posterior exploration. However, as shown in Table 5, the CO(GT) variable from the AirQuality dataset has a number of regression coe ffi cients (e.g., W 5 and W 6) with elevated ˆ R values and reduced ESS, this indicates poor mixing and thus is indica-tive of partial convergence for these parameters. This behaviour is likely due to the higher volatility, multicollinearity, and non-stationarity of environmental time series data. It is worth noting that the models achieved good predictive performance despite partial non-convergence of some regression coe ffi cients, indi-cating that Bayes-MICE can still deliver accurate imputations while transparently revealing inferential uncertainty. We next compare the two Bayes-MICE variants under the RWM sampler to assess the impact of the initialisation strat-egy (Table 6). On the AirQuality dataset, both variants achieve nearly identical performance, with only marginal di ff erences across variables, suggesting that time-aware initialisation does not degrade predictive accuracy. On the PhysioNet dataset, sim-ilarly small but consistent improvements are observed for tem-porally coherent variables such as HCO 3 and Na under Bayes-MICE-V2, suggesting time-aware initialisation improves ro-bustness in smoother clinical signals. Overall, these results indicate that the primary gain stems from Bayesian formu-lation, while the time-aware initialisation in Bayes-MICE-V2 provides additional stability for temporally structured variables and across datasets. Accordingly, we adopt Bayes-MICE-V2 as the default configuration in this study. 
+
+5. Discussion 
+
+Our study introduces Bayes-MICE , a Bayesian enhancement of the Multiple Imputation by Chained Equation framework. We assessed the model’s Bayesian convergence using standard diagnostic criteria by Gelman et al. [18] and compared its per-formance with baseline methods (MICE and BRITS) across two real-world datasets: an environmental time series (AirQual-ity) and a clinical time series (PhysioNet), using NMAE and NRMSE. We further conducted an ablation study to examine 13 (a) Imputation error across all methods for CO(GT) from AirQuality dataset   
+
+> (b) Imputation error across all methods for HCO 3from physionet dataset
+
+Figure 5: Imputation error patterns over time index of each method across di ff erent datasets, with the AirQuality CO(GT) variable shown in the top panel and the PhysioNet HCO 3 variable shown in the bottom panel 
+
+14 (a) Train CO(GT) variable (b) Test CO(GT) variable    
+
+> (c) Train Na variable (d) Test Na variable
+
+Figure 6: Posterior predictive performance of the proposed Bayes-MICE model over time for the environmental CO(GT) variable (top row) and the clinical Na variable (bottom row), shown across training(left) and test(right) sets. The blue lines represent observed values, the red lines indicate posterior predictive means, and the shaded regions denote the 95% credible intervals. 
+
+Figure 7: Comparative imputation accuracy and distribution across runs (box plot) for deterministic and Bayesian methods on the PhsyioNet dataset using NRMSE 
+
+(i) sampler convergence behaviour across datasets with dis-tinct statistical characteristics and (ii) the e ff ect of the ini-tialisation strategy by comparing two Bayes-MICE variants: a mean-based initialisation version (Bayes-MICE-V1) and a time-aware initialisation version (Bayes-MICE-V2). Across both datasets, our proposed Bayes-MICE achieved lower NMAE and NRMSE than Standard MICE and BRITS, and showed smaller variability across 30 experimental runs, suggesting improved stability. Although BRITS was compet-itive with some physiological variables (platelets and WBC) 15 Table 5   
+
+> Convergence summaries for the CO(GT) variable from the AirQuality dataset using Bayes-MICE. Results are shown for two MCMC samplers: MALA (left) and RWM (right). The table reports posterior means, standard deviations (SD), 94% highest density intervals (HDIs), e ff ective sample sizes (ESS), and ˆ Rstatistics.
+> (a) MALA–MCMC
+
+Param Mean SD HDI 3% HDI 97% ESS ˆRb 0.000 0.006 −0.012 0.012 5055 1.00 
+
+τ 0.029 0.002 0.026 0.032 39 462 1.00 RMSE 0.166 0.001 0.165 0.167 412 1.01 
+
+w1 0.054 0.017 0.022 0.086 132 1.02 
+
+w2 0.884 0.054 0.792 0.985 17 1.10 
+
+w3 −0.18 0.052 −0.275 −0.086 17 1.11 
+
+w4 −0.088 0.008 −0.102 −0.072 635 1.01 
+
+w5 −0.054 0.363 −0.736 0.520 3 2.04 
+
+w6 0.337 0.190 0.050 0.696 3 1.60  
+
+> (b) RWM–MCMC
+
+Param Mean SD HDI 3% HDI 97% ESS ˆRb 0.000 0.007 −0.013 0.012 1752 1.00 
+
+τ 0.029 0.002 0.026 0.032 384 1.01 RMSE 0.166 0.001 0.165 0.167 519 1.01 
+
+w1 0.054 0.018 0.020 0.089 79 1.00 
+
+w2 0.898 0.052 0.804 0.994 25 1.03 
+
+w3 −0.198 0.048 −0.289 −0.115 28 1.06 
+
+w4 ‘−0.087 0.008 −0.103 −0.072 348 1.00 
+
+w5 1.055 1.205 −0.325 2.532 3 2.25 
+
+w6 1.957 1.203 0.558 3.359 3 2.25  
+
+> Table 6
+> Ablation study comparing Bayes-MICE-V1 and Bayes-MICE-V2 on the AirQuality and PhysioNet datasets under the RWM sampler. Metrics are NMAE and NRMSE (mean, standard deviation) across 30 runs. Boldface indicates the better-performing variant for each variable within each dataset.
+
+AirQuality PhysioNet Method Variable NMAE NRMSE Variable NMAE NRMSE 
+
+Bayes-MICE-V1 CO(GT) 0.1374 (0.0009 ) 0.1851 (0.0015) HCO 3 0.7196 (0.0020 ) 0.9381 (0.0024) NMHC(GT) 0.2248 (0.0018) 0.3518 (0.0020) Na 0.7734 (0.0019) 1.0263 (0.0028) C6H6(GT) 0.1078 (0.0005) 0.1592 (0.0010) Platelet 0.6585 (0.0021) 0.9443 (0.0021) 
+
+T 0.1345 (0.0009) 0.1862 (0.0010) WBC 0.6200 (0.0024) 0.9014 (0.0022) 
+
+Bayes-MICE-V2 CO(GT) 0.1379 (0.0010) 0.1855 (0.0013) HCO 3 0.7189 0.0018) 0.9375 (0.0021) 
+
+NMHC(GT) 0.2238 (0.0020) 0.3497 (0.0024) Na 0.7724 (0.0024) 1.0246 (0.0032) 
+
+C6H6(GT) 0.1074 (0.0004) 0.1596 (0.0009) Platelet 0.6596 (0.0019) 0.9465 (0.0018) T 0.1381 (0.0008) 0.1931 (0.0009) WBC 0.6228 (0.0022) 0.9039 (0.0026) 
+
+and occasionally achieved lower NMAE, the Bayesian frame-work provided more consistent overall performance. Nonethe-less, the improvements are most pronounced in the clinical data, where preserving temporal structure is critical, highlight-ing the practical value of incorporating time-aware initialisation within the Bayesian MICE framework for longitudinal biomed-ical data. We note that the uncertainty quantification from our results further di ff erentiates the proposed Bayesian approach. The 95% credible intervals adapt meaningfully over time, reflecting observed patterns in the training phase and widening appropri-ately in the test phase, especially in regions with limited infor-mation and rapid fluctuations. For CO(GT), we found that the increase in posterior uncertainty during test was modest, sug-gesting robust generalisation to unseen environmental dynam-ics. The Na variable exhibited wider intervals overall, reflecting a longer forecast horizon, greater inherent variability, and clin-ical noise in physiological measurements. Crucially, we note that the predictive means remained close to the true signals in both datasets, indicating that the model remains accurate even under uncertainty. Visual diagnostics, such as predicted-versus-true value scatter plots, residual scatter plots, sorted-index com-parisons, and absolute-error box plots, confirmed these trends. Classical MICE and BRITS showed systematic bias, notably underestimating extreme values and exhibiting negative resid-ual drift at elevated concentrations, while Bayes-MICE showed minimal bias and stable variance. Imputation error plots further confirm these findings, showing that the Bayes-MICE model exhibits error trajectories that are highly concentrated around zero, with relatively small fluctuations across missing indices, even under substantial missingness. Another crucial practical insight from our study is that in-corporating optimal step-size scaling recommendations from Robert et al. [17, 16] for the MCMC proposal distribution sig-nificantly enhanced sampler performance and convergence sta-bility. We note that adjusting the proposal variance in line with optimality theory (i.e., keeping acceptance rates close to theo-retical optima, as recommended by Roberts and Rosenthal[40] for Metropolis methods) led the chains to mix more e ff ectively and avoid excessively cautious or di ff use sampling patterns. This helped posterior trajectories stabilise more quickly and re-duced the autocorrelation in the samples, leading to more re-16 liable imputations. This scaling technique works well for all clinical variables and some environmental variables used in the study, underscoring the importance of providing theoreti-cal guidance when tuning large Bayesian models with missing data. In addition to improvements in overall accuracy, we no-tice significant di ff erences in the sampling dynamics between the RWM and MALA samplers. Although both techniques yield almost identical prediction and imputation results, MALA demonstrated faster, smoother convergence and more e ffi cient exploration of the posterior space. MALA exhibits reduced au-tocorrelation in the chains and stabilises at the posterior mode more rapidly, whereas RWM requires additional iterations to achieve similar mixing behaviour. Nonetheless, the similarity in the final predictive and imputation outcomes across samplers suggests that the Bayes-MICE framework is robust to sampler choice, with MALA o ff ering faster convergence and higher sampling e ffi ciency, while RWM remains a reliable baseline method. Although the proposed Bayes-MICE framework performs well in terms of imputation accuracy, predictive quality, and uncertainty calibration across environmental and clinical time-series data, we identify some limitations. First, the evalua-tion was performed on two benchmark datasets, which, de-spite representing di ff erent domains, require additional vali-dation on larger and more diverse time-series datasets (e.g., finance, mobility) to establish generalisability. In addition, the current experiments focus exclusively on continuous vari-ables, and extending the framework to mixed-type data remains an important direction for future work. Secondly, although multivariate variables were imputed, each variable was mod-elled independently, following MICE philosophy. A fully joint multivariate Bayesian time-series was not employed, meaning cross-feature temporal relationships were not captured within a single unified posterior. Extending this work to a multi-variate Bayesian state-space [26, 12] or a Gaussian process model would allow the method to better leverage dependen-cies across variables. Thirdly, the MCMC sampling process incurs a higher computational cost than traditional MICE and BRITS (GPU usage), particularly for large feature sets, and careful tuning is also required. Finally, the current evaluations assume missing-at-random (MAR) and missing-completely-at-random (MCAR) patterns. Future work will explore exten-sions of MICE to missing-not-at-random (MNAR) scenarios in spatio-temporal datasets. Overall, our results provide strong evidence that a fully Bayesian formulation of MICE is both practical and beneficial, o ff ering improved accuracy and uncer-tainty calibration for complex time-series imputation and lay-ing the groundwork for scalable Bayesian imputation in high-dimensional real-world applications, with code made available on GitHub. 
+
+6. Conclusion 
+
+We presented the Bayes-MICE model, a Bayesian version of traditional MICE that explicitly accounts for uncertainty during imputation and improves handling of missing data in time-series analyses. By integrating MCMC sampling, the method not only improved imputation accuracy but also pro-vided clearer, more principled uncertainty estimates via poste-rior credible intervals. We evaluated the proposed framework on two real-world datasets (AirQuality and PhysioNet) using NMAE and NRMSE, where Bayes-MICE consistently outper-formed standard MICE and BRITS across most variables. An important observation from the ablation study is that the two Bayes-MICE variants exhibited nearly identical residual behaviour and predictive accuracy across experiments, indi-cating that the proposed Bayesian framework is robust to the choice of initialisation strategy. This stability suggests that per-formance gains arise from the Bayesian formulation itself rather than from specific design choices. Regarding the sampling schemes, both RWM and MALA achieved comparable predic-tive accuracy, as measured by the metrics; however, MALA demonstrated faster convergence and more e ffi cient exploration of the posterior distribution. Overall, the Bayes-MICE framework has the potential to pro-vide greater reliability and interpretability for imputing time-dependent data than conventional methods, which either neglect temporal relationships or are incapable of representing uncer-tainty. The results from our research encourage further develop-ment to extend the model to a fully multivariate Bayesian time-series framework for spatio-temporal datasets; to explore al-ternative sampling methods, such as Hamiltonian Monte Carlo or variational approximations; to incorporate non-linear rela-tionships; and to provide comparative analysis with additional deep-learning-based methods. 
+
+Authors Contributions Amuche Ibenegbu : Conceptualisation; methodology; cod-ing; data curation, analysis and experiment; writing - original draft. Pierre Lafaye de Micheaux: Conceptualisation, super-vision, analysis and experiment, writing, review and editing. 
+
+Rohitash Chandra: Conceptualisation, supervision, analysis and experiment, writing - review and editing. 
+
+Declarations 
+
+• Conflict of interest : The authors declare no competing interests 
+
+• Consent for publication : All authors have read the manuscript and have given consent for submission and publication. 
+
+Availability of data 
+
+The data and code can be accessed at the asso-ciated GitHub repository: https://github.com/ sydney-machine-learning/Bayes_MICE 
+
+17 Acknowledgements 
+
+The authors acknowledge the Katana High Performance Computing (HPC) cluster from the University of New South Wales. 
+
+References 
+
+[1] Eben Afrifa-Yamoah, Ute A Mueller, Stephen M Taylor, and Aiden J Fisher. Missing data imputation of high-resolution temporal climate time series data. Meteorolog-ical Applications , 27(1):e1873, 2020. [2] Melissa J Azur, Elizabeth A Stuart, Constantine Fran-gakis, and Philip J Leaf. Multiple imputation by chained equations: what is it and how does it work? International journal of methods in psychiatric research , 20(1):40–49, 2011. [3] Gustavo EAPA Batista, Maria Carolina Monard, et al. A study of k-nearest neighbour as an imputation method. 
+
+His , 87(251-260):48, 2002. [4] Jaap Brand. Development, implementation and evaluation of multiple imputation strategies for the statistical analy-sis of incomplete data sets . Thesis, 1999. [5] Wei Cao, Dong Wang, Jian Li, Hao Zhou, Lei Li, and Yi-tan Li. Brits: Bidirectional recurrent imputation for time series. Advances in neural information processing sys-tems , 31, 2018. [6] Rohitash Chandra and Joshua Simmons. Bayesian neural networks via mcmc: a python-based tutorial. IEEE Ac-cess , 12:70519–70549, 2024. [7] Zhengping Che, Sanjay Purushotham, Kyunghyun Cho, David Sontag, and Yan Liu. Recurrent neural networks for multivariate time series with missing values. Scientific reports , 8(1):6085, 2018. [8] Saverio De Vito, Ettore Massera, Marco Piga, Luca Mar-tinotto, and Girolamo Di Francia. On field calibration of an electronic nose for benzene estimation in an urban pollution monitoring scenario. Sensors and Actuators B: Chemical , 129(2):750–757, 2008. [9] A Rogier T Donders, Geert JMG Van Der Heijden, Theo Stijnen, and Karel GM Moons. A gentle introduction to imputation of missing values. Journal of clinical epidemi-ology , 59(10):1087–1091, 2006. [10] Prathmesh Dudhe, Jason Li, Muhammad Hamza Yousuf, Jens Lehmann, and Sahar Vahdati. Icu mechanical ventila-tion data imputation. In IFIP International Conference on Artificial Intelligence Applications and Innovations , pages 140–154. Springer, 2025. [11] Nicole Erler. Bayesian imputation of missing covariates. 2019. [12] Shikai Fang, Qingsong Wen, Yingtao Luo, Shandian Zhe, and Liang Sun. Bayotide: Bayesian online multivari-ate time series imputation with functional decomposition. 
+
+arXiv preprint arXiv:2308.14906 , 2023. [13] Alireza Farhangfar, Lukasz A Kurgan, and Witold Pedrycz. A novel framework for imputation of miss-ing values in databases. IEEE Transactions on Sys-tems, Man, and Cybernetics-Part A: Systems and Humans ,37(5):692–709, 2007. [14] Pedro J García-Laencina, José-Luis Sancho-Gómez, and Aníbal R Figueiras-Vidal. Pattern classification with miss-ing data: a review. Neural Computing and Applications ,19:263–282, 2010. [15] Alan E Gelfand and Adrian FM Smith. Sampling-based approaches to calculating marginal densities. Journal of the American statistical association , 85(410):398–409, 1990. [16] Andrew Gelman, Walter R Gilks, and Gareth O Roberts. Weak convergence and optimal scaling of random walk metropolis algorithms. The annals of applied probability ,7(1):110–120, 1997. [17] Andrew Gelman, Gareth O Roberts, and Walter R Gilks. Effi cient metropolis jumping rules. Bayesian statistics 5 ,5:599–608, 1996. [18] Andrew Gelman and Donald B Rubin. Inference from iterative simulation using multiple sequences. Statistical science , 7(4):457–472, 1992. [19] Stuart Geman and Donald Geman. Stochastic relaxation, gibbs distributions, and the bayesian restoration of im-ages. IEEE Transactions on pattern analysis and machine intelligence , (6):721–741, 1984. [20] Walter R Gilks, Sylvia Richardson, and David Spiegelhal-ter. Markov chain Monte Carlo in practice . CRC press, 1995. [21] Krystyna Grzesiak, Christophe Muller, Julie Josse, and Je ff rey Näf. Do we need dozens of methods for real world missing value imputation? arXiv preprint arXiv:2511.04833 , 2025. [22] Heikki Haario, Eero Saksman, and Johanna Tamminen. An adaptive metropolis algorithm. 2001. [23] W Keith Hastings. Monte carlo sampling methods using markov chains and their applications. 1970. [24] Van Hua, Thu Nguyen, Minh-Son Dao, Hien D Nguyen, and Binh T Nguyen. The impact of data imputation on air quality prediction problem. Plos one , 19(9):e0306303, 2024. [25] Sebastian Jäger, Arndt Allhorn, and Felix Bießmann. Abenchmark for data imputation methods. Frontiers in big Data , 4:693674, 2021. 18 [26] Linying Ji, Meng Chen, Zita Oravecz, E Mark Cummings, Zhao-Hua Lu, and Sy-Miin Chow. A bayesian vector au-toregressive model with nonignorable missingness in de-pendent variables and covariates: Development, evalua-tion, and application to family processes. Structural equa-tion modeling: a multidisciplinary journal , 27(3):442– 467, 2020. [27] Heikki Junninen, Harri Niska, Kari Tuppurainen, Juhani Ruuskanen, and Mikko Kolehmainen. Methods for im-putation of missing values in air quality data sets. Atmo-spheric environment , 38(18):2895–2907, 2004. [28] Shahidul Islam Khan and Abu Sayed Md Latiful Hoque. Sice: an improved missing data imputation technique. 
+
+Journal of big Data , 7(1):37, 2020. [29] Omkar Kulkarni and Rohitash Chandra. Bayes-catsi: A variational bayesian deep learning framework for medical time series data imputation. arXiv preprint arXiv:2410.01847 , 2024. [30] Marine Le Morvan, Julie Josse, Erwan Scornet, and Gaël Varoquaux. What’sa good imputation to predict with missing values? Advances in Neural Information Pro-cessing Systems , 34:11530–11540, 2021. [31] Roderick JA Little and Donald B Rubin. Statistical anal-ysis with missing data , volume 793. John Wiley & Sons, 2019. [32] Nicholas Metropolis, Arianna W Rosenbluth, Marshall N Rosenbluth, Augusta H Teller, and Edward Teller. Equa-tion of state calculations by fast computing machines. The journal of chemical physics , 21(6):1087–1092, 1953. [33] Ste ff en Moritz, Alexis Sardá, Thomas Bartz-Beielstein, Martin Zae ff erer, and Jörg Stork. Comparison of di ff erent methods for univariate time series imputation in r. arXiv preprint arXiv:1510.03924 , 2015. [34] Jared S Murray. Multiple imputation: a review of practical and theoretical findings. 2018. [35] Je ff rey Näf, Erwan Scornet, and Julie Josse. What is a good imputation under mar missingness? arXiv preprint arXiv:2403.19196 , 2024. [36] Norazian Mohamed Noor, Mohd Mustafa Al Bakri Ab-dullah, Ahmad Shukri Yahaya, and Nor Azam Ramli. Comparison of linear interpolation method and mean method to replace the missing values in environmental data set. In Materials science forum , volume 803, pages 278–281. Trans Tech Publ, 2015. [37] Matthieu Resche-Rigon and Ian R White. Multiple im-putation by chained equations for systematically and spo-radically missing multilevel data. Statistical methods in medical research , 27(6):1634–1649, 2018. [38] Christian P Robert, George Casella, and George Casella. 
+
+Monte Carlo statistical methods , volume 2. Springer, 1999. [39] Gareth O Roberts and Je ff rey S Rosenthal. Optimal scaling of discrete approximations to langevin di ff usions. 
+
+Journal of the Royal Statistical Society: Series B (Statis-tical Methodology) , 60(1):255–268, 1998. [40] Gareth O Roberts and Je ff rey S Rosenthal. Optimal scal-ing for various metropolis-hastings algorithms. Statistical science , 16(4):351–367, 2001. [41] Gareth O Roberts and Richard L Tweedie. Exponential convergence of langevin distributions and their discrete approximations. 1996. [42] Donald B Rubin. Multiple imputations in sample surveys-a phenomenological bayesian approach to nonresponse. In Proceedings of the survey research methods section of the American Statistical Association , volume 1, pages 20–34. American Statistical Association Alexandria, VA, 1978. [43] Donald B Rubin. An overview of multiple imputation. In Proceedings of the survey research methods section of the American statistical association , volume 79, page 84, 1988. [44] Cátia M Salgado, Carlos Azevedo, Hugo Proença, and Su-sana M Vieira. Missing data. Secondary analysis of elec-tronic health records , pages 143–162, 2016. [45] Joseph L Schafer. Analysis of incomplete multivariate data . CRC press, 1997. [46] Joseph L Schafer. Multiple imputation: a primer. Statisti-cal methods in medical research , 8(1):3–15, 1999. [47] Tolou Shadbahr, Michael Roberts, Jan Stanczuk, Julian Gilbey, Philip Teare, Sören Dittmer, Matthew Thorpe, Ra-mon Viñas Torné, Evis Sala, Pietro Lió, et al. The impact of imputation quality on machine learning classifiers for datasets with missing values. Communications Medicine ,3(1):139, 2023. [48] Ikaro Silva, George Moody, Daniel J Scott, Leo A Celi, and Roger G Mark. Predicting in-hospital mortality of icu patients: The physionet /computing in cardiology chal-lenge 2012. In 2012 computing in cardiology , pages 245– 248. IEEE, 2012. [49] Daniel J Stekhoven and Peter Bühlmann. Missforest—non-parametric missing value imputa-tion for mixed-type data. Bioinformatics , 28(1):112–118, 2012. [50] Wei Sun. Application of markov chain monte-carlo mul-tiple imputation method to deal with missing data from the mechanism of mnar in sensitivity analysis for a lon-gitudinal clinical trial. In Monte-Carlo Simulation-Based Statistical Modeling , pages 233–252. Springer, 2017. 19 [51] Martin A Tanner and Wing Hung Wong. The calculation of posterior distributions by data augmentation. Journal of the American statistical Association , 82(398):528–540, 1987. [52] S Van Buuren. Flexible multivariate imputation by mice. 
+
+TNO Prevention and Health , 1999. [53] Stef van Buuren. Flexible Imputation of Missing Data .CRC Press, 2018. [54] Stef Van Buuren, Hendriek C Boshuizen, and Dick L Knook. Multiple imputation of missing blood pressure covariates in survival analysis. Statistics in medicine ,18(6):681–694, 1999. [55] Stef Van Buuren and Karin Groothuis-Oudshoorn. mice: Multivariate imputation by chained equations in r. Journal of statistical software , 45:1–67, 2011. [56] Wayne F Velicer and Suzanne M Colby. A comparison of missing-data procedures for arima time-series analysis. 
+
+Educational and Psychological Measurement , 65(4):596– 615, 2005. [57] Ian R White, Patrick Royston, and Angela M Wood. Mul-tiple imputation using chained equations: issues and guid-ance for practice. Statistics in medicine , 30(4):377–399, 2011. [58] Kejing Yin, Liaoliao Feng, and William K Cheung. Context-aware time series imputation for multi-analyte clinical data. Journal of Healthcare Informatics Research ,4(4):411–426, 2020. [59] Jinsung Yoon, James Jordon, and Mihaela Schaar. Gain: Missing data imputation using generative adversarial nets. In International conference on machine learning , pages 5689–5698. PMLR, 2018. [60] Ceylan Yozgatligil, Sipan Aslan, Cem Iyigun, and Inci Batmaz. Comparison of missing value imputation meth-ods in time series: the case of turkish meteorological data. Theoretical and applied climatology , 112(1):143– 167, 2013. 20

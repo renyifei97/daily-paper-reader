@@ -1,0 +1,1183 @@
+Title: Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation
+
+URL Source: https://arxiv.org/pdf/2603.26050v1
+
+Published Time: Mon, 30 Mar 2026 00:26:51 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# Hierarchical Control Framework Integrating Large Language Models with Reinforcement Learning for Decarbonized HVAC Operation 
+
+## Dianyu Zhong a,1 , Tian Xing a,1 , Kailai Sun b,c ,∗, Xu Yang a, Heye Huang b,c , Irfan Qaisar a,Tinggang Jia d, Shaobo Wang d and Qianchuan Zhao a,∗
+
+> a
+
+Center for Intelligent and Networked Systems, Department of Automation, BNRist, Tsinghua University, Beijing, 100084, China 
+
+> b
+
+Singapore-MIT Alliance for Research and Technology Centre (SMART), Massachusetts Institute of Technology, 138602, Singapore 
+
+> c
+
+Urban Mobility Lab, Massachusetts Institute of Technology, Cambridge, MA 02139, United States  
+
+> d
+
+Shanghai Electric Automation Group Co.,Ltd., Mengzi Road, Huangpu District, Shanghai, 200023, China 
+
+A R T I C L E I N F O 
+
+Keywords :Large language model Building energy efficiency Reinforcement learning Hierarchical control Occupant-centric control 
+
+A B S T R A C T 
+
+Heating, ventilation, and air conditioning (HVAC) systems account for a substantial share of building energy consumption. Environmental uncertainty and dynamic occupancy behavior bring challenges in decarbonized HVAC control. Reinforcement learning (RL) can optimize long-horizon comfort–energy trade-offs but suffers from exponential action-space growth and inefficient exploration in multi-zone buildings. Large language models (LLMs) can encode semantic context and operational knowledge, yet when used alone they lack reliable closed-loop numerical optimization and may result in less reliable comfort–energy trade-offs. To address these limitations, we propose a hierarchical control framework in which a fine-tuned LLM, trained on historical building operation data, generates state-dependent feasible action masks that prune the combinatorial joint action space into operationally plausible subsets. A masked value-based RL agent then performs constrained optimization within this reduced space, improving exploration efficiency and training stability. Evaluated in a high-fidelity simulator calibrated with real-world sensor and occupancy data from a 7-zone office building, the proposed method achieves a mean PPD of 7.30%, corresponding to reductions of 39.1% relative to DQN, the best vanilla RL baseline in comfort, and 53.1% relative to the best vanilla LLM baseline, while reducing daily HVAC energy use to 140.90 kWh, lower than all vanilla RL baselines. The results suggest that LLM-guided action masking is a promising pathway toward efficient multi-zone HVAC control. 
+
+## 1. Introduction 
+
+Buildings are pivotal in the global transition towards a sustainable future. According to the recent Global Status Report for Buildings and Construction 2024/2025 [ 1], the building sector remains a key driver of the climate crisis, consuming 32% of global energy and contributing 34% of global CO2 emissions. Furthermore, the Global Buildings Climate Tracker indicates that the sector is still not aligned with the decarbonization pathway toward 2050, underscoring that advancing building energy efficiency remains a global priority for effectively mitigating the energy and climate crises [ 2, 3 ]. Beyond energy and carbon concerns, the U.S. Environmental Protection Agency has noted that people spend nearly 90% of their lives indoors [ 4]. Consequently, the quality of indoor environments directly affects health, pro-ductivity, and comfort across multiple dimensions—thermal, visual, air quality, and acoustics. Among these, thermal comfort (defined by ASHRAE Standard 55 [ 5]) plays a crucial role in overall indoor environmental quality, as it bridges physiological needs with subjective satisfaction. 
+
+> ∗
+
+Corresponding authors. 
+
+zhongdy15@tsinghua.org.cn (D. Zhong); 
+
+skl24@mit.edu (K. Sun); zhaoqc@mail.tsinghua.edu.cn (Q. Zhao) 
+
+> ORCID
+
+(s): 0000-0002-3262-4905 (D. Zhong); 
+
+0000-0003-1648-3409 (K. Sun); 0000-0002-4831-977X (I. Qaisar); 0000-0002-7952-5621 (Q. Zhao) 
+
+> 1
+
+These authors contributed equally to this work. 
+
+To achieve the Net Zero target by 2050, incorporating intelligent and efficient control in building energy manage-ment systems[ 6] is essential for reducing carbon emissions and improving human comfort [ 7]. However, challenges like varying sources of uncertainty, such as climate and weather conditions, and dynamic occupancy behavior, can significantly influence building energy consumption patterns. To address this, IEA-EBC Annex 66 [ 8 ] highlights occupant behaviors such as thermostat use, window opening and lighting affect building energy performance, and provides methods to model them. Annex 79 [ 9 ] advances Annex 66 by applying sensing and machine learning to integrate occupant behavior into design and operation for better efficiency and comfort. Thus, occupant-centric control (OCC) has been developed as a transformative strategy that integrates real-time sensing of indoor environmental quality, occupancy information [ 10 ], and occupant-building interactions to dynamically adjust building operations, such as HVAC systems [11, 12]. A broad range of control strategies have been explored for HVAC and building energy management, including rule-based control, model predictive control (MPC) [ 13 ], and reinforcement learning (RL). Among these, RL is attractive because it can optimize long-horizon comfort–energy trade-offs directly from in-teraction data. However, deploying RL in real multi-zone HVAC systems faces two major challenges. First, the joint action space grows exponentially with the number of zones 
+
+Dianyu Zhong et al.: Preprint submitted to Elsevier Page 1 of 19 
+
+> arXiv:2603.26050v1 [eess.SY] 27 Mar 2026 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation
+
+and discrete actuation levels, leading to severe sample inefficiency and unstable learning in high-dimensional envi-ronments. Second, RL relies on trial-and-error exploration. While such exploration may be acceptable in simulation, comfort-violating or operationally aggressive actions are undesirable in occupied buildings because they may cause occupant discomfort and unnecessary equipment cycling. These factors have limited the practical adoption of RL-based HVAC controllers. Recently, large language models (LLMs) have emerged as a promising tool for building management because they can interpret contextual information, encode human operational knowledge, and reason over complex semantic constraints [ 14 , 15 , 16 , 17 ]. Their robustness and gener-alization capabilities make them attractive for real-time decision support in building systems, especially under partial observability and non-stationary occupancy patterns. However, using LLMs as stand-alone HVAC controllers remains problematic. Although LLMs can generate plausible control sugges-tions, they do not provide reliable closed-loop numerical optimization under coupled thermal dynamics and delayed rewards. As a result, direct LLM control may result in less reliable comfort–energy trade-offs, such as conservative over-conditioning or insufficient conditioning, and it lacks a principled mechanism for improvement through reward feedback. These complementary limitations motivate a hierarchical control paradigm. In particular, multi-zone HVAC control requires a framework that can leverage historical operational knowledge to constrain RL exploration without replacing reward-driven optimization. In this work, we propose a hierarchical LLM–RL control framework for multi-zone HVAC systems. An LLM fine-tuned on historical building operation data generates state-dependent feasible action masks that prune the combinatorial joint action space into historically grounded, operationally plausible subsets. A masked value-based RL agent then performs constrained optimization within this reduced space, improving training efficiency and stability. The proposed framework is trained and evaluated in a high-fidelity HVAC simulator calibrated using real-world sensor and occupancy data from a 7-zone office building. The main contributions of this work are as follows: • We propose a hierarchical LLM-RL control framework for multi-zone HVAC operation, in which a fine-tuned LLM generates state-dependent feasible action masks and a masked RL agent performs constrained optimization within the reduced action space. • We finetune a general LLM with domain-specific real-world historical operation data in buildings, capturing effective HVAC control patterns and guiding a down-stream RL agent for efficient learning. • We develop and calibrate a high-fidelity HVAC simu-lator using real-world sensor and occupancy data from                    
+
+> List of Abbreviations
+> GenAI Generative Artificial Intelligence LLMs Large Language Models RL Reinforcement Learning A2C Advantage Actor-Critic BEMS Building Energy Management Systems CO2 Carbon Dioxide CPU Central Processing Unit DQN Deep Q-Network DRL Deep Reinforcement Learning FCU Fan Coil Unit GPU Graphics Processing Unit HVAC Heating, Ventilation, and Air Conditioning MLP Multilayer Perceptron OCC Occupant-Centric Control OTTV Overall Thermal Transfer Value PIR Passive Infrared sensor PMV Predicted Mean Vote PPD Predicted Percentage of Dissatisfied PPO Proximal Policy Optimization
+
+a 7-zone office building, providing a realistic testbed for controller training and comfort-energy evaluation. • Extensive experiments in the calibrated 7-zone case study show that the proposed framework substantially reduces the effective action space and improves RL exploration efficiency and training stability. It achieves a mean PPD of 7.30%, corresponding to reductions of 39.1% relative to DQN and 53.1% relative to the best vanilla LLM baseline, while reducing daily HVAC energy use to 140.90 kWh, lower than all vanilla RL baselines. The remainder of this paper is organized as follows. Section 2 reviews related work. Section 3 presents the pro-posed hierarchical LLM–RL framework. Section 4 describes the experimental setup, Section 5 reports the results and discussion, Section 6 discusses limitations, and Section 7 concludes the paper. 
+
+## 2. Literature Review 
+
+2.1. Occupant-centric HVAC control 
+
+Reliable occupancy information is a prerequisite for occupant-centric building operation because it directly in-fluences both energy management and thermal comfort assessment [ 18 , 12 , 19 ]. Existing studies on occupancy-related information can be broadly organized into three levels: presence detection, occupant counting, and activity or behavior inference. Presence detection, which determines whether a space is occupied, remains the most widely used level in practice. Passive Infrared (PIR) sensing is commonly adopted for this purpose in buildings [ 20 ], and its performance can be improved by integrating Wireless Sensing Network modules or Radio Frequency Identification technologies [ 7]. Research has subsequently extended from   
+
+> Dianyu Zhong et al.: Preprint submitted to Elsevier Page 2 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation
+
+binary presence recognition to occupant counting. Carbon-dioxide-based methods are frequently used for counting, although their accuracy can be affected by sensor placement as well as by window and HVAC operation [ 21 , 22 ]. To improve robustness, recent work has explored vision-based sensing [ 18 ] together with other data sources, such as Global Positioning System information and WiFi signals [ 23 ]. Compared with presence detection and counting, activity-level understanding is still less mature, although motion sensing [ 2] and vision-based methods [ 24 ] have enabled more detailed characterization of occupant behaviors. From the control perspective, most occupant-centric strategies still rely primarily on presence detection [ 25 , 26 ,27 , 28 ] or occupant counting [ 29 , 21 , 22 ], whereas richer behavioral descriptors are much less frequently incorporated. In HVAC applications, presence information has commonly been used to implement temperature setpoint scheduling [ 30 , 31 ]. In broader building operation, the same binary occupancy logic has also supported vacancy-based lighting control [ 32 , 33 ]. Occupant counting obtained from sensors such as RGB cameras and CO 2 devices has further been introduced into predictive control of air-conditioning systems and outdoor air handling units [ 34 ]. More recent studies have started to move beyond counting by using contextual and historical information to predict occupant activities and improve control performance [ 35 ]. Activity data collected from wearable devices have also been used to reduce thermal discomfort by 10.9% without increasing energy consumption [ 36 ]. Overall, the literature shows a clear shift from coarse occupancy awareness toward richer behavioral information, which provides a stronger foundation for adaptive and occupant-centric HVAC control. 
+
+2.2. Reinforcement learning applications in HVAC systems 
+
+Reinforcement learning has attracted sustained attention in building control because it can optimize comfort and energy performance through sequential interaction with dynamic environments [ 37 ]. A number of studies have demonstrated its applicability to HVAC operation in both simulated and real settings. For example, Sun et al. [ 38 ] used deep reinforcement learning for residential air-conditioning automation and reported about 40% energy savings in winter. Silvestri et al. [ 39 ] deployed a model-free deep reinforcement learning controller enhanced by imitation learning in a real building, achieving around 40% energy savings together with up to 43% fewer temperature violations than rule-based control. Zhang et al. [ 40 ] applied an Asynchronous Advantage Actor-Critic agent in an office building, while Chen et al. [ 41 ] embedded a differentiable model predictive control policy into a deep reinforcement learning framework and implemented it in a conference room for three weeks. Qiu et al. [ 42 ] combined reinforcement learning with expert knowledge for chilled water temperature resetting in a real HVAC system. Liu et al. [ 43 ] further proposed a multi-step prediction-oriented deep RL method that reduced power consumption by 12.79% relative to conventional on/off control. As the focus of building control has expanded from single variables to coupled multi-zone operation, RL has also been extended to higher-dimensional settings. Liu et al. [ 44 ] de-veloped a multi-agent deep reinforcement learning approach for occupant-centric multi-zone HVAC control and reported a 51.09% reduction in electricity cost compared with rule-based control while maintaining thermal comfort. Nguyen et al. [ 45 ] proposed a Phasic Policy Gradient framework for multi-zone HVAC control, yielding 2–14% energy savings, improved temperature comfort, and faster convergence than conventional methods. In related multivariate occupant-centric building control, Park et al. [ 46 ] applied RL to lighting control in five office spaces and showed that the learned controller could adapt to individual behaviors and indoor environmental conditions to determine personalized setpoints. Lei et al. [ 47 ] also presented a practical deep reinforcement learning framework for multivariate occupant-centric control that jointly addressed occupant presence and personalized thermal comfort. Taken together, these studies confirm the promise of RL for building control, while also indicating that control complexity grows rapidly as more zones, variables, and occupancy-driven interactions are considered. 
+
+2.3. Large language models in building energy applications 
+
+Recent studies indicate that large language models (LLMs) are being rapidly integrated into building energy applications, with prompt engineering, fine-tuning, inference-based reasoning, and agent workflows emerging as major methodological paradigms [ 48 , 49 , 14 ]. Beyond their role as natural-language interfaces, LLMs are increasingly being explored as carriers of semantic and operational knowledge for building-related decision support[ 50 , 51 , 52 , 53 , 54 , 55 ,17 , 56 , 57 ]. In this sense, LLMs provide a new pathway for knowledge-guided building control: instead of relying solely on handcrafted rules or purely numerical policies, controllers can leverage contextual semantics, domain knowledge, and historical operational patterns to improve decision quality and adaptability. Within the HVAC and thermal comfort domain, existing studies have explored LLMs and related generative-AI techniques for real-time control, predictive control, scalable supervisory operation, fault detection and diagnostics, and personalized comfort services. Several studies have shown that LLM-based or GenAI-enhanced methods can improve both energy efficiency and occupant comfort in HVAC operation [ 58 , 59 , 60 , 61 ], while others have proposed scalable and predictive control schemes to improve deploy-ment potential in larger or more complex systems [ 62 , 63 ,64 ]. Related research has also investigated domain-adapted LLMs and time-series modeling for fault detection and diagnostics [ 65 , 66 ], transfer learning and benchmarking for model generalizability [ 67 ], and multi-agent or GenAI-based frameworks for personalized thermal comfort and climate   
+
+> Dianyu Zhong et al.: Preprint submitted to Elsevier Page 3 of 19
+
+Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation Occ. Count  Weather Station  
+
+> FCU Status Comfort Survey
+> Temperature
+
+# ...          
+
+> Historical Operation
+> Data Collection
+> Fine -tuned LLM
+> Real -World
+> Historical Data
+> Large Language Model Q Value
+> Network
+> Modeling
+> Supervised
+> Fine Tuning
+> Hierarchical LLM -RL Framework
+> Hierarchical LLM -RL
+> Framework
+> Building
+> State 𝒔 𝒕
+> Q Value Network
+> LLM
+> Guided
+> Action
+> Mask
+> Optimal Action a∗=
+> arg max a∈Ã𝑸 (𝒔 𝒕 ,𝒂 )
+> Ã:Reduced Action Set
+> Fine -tuned LLM
+> A:Action set
+> Action 𝒂 𝒕
+
+Figure 1: Overview of the proposed hierarchical LLM–RL framework for multi-zone HVAC control. Historical operation data are used to construct feasible-action labels and supervise the LLM, while the calibrated simulator provides the training and evaluation environment for the RL agent. During online control, the fine-tuned LLM generates a state-dependent feasible action mask, and the masked DQN selects the final joint FCU action within the reduced action space. 
+
+control [ 68 , 66 ]. Collectively, these studies suggest that LLMs are becoming a promising component of intelligent building operation, especially when control decisions depend on heterogeneous contextual information rather than only instantaneous numerical states. Despite this rapid progress, an important gap remains in the literature. Many existing studies use LLMs either as stand-alone decision generators or as high-level assistants, whereas fewer works explicitly integrate LLM-derived knowledge with closed-loop optimization for sequential HVAC control. Moreover, although fine-tuning and domain adaptation are increasingly adopted, the exploration of historical building-operation data to inject building-specific knowledge into downstream control remains relatively underexplored. This limitation is particularly important in multi-zone HVAC systems, where the combinatorial action space makes un-guided exploration inefficient and operationally implausi-ble. These observations motivate a hybrid knowledge-data-driven control paradigm in which LLMs provide historically grounded and meaningful feasible-action knowledge, while reinforcement learning remains responsible for long-horizon numerical optimization under coupled thermal dynamics and delayed rewards. Against this background, this study treats the LLM not as a direct controller, but as a generator of state-dependent feasible action masks that guide downstream RL optimization. 
+
+## 3. Methodology 
+
+This section describes the proposed hierarchical Large Language Model–Reinforcement Learning (LLM-RL) con-trol framework for HVAC control in buildings, designed to jointly optimize thermal comfort and energy efficiency. As illustrated in Fig. 1, the framework consists of two decision-making layers: an upper LLM layer and a lower RL layer. The upper layer employs a fine-tuned LLM, trained on real-world historical operation data, to generate state-dependent feasible action masks that characterize human-like and operationally admissible control patterns. The lower layer is a value-based RL agent that searches for the optimal action only within the feasible action region specified by the LLM. Accordingly, the hierarchical decision rule can be written as 
+
+⎧⎪⎪⎪⎨⎪⎪⎪⎩̃
+
+(𝑠 𝑡 ) = Ψ( 𝑥 𝑡 )
+
+⏟⏟⏟
+
+> LLM-based action mask generation
+
+,𝑎 𝑡 = arg max 
+
+> 𝑎 ∈̃(𝑠 𝑡 )
+
+𝑄 (𝑠 𝑡 , 𝑎 ; 𝜃 )
+
+⏟⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏟⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏟ 
+
+> RL action selection
+
+. (1) where Ψ( ⋅) denotes the fine-tuned LLM, 𝑥 𝑡 is the structured prompt constructed from the current and recent observations, and ̃ (𝑠 𝑡 ) is the LLM-generated feasible joint action set at time step 𝑡 . In addition, 𝑄 (𝑠 𝑡 , 𝑎 ; 𝜃 ) denotes the action-value function learned by the RL agent with parameters 𝜃 , and 𝑎 𝑡 is the action selected by maximizing the Q-value over the feasible action set. In this way, the LLM defines the admissible decision boundary through action masking, while the RL agent performs optimal control selection within that reduced space. The framework operates in two stages. In the offline stage, real-world historical building operation data are used to construct feasible-action labels. These labels are used to fine-tune a pre-trained LLM so that it can map structured building-state prompts to zone-wise feasible fan-speed sets. In the online stage, recent observations are serialized into 
+
+Dianyu Zhong et al.: Preprint submitted to Elsevier Page 4 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation 
+
+a structured prompt and fed to the fine-tuned LLM to generate feasible action masks. The RL agent then selects the final control action by maximizing the Q-value over the masked action space, while the calibrated simulator provides state transitions and rewards for closed-loop learning and evaluation. The proposed hierarchical LLM–RL control framework comprises four major components, detailed in the subsequent sections: • Control problem formulation (Section 3.1). • Offline data collection and LLM fine-tuning (Sec-tions 3.2 and 3.3). • Online control with LLM-guided action masking and masked RL decision-making (Section 3.4.2). • Building HVAC simulator construction for training and evaluation (Section 3.5). The following subsections describe each component in detail. 
+
+3.1. Control Problem Formulation 
+
+We formulate multi-zone HVAC operation as a finite-horizon sequential decision problem with state-dependent action constraints. At each control step 𝑡 with interval 
+
+Δ𝑡 = 5 minutes, the controller observes the current building state 𝑠 𝑡 ∈  and selects a joint control action 𝑎 𝑡 for all controllable fan coil units (FCUs). The transition from 𝑠 𝑡 to 
+
+𝑠 𝑡 +1 is governed by the coupled building thermal and HVAC dynamics described in Section 3.5. The state 𝑠 𝑡 summarizes the information available from the sensing and management system at time 𝑡 , including zone indoor temperatures, zone-level occupancy counts, outdoor thermal conditions, recent FCU operating states, and auxiliary HVAC and temporal features. For notation convenience, we write 
+
+𝑠 𝑡 = [𝐓 zone  
+
+> 𝑡
+
+, 𝐧 𝑡 , 𝑇 out  
+
+> 𝑡
+
+, 𝐚 𝑡 −1 , 𝐳 𝑡 
+
+], (2) where 𝐓 zone  
+
+> 𝑡
+
+= [ 𝑇 𝑡, 1, … , 𝑇 𝑡,𝐽 ] denotes the vector of indoor temperatures for the 𝐽 zones ( 𝐽 = 7 in the present case study), 𝐧 𝑡 = [ 𝑛 𝑡, 1, … , 𝑛 𝑡,𝐽 ] denotes the correspond-ing vector of zone-level occupancy counts, and 𝐚 𝑡 −1 =[𝑎 𝑡 −1 ,1, … , 𝑎 𝑡 −1 ,𝐽 ] denotes the previous FCU fan-speed set-tings. 𝑇 out  
+
+> 𝑡
+
+denotes the outdoor temperature, and 𝐳 𝑡 collects auxiliary HVAC measurements and time/context features. In the proposed framework, recent observations are further serialized over a short temporal window for the LLM module, whereas the RL module uses the current decision state together with the LLM-generated action mask for value estimation and action selection. For a building with 𝐽 controllable FCUs, the control action at time 𝑡 is the joint discrete fan-speed vector 
+
+𝑎 𝑡 = [ 𝑎 𝑡, 1, 𝑎 𝑡, 2, … , 𝑎 𝑡,𝐽 ], 𝑎 𝑡,𝑗 ∈ , (3) where  = {0 , 1, 2, 3} denotes the available fan-speed levels, with 0 representing the off state and 1–3 representing increasing fan speeds. The full joint action space is therefore 
+
+ = 𝐽 , (4) whose cardinality is || = 4 7 = 16384 for the studied 7-zone building. Unlike unconstrained RL, the proposed framework oper-ates over a state-dependent feasible action subset generated by the fine-tuned LLM. Given the current information at time 
+
+𝑡 , the LLM outputs a feasible fan-speed set 𝑀 𝑗 (𝑠 𝑡 ) ⊆  for each FCU 𝑗 . These zone-wise feasible sets induce the valid joint action subset ̃
+
+(𝑠 𝑡 ) = 
+
+> 𝐽
+
+∏
+
+> 𝑗 =1
+
+𝑀 𝑗 (𝑠 𝑡 ) ⊆ , (5) which constrains downstream exploration and action selec-tion. The control objective is to maximize the expected discounted return while balancing thermal comfort and HVAC energy use: 
+
+max  
+
+> 𝜋
+
+𝔼 𝜋 
+
+[𝑇 −1 ∑
+
+> 𝑡 =0
+
+𝛾 𝑡 𝑟 𝑡 
+
+]
+
+s.t. 𝑎 𝑡 ∈̃ (𝑠 𝑡 ), ∀𝑡. (6) Here, the per-step reward 𝑟 𝑡 penalizes occupancy-weighted thermal discomfort during occupied periods together with HVAC energy use, while the detailed comfort and energy definitions are provided in Section 4.2. Under this formula-tion, the LLM is responsible for generating state-dependent feasible action masks, and the RL agent performs policy optimization within the masked action space. 
+
+3.2. Real-World Historical Data Collection 
+
+To support both LLM training and simulator calibration, historical operational data were collected from a commercial office building in Hebei Province, China, from August 7 to August 22, 2021 [ 12 ]. Measurements were logged at 1-minute intervals during operational hours (9:00–19:00), while FCU control actions were executed every 5 minutes. Over 9,000 synchronized timestamps were recorded, cover-ing thermal-zone conditions, occupancy states, and HVAC operating variables. The collected dataset includes outdoor temperature, zone air temperatures, FCU fan states, supply and return water temperatures, supply and return pressures, and zone-level occupancy counts. These variables provide the empirical basis for the state representation in Section 3.1, for the kNN-based feasible-action labeling described in Section 3.3, and for simulator calibration in Section 3.5. The key variables are summarized in Table 1. During the data-collection period, the baseline control strategy combined occupancy-based automation with manual overrides. In automatic mode, FCUs were activated or deactivated according to real-time occupancy detection, while local thermostats or the building management system could temporarily override the automated control. As a result,                          
+
+> Dianyu Zhong et al.: Preprint submitted to Elsevier Page 5 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation
+> Table 1
+> Historical Data Collection.
+> Variable Description
+> outdoor_temp Outdoor air temp ( ◦C) For 𝑖 = 1 ,…,7
+> zone_temp_i Zone 𝑖 air temp ( ◦C) FCU_fan_i FCU 𝑖 fan speed mode supply_temp_i FCU 𝑖 supply temp ( ◦C) return_temp_i FCU 𝑖 return temp ( ◦C) supply_pressure_i FCU 𝑖 supply pressure (kPa) return_pressure_i FCU 𝑖 return pressure (kPa) occupant_num_i Zone 𝑖 Occ. count
+
+the logged trajectories reflect historically observed operation patterns under real building use rather than synthetic expert demonstrations. Detailed case-study descriptions and eval-uation settings are provided in Section 5.4 and Section 4.2, respectively. 
+
+3.3. Supervised Fine-Tuning of the LLM 
+
+To enable the LLM to generate state-dependent feasible action masks for the downstream controller, we perform supervised fine-tuning (SFT) on the historical HVAC oper-ational data. This stage consists of two steps: constructing feasible-action labels from neighborhoods of similar states and adapting a pre-trained LLaMA model via Low-Rank Adaptation (LoRA) to predict these labels from structured prompts. 
+
+3.3.1. Construction of SFT Dataset via kNN-Derived Feasible Action Sets 
+
+The raw historical dataset contains state–action pairs 
+
+{( 𝑠 𝑖 , 𝑎 𝑖 )} 𝑁 𝑖 =1 , where 𝑠 𝑖 denotes the building state at time step 𝑖 and 𝑎 𝑖 is the executed joint FCU fan-speed command. In HVAC control, however, more than one action may be acceptable under similar comfort–energy conditions. To expose this multimodality to the LLM, we augment each logged action into a data-driven feasible action set derived from a neighborhood of similar historical states. For each state 𝑠 𝑖 , we first define a weighted Euclidean distance in the state space: 
+
+𝑑 (𝑠 𝑖 , 𝑠 𝑙 ) = 
+
+√∑
+
+> 𝑞
+
+𝑤 𝑞 
+
+(𝑠 (𝑞 ) 
+
+> 𝑖
+
+− 𝑠 (𝑞 )
+
+> 𝑙
+
+)2, (7) where 𝑠 (𝑞 ) 
+
+> 𝑖
+
+denotes the 𝑞 -th feature of state 𝑠 𝑖 and 𝑤 𝑞 is the corresponding feature weight. The neighborhood of 𝑠 𝑖 is then defined as 
+
+ (𝑖 ) = kNN 𝑘 (𝑠 𝑖 ), (8) which contains the indices of the 𝑘 most similar historical states. Given the fan-speed level set  = {0 , 1, 2, 3} , we compute, for each FCU 𝑗 ∈ {1 , … , 𝐽 } and level 𝑙 ∈ ,the empirical frequency of applying level 𝑙 within the neighborhood of 𝑠 𝑖 :
+
+𝑓 (𝑖 ) 
+
+> 𝑗,𝑙
+
+= 1
+
+| (𝑖 )|∑ 
+
+> 𝑚 ∈(𝑖 )
+
+𝟙 (𝑎 𝑚,𝑗 = 𝑙 ), (9) where 𝑎 𝑚,𝑗 is the fan-speed level of FCU 𝑗 in the historical action 𝑎 𝑚 .We then define the feasible fan-speed set for FCU 𝑗 at state 𝑠 𝑖 by thresholding these empirical frequencies: 
+
+𝑀 𝑗 (𝑠 𝑖 ) = { 𝑙 ∈  ||| 𝑓 (𝑖 ) 
+
+> 𝑗,𝑙
+
+≥ 𝜏 }, (10) where 𝜏 ∈ [0 , 1] is a small frequency threshold used to exclude extremely rare actions. In all experiments, we use a fixed neighborhood size 𝑘 = 50 and a frequency threshold 𝜏 = 0 .05 when constructing feasible action sets. The corresponding binary labels are 
+
+𝑦 𝑖,𝑗,𝑙 =
+
+{
+
+1, 𝑙 ∈ 𝑀 𝑗 (𝑠 𝑖 ),
+
+0, otherwise . (11) Following the prompting scheme used at inference time, each SFT sample consists of two parts: an input prompt 
+
+𝑥 𝑖 and a target output 𝑜 𝑖 . The input prompt serializes the recent building-state sequence from 𝑡 − 4 to 𝑡 , including temperatures, occupancies, previous fan actions, and time/-context information. The target output is a JSON object with two fields: analysis , generated from a fixed rule-based template derived from the observation window and the feasible-action statistics, and recommendations , which encodes the zone-wise feasible action sets. During online control, only the recommendations field is used by the RL controller. Collecting all such pairs yields the SFT dataset 
+
+SFT = {(𝑥 𝑖 , 𝑜 𝑖 )}𝑁 𝑖 =1 . (12) 
+
+3.3.2. LoRA-Based Fine-Tuning of LLaMA for Mask Prediction 
+
+Given SFT , we fine-tune a pre-trained LLaMA model to approximate the mapping from structured prompt to zone-wise feasible action sets. To preserve the general language capabilities of the base model while keeping the adaptation parameter-efficient, we adopt LoRA. For a weight matrix 𝑊 0 ∈ ℝ𝑑 out ×𝑑 in in the base model, LoRA re-parameterizes the adapted weight as 
+
+𝑊 = 𝑊 0 + Δ 𝑊 , Δ𝑊 = 𝐵𝐴, (13) where 𝐴 ∈ ℝ𝑟 ×𝑑 in and 𝐵 ∈ ℝ𝑑 out ×𝑟 are trainable low-rank matrices with rank 𝑟 ≪ min( 𝑑 in , 𝑑 out ). During SFT, only the LoRA parameters are updated, whereas the original model weights remain frozen. We perform standard teacher-forced next-token predic-tion. Each training pair (𝑥 𝑖 , 𝑜 𝑖 ) is concatenated into one sequence, and the SFT objective minimizes the negative log-likelihood of the target tokens: 
+
+SFT (𝜙 ) = − 1
+
+𝑁 
+
+> 𝑁
+
+∑
+
+> 𝑖 =1
+
+log 𝑝 𝜙 
+
+(𝑜 𝑖 | 𝑥 𝑖 
+
+), (14)   
+
+> Dianyu Zhong et al.: Preprint submitted to Elsevier Page 6 of 19
+
+Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation 
+
+where 𝜙 denotes the LoRA parameters. In practice, the loss is computed over the target portion of the sequence, namely the generated analysis text and the structured 
+
+recommendations field. Detailed training configurations are provided in Section 5.3.3 and Table 5. At inference time, the fine-tuned model receives the same prompt structure but without ground-truth labels and autore-gressively generates a JSON object. The recommendations 
+
+field is parsed to recover the zone-wise feasible sets 
+
+{𝑀 𝑗 (𝑠 𝑡 )} 𝐽 𝑗 =1 , which in turn induce the masked action space ̃
+
+(𝑠 𝑡 ) used by the RL controller. 
+
+3.4. Online Control with LLM-guided Action Masking 
+
+After offline SFT, the LLM is embedded in the online control loop to provide state-dependent action masks for the RL agent. This section describes how numerical building states are converted into structured LLM inputs and how the resulting masks are incorporated into masked DQN decision-making. 
+
+3.4.1. Structured Prompting and LLM-guided Action Mask 
+
+To interface numerical building states with the language model, we design a structured prompting mechanism that encodes control objectives, environmental context, and recent temporal dynamics. As illustrated in Fig. 2 and Fig. 3, the prompt is constructed to translate recent building obser-vations into a machine-readable instruction that supports structured feasible-action generation. The prompt has four key elements. First, the system instruction defines the LLM as a building-management assistant and states the dual control objective of maintaining thermal comfort while avoiding unnecessary HVAC energy use. Second, the prompt embeds building-specific domain knowledge, including the mapping between fan-speed levels and cooling intensity, the distinction between relatively independent zones (Rooms 1–4) and thermally coupled zones (Rooms 5–7), and the role of occupancy in shaping cooling demand. Third, the input state is serialized over the most recent five control steps, from 𝑡 − 4 to 𝑡 , so that the model can infer short-term trends rather than relying only on the current snapshot. Fourth, the prompt enforces a strict JSON output format to facilitate downstream parsing. At time step 𝑡 , the resulting prompt 𝑥 𝑡 contains recent zone temperatures, occupancy counts, previous fan actions, outdoor conditions, and time/context features. The fine-tuned LLM returns a JSON object with two fields: a short textual analysis and a recommendations field. Only the recommendations field is used by the controller. It specifies, for each FCU 𝑗 , a subset 𝑀 𝑗 (𝑠 𝑡 ) ⊆  of feasible fan-speed levels. These zone-wise subsets are then converted into the joint feasible action space ̃
+
+(𝑠 𝑡 ) = 
+
+𝐽 ∏
+
+𝑗 =1 
+
+𝑀 𝑗 (𝑠 𝑡 ), (15) -Prompt Engineering Part 1 -
+
+## Role: 
+
+> You are an expert AI assistant for building management systems. Your task
+> is to analyze the current (Time T) and historical (T -1min, T -2min, T -3min, T -
+> 4min) real -time status of 7 rooms and propose a set of viable Fan Coil Unit
+> (FCU) Fan Speed candidates for the next 5 -minute interval (T to T+5min).
+
+## Goal: 
+
+> Analyze the provided current and historical real -time status of the 7 rooms
+> and output a list of recommended Fan Coil Unit (FCU) Fan Speeds for each
+> room, for the next 5 -minute interval (T to T+5min), based on room
+> temperature and occupancy.
+> Focus on the relationship between occupant comfort, room conditions, and
+> energy efficiency.
+> These recommendation sets will be used by a decision -making system (e.g.,
+> RL agent) to select the final action. Include actions that balance optimal
+> temperature maintenance with potential energy savings.
+
+## Key points to consider:     
+
+> -Occupant Comfort: Maintain an optimal temperature range of 25 -27 °C.
+> -Energy Efficiency: Ensure the cooling process maintains energy efficiency
+> by preventing excessive Fan Speed adjustments. Focus on finding the balance
+> between optimal temperature and minimal energy use.
+> -Temperature & Fan Speed Relationship: A higher Fan Speed results in
+> stronger cooling, reducing room temperature. Fan Speed of 0 means the fan is
+> off.
+> -Candidate Selection: Provide 1 to 3 plausible actions per room.
+
+## Scenario Settings:       
+
+> -Season: Summer (Cooling mode).
+> -Effect of FCU Fan Speed:
+> -0: Fan Off (no cooling).
+> -1: Low speed (minimal cooling, may be insufficient in high -occupancy
+> rooms.).
+> -2: Medium speed (moderate cooling).
+> -3: High speed (maximum cooling, rapid temperature reduction).
+
+## Building Configuration:    
+
+> -7 rooms in total.
+> -Rooms 1 -4: Independent offices. Changes affect only the specific room.
+> -Rooms 5 -7 (Large interconnected hall): Changes to one of these rooms
+> affect the others due to air mixing, so any adjustment should consider the
+> collective impact.
+
+## Data Handling: 
+
+> If historical temperature data appears invalid (e.g., 0.00 °C or null), prioritize
+> the most recent valid data and current status for your analysis.
+
+## Occupancy Impact: 
+
+> The number of occupants directly impacts heat load. Assume each occupant
+> generates a certain amount of heat. Therefore, rooms with more occupants
+> require stronger cooling to maintain the target temperature. A room with 1 or
+> more occupants is considered 'occupied’.
+
+Figure 2: System instruction component of the prompt. This part specifies the control objective, operational context, and domain knowledge on HVAC actuation and spatial topology. 
+
+which induces the LLM-guided binary action mask used for online control. 
+
+3.4.2. Deep Reinforcement Learning under Action Masking 
+
+In the studied multi-zone HVAC system, the joint action space grows exponentially with the number of controllable zones and discrete fan-speed levels. Standard value-based RL therefore faces inefficient exploration in the full combinato-rial action space. In this work, the downstream RL controller is implemented as a DQN agent whose decision process is constrained by the LLM-generated feasible action mask. 
+
+Dianyu Zhong et al.: Preprint submitted to Elsevier Page 7 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation -Prompt Engineering Part 2 -
+
+## Input Format: 
+
+> You will be provided with real -time status at the current moment (T), and
+> also the status from 1, 2, 3, and 4 minutes ago.
+
+## Output Format: 
+
+> Your response MUST be a single, valid JSON object and nothing else. Do
+> not include any introductory text, explanations, apologies, or markdown
+> formatting like ``` json . The JSON object should have two top -level keys:
+> analysis and recommendations.
+> analysis: A string containing a brief, step -by -step reasoning for your
+> decisions.
+> recommendations: An object containing the list of recommended fan speeds
+> for each room. Keys are room_1 to room_7, and values are lists (arrays) of
+> integers from 0 to 3.
+> {
+> "analysis": "Room 1 is empty and cool, suggesting [0]. Room 3 is hot with
+> occupants, candidates are [2, 3] for cooling. Rooms 5 -7 are interconnected
+> and slightly warm; valid options include [1, 2] to balance comfort and
+> energy.",
+> "recommendations": {
+> "room_1": [0],
+> "room_2": [0, 1],
+> "room_3": [2, 3],
+> "room_4": [0, 1],
+> "room_5": [1, 2],
+> "room_6": [1, 2],
+> "room_7": [1, 2]
+> }
+> }
+> You will be provided with real -time status at the current moment (T),
+> and also the status from 1, 2, 3, and 4 minutes ago.
+
+## [Real -Time Status Input]                 
+
+> Current Status :
+> Room 1 —Temperature: 29.03 °C, Occupant Num: 2, Fan Speed: 0;
+> Room 2 —Temperature: 28.12 °C, Occupant Num: 1, Fan Speed: 1;
+> ……
+> Room 7 —Temperature: 29.05 °C, Occupant Num: 4, Fan Speed: 1;
+> Outdoor -Temperature: 31.20 °C
+> Status 1 minute ago :
+> Room 1 —Temperature: 29.03 °C, Occupant Num: 0, Fan Speed: 0;
+> Room 2 —Temperature: 28.10 °C, Occupant Num: 1, Fan Speed: 1;
+> ……
+> Room 7 —Temperature: 29.08 °C, Occupant Num: 5, Fan Speed: 1;
+> Outdoor -Temperature: 31.20 °C
+> Status 2 minutes ago :
+> ……
+> Status 3 minutes ago :
+> ……
+> Status 4 minutes ago :
+> ……
+
+Figure 3: Formatting and state-serialization component of the prompt. The prompt enforces a JSON output schema and represents recent observations over a short temporal window, enabling the LLM to produce structured feasible fan-speed recommendations. 
+
+For each joint action 𝑎 ∈ , we define a binary validity indicator 
+
+𝑚 𝑎 (𝑠 𝑡 ) = 
+
+{
+
+1, 𝑎 ∈̃ (𝑠 𝑡 ),
+
+0, 𝑎 ∉̃ (𝑠 𝑡 ), (16) and collect these indicators into a binary mask vector 𝐦 (𝑠 𝑡 ) ∈ {0 , 1} ||.The control action is then selected according to the constrained greedy policy 
+
+𝑎 𝑡 = arg max 
+
+𝑎 ∈̃(𝑠 𝑡 )
+
+𝑄 (𝑠 𝑡 , 𝑎 ; 𝜃 ), (17) where 𝑄 (𝑠 𝑡 , 𝑎 ; 𝜃 ) is the Q-function parameterized by 𝜃 .In practice, invalid actions are suppressed by Q-value masking. Let 𝐪 (𝑠 𝑡 ) ∈ ℝ|| denote the raw Q-values produced by the network. The masked Q-values are computed as 
+
+𝐪 masked (𝑠 𝑡 ) = 𝐪 (𝑠 𝑡 ) − 𝐶 (𝟏 − 𝐦 (𝑠 𝑡 )), (18) where 𝐶 ≫ 0 is a large positive constant. Action selection, whether greedy or 𝜖 -greedy, is then restricted to the feasible action subset. The Bellman target is also computed under the next-state mask: 
+
+𝑦 𝑡 = 𝑟 𝑡 + (1 − 𝑑 𝑡 )𝛾 max 
+
+𝑎 ′∈̃ (𝑠 𝑡 +1 )
+
+𝑄 (𝑠 𝑡 +1 , 𝑎 ′; 𝜃 −), (19) where 𝑑 𝑡 is the terminal indicator and 𝜃 − denotes the target-network parameters. The DQN objective is 
+
+DQN (𝜃 ) = 𝔼 (𝑠 𝑡 ,𝑎 𝑡 ,𝑟 𝑡 ,𝑠 𝑡 +1 ,𝑑 𝑡 )∼ 
+
+[(𝑦 𝑡 − 𝑄 (𝑠 𝑡 , 𝑎 𝑡 ; 𝜃 ))2]
+
+, (20) with  denoting the replay buffer. The online decision loop is therefore as follows: the controller observes 𝑠 𝑡 , constructs the prompt 𝑥 𝑡 , queries the fine-tuned LLM to obtain ̃ (𝑠 𝑡 ), selects a valid action via masked DQN, executes the action in the simulator, and uses the resulting transition to update the value function. The corresponding training procedure is summarized in Algorithm 1. 
+
+3.5. Building HVAC Simulator Construction 
+
+Based on the collected data and the designed system, we developed a high-fidelity simulator to replicate the building’s thermal and energy dynamics, following the framework proposed by Yan et al. [ 69 ]. The simulator integrates real-world data to ensure alignment with the building’s operational characteristics and consists of three main components: indoor zone models, HVAC equipment models, and a cooling water pipe network [70, 71]. The indoor zone model comprehensively accounts for multiple heat-gain components, including building envelope conduction, solar radiation, internal occupancy loads, inter-zone heat transfer, and the cooling/heating effect from terminal HVAC units. Heat transfer through the envelope is quantified using the Overall Thermal Transfer Value (OTTV) method [ 72 ]. Occupant sensible heat release is modeled as the following function: 
+
+𝑄 occ ,𝑖 =
+
+( 37 − 𝑇 in ,𝑖 
+
+37 − 24 ⋅ 𝑞 p + 𝑞 d
+
+)
+
+⋅ 𝑛 p,𝑖 , (21) where 𝑞 p corresponds to the sensible heat emission of an average adult at 24°C, 𝑞 d is an additional heat release 
+
+Dianyu Zhong et al.: Preprint submitted to Elsevier Page 8 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation 
+
+Algorithm 1 LLM-guided Masked DQN Training for Multi-zone HVAC Control 
+
+Require: Fine-tuned LLM Ψ, full action space , explo-ration schedule 𝜖 (𝑡 ) 
+
+> 1:
+
+Initialize online Q-network 𝑄 (⋅, ⋅; 𝜃 ) and target Q-network 𝑄 (⋅, ⋅; 𝜃 −) 
+
+> 2:
+
+Initialize replay buffer  ← ∅ 
+
+> 3:
+
+for episode 𝑘 = 1 , 2, … , 𝐾 do  
+
+> 4:
+
+Reset simulator and observe initial state 𝑠 0 
+
+> 5:
+
+for time step 𝑡 = 0 , 1, … , 𝑇 − 1 do  
+
+> 6:
+
+Construct structured prompt 𝑥 𝑡 from recent obser-vations  
+
+> 7:
+
+Query LLM: {𝑀 𝑗 (𝑠 𝑡 )} 𝐽 𝑗 =1 ← Ψ( 𝑥 𝑡 ) 
+
+> 8:
+
+Form ̃ (𝑠 𝑡 ) = ∏𝐽 𝑗 =1 𝑀 𝑗 (𝑠 𝑡 ) and the binary mask 
+
+𝐦 (𝑠 𝑡 ) 
+
+> 9:
+
+Select 𝑎 𝑡 by 𝜖 -greedy over ̃ (𝑠 𝑡 ) using masked Q-values  
+
+> 10:
+
+Execute 𝑎 𝑡 in the simulator and observe 𝑟 𝑡 , 𝑠 𝑡 +1 , and 
+
+𝑑 𝑡  
+
+> 11:
+
+Store transition (𝑠 𝑡 , 𝑎 𝑡 , 𝑟 𝑡 , 𝑠 𝑡 +1 , 𝑑 𝑡 ) in  
+
+> 12:
+
+if training update is triggered then  
+
+> 13:
+
+Sample mini-batch  ∼  
+
+> 14:
+
+for each (𝑠 𝑗 , 𝑎 𝑗 , 𝑟 𝑗 , 𝑠 𝑗 +1 , 𝑑 𝑗 ) ∈  do  
+
+> 15:
+
+Construct 𝑥 𝑗 +1 and query Ψ( 𝑥 𝑗 +1 ) to obtain ̃
+
+(𝑠 𝑗 +1 ) 
+
+> 16:
+
+Compute masked target 
+
+𝑦 𝑗 = 𝑟 𝑗 +(1− 𝑑 𝑗 )𝛾 max 
+
+> 𝑎 ′∈̃(𝑠 𝑗 +1 )
+
+𝑄 (𝑠 𝑗 +1 , 𝑎 ′; 𝜃 −) 
+
+> 17:
+
+end for  
+
+> 18:
+
+Update 𝜃 by minimizing the DQN loss over  
+
+> 19:
+
+Periodically update 𝜃 − 
+
+> 20:
+
+end if  
+
+> 21:
+
+end for  
+
+> 22:
+
+end for  
+
+> 23:
+
+Return 𝜋 (𝑠 ) = arg max 𝑎 ∈̃(𝑠 ) 𝑄 (𝑠, 𝑎 ; 𝜃 )
+
+correction, and 𝑛 p,𝑖 is the instantaneous number of occupants in the zone. Inter-zone heat exchange between thermally connected zones is calculated as: 
+
+𝑄 int ,𝑖 = ∑
+
+> 𝑗 ∈adj ,𝑖
+
+(𝑇 in ,𝑗 − 𝑇 in ,𝑖 ) ⋅ 𝜂 adj ,𝑗 , (22) where adj ,𝑖 is the set of zone i’th adjacent zones, 𝑇 in ,𝑗 is the air temperature of neighboring zone 𝑗 , and 𝜂 adj ,𝑗 represents the effective heat transfer coefficient of zone 𝑗 .The total thermal load of the zone is then obtained by aggregating all contributions: 
+
+𝑄 load ,𝑖 = 𝑄 occ ,𝑖 + 𝑄 int ,𝑖 + ∑
+
+> 𝑤
+
+𝑂𝑇 𝑇 𝑉 𝑖,𝑤 ⋅ 𝐴 𝑖,𝑤 , (23) where 𝑂𝑇 𝑇 𝑉 𝑖,𝑤 and 𝐴 𝑖,𝑤 are the OTTV value and the surface area of the 𝑤 -th external wall of zone i.The sensible cooling or heating capacity delivered by supply air from fan coil units (FCUs) or other air-based terminals is expressed as: 
+
+𝑄 sup ,𝑖 = 𝜌 a,𝑖 𝑐 𝑝, ȧ 𝑉 sup ,𝑖 (𝑇 sup ,𝑖 − 𝑇 in ,𝑖 ), (24) where 𝜌 a,𝑖 and 𝑐 𝑝, a are the density and specific heat capacity of air, ̇ 𝑉 sup ,𝑖 is the supply airflow rate of zone i, and 𝑇 sup ,𝑖 is the supply air temperature. Finally, the instantaneous rate of change of zone air tem-perature is computed using a lumped capacitance approach: 
+
+𝑑𝑇 in ,𝑖 
+
+𝑑𝑡 = 𝑄 load ,𝑖 + 𝑄 sup ,𝑖 
+
+𝜌 a,𝑖 𝑐 𝑝, a𝑉 zone ,𝑖 
+
+⋅ 𝛽, (25) where 𝑉 zone ,𝑖 is the air volume of zone i and 𝛽 ∈ [0 .8, 1.2] 
+
+is an empirical calibration factor that accounts for thermal stratification, furniture capacitance, and other non-ideal effects typically observed in real buildings. The HVAC module comprises parameterized models for fan coil units (FCUs) and variable-speed circulating pumps. These components are responsible for terminal air distribution, coil heat transfer, system-side hydraulic performance, and overall electrical energy consumption. The fan power of FCUs under off-design airflow conditions is calculated using the fan similarity laws [73]: 
+
+𝑊 fcu ,𝑖 = ( ̇ 𝑉 fan ,𝑖 ̇𝑉 rated ,𝑖 
+
+)1.5 × 𝑊 rated ,𝑖 , (26) where ̇ 𝑉 fan ,𝑖 and ̇ 𝑉 rated ,𝑖 are the actual and rated airflow rates of i’th FCU while 𝑊 rated ,𝑖 is the fan’s electrical power at rated conditions. Note that for typical constant-air-volume or three-speed FCUs, the exponent is commonly reduced to 1.5 in engineering practice; the present simulator retains this widely accepted approximation. The water-side pump is modeled using a combination of manufacturer characteristic curves and affinity laws. At rated frequency, the pump head–flow relationship is represented by a quadratic polynomial [73]: 
+
+Δ𝑃 rated = 𝛼 1̇ 𝑉 2pump + 𝛼 2̇ 𝑉 pump + 𝛼 3, (27) where ̇ 𝑉 pump is the volumetric flow rate and 𝛼 1, 𝛼 2, 𝛼 3 are regression coefficients. When the pump operates at variable speed, the head scales with the square of the speed ratio [73]: 
+
+Δ𝑃 =
+
+( 𝑓 pump 
+
+𝑓 rated 
+
+)2
+
+Δ𝑃 rated , (28) where 𝑓 pump and 𝑓 rated are the actual and rated motor frequencies. This relationship is embedded within the pipe network solver to determine the operating point that satisfies both the pump curve and the system resistance curve. Convergence of the iterative hydraulic solution achieved when: 
+
+||||||( 𝑓 pump 
+
+𝑓 rated 
+
+)2
+
+Δ𝑃 rated − ( 𝛼 1̇ 𝑉 2pump + 𝛼 2̇ 𝑉 pump + 𝛼 3)
+
+||||||
+
+≤ 𝜀, 
+
+Dianyu Zhong et al.: Preprint submitted to Elsevier Page 9 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation 
+
+(29) with 𝜀 being a small tolerance (typically 10 −3 ∼ 10 −2 kPa). Pump electrical power follows the cube-law scaling: 
+
+𝑊 pump =
+
+( 𝑓 pump 
+
+𝑓 rated 
+
+)3
+
+𝑊 pump ,rated . (30) The water pipe network serves as the hydraulic and thermal backbone that links all water-side HVAC compo-nents, enabling fully coupled calculations of flow distribution, pressure losses, and temperature propagation through an iterative solver. The network topology is formulated as a directed graph 
+
+ = ( , ), where  denotes the set of pipe branching/in-tersection nodes and  the set of directed edges between two nodes. The connectivity is compactly represented by the incidence matrix 𝐌 ∈ ℝ||×||, whose elements are defined as: 
+
+𝑚 𝑖,𝑗 =
+
+⎧⎪⎨⎪⎩
+
+1, if node 𝑖 is the upstream endpoint of branch 𝑗, 
+
+−1 , if node 𝑖 is the downstream endpoint of branch 𝑗, 
+
+0, otherwise .
+
+(31) At each simulation time step, the water volumetric flow rate ̇ 𝑉 𝑤,𝑗 in every branch 𝑗 ∈  is obtained by solving the complete set of nonlinear hydraulic equations using the Newton–Raphson method. The variable-speed pump characteristic is directly incorporated as an implicit boundary condition, guaranteeing that mass continuity is satisfied at all nodes while simultaneously matching the system pressure– flow operating point. After hydraulic convergence, the energy transport calcu-lation is performed sequentially in the direction of flow. The outlet water temperature from each FCU coil is determined from the instantaneous zone cooling load and the coil entering water temperature using standard effectiveness– NTU relations. Temperature changes along pipe segments are computed by considering both convective transport and minor heat losses/gains to the surroundings (usually negligible for well-insulated lines). The updated nodal temperatures and branch flow rates are then passed back to the FCU models and pump model to close the coupled solution loop for the current time step. This simulator serves as a testbed for evaluating the proposed control strategies, enabling the optimization of HVAC operation to minimize energy consumption while maintaining occupant comfort. 
+
+## 4. Experimental Setting 
+
+4.1. Case Study Modeling 
+
+The case study considers an office building in Hebei Province, China [ 12 ]. The building comprises a seven-zone office space, as shown in Fig. 4, with one fan coil unit (FCU) installed in each thermal zone. This subsection describes the  
+
+> Figure 4: Layout of the office building [70].
+
+building layout, HVAC configuration, sensing infrastructure, and case-specific operating context used in the simulator-based evaluation. The building consists of several individual rooms and a hall. FCUs 1–4 each serve an individual cellular office, whereas FCUs 5–7 serve zones that allow inter-zone heat exchange. The FCUs receive chilled or heated water from a central refrigeration station comprising a heat pump and a circulating water pump. The pump distributes water to all FCUs through a closed-loop pipe network, while the heat pump provides the thermal source for cooling and heating. An overview of the HVAC system configuration and representative devices is shown in Fig. 5. The building adopts an FCU-based hydronic HVAC system serving multiple thermal zones, with zones 5–7 illustrated as representative examples in Fig. 5(a). To monitor indoor thermal conditions and system oper-ation, a sensing infrastructure is deployed throughout the building. At the zone level, each thermal zone is equipped with at least one indoor air temperature sensor for real-time monitoring and data collection, as exemplified in Fig. 5(f). Occupancy information is inferred from ceiling-mounted video cameras; Fig. 5(c) shows zone 7, and Fig. 5(g) shows zone 2. At the terminal side, each FCU is instrumented with a water flow meter, supply and return water temperature sensors, and pressure sensors to capture coil-level thermal and hydraulic states (Fig. 5(b)). In the central plant, the circulating water pumps are equipped with inlet and outlet pressure sensors and return water temperature sensors to characterize system-level hydronic conditions (Fig. 5(d)). The pumps are driven by variable frequency drives (VFDs) with a control resolution of 1 Hz, and their electrical power consumption is measured via electrical meters installed in the electrical cabinet (Fig. 5(e)). Additional measurements include outdoor air temperature and system-level operational data. All sensors operated continuously during HVAC runtime throughout the study period. These measurements are used to characterize the building’s thermal behavior and to support the simulator calibration described in Section 3.5. The building operates primarily during standard working hours (9:00–19:00 on weekdays), with reduced occupancy around lunchtime. An average of 12.4 people occupied the    
+
+> Dianyu Zhong et al.: Preprint submitted to Elsevier Page 10 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation
+> Figure 5: HVAC system configuration. (a) FCUs of zones 5 to 7. (b) Sensors of FCU 1. (c) Video sampling of zone 7. (d) Sensors of water pumps. (e) Electrical cabinet. (f) Temperature sensor. (g) Video camera of zone 2 [70].
+
+office during the study period, with typical weekday usage and no regular weekend activity. The historical data were collected between August 7 and August 22, 2021 [12]. 
+
+4.2. Performance Evaluation Metrics 
+
+To comprehensively assess the proposed building control strategies, we adopt a dual-objective evaluation framework that quantifies both occupant thermal comfort and HVAC energy use. These metrics define the reinforcement learning (RL) reward signal and are also used for controller per-formance evaluation. This subsection details the thermal discomfort indices, energy metric, and composite reward function. 
+
+4.2.1. Thermal Discomfort Metrics 
+
+Thermal comfort is evaluated using the Predicted Mean Vote (PMV) and Predicted Percentage of Dissatisfied (PPD) indices, as introduced by Fanger [ 74 ]. These indices provide a physiologically grounded assessment of human thermal sensation in indoor environments. The PMV is calculated based on six parameters: air temperature ( 𝑇 𝑎 ), mean radiant temperature ( 𝑇 𝑟 ), relative humidity (RH), air velocity ( 𝑣 ), clothing insulation ( 𝐼 𝑐𝑙 ), and metabolic rate ( 𝑀 ). Under the typical office conditions of the case study building, the following parameters are fixed in the PMV calculation: 𝑣 = 0 .15 m/s, RH = 40% , 𝐼 𝑐𝑙 = 0 .63 clo, and 𝑀 = 1 .1 met. The mean radiant temperature 𝑇 𝑟 is approximated as equal to the air temperature 𝑇 𝑎 due to the well-insulated envelope and the limited radiant asymmetry in the office zones. Under these assumptions, PMV and the corresponding PPD are computed using the standard Fanger formulation. A PMV value of 0 indicates neutral thermal sensa-tion, with an acceptable range of [−0 .5, +0 .5] as specified by ASHRAE Standard 55 [ 5], EN 15251 [ 75 ], and ISO 7730 [ 76 ]. The PPD, derived from PMV, predicts the percent-age of occupants dissatisfied with the thermal environment. An acceptable PPD is typically below 10%, corresponding to the PMV bounds above. In addition to PPD-based reward evaluation, the episode-level mean absolute PMV is reported as a supplementary comfort indicator in Section 5. For multi-zone evaluation, we compute the zone-specific 
+
+PPD 𝑖,𝑡 at time step 𝑡 and aggregate it as the occupancy-weighted mean PPD across zones: 
+
+PPD mean ,𝑡 =
+
+⎧⎪⎨⎪⎩
+
+1
+
+𝑁 𝑡 
+
+∑𝐽 𝑖 =1 𝑛 𝑖,𝑡 ⋅ PPD 𝑖,𝑡 , 𝑁 𝑡 > 0,
+
+0, 𝑁 𝑡 = 0 ,
+
+(32) where 𝐽 = 7 is the number of zones, 𝑛 𝑖,𝑡 is the occupancy count in zone 𝑖 at time step 𝑡 , and 𝑁 𝑡 = ∑𝐽 𝑖 =1 𝑛 𝑖,𝑡 is the total number of occupants. 
+
+4.2.2. Energy Consumption Metric 
+
+Energy consumption is measured as the total HVAC electrical power 𝑃 𝑡 at each time step 𝑡 . In the simulator-based evaluation, 𝑃 𝑡 denotes the total modeled electrical power of the HVAC system returned by the simulator, while the underlying component models are described in Section 3.5. Power is reported in kilowatts (kW), and cumulative energy over an episode is computed as 
+
+𝐸 = ∑
+
+> 𝑡
+
+𝑃 𝑡 ⋅ Δ𝑡, (33) where Δ𝑡 = 5 minutes = 5∕60 hours is the control timestep.   
+
+> Dianyu Zhong et al.: Preprint submitted to Elsevier Page 11 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation
+
+4.2.3. Composite Reward Function 
+
+The overall objective is formalized through a reward function that balances thermal discomfort and energy con-sumption, with larger reward values indicating better control performance: 
+
+𝑟 𝑡 =
+
+{
+
+−PPD mean ,𝑡 − 𝜆 𝑃 𝑃 𝑡 , if 𝑁 𝑡 > 0,
+
+−𝜆 𝑃 𝑃 𝑡 , if 𝑁 𝑡 = 0 . (34) The hyperparameter 𝜆 𝑃 > 0 controls the trade-off between comfort and energy use: larger values place more weight on energy savings, while smaller values emphasize thermal comfort. This formulation removes the comfort penalty during unoccupied periods while retaining the energy term, consistent with the occupancy-aware control objective de-fined in Section 3.1. 
+
+## 5. Results and Discussion 
+
+This section evaluates the proposed hierarchical LLM– RL framework (Section 3) in the calibrated 7-zone HVAC simulator (Section 3.5) under the metrics defined in Sec-tion 4.2. The evaluation aims to answer four key research questions: • RQ1: How does the proposed framework perform compared with baseline control strategies for comfort improvement and energy saving? • RQ2: How does the LLM-generated action mask affect downstream RL exploration efficiency and training stability? • RQ3: Is direct LLM control alone sufficient for multi-zone HVAC control? • RQ4: How efficiently can the LLM component be trained and deployed in the proposed framework? To address these questions, we first compare the overall control performance of the proposed method with state-of-the-art baseline algorithms (Section 5.1). We then analyze the role of the LLM-generated action mask in reducing the action space and accelerating RL training(Section 5.2). Finally, we evaluate the efficiency and effectiveness of the LLM component (Section 5.3) and present a representative case study to illustrate how the proposed controller makes decisions in practical scenarios (Section 5.4). 
+
+5.1. Overall Performance Evaluation 
+
+Table 2 compares the overall performance of vanilla LLM control, vanilla RL control, and the proposed hierarchical LLM–RL framework. Compared to baselines, the proposed framework delivers the strongest comfort performance while maintaining a favorable overall comfort–energy trade-off. 
+
+5.1.1. Occupant Comfort 
+
+The proposed LLM–RL framework achieves a mean PPD of 𝟕 .𝟑𝟎 % and a mean absolute PMV of 𝟎 .𝟐𝟓 (Table 2), substantially outperforming both vanilla RL and vanilla LLM baselines. Notably, the achieved mean PPD is below the widely used 10% acceptability criterion implied by the PMV-based comfort standards (Section 4.2), indicating that the learned policy maintains a comfortable indoor environment on average. Compared to the best vanilla RL baseline in terms of comfort, namely DQN, our framework reduces mean PPD from 11 .98% to 7.30% , corresponding to a relative reduction of 39 .1% . For reference, compared to PPO, the mean PPD is reduced from 13 .59% to 7.30% , corresponding to a 46 .3% 
+
+relative reduction. Compared with the strongest vanilla LLM baseline (Qwen2.5-72B), the mean PPD is reduced from 
+
+15 .56% to 7.30% (a 53 .1% relative reduction), highlighting that direct LLM-based control is not sufficient for fine-grained comfort regulation under coupled thermal dynamics. 
+
+5.1.2. Energy Consumption 
+
+In addition to improving comfort, the proposed frame-work also achieves a strong energy-saving performance. In Table 2, our method consumes 140 .90 kWh, which is lower than all vanilla RL baselines, including PPO ( 152 .53 kWh), DQN ( 157 .13 kWh), and A2C ( 161 .38 kWh). It also con-sumes less energy than the stronger vanilla LLM baselines, namely Qwen2.5-14B ( 156 .23 kWh) and Qwen2.5-72B (157 .42 kWh). Although Direct LLM (Meta-Llama-3-8B) achieves a lower energy value of 134 .46 kWh, this comes at the cost of severe comfort degradation ( 27 .72% mean PPD), indicating under-conditioning rather than a better comfort-energy trade-off. We therefore interpret the proposed framework as achieving a more desirable balance between occupant comfort and energy efficiency, rather than simply minimizing energy consumption. We attribute this energy advantage to the division of labor between the two layers: the LLM provides a feasible action subset that avoids obviously wasteful behaviors (e.g., strong cooling in persistently unoccupied zones), and the RL layer performs fine-grained selection within that subset to avoid unnecessary intensity or oscillations. 
+
+5.2. Impact of LLM-guided Action Mask on RL Training 
+
+This section investigates the role of the LLM-generated action mask in assisting RL training. While RL can in prin-ciple optimize long-horizon objectives, vanilla RL becomes inefficient and unstable in multi-zone HVAC systems because of the exponential growth of the joint action space and the prevalence of low-quality exploratory actions. In our 7-zone setting, each FCU has four discrete fan-speed levels, 
+
+{0 , 1, 2, 3} , yielding a full joint action space of || = 4 7 =16384 . This combinatorial branching factor substantially increases the exploration burden of RL, especially in the early training stage when behavior remains highly stochastic. Our framework addresses this limitation by using the fine-tuned LLM (Section 3.3) to generate state-dependent feasible action masks, thereby restricting RL exploration to a semantically meaningful subset ̃ (𝑠 𝑡 ) ⊂  (Section 3.4.2).                                    
+
+> Dianyu Zhong et al.: Preprint submitted to Elsevier Page 12 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation
+> Table 2
+> Performance comparison of different control paradigms in terms of mean PPD, mean absolute PMV, and HVAC energy use.
+> Category Alg. PPD Mean (%) ↓PMV Abs Mean ↓Energy Use (kWh) ↓
+> Vanilla LLM Meta-Llama-3-8B 27 .72 ± 2 .07 0.97 ± 0 .06 134 .46 ± 2 .28
+> Qwen2.5-14B 16 .41 ± 0 .84 0.62 ± 0 .02 156 .23 ± 1 .26
+> Qwen2.5-72B 15 .56 ± 0 .89 0.58 ± 0 .02 157 .42 ± 2 .02
+> Vanilla RL A2C 14 .25 ± 0 .86 0.48 ± 0 .03 161 .38 ± 9 .58
+> PPO 13 .59 ± 0 .44 0.45 ± 0 .02 152 .53 ± 3 .08
+> DQN 11 .98 ± 0 .43 0.39 ± 0 .03 157 .13 ± 3 .65
+> Hybrid LLM-RL (ours) 𝟕 .𝟑𝟎 ±𝟎 .𝟔𝟐 𝟎 .𝟐𝟓 ±𝟎 .𝟎𝟐 140 .90 ± 2 .28
+
+We first establish the overall end-to-end training advantage of LLM guidance and then explain this advantage from two mechanism-oriented perspectives: action-space reduction and the quality of the retained masked actions. 
+
+5.2.1. Training Dynamics and Final Performance Across RL Algorithms 
+
+We compare the full training behaviors of all RL algo-rithms, including A2C, PPO, DQN, and our LLM-guided DQN. Fig. 6 reports the training curves in terms of average daily reward versus training episodes, where each episode corresponds to one natural day. Because rewards in this task are negative, values closer to zero indicate better control performance. Among all methods, LLM-guided DQN achieves the best final training performance. In the final stage of train-ing, it reaches a reward of −6533 .3, outperforming DQN (−7886 .5), PPO ( −9655 .2), and A2C ( −10088 .0). In par-ticular, relative to the strongest baseline in terms of final reward (DQN), our method yields a 17.16% improvement. The proposed method also achieves the best peak reward during training ( −6506 .3), whereas DQN, PPO, and A2C peak at −7973 .6, −9640 .3, and −10061 .3, respectively. Beyond final performance, Fig. 6 also shows a clear advantage in convergence speed. Using the area under the learning curve (AUC) as a summary of overall training efficiency, LLM-guided DQN attains the largest (i.e., least negative) AUC, −8 .48 × 10 6, compared with −1 .16 × 10 7
+
+for DQN, −9 .88 × 10 6 for PPO, and −1 .03 × 10 7 for A2C. This indicates that the proposed method reaches higher-reward regimes earlier and maintains better performance throughout training, rather than merely obtaining a better endpoint. Relative to vanilla DQN, the terminal cross-seed standard deviation is also reduced from 812.2 to 256.0, suggesting that the LLM-guided action mask improves not only sample efficiency but also the stability of value-based training. Although PPO and A2C exhibit smaller terminal dispersion, they converge to substantially worse reward plateaus. Overall, these results establish that LLM-guided masking improves both training efficiency and final policy quality at the system level. These training-curve observations are also consistent with Table 2, indicating that faster convergence is achieved together with stronger overall control performance. To understand where this advantage comes from, the next two subsections examine how strongly the mask compresses the original joint action space and whether the retained actions are intrinsically higher quality. 
+
+5.2.2. Action Space Reduction 
+
+To explain the observed training advantage, we first quantify how strongly the LLM-generated mask compresses the original joint action space. At each control step 𝑡 , the fine-tuned LLM predicts a feasible fan-speed set 𝑀 𝑖 (𝑠 𝑡 ) ⊆
+
+{0 , 1, 2, 3} for each zone 𝑖 . Accordingly, the size of the valid joint action space is 
+
+|̃(𝑠 𝑡 )| =
+
+> 7
+
+∏
+
+> 𝑖 =1
+
+|𝑀 𝑖 (𝑠 𝑡 )|. (35) To quantify the reduction effect in a normalized form, we define the remaining action-space percentage at time step 𝑡 
+
+as 
+
+𝑃 𝑡 = |̃(𝑠 𝑡 )||| × 100% , (36) where a smaller 𝑃 𝑡 indicates a stronger pruning effect and a more compact search space for RL exploration. Over one episode, the average remaining percentage is computed as ̄𝑃 epi = 1
+
+𝑇 
+
+> 𝑇
+
+∑
+
+> 𝑡 =1
+
+𝑃 𝑡 , (37) where 𝑇 denotes the total number of control steps in the episode. Fig. 7 illustrates the temporal evolution of 𝑃 𝑡 over a representative episode. It can be seen that the remaining action-space percentage stays consistently far below the full action space throughout the day. It indicates that the LLM-based mask continuously compresses the original action space into a much smaller feasible subset. Meanwhile, the curve varies with operating conditions rather than remaining constant. During relatively stable periods, the percentage becomes lower, suggesting that more redundant actions can be safely pruned. In contrast, during transition periods associated with dynamic changes in occupancy or thermal            
+
+> Dianyu Zhong et al.: Preprint submitted to Elsevier Page 13 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation
+> Table 3
+> Summary statistics of the remaining action-space percentage over a representative episode. Percentages are reported relative to the original joint action space of size 16384 , and the corresponding valid-action counts are provided for reference.
+> Statistic Percentage Valid Actions
+> Maximum 42.19% 6912 Minimum 5.27% 864 Average 18.44% 3021.30
+
+load, the percentage increases moderately, indicating that a larger feasible set is preserved to maintain control flexibility. This result shows that the mask is not only restrictive but also adaptive to time-varying system conditions. Table 3 further summarizes the key statistics of the re-maining action-space percentage over the same episode. The maximum remaining proportion is 42 .19% , corresponding to 6912 valid joint actions, whereas the minimum drops to only 5.27% , or 864 actions. On average, the mask retains 
+
+18 .44% of the original action space, equivalent to 3021.30 valid joint actions. In other words, approximately 81 .56% 
+
+of the full combinatorial action space is eliminated on average, substantially reducing the exploration burden for the downstream RL agent. Overall, these results demonstrate that the LLM-generated mask functions not merely as a heuristic filter, but as an effective action-space reduction mechanism. By projecting the original joint action space onto a compact and state-dependent feasible subset, the mask directly reduces the exploration burden faced by the RL agent and provides one mechanistic explanation for the stronger convergence behavior observed in Fig. 6. However, action-space compres-sion alone does not guarantee better learning; the retained actions must also be of sufficiently high quality. This issue is examined next. 
+
+5.2.3. Cold Start and Training Stage 
+
+The benefit of action-space reduction depends not only on shrinking the feasible set, but also on whether the retained actions are high-quality. A useful mask should exclude actions that are operationally implausible or consistently harmful to the comfort-energy trade-off. To examine this point, we further analyse LLM-guided masking from two complementary perspectives: its immediate effect at cold start and its downstream effect during end-to-end RL train-ing. 
+
+Cold start. We first consider a cold-start regime in which action selection is purely random. Specifically, we compare: • Full-Random: uniformly sample 𝑎 𝑡 ∼ .• Masked-Random: query the LLM to obtain ̃ (𝑠 𝑡 )
+
+and uniformly sample 𝑎 𝑡 ∼̃ (𝑠 𝑡 ).Since neither policy is updated using reward feedback, any performance difference in this setting can be attributed to the intrinsic quality of the LLM-generated feasible set itself. Fig. 8 presents a time-resolved comparison on a rep-resentative control day from 09:00 to 19:00, including energy consumption, absolute PMV, mean PPD, and step reward. Even under purely random exploration, Masked-Random achieves a substantially better comfort–energy trade-off than Full-Random. Compared with Full-Random, Masked-Random reduces total energy from 206.59 to 160.94 (22.10%), lowers average |PMV | from 0.90 to 0.68 (24.51%), decreases average PPD from 26.50% to 20.10% (24.16%), and improves total reward from −17966 .73 to −13668 .55 
+
+(23.92%). These gains are obtained before any reward-driven policy learning takes place, indicating that the LLM-generated mask already filters out a large fraction of low-quality actions at the very beginning of interaction. 
+
+Training dynamics. We next evaluate whether this cold-start advantage translates into stronger performance during full RL training. Fig. 9 compares DQN and LLM-guided DQN under identical training budgets and multiple random seeds. The LLM-guided DQN converges to a better final policy than the DQN baseline. When averaging the raw evaluation returns over the last 5% of training, LLM-guided DQN attains −6565 .14 , compared with −8060 .20 for DQN, corresponding to an 18.55% improvement. Moreover, the cross-seed standard deviation at the final evaluation point decreases from 812.22 to 256.04, indicating substantially more stable convergence. Taken together with the action-space reduction analysis and the broader multi-algorithm comparison in Fig. 6, these results suggest that LLM-guided masking is beneficial not merely because it reduces the number of admissible actions, but because it reshapes exploration toward a smaller and higher-quality subset of actions, thereby improving both the quality of collected experience and the stability of downstream learning. 
+
+5.3. Efficiency and Effectiveness of the LLM Component 
+
+This subsection examines the role of the LLM from three complementary perspectives: (i) whether the LLM should be used as a direct controller or as a generator of feasible action masks, (ii) how efficiently the mask generator can be deployed online, and (iii) whether the learned masks are reliable enough to support downstream RL. We begin with the most fundamental comparison: Vanilla LLM action generation versus the proposed LLM mask + RL refinement 
+
+paradigm. 
+
+5.3.1. LLM scale v.s. hierarchical structure 
+
+Under Vanilla LLM control , the model outputs one discrete fan speed for each zone at every control step. By contrast, in the proposed hierarchical framework, the fine-tuned LLM outputs a feasible fan-speed set for each zone, and the masked DQN selects the final action by optimizing the learned 𝑄 -values within ̃ (𝑠 𝑡 ) according to Eq. (17) . This comparison allows us to distinguish two possible sources of improvement: LLM scale and hierarchical control structure .  
+
+> Dianyu Zhong et al.: Preprint submitted to Elsevier Page 14 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation
+
+Fig. 10 shows that enlarging the LLM under direct control does improve comfort: moving from Llama-3-8B to Qwen2.5-14B and Qwen2.5-72B consistently lowers PPD. However, this gain is accompanied by a clear increase in energy consumption, suggesting that larger LLMs tend to rely on more conservative cooling when they are required to generate final actions directly. In contrast, the hierarchical controller, although using only Llama-3-8B as the mask generator, achieves the best comfort performance while maintaining lower energy use than the stronger Vanilla LLM baselines. This indicates that the major benefit comes from the separation between semantic feasibility generation and 
+
+reward-driven action refinement , rather than from scaling the language model alone. The same conclusion is reinforced by the Pareto view in Fig. 11. The direct-LLM baselines form a clear scaling path in which improved comfort is obtained mainly by moving toward a higher-energy operating regime. The proposed hierarchical controller shifts the operating point toward the lower-left region of the energy–comfort plane, i.e., closer to the ideal zone of simultaneously low PPD and low energy use. Therefore, RL refinement does not simply polish the LLM output; it fundamentally changes the comfort-energy trade-off achieved by the controller. Table 2 reports the exact numerical results. Overall, these observations support a central design insight of this work: in multi-zone HVAC control, LLMs are more effective as generators of structured, human-aligned feasible sets, while RL should remain responsible for closed-loop optimization under delayed rewards. In this sense, hierarchical structure matters more than scale .
+
+5.3.2. Inference efficiency: caching LLM masks for fast online control 
+
+Although HVAC control operates at a relatively coarse and slow time scale (e.g., 10,30-minute control intervals), naively querying the LLM at every step can still introduce un-necessary inference time. To reduce the online computational cost, we adopt an LLM + cache strategy. Unlike a cold-start cache, the cache in our system is not initially empty . Instead, it is constructed offline by running the fine-tuned LLM over a set of representative historical states collected from the building environment. These offline-generated state–mask pairs form an initial cache. During online control, if the current state (or its discretized/hash representation) matches a cached state, the system directly reuses the stored mask. For unseen states, the LLM is queried once and the resulting mask is then added to the cache for future reuse. Because cache lookup uses a discretized state key rather than exact prompt matching, the cached controller may pro-duce slightly different masks from step-wise LLM querying; thus, caching is an approximate acceleration mechanism rather than a strictly action-equivalent substitute. This design is well aligned with the strong thermal inertia and repeated occupancy patterns in buildings, where many control states recur across time steps and across days. Consequently, the               
+
+> Table 4
+> Inference efficiency comparison between querying the LLM at every step and using the proposed LLM+Cache mechanism. Statistics are reported for a representative episode with 120 control steps.
+> Metric No Cache LLM + Cache
+> Total Episode Time (s) 272.52 10.46 Average Step Time (s) 2.27 0.087 Maximum Step Time (s) 2.93 2.39 Minimum Step Time (s) 2.07 0.011 Total Steps 120 120 Episode Reward -6158.01 -5746.74
+
+majority of mask queries can be served directly from the cache. To evaluate the practical benefit of caching, we compare two inference settings on a representative episode (seed 0) consisting of 120 control steps: (1) querying the LLM at every step ( No Cache ) and (2) using the proposed LLM + Cache mechanism. Table 4 summarizes the efficiency statistics. Without caching, each control step requires an LLM inference call, resulting in an average step latency of 2.27 s and a total episode runtime of 272.52 s. As a result, the average step latency drops to 0.087 s and the total runtime decreases to 10.46 s. This corresponds to a 
+
+96.16% reduction in both total runtime and average per-step latency. The minimum latency of 0.011 s indicates that cache hits incur almost negligible overhead, whereas the occasional latency spikes (up to 2.39 s) correspond to cache misses that still require full LLM inference. Importantly, this efficiency improvement does not degrade control performance in the representative run: the episode reward with caching (−5746 .74 ) is comparable to that obtained without caching (−6158 .01 ). Given the 5-minute control interval adopted in this work, the resulting average inference latency of 0.087 s is negligible relative to the system dynamics, demonstrating that the proposed LLM-guided controller can be deployed in real-time building management systems without introducing practical computational bottlenecks. 
+
+5.3.3. Training efficiency 
+
+The LLM component is trained via supervised fine-tuning (SFT) with LoRA (Section 3.3), which provides a parameter-efficient way to adapt the base model to the building-specific mask prediction task. In our implementa-tion, Meta-Llama-3-8B-Instruct is fine-tuned on at most 1000 samples, with 10% held out for validation. The input cutoff length is set to 2048 tokens. We use a per-device training batch size of 2 with 8 gradient accumulation steps (effective batch size 16), a learning rate of 2 × 10 −5 , a cosine learning-rate schedule with 10 warmup steps, and 5 training epochs in FP16 precision. These settings constitute a lightweight SFT configuration while maintaining stable optimization. Fig. 12 presents the training dynamics of the SFT stage. The training loss decreases and gradually stabilizes, while the evaluation loss on the held-out validation split remains well               
+
+> Dianyu Zhong et al.: Preprint submitted to Elsevier Page 15 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation
+> Table 5
+> Core hyperparameters for LoRA-based SFT of the LLM mask predictor.
+> Parameter Value
+> Base model Meta-Llama-3-8B-Instruct Finetuning type LoRA Training samples 1000 Validation split 10% Cutoff length 2048 Effective batch size 16 Learning rate 2 × 10 −5
+> LR scheduler Cosine Warmup steps 10 Training epochs 5Precision FP16
+
+behaved without obvious divergence. This indicates that the LoRA-based adaptation converges efficiently under a limited-data setting and does not exhibit severe overfitting. There-fore, the LLM mask predictor can be trained with modest computational cost and then integrated into the hierarchical controller as a practical semantic mask generator. 
+
+5.4. Representative case study: interpretable and smooth decision 
+
+Aggregate metrics quantify the overall comfort–energy trade-off, but they do not fully reveal how the learned controller reacts to concrete operational events within a day. To provide a more interpretable view, we examine a representative workday trajectory of Room 6 under the proposed hierarchical LLM–RL controller. Room 6 is a particularly informative example because it belongs to the thermally coupled zone cluster (Rooms 5–7), where the controller must respond not only to local occupancy changes but also to inter-zone thermal interactions. Fig. 13 shows three synchronized signals over the working day: room occupancy, FCU mode, and indoor temperature. Several meaningful patterns can be observed. (1) During the regular occupied hours in the morning, Room 6 is typically occupied by about 2–4 persons, and the FCU mainly operates at Low or Mid mode, with stronger cooling invoked only when the thermal load becomes higher. The indoor temperature is maintained within a moderate range of roughly 24–27 ◦C, indicating that the controller does not rely on persistent high-speed actuation to maintain acceptable thermal conditions. (2) The lunch-break period (12:00–14:00) provides the clearest evidence of interpretable, occupant-centric control. As occupancy drops sharply to nearly zero, the FCU mode is correspondingly reduced to Off or Low for most of this interval. Instead of maintaining unnecessary cooling in an almost vacant room, the controller allows a mild temperature rebound, which is consistent with the occupancy-weighted comfort objective defined in Section 4.2. This behavior is operationally desirable: thermal conditioning is relaxed when the room is scarcely used, thereby avoiding wasteful over-conditioning during low-demand periods. (3) Once occupants return after 14:00, the controller increases the FCU mode back to Low and Mid, with occasional High-mode actions. This recovery behavior is also physically plausible. Because Room 6 is embedded in the coupled zone group (Rooms 5–7), the controller must respond not only to the return of internal heat gains from occupants, but also to the thermal influence of adjacent zones. Therefore, the temporary increase in actuation after lunch can be interpreted as adaptive recovery. (4) A similar pattern appears near the end of the workday (18:00–19:00). As occupancy decreases again, the FCU mode is stepped down and then remains mostly Off. This shows that the controller does not continue aggressive cooling after the operational demand has weakened. Instead, it exploits building thermal inertia to realize an energy-saving setback strategy in the final hour of operation. At the same time, the temperature trajectory remains within a reasonable band, suggesting that the reduction in actuation does not cause severe thermal deterioration. This representative case study also illustrates the smooth-ness of the proposed controller in an operational sense. Since the control action is discrete and updated every 5 minutes, the FCU signal is naturally stepwise. However, the policy still exhibits a clear daily structure: lower actuation during low-occupancy periods and stronger conditioning only when occupancy and thermal load justify it. Notably, the controller avoids prolonged High-mode operation and reduces actuation promptly during both lunch break and the end of the workday. Overall, the case study complements the aggregate results in Table 2 by showing that the performance gains of the hierarchical LLM-RL framework arise from structured, human-aligned, and occupant-centric decision making. 
+
+## 6. Limitations 
+
+This study also highlights several practical consider-ations for broader deployment. Although our framework demonstrates the potential in OCC, several limitations remain. The effectiveness of the LLM component depends on the combination of two sources of knowledge: the general knowledge encoded in the foundation model and the building-specific operational knowledge introduced through supervised fine-tuning on historical building data. In this sense, richer and more representative historical operation records can further strengthen feasible-action generation and may provide additional gains for downstream indoor control performance. In the future, the availability of open building-operation datasets would be highly valuable for improving domain adaptation, enabling broader benchmarking, and supporting the continued development of LLM-based control methods for buildings. In addition, the current study focuses on discrete fan-speed control in a cooling-dominant multi-zone setting, which serves as a practical first step for validating the proposed hierarchical design. Extending our framework to continuous control variables, heating seasons,   
+
+> Dianyu Zhong et al.: Preprint submitted to Elsevier Page 16 of 19
+
+Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation 
+
+and more diverse building types remains an important direction for future work. 
+
+## 7. Conclusion 
+
+This paper presents a hierarchical LLM–RL framework for multi-zone HVAC control, in which a fine-tuned LLM generates state-dependent feasible action masks and a masked DQN performs closed-loop optimization within the reduced action space. By integrating historically grounded operational knowledge with reward-driven learning, the proposed framework alleviates the exploration difficulty caused by the large combinatorial action space in multi-zone buildings. In a calibrated 7-zone office-building case study, the method achieved a mean PPD of 7.30% with daily HVAC energy use of 140.90 kWh, outperforming the vanilla RL baselines in both comfort and energy use and yielding a better overall comfort–energy trade-off than direct LLM control. Further analyses showed that the LLM-guided masks substantially reduce the effective action space, improve training stability, and make LLMs more effective as feasible-action generators than as stand-alone controllers. Overall, the results demonstrate that combining LLM-based semantic guidance with RL-based numerical optimization is a practical and interpretable approach to occupant-centric and energy-efficient HVAC control in multi-zone buildings. 
+
+## 8. Acknowledgment 
+
+This work was supported by the National Natural Science Foundation of China under Grant 62192751, partly by the 111 International Collaboration Program of China under Grant BP2018006, and partly by the BNRist Program under Grant No. BNR2019TD01009, and in part by China National Innovation Center of High-Speed Train Project Under Grant CX/KJ-2020-0006. 
+
+## References 
+
+[1] UN Environment Programme. “global status report for buildings and construction 2024/2025”, 2025. https://www.unep.org .[2] Kailai Sun, Qianchuan Zhao, and Jianhong Zou. A review of building occupancy measurement systems. Energy and Buildings , 216:109965, 2020. [3] Zheng Grace Ma and Bo Nørregaard Jørgensen. Energy informatics: Tackling energy poverty in vulnerable communities. Energy Informat-ics , 2023. [4] U EPA. Buildings and their impact on the environment: A statistical summary. US Environmental Protection Agency Green Building Workgroup , 2009. [5] American Society of Heating, Refrigerating and Air-Conditioning Engineers. ANSI/ASHRAE Standard 55-2023: Thermal Environmental Conditions for Human Occupancy . ASHRAE, Atlanta, GA, 2023. [6] Ziqing Wei, Xiaoqiang Zhai, and Ruzhu Wang. Optimal scheduling and on-the-fly flexible control of integrated energy systems for residen-tial buildings considering photovoltaic prediction errors. Engineering ,2025. [7] Atiye Soleimanijavid, Iason Konstantzos, and Xiaoqi Liu. Challenges and opportunities of occupant-centric building controls in real-world implementation: A critical review. Energy and Buildings , 308:113958, 2024. [8] International Energy Agency, Energy in Buildings and Communities Programme. IEA-EBC Annex 66: Definition and Simulation of Occupant Behavior in Buildings, 2013–2018. Accessed: 2025-01-01. [9] International Energy Agency, Energy in Buildings and Communities Programme. IEA-EBC Annex 79: Occupant-Centric Building Design and Operation, 2018–2024. Accessed: 2025-03-01. [10] Kailai Sun, Qianchuan Zhao, Ziyou Zhang, and Xinyuan Hu. Indoor occupancy measurement by the fusion of motion detection and static estimation. Energy and Buildings , 254:111593, 2022. [11] Zoltan Nagy, Burak Gunay, Clayton Miller, Jakob Hahn, Mohamed M Ouf, Seungjae Lee, Brodie W Hobson, Tareq Abuimara, Karol Bandurski, Maíra André, et al. Ten questions concerning occupant-centric control and operations. Building and Environment , 242:110518, 2023. [12] Tian Xing, Hu Yan, Kailai Sun, Yifan Wang, Xuetao Wang, and Qianchuan Zhao. Honeycomb: An open-source distributed system for smart buildings. Patterns , 3(11), 2022. [13] Akshay Ajagekar and Fengqi You. Decarbonization of building operations with adaptive quantum computing-based model predictive control. Engineering , 2025. [14] Yupeng Chang, Xu Wang, Jindong Wang, Yuan Wu, Linyi Yang, Kaijie Zhu, Hao Chen, Xiaoyuan Yi, Cunxiang Wang, Yidong Wang, et al. A survey on evaluation of large language models. ACM transactions on intelligent systems and technology , 15(3):1–45, 2024. [15] Kailai Sun, Xinwei Wang, Xi Miao, and Qianchuan Zhao. Areview of ai edge devices and lightweight cnn and llm deployment. 
+
+Neurocomputing , 614:128791, 2025. [16] Gang Jiang, Zhihao Ma, Liang Zhang, and Jianli Chen. Eplus-llm: A large language model-based computing platform for automated building energy modeling. Applied Energy , 367:123431, 2024. [17] Liang Zhang and Zhelun Chen. Large language model-based interpretable machine learning control in building energy systems. 
+
+Energy and Buildings , 313:114278, 2024. [18] Kailai Sun, Peng Liu, Tian Xing, Qianchuan Zhao, and Xinwei Wang. A fusion framework for vision-based indoor occupancy estimation. 
+
+Building and Environment , 225:109631, 2022. [19] Zhihong Pang, Yan Chen, Jian Zhang, Zheng O’Neill, Hwakong Cheng, and Bing Dong. Nationwide hvac energy-saving potential quantification for office buildings with occupant-centric controls in various climates. Applied Energy , 279:115727, 2020. [20] Payam Fatehi Karjou, Sina Khodadad Saryazdi, Phillip Stoffel, and Dirk Müller. Practical design and implementation of iot-based occupancy monitoring systems for office buildings: A case study. 
+
+Energy and Buildings , 323:114852, 2024. [21] Brodie W Hobson, Daniel Lowcay, H Burak Gunay, Araz Ashouri, and Guy R Newsham. Opportunistic occupancy-count estimation using sensor fusion: A case study. Building and environment , 159:106154, 2019. [22] Wooyoung Jung and Farrokh Jazizadeh. Human-in-the-loop hvac operations: A quantitative review on occupancy, comfort, and energy-efficiency dimensions. Applied Energy , 239:1471–1508, 2019. [23] Nanxi Zhu, Min Xu, Dian Zhuang, and Yunsong Han. Wisa: Privacy-enhanced wifi-based activity intensity recognition in smart buildings using personalized federated learning. Energy and Buildings ,312:114176, 2024. [24] Paige Wenbin Tien, Shuangyu Wei, John Kaiser Calautit, Jo Darkwa, and Christopher Wood. A vision-based deep learning approach for the detection and prediction of occupancy heat emissions for demand-driven control solutions. Energy and Buildings , 226:110386, 2020. [25] Brodie W. Hobson, Andre A. Markus, Jayson Bursill, H. Burak Gunay, Darwish Darwazeh, and Zheng O’Neill. Implementation of next-generation occupant-centric sequences of operation in an office building using supervisory control. Energy and Buildings , 327:115087, 2025. [26] Irfan Qaisar, Wei Liang, Kailai Sun, Tian Xing, and Qianchuan Zhao. An experimental comparative study of energy saving based on occupancy-centric control in smart buildings. Building and Environment , 268:112322, 2025. 
+
+Dianyu Zhong et al.: Preprint submitted to Elsevier Page 17 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation 
+
+[27] Jonathan Brooks, Siddharth Goyal, Rahul Subramany, Yashen Lin, Chenda Liao, Timothy Middelkoop, Herbert Ingley, Laura Arpan, and Prabir Barooah. Experimental evaluation of occupancy-based energy-efficient climate control of vav terminal units. Science and Technology for the Built Environment , 21(4):469–480, 2015. [28] Zhengxuan Liu, Xiang Zhang, Ying Sun, and Yuekuan Zhou. Ad-vanced controls on energy reliability, flexibility and occupant-centric control for smart and energy-efficient buildings. Energy and Buildings ,297:113436, 2023. [29] Jeslu Celine Jacob, Debapratim Pandit, and Joy Sen. Investigating enhanced thermal comfort and energy efficiency through strategized airflow in micro-zonal occupant-centric control (mzocc). Energy and Buildings , 318:114497, 2024. [30] Yunyang Ye, Yan Chen, Jian Zhang, Zhihong Pang, Zheng O’Neill, Bing Dong, and Hwakong Cheng. Energy-saving potential evaluation for primary schools with occupant-centric controls. Applied Energy ,293:116854, 2021. [31] Zhihong Pang, Yan Chen, Jian Zhang, Zheng O’Neill, Hwakong Cheng, and Bing Dong. How much hvac energy could be saved from the occupant-centric smart home thermostat: A nationwide simulation study. Applied Energy , 283:116251, 2021. [32] Homagni Saha, Anthony R Florita, Gregor P Henze, and Soumik Sarkar. Occupancy sensing in buildings: A review of data analytics approaches. Energy and Buildings , 188:278–285, 2019. [33] Shide Salimi and Amin Hammad. Critical review and research roadmap of office building energy management based on occupancy monitoring. Energy and Buildings , 182:214–241, 2019. [34] Fulin Wang, Qingqing Feng, Zheliang Chen, Qianchuan Zhao, Zhijing Cheng, Jianhong Zou, Yufeng Zhang, Jinbo Mai, Yun Li, and Hayden Reeve. Predictive control of indoor environment using occupant number detected by video data and co2 concentration. Energy and Buildings , 145:155–162, 2017. [35] Christina Turley, Margarite Jacoby, Gregory Pavlak, and Gregor Henze. Development and evaluation of occupancy-aware hvac control for residential building energy efficiency and occupant comfort. Energies ,13(20):5396, 2020. [36] Seunghoon Jung, Jaewon Jeoung, and Taehoon Hong. Occupant-centered real-time control of indoor temperature using deep learning algorithms. Building and Environment , 208:108633, 2022. [37] June Young Park and Zoltan Nagy. Hvaclearn: A reinforcement learning based occupant-centric control for thermostat set-points. In 
+
+Proceedings of the Eleventh ACM International Conference on Future Energy Systems , pages 434–437, 2020. [38] Luning Sun, Zehuan Hu, Masayuki Mae, and Taiji Imaizumi. In-dividual room air-conditioning control in high-insulation residential building during winter: A deep reinforcement learning-based control model for reducing energy consumption. Energy and Buildings ,323:114799, 2024. [39] Alberto Silvestri, Davide Coraci, Silvio Brandi, Alfonso Capozzoli, and Arno Schlueter. Practical deployment of reinforcement learning for building controls using an imitation learning approach. Energy and Buildings , page 115511, 2025. [40] Zhiang Zhang, Adrian Chong, Yuqi Pan, Chenlu Zhang, and Khee Poh Lam. Whole building energy model for hvac optimal control: A practical framework based on deep reinforcement learning. Energy and Buildings , 199:472–490, 2019. [41] Bingqing Chen, Zicheng Cai, and Mario Bergés. Gnu-rl: A precocial reinforcement learning solution for building hvac control using a differentiable mpc policy. In Proceedings of the 6th ACM international conference on systems for energy-efficient buildings, cities, and transportation , pages 316–325, 2019. [42] Shunian Qiu, Zhenhai Li, Dalian Fan, Ruikai He, Xinghui Dai, and Zhengwei Li. Chilled water temperature resetting using model-free reinforcement learning: Engineering application. Energy and Buildings , 255:111694, 2022. [43] Xiangfei Liu, Mifeng Ren, Zhile Yang, Gaowei Yan, Yuanjun Guo, Lan Cheng, and Chengke Wu. A multi-step predictive deep reinforcement learning algorithm for hvac control systems in smart buildings. Energy , 259:124857, 2022. [44] Xuebo Liu, Yingying Wu, and Hongyu Wu. Enhancing hvac energy management through multi-zone occupant-centric approach: A multi-agent deep reinforcement learning solution. Energy and Buildings ,303:113770, 2024. [45] Anh Tuan Nguyen, Duy Hoang Pham, Bee Lan Oo, Mattheos Santamouris, Yonghan Ahn, and Benson TH Lim. Modelling building hvac control strategies using a deep reinforcement learning approach. 
+
+Energy and Buildings , 310:114065, 2024. [46] June Young Park, Thomas Dougherty, Hagen Fritz, and Zoltan Nagy. Lightlearn: An adaptive and occupant centered controller for lighting based on reinforcement learning. Building and Environment , 147:397– 414, 2019. [47] Yue Lei, Sicheng Zhan, Eikichi Ono, Yuzhen Peng, Zhiang Zhang, Takamasa Hasama, and Adrian Chong. A practical deep reinforcement learning framework for multivariate occupant-centric control in buildings. Applied Energy , 324:119742, 2022. [48] Muhammad Arslan and Saba Munawar. Large language models in building energy applications: a survey. Energy and Buildings , page 116800, 2025. [49] Mingzhe Liu, Liang Zhang, Jianli Chen, Wei-An Chen, Zhiyao Yang, L James Lo, Jin Wen, and Zheng O’Neill. Large language models for building energy applications: Opportunities and challenges. In 
+
+Building Simulation , volume 18, pages 225–234. Springer, 2025. [50] Pedro Veloso. (in) forming the new building envelope: A pedagogical study in generative design with precedents and multimodal large language models. International Journal of Architectural Computing ,23(1):96–121, 2025. [51] Lola Burgueño, Maria Keet, Jörg Kienzle, Judith Michael, and Önder Babur. A human behavior exploration approach using llms for cyber-physical systems. In Proceedings of the ACM/IEEE 27th International Conference on Model Driven Engineering Languages and Systems ,pages 578–586, 2024. [52] Xiachong Lin, Arian Prabowo, Imran Razzak, Hao Xue, Matthew Amos, Sam Behrens, and Flora D Salim. Bitsa: Leveraging time series foundation model for building energy analytics. In 2024 IEEE International Conference on Data Mining Workshops (ICDMW) , pages 891–894. IEEE, 2024. [53] Ming Jin, Bilgehan Sel, Fnu Hardeep, and Wotao Yin. Democratizing energy management with llm-assisted optimization autoformalism. In 
+
+2024 IEEE International Conference on Communications, Control, and Computing Technologies for Smart Grids (SmartGridComm) ,pages 258–263. IEEE, 2024. [54] Nebojša Juriševi´ c, Dušan Gordi´ c, Danijela Nikoli´ c, Aleksandar Nešovi´ c, and Robert Kowalik. Exploring the potential of emerging digitainability—gpt reasoning in energy management of kindergartens. 
+
+Buildings , 14(12):4038, 2024. [55] Chaobo Zhang, Jie Lu, and Yang Zhao. Generative pre-trained transformers (gpt)-based automated data mining for building energy management: Advantages, limitations and the future. Energy and Built Environment , 5(1):143–169, 2024. [56] Mehdi Ashayeri and Narjes Abbasabadi. Unraveling energy justice in nyc urban buildings through social media sentiment analysis and transformer deep learning. Energy and Buildings , 306:113914, 2024. [57] Abdul-Manan Sadick and Giorgia Chinazzo. What did the occupant say? fine-tuning and evaluating a large language model for efficient analysis of multi-domain indoor environmental quality feedback. 
+
+Building and Environment , 274:112735, 2025. [58] Ki Uhn Ahn, Deuk-Woo Kim, Hyun Mi Cho, and Chang-U Chae. Alternative approaches to hvac control of chat generative pre-trained transformer (chatgpt) for autonomous building system operations. 
+
+Buildings , 13(11):2680, 2023. [59] Xuanrong Zhu and Hui Li. Heating, ventilation, and air conditioning (hvac) temperature and humidity control optimization based on large language models (llms). Energies , 18(7):1813, 2025. [60] Tomoya Sawada, Takaomi Hasegawa, Keiichi Yokoyama, and Masahiro Mizuno. Office-in-the-loop for building hvac control with multimodal foundation models. In Proceedings of the 11th ACM 
+
+Dianyu Zhong et al.: Preprint submitted to Elsevier Page 18 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation 
+
+International Conference on Systems for Energy-Efficient Buildings, Cities, and Transportation , pages 110–120, 2024. [61] Tomoya Sawada, Masahiro Mizuno, Takaomi Hasegawa, Keiichi Yokoyama, and Mayuka Kono. Office-in-the-loop: an investigation into agentic ai for advanced building hvac control systems. Data-Centric Engineering , 6:e31, 2025. [62] Yichuan X Ma and Lawrence K Yeung. Beforegan: An image-based deep generative approach for day-ahead forecasting of building hvac energy consumption. Applied Energy , 376:124196, 2024. [63] Hao-Cheng Zhu, Chen Ren, and Shi-Jie Cao. Fast prediction for multi-parameters (concentration, temperature and humidity) of indoor environment towards the online control of hvac system. In Building Simulation , volume 14, pages 649–665. Springer, 2021. [64] Yan Li, Minxuan Ji, Junyu Chen, Xin Wei, Xiaojun Gu, and Juemin Tang. A large language model-based building operation and maintenance information query. Energy and Buildings , 334:115515, 2025. [65] Jian Zhang, Chaobo Zhang, Jie Lu, and Yang Zhao. Domain-specific large language models for fault diagnosis of heating, ventilation, and air conditioning systems by labeled-data-supervised fine-tuning. 
+
+Applied Energy , 377:124378, 2025. [66] Deli Liu, Feixiong Ling, Xiaoping Zhou, and Yu Li. Integrating large language models, reinforcement learning, and machine learning for intelligent indoor thermal comfort regulation. Architectural Science Review , pages 1–14, 2025. [67] Kevlyn Kadamala, Des Chambers, and Enda Barrett. Enhancing hvac control systems through transfer learning with deep reinforcement learning agents. Smart Energy , 13:100131, 2024. [68] Muhammad Arslan, Saba Munawar, Lamine Mahdjoubi, and Patrick Manu. Decision support for building thermal comfort monitoring with a sustainable genai system. In 2024 International Conference on Decision Aid Sciences and Applications (DASA) , pages 1–5. IEEE, 2024. [69] Hu Yan, Tian Xing, Kailai Sun, and Qianchuan Zhao. Protocol for a distributed smart building solution using semi-physical simulation. 
+
+STAR protocols , 4(3):102390, 2023. [70] Dianyu Zhong, Tian Xing, Kailai Sun, Ziyou Zhang, Qianchuan Zhao, and Jian Kang. Topology-aware hypergraph reinforcement learning for indoor occupant-centric hvac control. Energy and Buildings ,347:116219, 2025. [71] Zhe Chen, Tian Xing, Yu Wang, Yunlin Zhuang, Meng Zheng, Qianchuan Zhao, and Qing-Shan Jia. Coupling time-scale reinforce-ment learning methods for building operational optimization with waste heat. Applied Energy , 391:125851, 2025. [72] Nguyen Thi Khanh Phuong, Ying-Chieh Chan, Cong Thanh Do, Nguyen Anh Tuan, and Damrongsak Rinchumphu. A simulation-based workflow to calculate overall thermal transfer value when implementing daylighting-oriented shading control. Journal of Building Engineering , 84:108616, 2024. [73] American Society of Heating Refrigerating and Air-Conditioning Engineers. ASHRAE Handbook - Fundamentals . ASHRAE, Atlanta, GA, 2021. [74] PO Fanger. Thermal comfort: Analysis and applications in environ-mental engineering, 1970. [75] BS EN. 15251. Indoor environmental input parameters for design and assessment of energy performance of buildings addressing indoor air quality, thermal environment, lighting and acoustics , 15251, 2007. [76] International Organization for Standardization. ISO 7730: Moderate Thermal Environments-Determination of the PMV and PPD Indices and Specification of the Conditions for Thermal Comfort . ISO, 1994. 0 200 400 600 800 1000 
+
+> Training Episodes (Days)
+> 20
+> 18
+> 16
+> 14
+> 12
+> 10
+> 8
+> 6
+> Average Daily Reward
+> ×10 3
+> DQN
+> PPO
+> A2C
+> LLM-Guided DQN (Ours)
+
+Figure 6: Training curves of A2C, PPO, DQN, and LLM-guided DQN (ours). The x-axis shows training episodes, where each episode corresponds to one natural day. Curves denote smoothed mean daily reward, and shaded regions indicate one standard deviation across five random seeds. LLM-guided DQN achieves the best final reward, the best peak reward, and the largest (least negative) AUC, indicating both faster convergence and better final performance. All results are averaged over five random seeds. Dianyu Zhong et al.: Preprint submitted to Elsevier Page 19 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation 09:00 10:00 11:00 12:00 13:00 14:00 15:00 16:00 17:00 18:00 19:00 
+
+Time (09:00 - 19:00, 5-min intervals) 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Percentage of Original Action Space (%)  Details:
+> - Full Space: 16384 actions
+> - Min Space: 5.27%
+> - Avg Space: 18.44%
+
+LLM-Guided Action Space Reduction (Percentage Scale) 
+
+> Remaining Action Space (%)
+> Average Percentage: 18.44%
+
+Figure 7: Temporal variation of the remaining action-space percentage over a representative episode. The y-axis shows the percentage of the original joint action space retained after LLM-guided masking, as defined in Eq. (36) . The x-axis represents the real time within one working day (09:00–19:00, with a 5-minute control interval). The dashed horizontal line denotes the episode-wise average remaining percentage. Dianyu Zhong et al.: Preprint submitted to Elsevier Page 20 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation 0.1 
+
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> Energy Consumption (kW)
+> Full-Random (Total: 206.59)
+> Masked-Random (Total: 160.94)
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> |PMV|
+> Full-Random (Avg: 0.90)
+> Masked-Random (Avg: 0.68)
+> 09:00
+> 11:00
+> 13:00
+> 15:00
+> 17:00
+> 19:00
+
+Time (Hour:Minute) 
+
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> 80
+> Mean PPD (%)
+> Full-Random (Avg: 26.50)
+> Masked-Random (Avg: 20.10)
+> 09:00
+> 11:00
+> 13:00
+> 15:00
+> 17:00
+> 19:00
+
+Time (Hour:Minute) 
+
+> 80
+> 70
+> 60
+> 50
+> 40
+> 30
+> 20
+> 10
+> Step Reward
+> Full-Random (Total: -17966.73)
+> Masked-Random (Total: -13668.55)
+
+Cold-Start Random Exploration: Full-Random vs. Masked-Random 
+
+Figure 8: Time-resolved cold-start comparison under purely random exploration on a representative control day. Full-Random samples uniformly from the full action space , whereas Masked-Random samples uniformly from the LLM-feasible set ̃ (𝑠 𝑡 ).Compared with Full-Random, Masked-Random reduces total energy by 22.10%, average |PMV | by 24.51%, and average PPD by 24.16%, while improving total reward by 23.92%. Dianyu Zhong et al.: Preprint submitted to Elsevier Page 21 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation 0 200 400 600 800 1000 
+
+Training Episodes 
+
+> 20
+> 18
+> 16
+> 14
+> 12
+> 10
+> 8
+> 6
+> Average Episode Reward
+> ×10 3
+> DQN (Baseline)
+> LLM-Guided DQN
+
+Figure 9: Learning curves of DQN and LLM-guided DQN under identical training budgets. Curves show smoothed mean evaluation return across random seeds, and shaded regions indicate one standard deviation. Averaged over the last 5% of training, LLM-guided DQN improves the final evaluation return from −8060 .20 to −6565 .14 (18.55%), while also exhibiting substantially smaller final cross-seed dispersion (256.04 vs. 812.22). Dianyu Zhong et al.: Preprint submitted to Elsevier Page 22 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation Llama-3-8B 
+
+(LLM-Only) 
+
+Qwen2.5-14B 
+
+(LLM-Only) 
+
+Qwen2.5-72B 
+
+(LLM-Only) 
+
+Llama-3-8B 
+
+(LLM-Masked RL) 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+35 
+
+> PPD Mean (%) - Thermal Discomfort
+
+LLM-Only Direct Action Generation LLM-RL Hierarchical Control 
+
+PPD Mean (%) 
+
+Energy Consumption (kWh) 
+
+100 
+
+110 
+
+120 
+
+130 
+
+140 
+
+150 
+
+160 
+
+170 
+
+180 
+
+> Energy Consumption (kWh)
+
+LLM-Only Inference Framework vs. LLM-RL Hierarchical Control Framework 
+
+Figure 10: Comparison between direct LLM action generation and the hierarchical LLM-guided RL paradigm. Enlarging the LLM improves direct-control comfort, but also increases energy consumption. By contrast, the proposed hierarchical controller achieves the best comfort performance with a better overall comfort–energy trade-off. 130 135 140 145 150 155 160 165 
+
+> Energy Consumption (kWh)
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> 35
+> Thermal Discomfort: PPD Mean (%)
+> Better
+> Performance
+> Low Energy & Low PPD
+> (Ideal Zone)
+> Pareto Front: Energy vs. Comfort Trade-off
+> Scaling Law Path
+> Llama-3-8B (LLM-Only)
+> Qwen2.5-14B (LLM-Only)
+> Qwen2.5-72B (LLM-Only)
+> Llama-3-8B (LLM-Masked RL)
+
+Figure 11: Pareto frontier of energy consumption and thermal discomfort. The direct-LLM baselines follow a scaling path toward better comfort but higher energy use, whereas the hierarchical controller moves closer to the lower-left ideal region. Dianyu Zhong et al.: Preprint submitted to Elsevier Page 23 of 19 Hierarchical Control Framework Integrating LLMs with RL for Decarbonized HVAC Operation  
+
+> (a) Training loss during SFT. (b) Evaluation loss on the validation split.
+
+Figure 12: Training dynamics of LoRA-based supervised fine-tuning for the LLM mask predictor. The left panel shows the training loss and the right panel shows the evaluation loss on the held-out validation split. Together, the two curves show that the model adapts efficiently to the building-specific mask prediction task under a lightweight fine-tuning setup. Lunch Break  End of Workday 
+
+Figure 13: Representative-day control trajectory of Room 6 under the proposed hierarchical LLM–RL controller. From top to bottom: occupancy, FCU mode, and indoor temperature from 09:00 to 19:00. The lunch-break period (12:00–14:00) and the end-of-workday period (18:00–19:00) are highlighted. In both periods, the reduction in occupancy is accompanied by a corresponding reduction in FCU mode, illustrating occupancy-aware setback control. Dianyu Zhong et al.: Preprint submitted to Elsevier Page 24 of 19
