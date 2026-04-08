@@ -1,0 +1,634 @@
+Title: Soft MPCritic: Amortized Model Predictive Value Iteration
+
+URL Source: https://arxiv.org/pdf/2604.01477v1
+
+Published Time: Fri, 03 Apr 2026 00:20:00 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# Soft MPCritic: Amortized Model Predictive Value Iteration 
+
+Thomas Banker, Nathan P. Lawrence, and Ali Mesbah 
+
+Abstract — Reinforcement learning (RL) and model predictive control (MPC) offer complementary strengths, yet combining them at scale remains computationally challenging. We propose 
+
+soft MPCritic , an RL-MPC framework that learns in (soft) value space while using sample-based planning for both online control and value target generation. soft MPCritic instanti-ates MPC through model predictive path integral control (MPPI) and trains a terminal Q-function with fitted value iteration, aligning the learned value function with the planner and implicitly extending the effective planning horizon. We introduce an amortized warm-start strategy that recycles planned open-loop action sequences from online observations when computing batched MPPI-based value targets. This makes soft MPCritic 
+
+computationally practical, while preserving solution quality. 
+
+soft MPCritic plans in a scenario-based fashion with an ensemble of dynamic models trained for next-step prediction accuracy. Together, these ingredients enable soft MPCritic 
+
+to learn effectively through robust, short-horizon planning on classic and complex control tasks. These results establish 
+
+soft MPCritic as a practical and scalable blueprint for synthesizing MPC policies in settings where policy extraction and direct, long-horizon planning may fail. 
+
+I. I NTRODUCTION 
+
+Reinforcement learning (RL) and model predictive control (MPC) are contrasting strategies for designing decision-making agents. MPC accounts for system dynamics and constraints to construct a notion of value to be optimized online in a receding-horizon fashion [ 1]. Meanwhile, a core design philosophy driving (actor-critic) RL methods is value-based backup followed by policy extraction [ 2 ], [ 3]. There are pros and cons to both approaches, as discussed below. Nevertheless, RL and MPC offer complementary benefits, motivating hybrid frameworks that incorporate planning into a flexible learning pipeline [4], [5]. There is a plethora of ways in which dynamic models can be integrated into RL [ 6 ]. One useful way to divide them is based on alignment: does the RL agent learn from the model or does the model learn from the agent? The so-called “dyna” framework is a popular instance of the former. Here, simulated experience is used to train a policy using otherwise model-free algorithms. This strategy can be very sample efficient [ 7], but has also been shown to be brittle due to its over reliance on simulated experience [ 8 ], [ 9]. Other lines of work use a model to construct a value target or loss for policy learning [ 10 ], [ 11 ], [ 12 ]. These approaches provide a rich loss landscape for policy learning; however, it may be difficult to optimize. MPC has also been shown to be a useful structure within RL. 
+
+> The authors are with the Department of Chemical and Biomolecu-lar Engineering, University of California, Berkeley, CA 94720, USA.
+
+mesbah@berkeley.edu 
+
+> This work was supported by the U.S. Department of Energy, Office of Science, Office of Fusion Energy Sciences under award DE-SC0024472.
+
+If the model is sufficiently accurate, then RL can provide MPC with a terminal value function [ 4], a baseline policy [13 ], [ 14 ], or MPC can provide model-based value targets for training a critic network [ 15 ]. The other end of the spectrum aims to learn a dynamic model that aligns with the reward or value function [ 16 ], [ 17 ]. This can also take the form of differentiable MPC wherein the planner is differentiated and updated to maximize some objective [ 18 ], [ 19 ]. MPC is viewed as a function approximator whose parameters (including the dynamic model) can be shaped to suit the control objective. In principle, there is significant flexibility in this approach, but it can be hindered by computational and feasibility issues [5]. We propose a hybrid MPC-RL framework inspired by soft value iteration [ 20 ], [ 21 ]. A dynamic model is used only for short-term predictions within a value-augmented MPC. This MPC serves two functions: control and value function training. To train the terminal value function, the MPC itself provides temporal difference-style targets. This procedure aligns the terminal value function with the MPC, implicitly extending its horizon for online decision-making. We call this framework soft MPCritic , representing a parallel work to 
+
+MPCritic [ 22 ]. MPCritic follows an actor-critic design, wherein a “fictitious” controller serves as an approximate MPC solution to streamline the integration of MPC within RL without explicitly solving MPC or computing its sensitivities for RL updates. In contrast, soft MPCritic lives entirely in value space. Specifically, we formalize soft MPCritic 
+
+in the context of soft value iteration wherein a softmax-like operation is used in place of hard maximization as in classical dynamic programming [ 23 ]. This formulation naturally connects MPC, specifically model predictive path integral control (MPPI) [ 24 ], [ 25 ], [ 26 ], to soft value iteration and enables efficient integration of MPC within an RL pipeline. soft MPCritic is designed to be algorithmically simple, emphasizing the utility of short-horizon planning and value iteration, while mapping out possible extensions for future work. Our contributions are summarized as follows: 1) An RL-MPC algorithm that lives entirely in value space, utilizing a formal connection between path integral control and soft value iteration. 2) An amortized value iteration approach to efficient MPC integration within RL. Specifically, we disperse the com-putational burden of MPC via a warm-starting strategy both for online and offline target value generation. 3) Case studies demonstrating the soft MPCritic on challenging control problems and validating the use of a planner both for online control and target generation. 
+
+> arXiv:2604.01477v1 [cs.LG] 1 Apr 2026
+
+II. P ROBLEM SETTING 
+
+A. Markov decision processes 
+
+We consider a Markov decision process comprising an environment and agent. The environment has states s ∈ S 
+
+that evolve randomly as actions a ∈ A are proposed by the agent. We assume these state transitions are Markovian and characterized by a probability density p; mathematically, 
+
+s′ ∼ p (s′|s, a ), where s′ ∈ S denotes a next state. States and actions are scored with a cost function ℓ :
+
+S × A → R. The agent should design actions that account for the cumulative cost of its actions. As a reference, we first examine the so-called free energy of the system. The free energy considers an open-loop prior ˜β over actions and the cost of the resulting trajectories. We denote the induced distribution over trajectories by τ ∼ p ˜β , where 
+
+τ = {s0, a 0, . . . , s H−1, a H−1}. Note τ depends only on the initial state distribution and sequences of actions, denoted by 
+
+α = {a0, . . . , a H−1}, meaning we can write τ = τ (α, s 0).Taking J to be a real-valued function measuring cumulative cost, the free energy is defined as 
+
+F = −λ log 
+
+
+
+Eτ ∼p ˜β
+
+
+
+exp 
+
+
+
+− 1
+
+λ J(τ )
+
+ 
+
+, (1) where λ > 0 is a temperature parameter and s0 ∼ p(s0).Intuitively, free energy is a soft minimum over random trajectories; λ influences the sharpness of the soft minimum operator and ˜β determines the scope and texture of the action space. For any distribution over actions β, it can be shown (by Jensen’s inequality) that 
+
+F ≤ − λEτ ∼pβ
+
+"
+
+log 
+
+> H−1
+
+Y
+
+> t=0
+
+˜β(at)
+
+β(at) exp 
+
+
+
+− 1
+
+λ J(τ )
+
+!# 
+
+.
+
+Given this lower bound, and with a slight abuse of notation, it can be verified that the optimal distribution has density 
+
+β⋆(α) = 1
+
+η exp 
+
+
+
+− 1
+
+λ J(τ )
+
+ H−1Y
+
+> t=0
+
+˜β(at), (2) where η is a normalizing constant. While (2) gives an elegant solution to the problem, sampling directly from β⋆
+
+is infeasible. The goal of the agent is to design a near-optimal control distribution over actions that approximately matches the free energy of the system. Next, we outline two methodological frameworks for this problem. 
+
+B. Path integral control approach 
+
+MPPI approximately samples from β⋆ through importance sampling and Monte Carlo estimation [ 24 ], [ 25 ], [ 27 ]. To begin, MPPI aims to find optimal control inputs that minimize the KL divergence between the optimal distribution β⋆ and the design distribution β. The principal result is that the optimal control inputs can be expressed as an expectation of weighted actions over βu⋆t = 1
+
+η Eα∼β(α) [w(α)at] .
+
+Assuming, as a standard example, ˜β = N (0 , Σ) and β =
+
+N (u, Σ) , where u is a commanded control input, actions are sampled through the change of variables a = u + ϵ.Sampling N noise sequences ε(n) = {ϵ(n)0 , . . . , ϵ (n)
+
+> H−1
+
+}, the (unnormalized) weights are given by 
+
+w(ε(n)) = exp 
+
+
+
+− 1
+
+λ
+
+
+
+J τ (υ + ε(n), s 0)
+
++ λ
+
+2
+
+> H−1
+
+X
+
+> t=0
+
+u⊤ 
+
+> t
+
+Σ−1 ut + 2 ϵ(n)
+
+> t
+
+
+
+,
+
+where s0 ∼ p(s0) and υ = {u0, . . . , u H−1} and the (approximate) normalization constant in (2) is given by 
+
+η = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+w(ε(n)).
+
+This weighted structure highlights low-cost trajectories and ignores “bad” ones. Control inputs are then updated iteratively 
+
+u(i+1)  
+
+> t
+
+= u(i) 
+
+> t
+
++ 1
+
+ηN 
+
+> N
+
+X
+
+> n=1
+
+w(ε(n))ϵ(n) 
+
+> t
+
+. (3) MPPI is implemented in a receding-horizon fashion, meaning the online policy applies u(·)0 , the first action computed in (3), and then the MPPI steps are repeated at the next state. 
+
+C. Soft value function approach 
+
+We introduce a state-dependent free energy mirroring (1). The soft value function at state s is defined as 
+
+V(s) = 
+
+− λ log Eτ ∼p ˜β
+
+"
+
+exp − 1
+
+λ
+
+> ∞
+
+X
+
+> t=0
+
+γtℓ(st, a t)
+
+!
+
+s0 = s
+
+#! 
+
+,
+
+(4) where 0 < γ < 1 is a fixed discount factor [ 20 ], [ 21 ]. V
+
+is near identical to F except it evaluates the free energy at a desired state; in that way, F = Es0∼p(s0) [V(s0)] . Value functions enable iterative solution methods that decompose the infinite-horizon objective into recursive subproblems [ 28 ], [23 ]. It is helpful to introduce the soft action-value function or 
+
+Q-function, which follows the same definition as V except it is initialized at state-action pairs. A concise way of expressing 
+
+Q is in terms of V, i.e., 
+
+Q(s, a ) = ℓ(s, a ) + γEs′∼p(s′|s,a ) [V(s′)] . (5) 
+
+Q enables the agent to design a single action that accounts for long-term cost, captured by the expected free energy across next possible states. Note (5) can be written with 
+
+Q on both sides of the equation, leading to a soft Bellman optimality equation . Therefore, one may take Q to be an objective function to be (softly) optimized, for example, using distribution matching technique of the previous section (take 
+
+J = Q). Proceeding along this path, we have α = a and arrive at at the optimal distribution 
+
+π⋆ (a|s) = 1
+
+η exp 
+
+
+
+− 1
+
+λ Q(s, a )
+
+
+
+˜β(a)
+
+∝ exp 
+
+
+
+− 1
+
+λ (Q(s, a ) − V (s)) − ∥ a∥ 2Σ−1
+
+
+
+,
+
+as V(s) = −λ log( η). Therefore, π⋆ optimally balances the advantage of each action over the state value V and control effort. III. S O F T MPC R I T I C FRAMEWORK 
+
+A. Ethos of MPCritic 
+
+The goal of MPCritic [ 22 ] is to enable efficient inte-gration of MPC and RL through principled approximations. 
+
+MPCritic follows an actor-critic strategy. The actor, or a subset of its parameters, are trained to approximately represent the solution to an MPC problem. This uses the differentiable predictive control method [ 10 ] in an iterative, online training context. This (approximate) MPC-enabled actor works in tandem with a critic network to approximate MPC value targets. A full MPC is then used online, where exactness and constraint satisfaction are most important and expensive. 
+
+soft MPCritic is another realization of this goal, rather than an extension of MPCritic . While MPCritic empha-sizes deterministic MPC, classical dynamic programming principles, and applications where constraints are critical, 
+
+soft MPCritic emphasizes scalability, motivating sample-based MPC and soft value functions. We develop an algorithm that leverages sample-based MPC for both online control and value target generation, as illustrated in Fig. 1. This strategy “aligns” the MPC and its terminal value function, which makes it possible to leverage a dynamic model trained only on one-step transitions. We further show how this setup is computationally efficient by spreading out the MPC target computation over the course of training. 
+
+B. Fitted Q-iteration via MPPI 
+
+The (idealized) architecture used in soft MPCritic is 
+
+VMPPI (s) ≈ − λ log 
+
+
+
+Eτψ ∼p ˜β
+
+
+
+exp 
+
+
+
+− 1
+
+λ Jϕ(τψ )
+
+
+
+s0 = s
+
+ 
+
+,
+
+(6) where Jϕ(τψ ) = PH−1 
+
+> t=0
+
+γtℓ(st, a t) + γH Qϕ(sH , a H ) and 
+
+τψ refers to trajectories under a learnable model fψ . fψ is trained to minimize the mean squared error (MSE) between its prediction and the observed next state; however, other objectives or multi-step targets may be used. We find it beneficial to mitigate uncertainty in ψ by training an ensemble of dynamic models. MPPI therefore considers a branching dynamic model of the form 
+
+ψ ∼ p(ψ)
+
+s′ = fψ (s, a ),
+
+where models ψ are sampled uniformly. Concurrently, Qϕ is trained to approximately solve the (soft) Bellman equation, namely, Qϕ should be such that VMPPI ≈ V in the infinite-horizon definition in (4). Fitted Q-iteration is an iterative 
+
+Fig. 1: soft MPCritic effectively combines key approxi-mations of RL and MPPI for autonomous, self-improvement. During online control, the value-space planner updates to initial open-loop actions υ to align with the soft minimum of value function Qϕ. The updated sequence υ+, along with transition (s, a, ℓ, s ′), is stored in the replay buffer to warm-start the planner’s value targets VMPPI  
+
+> ϕ
+
+. After a value iteration step, the planner is updated with the new Qϕ, and the further-refined solution υ+ is stored for later reuse. technique for training Qϕ; it was introduced by [ 29 ] and made tractable in high-dimensional continuous spaces by [ 2]. Here, we use it as an umbrella term, as it is a prevalent idea and this work is compatible with the stabilization techniques introduced since the nominal algorithm of [29]. We define the objective 
+
+LQ = MSE  Qϕ, ℓ + γVMPPI  , (7) where the MSE is computed over a batch from the replay buffer D containing tuples of the form (s, a, ℓ, s ′, υ ). ℓ is the observed cost at s, a and VMPPI is the MPPI value in (6) evaluated at s′. Equation (7) is only a nominal objective, as variations involving double or target Q-networks are possible [ 2], [ 3]. If H = 0 in VMPPI , then (7) will be a soft version of classical fitted Q-iteration powered by MPPI, marking a conceptual similarity to soft actor-critic (SAC) [ 3 ]. Taking 
+
+H > 0 embeds short-horizon model information into the targets. This same MPPI is used for online control, making 
+
+Q aligned with the model-based MPPI value estimate and implicitly extending its prediction horizon. The weights ϕ
+
+are updated iteratively using some form of gradient descent as new data is added to the replay buffer. υ is included in the replay tuples to make the MPPI target computationally efficient. 
+
+C. Amortized soft MPCritic algorithm 
+
+The number of trajectory samples is a potential bottleneck for any algorithm involving MPPI, such as soft MPCritic .Precise control quickly becomes infeasible as H → ∞ ,meaning the number of trajectories is coupled with the prediction horizon. soft MPCritic addresses this by fixing the prediction horizon and caching long-horizon planning with Algorithm 1 MPPI with soft MPCritic 
+
+Input: s0, υ, ψ, ϕ  
+
+> 1:
+
+for each update step do  
+
+> 2:
+
+for n ∈ [1 , 2, . . . , N ] do  
+
+> 3:
+
+for t ∈ [0 , 1, . . . , H ] do  
+
+> 4:
+
+ϵ(n) 
+
+> t
+
+∼ N (ut, Σ)  
+
+> 5:
+
+at ← ut + ϵt 
+
+> 6:
+
+ψ ∼ p(ψ) 
+
+> 7:
+
+st+1 ← fψ (st, a t) 
+
+> 8:
+
+J ← PH−1 
+
+> t=0
+
+γtℓ(st, a t) + γH Qϕ(sH , a H ) 
+
+> 9:
+
+w(n) ← exp( − 1 
+
+> λ
+
+(J + λ
+
+> 2
+
+PHt=0 u⊤ 
+
+> t
+
+Σ−1(ut + 2 ϵ(n) 
+
+> t
+
+)))  
+
+> 10:
+
+η ← 1
+
+> N
+
+PNn=1 w(n) 
+
+> 11:
+
+ut ← ut + 1
+
+> ηN
+
+PNn=1 w(n)ϵ(n) 
+
+> t
+> 12:
+
+VMPPI ← − λ log( η) 
+
+> 13:
+
+return υ, VMPPI 
+
+terminal Q-function, i.e., (6). This enables precise control aimed at global optimality with a tractable number of planning trajectories. Algorithm 1 is a generic instantiation of this, which can be expanded to incorporate covariance and/or temperature annealing [ 27 ], baseline policies [ 14 ], [ 13 ], non-Gaussian distributions, and other recent advancements in MPPI [26]. While a terminal Q-function can alleviate sampling chal-lenges during online control, it shifts the burden of com-putation to Q-iteration. Furthermore, for Algorithm 1 to be successful online, Qϕ should be aligned with the MPPI controller, motivating the use of MPPI for both online control and in RL updates. Considering a fixed number of trajectory samples, the cost of RL scales with the number of value iteration steps though. soft MPCritic addresses this issue by amortizing target computations at each value iteration step. Recall (3) is an iterative update rule. Thus, the MPPI optimization for RL updates need not start from scratch; open-loop controls υ calculated online can be recycled for target computation. This inspires the proposed warm-starting strategy for target computations, exemplified in Algorithm 2. The benefits of warm-starting targets as in Algorithm 2 include: 1) fewer trajectory samples needed for RL updates; and 2) targets are iteratively refined as learning proceeds. Regarding the former, online control demands a sizable number of trajectories to acquire near optimal solutions. Hence, when applied to target initialization, only minor refinement is typically necessary. These refinements occur each time a tuple (s, a, ℓ, s ′, υ ) is sampled from the replay buffer, meaning υ adapts with the model and terminal value function throughout training. Empirically, we observe that warm-starting MPPI targets can be highly effective; with only ≈ 10% of samples used online, significantly reducing the computational cost of the RL algorithm. This can be explained through the weighted structure behind (3). Consider two samples ε(j) and ε(i),which are relatively small compared to open-loop controls υ,
+
+Algorithm 2 Q-iteration with amortized soft MPCritic  
+
+> 1:
+
+Initialize υ, ϕ, ψ  
+
+> 2:
+
+for each environment step do  
+
+> 3:
+
+υ ← soft MPCritic (s, υ, ψ, ϕ ) ▷ Algorithm 1  
+
+> 4:
+
+a ← u0 
+
+> 5:
+
+s′ ∼ p (s′|s, a ) 
+
+> 6:
+
+υ ← { u1, . . . , u H−1, 0} 
+
+> 7:
+
+D ← D ∪ {{ s, a, r, s ′, υ }}  
+
+> 8:
+
+for each update step do  
+
+> 9:
+
+{{ s, a, r, s ′, υ }} ∼ D  
+
+> 10:
+
+D ← D \ {{ s, a, r, s ′, υ }}  
+
+> 11:
+
+υ+, VMPPI ← soft MPCritic (s′, υ, ψ, ϕ ) 
+
+> 12:
+
+ϕ ← ϕ − α∇L Q ▷ e.g., (7)  
+
+> 13:
+
+ψ ← ψ − α∇L f ▷ e.g., MSE  
+
+> 14:
+
+D ← D ∪ {{ s, a, r, s ′, υ +}} 
+
+giving the ratio of weights 
+
+w(ε(j))
+
+w(ε(i)) ≈
+
+exp 
+
+
+
+− 1
+
+λ
+
+
+
+J τ (υ + ε(j), s 0) − J τ (υ + ε(i), s 0)
+
+.
+
+The weight ratio ensures that even a linear increase in cost J
+
+results in an exponential decrease in influence when updating 
+
+υ. The risk of all samples increasing the cost—thereby degrading υ—can be mitigated without increasing sample size by annealing the covariance. Furthermore, as part of the latter benefit, any suboptimal updates are naturally corrected in subsequent iterations, as previous target solutions are recycled to warm-start the optimization. Reusing target solutions in subsequent iterations also helps prevent υ from becoming stale as Qϕ is continually updated. Thus, amortization via warm-started targets yields substantial computational savings without significantly compromising the overall RL algorithm’s performance. 
+
+D. Broader scope of soft MPCritic 
+
+soft MPCritic lives in soft value space; however, it could also be adapted to a traditional dynamic programming setting. This can be accomplished by targeting the usual Bellman optimality equation. Further, the resulting value function-augmented MPC would directly minimize cost under the system model. Nonetheless, MPPI is useful in the 
+
+soft MPCritic framework for several reasons. The model is learned online in tandem with the value function, meaning exact minimization may be detrimental to overall stability and performance over the course of training. Additionally, MPPI is agnostic to model and value networks, making it very scalable, a key bottleneck in the RL-MPC interface [ 5]. Therefore, while MPPI is suboptimal relative to a deterministic optimal control problem [27], its benefits are worthwhile. IV. C ASE STUDIES 
+
+soft MPCritic is tested on two case studies. The first demonstrates the benefits of amortizing the Q-iteration process with soft MPCritic on a classical control en-vironment, measuring computational efficiency and re-ward as a proxy for solution quality. The second ablates 
+
+soft MPCritic on a challenging robotics environment, establishing the importance of a terminal value function, modeling uncertainty in the dynamics, and planning for control and target computation. The finalized version is benchmarked relative to standard RL algorithms. 1
+
+A. Amortization in Learning 
+
+Here, soft MPCritic is evaluated in an online learning setting with unknown dynamics, but known goal of balancing a double inverted pendulum. All learnable components of 
+
+soft MPCritic , Qϕ and fψ , are parameterized as neural networks. We analyze the effects of warm-starting and using an ensemble of dynamics models in terms of computation and performance. The grid of plots in Fig. 2 displays the performance of four learning configurations for soft MPCritic , a full factorial design. As seen in the left-hand plots, soft MPCritic 
+
+with warm-starting quickly maximizes the reward in almost every seed. This is in stark contrast with cold starting MPPI for computing Q-function targets in the right-hand plots. Cold starting these computations generally increases variance in the learning process but, if given enough iterations, can achieve similarly rewarding solutions. However, this comes with additional compute, whereas warm-starting can recycle the online solution and continually refine it. In this way, the open-loop controls υ stored in the replay buffer are iteratively updated to best approximate the optimal sequence for the current Qϕ and fψ . Hence, in this example, only a single iteration is necessary to (approximately) maximize performance, roughly matching that of SAC. While not always a major difference for this simpler system, using a single dynamic model can result in sub-optimal solutions when warm or cold starting. This can be attributed to compounding prediction errors over the planning horizon, which manifests in both value function learning and online control to ultimately hinder performance. Rather, planning over an ensemble provides a degree of robustness to parametric uncertainties, meaning MPPI favors low-cost trajectories with high agreement among the ensemble. As seen in Fig. 2, this robustness can aid in tightening the range of rewards when warm-starting. This point is revisited in the next case study where the effects become more pronounced in high-dimensional environments, which can be challenging to accurately model. Warm-starting can achieve comparable performance to cold starting, but its greatest utility is possibly in amortizing the cost of the overall RL algorithm. This effect is measured and tabulated in Table I, comparing the environment steps per second relative to cold starting. As the number of MPPI rollouts N used for target computation increase, all approaches experience a degree of slow down. However, recalling Fig. 2, cold starting requires ≥ 5 iterations to                
+
+> 1Code is available at: https://github.com/NPLawrence/soft-mpcritic 0
+> 2000
+> 4000
+> 6000
+> 8000
+> Warm-start
+> Ensemble  f
+> Cold-start
+> 012345
+> 0
+> 2000
+> 4000
+> 6000
+> 8000
+> 012345
+> ×10 4
+> Single  f
+> 0.00.20.40.60.81.0
+
+## Time step   
+
+> 0.00.20.40.60.81.0
+> Cumulative reward
+> MPPI target iterations 1 (Warm) 15
+
+Fig. 2: Performance of warm and cold starting MPPI target computations when utilizing a single or ensemble of dynamic models f . Lines represent the median of 10 seeds, shading percentiles. The horizontal dashed line corresponds to SAC. achieve comparable performance to 1 iteration when warm-starting. Requiring additional iterations brings the unfavorable scaling of cold starting to the forefront. Achieving similar performance with cold starting amounts to a ≥ 50% slow down in wall time, depending on the desired solution quality. Hence, we only consider warm-starting target computation for all further experiments for its computational efficiency with minimal sacrifice to performance. 
+
+B. High-dimensional Control 
+
+To distinguish the critical design choices behind 
+
+soft MPCritic , we ablate the approach on a more chal-lenging robotics problem. Here, we consider the Hopper-v5 
+
+environment with unknown dynamics but known goal of maximizing velocity while remaining upright. Preserving all hyperparameters from the previous case study, we ablate the MPPI formulation and its usage throughout Algorithm 2. In TABLE I: Mean and standard deviation of environment steps per second (SPS) during online learning. MPPI target computation iterations (SPS) Warm Cold 
+
+N 1 iter. 1 iter. 5 iters. 10 iters. 10 175 ±1.50 175 ±0.78 89 ±0.47 55 ±0.44 20 163 ±0.11 160 ±5.91 73 ±0.84 44 ±0.39 50 128 ±0.94 128 ±0.00 45 ±0.51 25 ±0.38 terms of formulation, we gauge the impact of the terminal 
+
+Q-function and revisit the benefits of modeling parametric uncertainties with an ensemble. Regarding MPPI’s usage, we separately compare substituting a parametric representation, i.e., a neural network as is standard in RL, for online decision-making or Q-function target computation. Starting with the left panel of Fig. 3, we can begin to distill the essential MPPI ingredients. If the terminal Q-function is removed such that only the dynamics ensemble remains (denoted as “no Q / f Ensemble” in Fig. 3), performance collapses. This is to be expected as the Q-function implicitly extends the MPPI planning horizon, and without it, planning is confined to a finite horizon ( H = 8 in this case). Without knowing the true dynamics, extending H further to mitigate this effect is not guaranteed to address this issue. That is not to say the value learning underpinning soft MPCritic is not also vulnerable to model mismatch. This is most evident when we remove the dynamics model ensemble from the MPPI formulation (denoted as “ Q / no f Ensemble” in Fig. 3). Learning and optimizing the terminal Q-function under the predictions of an erroneous model can hinder performance as indicated by the cumulative reward. Incorporating an ensemble targets this very weakness, as the Q-function is learned to reflect uncertainty in the dynamics, and trajectories are planned subject to this uncertainty. Moving to the right panel of Fig. 3, we examine where in Algorithm 2 it is crucial to utilize MPPI. We compare to substituting MPPI with a neural network policy μ with parameters θ learned such that μθ (s) ≈ arg min a Qϕ(s, a ).2
+
+To begin with, we ask if it is sufficient to only use MPPI for                           
+
+> 2Instead of this DDPG-style strategy, we also tested the use of MPPI for optimizing Qϕalone, that is, without any planning; the results were similar and the conclusions in this ablations still held true. 012345
+> 0
+> 500
+> 1000
+> 1500
+> 2000
+> 2500
+> 3000
+> MPPI Ingredients no Q/ f Ensemble
+> Q/no fEnsemble
+> fEnsemble + Q
+> 012345
+> ×10 5
+> MPPI Usage Targets Control Targets + Control 0.00.20.40.60.81.0
+
+Time step 
+
+> 0.00.20.40.60.81.0
+> Cumulative reward
+
+Fig. 3: Ablation of soft MPCritic with Gaussian prior. Left: using only a dynamics model ensemble ( f Ensemble), terminal Q-function ( Q), or both. Right: using MPPI only for control, Q-function targets, or both. Lines represent the median of 10 seeds, shading percentiles. online control (denoted as “Control” in Fig. 3), effectively replacing line 10 of Algorithm 2 with V(s) ← Q (s, μ θ (s)) .In the early stages of learning, performance is similar to the full MPPI algorithm; both algorithms benefit from online re-planning despite their initially poor Q-function approximators. However, as learning progresses, misalignment between the neural network policy objective and the true form of the optimal policy π⋆ (a|s) hinders value learning, and thus, performance. If we only use MPPI for target computation in Algorithm 2 (denoted as “Targets” in Fig. 3), the misalignment of μθ also manifests. Compounding this fact, μθ does not benefit from re-planning during online control, and the performance of μθ is largely dependent on its extraction algorithm from Qϕ. Using MPPI for both tasks ensures alignment between online control and learning, and benefits from online re-planning without requiring additional policy function approximators. Having settled on these algorithmic primitives, we com-pare the full soft MPCritic algorithm with standard RL baselines, SAC and DDPG. SAC is included due to its shared roots in soft value-iteration. We include DDPG because of its algorithmic simplicity; omitting techniques such as double Q-networks and temperature auto-tuning utilized by SAC but not by Algorithm 2. For conceptual alignment, we deploy Algorithm 1 with a uniform prior such that 
+
+soft MPCritic , like SAC, is optimizing a Gaussian control distribution for maximum entropy control. Results can be seen in Fig. 4. Notably, soft MPCritic exceeds the asymptotic performance of both baselines (measured at 10 6 time steps) within the first 2 × 10 5 time steps. With all algorithms sharing the same Q-iteration frequency and aligned objectives, the primary distinction of the proposed approach apart is 0 1 2 3 4 5
+
+## Time step ×10 5  
+
+> 0
+> 500
+> 1000
+> 1500
+> 2000
+> 2500
+> 3000
+> Cumulative reward
+> soft MPCritic DDPG SAC
+
+Fig. 4: Cumulative reward for soft MPCritic with uniform prior and RL baselines (SAC and DDPG). Lines represent the median of 10 seeds, shading percentiles. The horizontal dashed lines corresponds to SAC and DDPG after 10 6 time steps. the MPPI planning module. As compared to SAC, H-step predictions aid in generating quality soft value function targets, accelerating value learning. Furthermore, online re-planning enables the agent to adapt its behavior based on feedback while avoiding parametric policy extraction as a learning bottleneck. With the planner aligned for both value estimation and control, soft MPCritic offers a streamlined yet high-performance approach to control. V. C ONCLUSIONS 
+
+soft MPCritic is an algorithmic framework for learning MPC in value space via RL. In this work, soft MPCritic 
+
+does not leverage specialized model learning objectives and many of the stabilization techniques common in deep RL, yet still achieves strong performance. Specifically, 
+
+soft MPCritic learns a high-quality value function that enables effective short-horizon planning in settings where the same model fails under direct planning—highlighting the benefit of value-space learning over open-loop rollouts. Our results establish soft MPCritic as a principled foundation for future work, including incorporation of advanced model learning objectives, stability guarantees, and broader MPC-enabled RL algorithm design. REFERENCES [1] J. B. Rawlings, D. Q. Mayne, and M. M. Diehl, Model Predictive Control: Theory, Computation, and Design , 2nd ed. Madison, Wisconsin: Nob Hill Publishing, 2017. [2] T. P. Lillicrap, J. J. Hunt, A. Pritzel, N. Heess, T. Erez, Y. Tassa, D. Silver, and D. Wierstra, “Continuous control with deep reinforcement learning,” in ICLR , 2016. [3] T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine, “Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor,” in Proceedings of the 35th International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 80. PMLR, 2018, pp. 1861–1870. [4] N. P. Lawrence, P. D. Loewen, M. G. Forbes, R. B. Gopaluni, and A. Mesbah, “A view on learning robust goal-conditioned value functions: Interplay between RL and MPC,” Annual Reviews in Control , vol. 60, p. 101027, 2025. [5] R. Reiter, J. Hoffmann, D. Reinhardt, F. Messerer, K. Baumg ¨artner, S. Sawant, J. Boedecker, M. Diehl, and S. Gros, “Synthesis of model predictive control and reinforcement learning: Survey and classification,” 
+
+Annual Reviews in Control , vol. 61, p. 101045, 2026. [6] T. Wang, X. Bao, I. Clavera, J. Hoang, Y. Wen, E. Langlois, S. Zhang, G. Zhang, P. Abbeel, and J. Ba, “Benchmarking model-based reinforcement learning,” arXiv preprint arXiv:1907.02057 , 2019. [7] B. Frauenknecht, A. Eisele, D. Subhasish, F. Solowjow, and S. Trimpe, “Trust the model where it trusts itself - model-based actor-critic with uncertainty-aware rollout adaption,” in Proceedings of the 41st International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 235. PMLR, 2024, pp. 13 973– 14 005. [8] T. Jafferjee, E. Imani, E. Talvitie, M. White, and M. Bowling, “Hallucinating Value: A Pitfall of Dyna-style Planning with Imperfect Environment Models,” 2020. [9] B. Barkley and D. Fridovich-Keil, “Stealing That Free Lunch: Exposing the Limits of Dyna-Style Reinforcement Learning,” 2024. [10] J. Drgo ˇna, A. Tuor, and D. Vrabie, “Learning Constrained Parametric Differentiable Predictive Control Policies With Guarantees,” IEEE Transactions on Systems, Man, and Cybernetics: Systems , vol. 54, no. 6, pp. 3596–3607, 2024. [11] A. Byravan, J. T. Springenberg, A. Abdolmaleki, R. Hafner, M. Neunert, T. Lampe, N. Siegel, N. Heess, and M. Riedmiller, “Imagined value gradients: Model-based policy optimization with tranferable latent dynamics models,” in Conference on Robot Learning . PMLR, 2020, pp. 566–589. [12] V. Feinberg, A. Wan, I. Stoica, M. I. Jordan, J. E. Gonzalez, and S. Levine, “Model-based value estimation for efficient model-free reinforcement learning,” arXiv preprint arXiv:1803.00101 , 2018. [13] Y. Qu, H. Chu, S. Gao, J. Guan, H. Yan, L. Xiao, S. E. Li, and J. Duan, “RL-Driven MPPI: Accelerating Online Control Laws Calculation With Offline Policy,” IEEE Transactions on Intelligent Vehicles , vol. 9, no. 2, pp. 3605–3616, 2024. [14] P. Wang, C. Li, C. Weaver, K. Kawamoto, M. Tomizuka, C. Tang, and W. Zhan, “Residual-MPPI: Online Policy Customization for Continuous Control,” 2025. [15] M. Bhardwaj, A. Handa, D. Fox, and B. Boots, “Information Theoretic Model Predictive Q-Learning,” 2020. [16] A.-m. Farahmand, A. Barreto, and D. Nikovski, “Value-aware loss func-tion for model-based reinforcement learning,” in Artificial Intelligence and Statistics . PMLR, 2017, pp. 1486–1494. [17] N. Hansen, H. Su, and X. Wang, “TD-MPC2: Scalable, robust world models for continuous control,” in The Twelfth International Conference on Learning Representations , 2024. [18] B. Amos, I. D. J. Rodriguez, J. Sacks, B. Boots, and J. Z. Kolter, “Differentiable MPC for End-to-end Planning and Control,” 2019. [19] S. Gros and M. Zanon, “Data-driven economic NMPC using rein-forcement learning,” IEEE Transactions on Automatic Control , vol. 65, no. 2, pp. 636–648, 2019. [20] T. Haarnoja, H. Tang, P. Abbeel, and S. Levine, “Reinforcement learning with deep energy-based policies,” in International conference on machine learning . PMLR, 2017, pp. 1352–1361. [21] S. Levine, “Reinforcement learning and control as probabilistic inference: Tutorial and review,” arXiv preprint arXiv:1805.00909 , 2018. [22] N. P. Lawrence, T. Banker, and A. Mesbah, “MPCritic: A plug-and-play MPC architecture for reinforcement learning,” in 2025 IEEE 64th Conference on Decision and Control (CDC) . IEEE, 2025, pp. 1048–1054. [23] D. Bertsekas, Dynamic Programming and Optimal Control: Volume II; Approximate Dynamic Programming . Athena Scientific, 2012, vol. 4. [24] G. Williams, P. Drews, B. Goldfain, J. M. Rehg, and E. A. Theodorou, “Aggressive driving with model predictive path integral control,” in 2016 IEEE International Conference on Robotics and Automation (ICRA) .Stockholm: IEEE, 2016, pp. 1433–1440. [25] G. Williams, N. Wagener, B. Goldfain, P. Drews, J. M. Rehg, B. Boots, and E. A. Theodorou, “Information theoretic MPC for model-based reinforcement learning,” in 2017 IEEE International Conference on Robotics and Automation (ICRA) . Singapore: IEEE, 2017, pp. 1714– 1721. [26] K. Honda, “Model predictive control via probabilistic inference: A tutorial,” arXiv preprint arXiv:2511.08019 , 2025. [27] H. Homburger, F. Messerer, M. Diehl, and J. Reuter, “Optimality and Suboptimality of MPPI Control in Stochastic and Deterministic Settings.” [28] D. Bertsekas and J. N. Tsitsiklis, Neuro-Dynamic Programming .Athena Scientific, 1996. [29] M. Riedmiller, “Neural fitted Q iteration–first experiences with a data efficient neural reinforcement learning method,” in European conference on machine learning . Springer, 2005, pp. 317–328.

@@ -6,64 +6,61 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-04-07
-- 运行时间：2026-04-07 20:17:15 UTC
+- 最新运行日期：2026-04-08
+- 运行时间：2026-04-08 20:49:23 UTC
 - 运行状态：成功
-- 本次总论文数：14
-- 精读区：3
-- 速读区：11
+- 本次总论文数：13
+- 精读区：1
+- 速读区：12
 
 ### 今日简报（AI）
-今日深度解析 14 篇前沿成果，重点攻克量子计算优化城市交通及多分辨率时间序列生成两大难题。
-核心结论指出量子算法在复杂运输系统中有巨大潜力，而 MR-ImagenTime 通过双重图像表示显著提升了序列生成质量。
-建议关注智慧城市与数据合成领域的读者优先研读这两篇高分论文，把握跨学科技术融合的新趋势。
-- 详情：[/202604/07/README](/202604/07/README)
+今日深度复盘 13 篇前沿论文，重点剖析量子优化在城市交通系统中的应用前景与现实局限。
+核心结论指出量子计算正加速渗透铁路负载与时空图建模，因果启发式联邦学习为动态数据处理提供了新思路。
+建议读者重点关注量子技术在复杂城市场景下的落地边界，提前布局智慧交通的下一代技术栈。
+- 详情：[/202604/08/README](/202604/08/README)
 
 ### 精读区论文标签
-1. [Quantum optimisation in cities: Limitations and prospects of urban transport systems](/202604/07/2604.02671v1-quantum-optimisation-in-cities-limitations-and-prospects-of-urban-transport-systems)  
-   标签：评分：9.0/10、query:urt-c
-   evidence：城市交通规划优化方法综述
-2. [MR-ImagenTime: Multi-Resolution Time Series Generation through Dual Image Representations](/202604/07/2603.28253v1-mr-imagentime-multi-resolution-time-series-generation-through-dual-image-representations)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：多分辨率时间序列生成与预测
-3. [STDDN: A Physics-Guided Deep Learning Framework for Crowd Simulation](/202604/07/2604.02756v1-stddn-a-physics-guided-deep-learning-framework-for-crowd-simulation)  
+1. [Quantum optimisation in cities: Limitations and prospects of urban transport systems](/202604/08/2604.02671v1-quantum-optimisation-in-cities-limitations-and-prospects-of-urban-transport-systems)  
    标签：评分：8.0/10、query:urt-c
-   evidence：用于人群模拟的时空深度学习
+   evidence：城市交通中的量子与经典优化
 
 ### 速读区论文标签
-1. [KAN-LSTM: Benchmarking Kolmogorov-Arnold Networks for Cyber Security Threat Detection in IoT Networks](/202604/07/2603.28985v1-kan-lstm-benchmarking-kolmogorov-arnold-networks-for-cyber-security-threat-detection-in-iot-networks)  
-   标签：评分：7.0/10、query:urt-pf
-   evidence：用于网络流量时空编码的 KAN-LSTM 模型
-2. [Macroscopic Traffic Flow Network Modeling For Wildfire Evacuation: A Game-Theoretic Junction Optimization Approach with Application to Lahaina Fire](/202604/07/2603.29055v2-macroscopic-traffic-flow-network-modeling-for-wildfire-evacuation-a-game-theoretic-junction-optimization-approach-with-application-to-lahaina-fire)  
-   标签：评分：7.0/10、query:urt-c
-   evidence：宏观交通流建模与交叉口优化
-3. [Causality-inspired Federated Learning for Dynamic Spatio-Temporal Graphs](/202604/07/2603.29384v1-causality-inspired-federated-learning-for-dynamic-spatio-temporal-graphs)  
-   标签：评分：7.0/10、query:urt-pf
-   evidence：动态时空图的联邦学习方法
-4. [One-for-All: A Lightweight Stabilized and Parameter-Efficient Pre-trained LLM for Time Series Forecasting](/202604/07/2603.29756v1-one-for-all-a-lightweight-stabilized-and-parameter-efficient-pre-trained-llm-for-time-series-forecasting)  
-   标签：评分：7.0/10、query:urt-pf
-   evidence：用于多变量时间序列分析的大模型参数高效微调方法
-5. [CASCADE: Cascaded Scoped Communication for Multi-Agent Re-planning in Disrupted Industrial Environments](/202604/07/2604.00451v1-cascade-cascaded-scoped-communication-for-multi-agent-re-planning-in-disrupted-industrial-environments)  
-   标签：评分：7.0/10、query:urt-c
-   evidence：中断环境下的多智能体重新规划
-6. [SHARP: Short-Window Streaming for Accurate and Robust Prediction in Motion Forecasting](/202604/07/2603.28091v1-sharp-short-window-streaming-for-accurate-and-robust-prediction-in-motion-forecasting)  
-   标签：评分：6.0/10、query:urt-pf
-   evidence：动态交通环境下的流式运动预测
-7. [Interpretable models for forecasting high-dimensional functional time series](/202604/07/2603.28344v1-interpretable-models-for-forecasting-high-dimensional-functional-time-series)  
-   标签：评分：6.0/10、query:urt-pf
-   evidence：高维函数型时间序列预测
-8. [From Simulation to Deep Learning: Survey on Network Performance Modeling Approaches](/202604/07/2603.28394v1-from-simulation-to-deep-learning-survey-on-network-performance-modeling-approaches)  
-   标签：评分：6.0/10、query:urt-pf
-   evidence：使用深度学习预测数据包流的流量性能
-9. [Differentiable Initialization-Accelerated CPU-GPU Hybrid Combinatorial Scheduling](/202604/07/2603.28943v1-differentiable-initialization-accelerated-cpu-gpu-hybrid-combinatorial-scheduling)  
-   标签：评分：6.0/10、query:urt-c
-   evidence：优化任务的组合调度
-10. [Indian Peak Power demand Forecasting : Transformer Based Implementation of Temporal Architecture](/202604/07/2603.29179v1-indian-peak-power-demand-forecasting--transformer-based-implementation-of-temporal-architecture)  
-   标签：评分：6.0/10、query:urt-pf
-   evidence：用于长期需求预测的时间融合Transformer
-11. [Hybrid Quantum-Classical Spatiotemporal Forecasting for 3D Cloud Fields](/202604/07/2603.29407v1-hybrid-quantum-classical-spatiotemporal-forecasting-for-3d-cloud-fields)  
-   标签：评分：6.0/10、query:urt-pf
-   evidence：混合量子-经典时空预测
+1. [Causality-inspired Federated Learning for Dynamic Spatio-Temporal Graphs](/202604/08/2603.29384v1-causality-inspired-federated-learning-for-dynamic-spatio-temporal-graphs)  
+   标签：评分：7.5/10、query:urt-pf
+   evidence：动态时空图上的联邦学习以提高泛化性能
+2. [Reducing Complexity for Quantum Approaches in Train Load Optimization](/202604/08/2603.29543v1-reducing-complexity-for-quantum-approaches-in-train-load-optimization)  
+   标签：评分：7.5/10、query:urt-c
+   evidence：列车装载优化与组合优化
+3. [Full-Gradient Successor Feature Representations](/202604/08/2604.00686v1-full-gradient-successor-feature-representations)  
+   标签：评分：7.5/10、query:urt-c
+   evidence：用于强化学习的全梯度继任特征表示
+4. [DySCo: Dynamic Semantic Compression for Effective Long-term Time Series Forecasting](/202604/08/2604.01261v1-dysco-dynamic-semantic-compression-for-effective-long-term-time-series-forecasting)  
+   标签：评分：7.5/10、query:urt-pf
+   evidence：用于长期时间序列预测的动态语义压缩
+5. [Risk Control of Traffic Flow Through Chance Constraints and Large Deviation Approximation](/202604/08/2604.01321v1-risk-control-of-traffic-flow-through-chance-constraints-and-large-deviation-approximation)  
+   标签：评分：7.5/10、query:urt-c
+   evidence：通过机会约束和风险控制进行交通流管理，适用于安全关键事件
+6. [Dense Point-to-Mask Optimization with Reinforced Point Selection for Crowd Instance Segmentation](/202604/08/2604.01742v1-dense-point-to-mask-optimization-with-reinforced-point-selection-for-crowd-instance-segmentation)  
+   标签：评分：7.5/10、query:urt-c
+   evidence：用于监控和交通的人群实例分割
+7. [Hybrid Quantum-Classical Spatiotemporal Forecasting for 3D Cloud Fields](/202604/08/2603.29407v1-hybrid-quantum-classical-spatiotemporal-forecasting-for-3d-cloud-fields)  
+   标签：评分：6.5/10、query:urt-pf
+   evidence：用于复杂场预测的混合量子-经典时空预测框架
+8. [NeuroDDAF: Neural Dynamic Diffusion-Advection Fields with Evidential Fusion for Air Quality Forecasting](/202604/08/2604.01175v1-neuroddaf-neural-dynamic-diffusion-advection-fields-with-evidential-fusion-for-air-quality-forecasting)  
+   标签：评分：6.5/10、query:urt-pf
+   evidence：用于预测的时空动态和GRU-图注意力机制
+9. [Residuals-based Offline Reinforcement Learning](/202604/08/2604.01378v1-residuals-based-offline-reinforcement-learning)  
+   标签：评分：6.5/10、query:urt-c
+   evidence：用于策略优化的离线强化学习
+10. [Soft MPCritic: Amortized Model Predictive Value Iteration](/202604/08/2604.01477v1-soft-mpcritic-amortized-model-predictive-value-iteration)  
+   标签：评分：6.5/10、query:urt-c
+   evidence：用于规划和控制的强化学习-模型预测控制框架
+11. [BEVPredFormer: Spatio-temporal Attention for BEV Instance Prediction in Autonomous Driving](/202604/08/2604.02930v1-bevpredformer-spatio-temporal-attention-for-bev-instance-prediction-in-autonomous-driving)  
+   标签：评分：6.5/10、query:urt-pf
+   evidence：动态驾驶环境中实例预测的时空注意力机制
+12. [ART: Adaptive Relational Transformer for Pedestrian Trajectory Prediction with Temporal-Aware Relations](/202604/08/2604.03649v1-art-adaptive-relational-transformer-for-pedestrian-trajectory-prediction-with-temporal-aware-relations)  
+   标签：评分：6.5/10、query:urt-pf
+   evidence：行人轨迹预测的时空建模
 
 
 <div class="dpr-home-promo-card">
