@@ -1,9 +1,11 @@
 import importlib.util
+import json
 import os
 import pathlib
 import tempfile
 import time
 import unittest
+import yaml
 
 
 def _load_module(module_name: str, path: pathlib.Path):
@@ -40,6 +42,9 @@ class SupabaseInitAndSyncTest(unittest.TestCase):
         token = self.init_mod.resolve_date_token("20260201-20260207", 30)
         self.assertEqual(token, "20260201-20260207")
 
+    def test_default_fetch_days_is_nine(self):
+        self.assertEqual(self.init_mod.DEFAULT_FETCH_DAYS, 9)
+
     def test_find_latest_raw_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -58,6 +63,27 @@ class SupabaseInitAndSyncTest(unittest.TestCase):
             os.utime(f2, (f2_ts, f2_ts))
             latest = self.init_mod.find_latest_raw_file(str(root))
             self.assertTrue(latest.endswith("arxiv_papers_20260201-20260207.json"))
+
+    def test_count_raw_rows(self):
+        with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as f:
+            json.dump([{"id": "1"}, {"id": "2"}], f)
+            path = f.name
+        try:
+            self.assertEqual(self.init_mod.count_raw_rows(path), 2)
+        finally:
+            os.unlink(path)
+
+    def test_maintain_workflow_defaults_fetch_days_to_nine(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        workflow_path = root / ".github" / "workflows" / "maintain-supabase.yml"
+        text = workflow_path.read_text(encoding="utf-8")
+        workflow = yaml.safe_load(text) or {}
+        on_block = workflow.get("on") or workflow.get(True) or {}
+        inputs = (((on_block.get("workflow_dispatch") or {}).get("inputs")) or {})
+        fetch_days = (inputs.get("fetch_days") or {})
+        self.assertEqual(fetch_days.get("default"), "9")
+        self.assertIn('FETCH_DAYS="9"', text)
+        self.assertIn('ARGS=(--fetch-days "$FETCH_DAYS")', text)
 
     def test_deduplicate_rows_by_id(self):
         rows = [
