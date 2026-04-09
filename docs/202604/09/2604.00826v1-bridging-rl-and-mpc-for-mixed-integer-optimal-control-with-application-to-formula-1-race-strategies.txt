@@ -1,0 +1,487 @@
+Title: Bridging RL and MPC for mixed-integer optimal control with application to Formula 1 race strategies
+
+URL Source: https://arxiv.org/pdf/2604.00826v1
+
+Published Time: Thu, 02 Apr 2026 01:26:06 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Bridging RL and MPC for mixed-integer optimal control with application to Formula 1 race strategies 
+
+Joschua W¨ uthrich, Romir Damle, Giona Fieni, Melanie N. Zeilinger, Christopher H. Onder, Andrea Carron 
+
+Abstract — We propose a hybrid reinforcement learning (RL) and model predictive control (MPC) framework for mixed-integer optimal control, where discrete variables enter the cost and dynamics but not the constraints. Existing hierarchical approaches use RL only for the discrete action space, leaving continuous optimization to MPC. Unlike these methods, we train the RL agent on the full hybrid action space, ensuring consistency with the cost of the underlying Markov decision process. During deployment, the RL actor is rolled out over the prediction horizon to parametrize an integer-free nonlinear MPC through the discrete action sequence and provide acontinuous warm-start. The learned critic serves as a terminal cost to capture long-term performance. We prove recursive feasibility, and validate the framework on a Formula 1 race strategy problem. The hybrid method achieves near-optimal performance relative to an offline mixed-integer nonlinear program benchmark, outperforming a standalone RL agent. Moreover, the hybrid scheme enables adaptation to unseen dis-turbances through modular MPC extensions at zero retraining cost. 
+
+I. INTRODUCTION Many real world systems must simultaneously make dis-crete and continuous decisions. Examples of such systems appear in various engineering domains. Heating and cooling systems combine discrete operating mode selection, such as direct solar supply, thermal storage discharge, and natural ventilation, with continuous control of heat pump power [1]. Industrial process control handles discrete decisions such as valve switching, pump scheduling or reactor mode selec-tion with continuous regulation of flow rates, temperatures and pressures [2]. Decision-making problems such as race strategies in Formula 1 (F1) racing [3] aim to optimize the continuous energy management of the hybrid power unit in combination with discrete choices regarding the pit stop strategy. From a control point of view, such systems naturally give rise to mixed-integer optimal control problems (MIOCPs). Model predictive control (MPC) [4] and reinforcement learn-ing (RL) [5] are two distinct approaches for solving optimal control problems (OCPs) with complementary strengths. MPC provides safety and feasibility guarantees through con-strained optimization problems, while RL naturally handles long-horizon sequential decision making.                   
+
+> All authors are with the Institute for Dynamic Systems and Control, Department of Mechanical and Process Engineering, ETH Zurich, Switzerland
+
+{jwuethrich, rdamle, gfieni, mzeilinger, onder, carrona }@ethz.ch 
+
+> This work has been submitted to the IEEE for possible publication. Copyright may be transferred without notice, after which this version may no longer be accessible.
+
+In this paper, we propose a hybrid RL-MPC framework that exploits the complementary strengths of both methods for mixed-integer optimal control. 
+
+A. Related work 
+
+Recently, many research efforts have been made to com-bine RL and MPC in a unified framework for general OCPs to exploit their complementary strengths. Within such frameworks, RL and MPC play distinct but complementary roles. RL commonly learns an approximation of the value function through data-driven exploration, capturing long-horizon behavior across the full state space, while MPC refines this approximation online through constrained op-timization, replanning at each time step from the current state [6], [7]. This global-local perspective has emerged as a unifying lens for understanding RL-MPC integration, where RL supplies long-term information and MPC refines decisions locally under constraints. Three main streams of possible RL-MPC synthesis approaches can be distinguished: value-augmented MPC, differentiable MPC, and hierarchical RL-MPC schemes [8]. Value-augmented MPC integrates a learned value function as a terminal cost in the MPC objective, allowing the reduction of the required planning horizon while improving long-term performance [9], [10], [11]. However, existing formulations do not exploit the structure of mixed-integer OCPs, and the computational cost of mixed-integer optimization remains. Differentiable MPC replaces neural network function approx-imators with constrained optimization layers within policy-gradient or actor-critic updates [12], [13]. This yields more interpretable policies with explicit constraint handling, as the control actions are directly obtained from a parametrized optimization problem rather than a black-box network. How-ever, constrained optimization problems must be solved during both offline training and online deployment, making this approach computationally demanding. MIOCPs can be formulated in this setting [14], but increase the computational burden even more during both training and deployment. Hierarchical RL-MPC schemes decompose the problem across two levels, with RL approximating a global policy and MPC serving as a local refinement module. Examples include guided policy search [15], the MPC-Net [16], and related frameworks in which an MPC generates trajectories used for policy learning [17]. However, these methods do not specifically address the hybrid action space structure of mixed-integer OCPs. Existing hierarchical schemes address the structure of hy-brid action spaces by training an RL agent only on the 
+
+> arXiv:2604.00826v1 [eess.SY] 1 Apr 2026
+
+discrete action space [18], [19]. Their RL policy maps the current state to a full discrete action trajectory over the prediction horizon in a single forward pass. This trajectory parametrizes the MPC, which optimizes only the continuous actions. This separation, however, introduces a fundamental inconsistency with the underlying hybrid Markov decision process (MDP). In a hybrid MDP, the Q-function maps a state-action pair (s, a ) to the expected cumulative future reward, where a is a single hybrid action. A Q-function approximation is consistent with the hybrid MDP’s cost structure if it respects this mapping [5]. In [18], [19], how-ever, Q-functions are learned as mappings from the current state and predicted action trajectory, rather than from a single state-action pair. This means that the learned value function does not correspond to the Q-function of the hybrid MDP, and as a consequence, the RL agent cannot be guaranteed to optimize the correct long-term objective. Furthermore, since the RL agent is trained on discrete decisions alone, the coordination between discrete and continuous actions is merely captured indirectly. Beyond these shared limitations, [18] decouples the Q-function across prediction horizon steps, using a separate Q-function at each step, to manage the combinatorial action space size, whereas [19] uses predicted rather than closed-loop states for value function learning. Both of these modifications further widen the mismatch between the learned Q-function and that of the underlying hybrid MDP. 
+
+B. Contribution 
+
+The contributions of this paper are threefold. First, we propose a hybrid RL-MPC framework that trains the RL agent on the full hybrid action space, ensuring consistency with the underlying hybrid MDP. We focus on systems where discrete inputs affect the cost and dynamics but not the feasibility of constraints. During deployment, the RL actor is rolled out over the MPC prediction horizon using the system model to parametrize and warm-start a continuous MPC. The RL critic serves as a terminal cost, capturing long-term performance beyond the planning horizon. This reduces the online problem to a continuous OCP, enabling efficient deployment. Second, we prove that under a structural assumption on the integer decisions, the proposed framework guarantees closed-loop constraint satisfaction. Third, we validate the framework on an F1 race strategy case study, evaluating performance and adaptability of the hybrid RL-MPC framework. 
+
+C. Outline 
+
+The remainder of this paper is organized as follows: Section II introduces the class of problems addressed by our method, their MDP formulation, and basics on RL and MPC. The proposed framework and its closed-loop constraint satisfaction property are presented in Section III. We validate our method with an F1 race strategy case study in Section IV and conclude our work in Section V. II. PRELIMINARIES We consider dynamic systems with hybrid action spaces that give rise to MIOCPs. This section formalizes the prob-lem class that can be addressed with our proposed frame-work, and briefly introduces RL and MPC as complementary solution methods. Throughout this paper, j ∈ N denotes the closed-loop time step and k ∈ {0, ..., N } the open-loop prediction index of a finite-horizon problem. Closed-loop states, continuous and discrete inputs are denoted by 
+
+x(j), u c(j), u d(j), respectively, while open-loop predicted quantities are denoted by xk, u c
+
+> k
+
+, u d
+
+> k
+
+. For the remainder of this paper, we will follow the control convention and work with cost functions rather than value functions. For a given policy π, the cost function Jπ (x) is the negative of the value function in standard RL literature, and the state-action cost function Cπ (x, u ) is the negative of the Q-function. 
+
+A. Problem formulation 
+
+We consider deterministic, discrete-time systems of the form 
+
+x(j + 1) = f  x(j), u c(j), u d(j) , (1) where x(j) ∈ X ⊂ Rnx is the state, uc(j) ∈ U c ⊂ Rnc is the continuous input, ud(j) ∈ U d ⊂ Znd is the discrete input, with Ud finite, and f : X × U c × U d → X denotes the system dynamics. For these systems, we seek policies π(u|x), which are in general stochastic and minimize the discounted infinite-horizon cost 
+
+Jπ (x(0)) = Eπ
+
+
+
+> ∞
+
+X
+
+> j=0
+
+γj ℓ  x(j), u c(j), u d(j) , (2) with stage cost ℓ : X × U c × U d → R and discount factor γ ∈ (0 , 1] . The specific problem class that can be addressed with our framework is defined through the following assumption. 
+
+Assumption 1: For any x(j) ∈ X and ud(j) ∈ U d, there exists uc(j) ∈ U c such that f  x(j), u c(j), u d(j) ∈ X .
+
+Remark 1: Assumption 1 ensures that feasibility of the optimization problem can always be maintained through the continuous control input, regardless of the discrete input chosen by the RL agent. This is necessary as standard RL methods provide no inherent constraint satisfaction guaran-tees [20]. This assumption is satisfied in many engineering applications, particularly in economic cost settings where discrete inputs select operating modes that affect system performance but not the feasibility of physical constraints. The combinatorial structure of this problem class makes on-line deployment via mixed-integer optimization challenging. 
+
+B. Markov decision process reformulation 
+
+The presented MIOCP can be reformulated as a hybrid MDP. Denoting the joint action u =  uc, u d ∈ U c × U d,the MDP is defined by the previously introduced definitions for the state and action space, state transition function, stage cost, and discount factor 
+
+M = ( X , Uc × U d, f, ℓ, γ ) , (3) where the Markov property follows directly from the system dynamics. For a given policy π(u|x), the state-action cost function of the MDP is 
+
+Cπ (x, u ) = Eπ
+
+
+
+> ∞
+
+X
+
+> j=0
+
+γj ℓ (x(j), u (j)) x(0) = x, u(0) = u
+
+ , (4) from which the cost function Jπ (x) (2) follows as 
+
+Jπ (x) = Eu∼π(·| x) [Cπ (x, u )] . (5) The optimal cost function J∗(x) satisfies the Bellman equa-tion 
+
+J∗(x) = min 
+
+> u∈U c×U d
+
+[ℓ(x, u ) + γJ ∗ (f (x, u ))] , (6) which also holds for the optimal state-action cost func-tion C∗(x, u )
+
+C∗(x, u ) = ℓ(x, u ) + γ min 
+
+> u′∈U c×U d
+
+C∗ (f (x, u ), u ′) . (7) Solving the Bellman equation, (6) or (7), through exact dynamic programming (DP) becomes intractable due to the curse of dimensionality arising from the continuous state and action spaces [21]. In the subsections below, we present two methods that solve approximations to these equations. 
+
+C. RL for mixed-integer control 
+
+Depending on the algorithm, RL approximately solves either (6) or (7) through data-driven exploration of the state and action spaces. C∗(x, u ) and J∗(x) are approximated by parametrized function approximators Cθ (x, u ) and Jθ (x),which are typically represented as neural networks. The parameters θ of these function approximators are updated through the minimization of the Bellman residual, i.e., 
+
+min  
+
+> θ
+
+|| Cθ (x, u ) − ℓ(x, u ) − γ min  
+
+> u′
+
+Cθ (f (x, u ), u ′)|| , (8) using samples (x, u, f (x, u ), ℓ (x, u )) collected through the MDP M (3). Given an approximation Cθ (x, u ), aparametrized policy πϕ(u|x) can be obtained through 
+
+ϕ∗ = arg min  
+
+> ϕ
+
+Ex,u∼π(·| x) [Cθ (x, u )] , (9) with analogous expressions holding for Jθ (x) via (5) and (6). Connecting back to the global-local framework [6], [7], RL globally approximates the MDP cost (2) through (4) and (5) over the state space by training on the full hybrid action space Uc × U d. Optimization of the parameters θ relies on exploration to capture long-term effects of continuous and discrete actions, and by minimizing (8) ensures consistency with the cost function of the underlying hybrid MDP. In actor-critic RL algorithms [22], Cθ (x, u ) serves as the critic, evaluating the choice of the RL agent’s action in the current state, while the policy πϕ(u|x) serves as the actor which selects the RL agent’s actions. The critic guides the actor’s updates during training. Two properties of RL are particularly relevant for mixed-integer control. Rather than explicitly enumerating and di-rectly optimizing over the discrete action space as in branch-and-bound methods [23], RL optimizes the parameters θ
+
+and ϕ of Cθ (x, u ), Jθ (x) and πϕ(u|x), from which discrete actions follow implicitly. Furthermore, the dominant compu-tational effort is shifted to offline training. Online deploy-ment is reduced to a single forward pass through πϕ(u|x),independent of the length of the optimization horizon. However, standard RL alone does not enforce state or input constraints. Furthermore, approximation errors in Cθ (x, u )
+
+or πϕ(u|x) may lead to suboptimal performance, where function approximators lack the resolution of model-based optimization. 
+
+D. MPC for mixed-integer control 
+
+MPC approximates the MDP cost (2) locally by repeatedly solving the finite-horizon MIOCP 
+
+min     
+
+> {xk,u c
+> k,u d
+> k}
+> N−1
+
+X
+
+> k=0
+
+ℓ  xk, u c
+
+> k
+
+, u d
+
+> k
+
+ + Jf (xN )
+
+subject to xk+1 = f  xk, u c
+
+> k
+
+, u d
+
+> k
+
+
+
+x0 = x(j)
+
+xk ∈ X , x N ∈ X f
+
+uc 
+
+> k
+
+∈ U c, u d 
+
+> k
+
+∈ U d,
+
+(10) which is initialized at the current closed-loop time step x(j),where Jf (x) is a terminal cost approximating the cost-to-go beyond the prediction horizon N , and Xf ⊆ X is a terminal set ensuring recursive feasibility. The horizon length N trades off computational cost with approximation quality. At each closed-loop time step j, only the first optimal action (uc,∗ 
+
+> 0
+
+, u d,∗ 
+
+> 0
+
+) is applied to the system before replanning over a fixed horizon N , yielding a feedback policy through receding-horizon control. MPC offers strong theoretical properties in constrained settings, including recursive feasibility and closed-loop con-straint satisfaction under standard assumptions [4]. However, in a general formulation with a hybrid action space, the OCP (10) is a mixed-integer nonlinear program (MINLP), which is NP-hard [24]. Increasing horizon length improves approximation quality but significantly increases computa-tional complexity. III. HYBRID RL-MPC FRAMEWORK The complementary strengths identified in Section II motivate a structured combination of RL and MPC for mixed-integer control. RL provides a global cost approxima-tion, while MPC offers model-based optimization capable of enforcing constraints and refining continuous actions locally. Under Assumption 1, discrete decisions influence performance but not feasibility. We first present the policy architecture before establishing recursive feasibility of the closed-loop scheme. 
+
+A. Policy architecture 
+
+In our proposed framework, an RL agent is trained offline via an actor-critic algorithm on the hybrid action space Uc × Ud of the underlying MDP. This yields an actor πϕ(u|x) and a critic, either a state-action cost func-tion Cθ (x, u ) or a cost function Jθ (x), depending on the choice of RL algorithm. Following the control convention introduced in Section II, Cθ (x, u ) and Jθ (x) correspond to the negative of the Q-function and value function of standard RL literature, respectively. Since the agent is trained on the full hybrid action space, the resulting critic is consistent with the cost function of the underlying hybrid MDP, contrary to methods that learn trajectory-conditioned or decoupled Q-functions [18], [19]. Therefore, the actor πϕ(u|x) is also informed by the hybrid nature of the problem, ensuring that the policy reflects the joint structure of the hybrid action space Uc × U d.With the actor and critic obtained offline, we present the closed-loop online deployment in Fig. 1. At each closed-loop time step j, the RL actor πϕ(u|x) is rolled out over the prediction horizon N using the system model f , starting from the current state x(j). This rollout yields a discrete input sequence n
+
+ud,RL 
+
+> k
+
+oNk=0 
+
+, (11) and a corresponding continuous sequence {uc,RL  
+
+> k
+
+}Nk=0 that we can use as a warm-start, allowing the MPC to refine it. Given the discrete input sequence (11), the MPC for-mulation (10) is parametrized and reduced to the following integer-free nonlinear program (NLP) formulation 
+
+min    
+
+> {xk,u c
+> k}
+> N−1
+
+X
+
+> k=0
+
+ℓ
+
+
+
+xk, u c 
+
+> k
+
+| ud,RL 
+
+> k
+
+
+
++ Cθ
+
+
+
+xN , u c 
+
+> N
+
+| ud,RL 
+
+> N
+
+
+
+subject to xk+1 = f
+
+
+
+xk, u c 
+
+> k
+
+| ud,RL 
+
+> k
+
+
+
+x0 = x(j) (12) 
+
+xk ∈ X , x N ∈ X f
+
+uc 
+
+> k
+
+∈ U c,
+
+where the terminal cost is given by the learned critic, Cθ (xN , u c 
+
+> N
+
+| ud,RL  
+
+> N
+
+) or Jθ (xN ), depending on the choice of RL algorithm. When Cθ (x, u ) is used as the terminal cost, it must be evaluated at the terminal ac-tion (uc 
+
+> N
+
+, u d,RL  
+
+> N
+
+), extending the input sequence to k = N
+
+rather than N −1, making uc 
+
+> N
+
+an additional decision variable compared to standard receding-horizon formulations. Once the MPC is solved, only the first discrete input ud,RL 0
+
+from the RL rollout and the first continuous input uc,∗ 
+
+> 0
+
+from the MPC solution are applied to the system in a receding-horizon fashion. 
+
+Remark 2: The continuous warm-start sequence provided by the RL actor initializes the NLP solver, such as interior-point [28] or sequential quadratic programming (SQP) meth-ods [29]. This warm-start reduces the risk of convergence to poor local minima and allows the MPC layer to refine it through model-based optimization. 
+
+B. Recursive feasibility 
+
+Recursive feasibility guarantees that once the hybrid scheme is initialized in a feasible state, the optimization problem remains feasible at all subsequent closed-loop time steps. Assumption 1 allows recursive feasibility to be ana-lyzed solely at the level of the continuous MPC component.                                     
+
+> RL Actor πϕ
+> rollout over horizon NMPC
+> min J
+> 
+> x, u c|ud,RL 
+> s.t. x+=f
+> 
+> x, u c|ud,RL 
+> x0=x(j)
+> x∈ X , u c∈ U c
+> n
+> ud,RL
+> k
+> oNk=0
+> n
+> uc,RL
+> k
+> oNk=0
+> Cθ
+>  x, u c, u d,RL 
+> System f
+> 
+> x(j), u c,∗
+> 0, u d,RL 0
+> 
+> ud,RL 0
+> uc,∗
+> 0
+> x(j+ 1)
+> x(j)
+> Fig. 1. Hybrid RL-MPC framework. The RL actor is rolled out over the prediction horizon Nto supply discrete action trajectories and acontinuous warm-start to the MPC, which optimizes continuous inputs with
+> Cθ(x, u c, u d)as terminal cost. Only the first continuous input uc,∗
+> 0from the MPC and the first discrete input ud,RL 0from the RL agent are applied to the system.
+
+In the following, we establish recursive feasibility for the receding-horizon implementation of the hybrid RL-MPC scheme, which relies on the standard MPC assumption [4] specified below. 
+
+Assumption 2: There exists a terminal set Xf ⊆ X and a terminal control law κf (x) such that Xf is positively invariant under κf and that all state and input constraints are satisfied in Xf [4]. 
+
+Proposition 1: Let Assumptions 1 and 2 hold. If the reduced MPC problem (12) is feasible at time j = 0 , then it remains feasible for all j ∈ N, and consequently the hybrid RL-MPC scheme is recursively feasible. 
+
+Proof: By Assumption 1, feasibility is independent of the discrete input sequence generated by the RL actor. The proof therefore follows the standard shifting argument for receding-horizon MPC under Assumption 2 [4], applied solely to the continuous component. Note that while our MPC formulation (12) optimizes over inputs up to k = N
+
+due to the terminal cost, the standard argument for recursive feasibility requires that xN ∈ X f , which depends only on the input sequence up to k = N − 1, and thus applies without modification. 
+
+Remark 3: Recursive feasibility and constraint satisfac-tion is handled entirely by the MPC layer, while the RL component influences only performance. Consequently, the hybrid scheme inherits recursive feasibility directly from the underlying MPC formulation. Beyond recursive feasibility, closed-loop performance re-mains an important consideration in general cost settings. However, deriving formal performance bounds is difficult due to the complexity of the hybrid action space and the learning-based elements that depend on learning quality. We therefore assess closed-loop performance of the hybrid RL-MPC method empirically in the subsequent section. IV. NUMERICAL EXAMPLE To validate the proposed hybrid RL-MPC framework, we apply it to an F1 race strategy problem, with the goal to determine the discrete pit stop decisions and the continuous energy allocation over a race. This setting is a natural fit for our framework. The problem involves tightly coupled dis-crete and continuous actions and a well-defined performance objective. Furthermore, Assumption 1 is satisfied, since for any pit stop decision, the continuous energy allocation can always be chosen to maintain feasibility, as the pit stop decisions affect only the performance objective but not the feasibility of the energy constraints. We adopt the problem setup of [3] as our benchmark, where both a MINLP and a standalone RL agent were developed and evaluated. We will show that our proposed hybrid RL-MPC method outperforms the standalone RL agent while achieving near-optimal performance relative to the MINLP solution. 
+
+A. Problem setup 
+
+Since 2014, F1 cars featured hybrid-electric power units, combining a turbocharged internal combustion engine with an electric motor generator unit connected to a battery. The resulting energy management is subject to strict reg-ulatory bounds on battery capacity, fuel load, and en-ergy deployment [30], [31]. The race is discretized on a lap-by-lap basis, indexed by j ∈ {0, 1, . . . , N laps }.The continuous inputs are the allocated battery and fuel energy per lap, ∆Eb,all ∈ [∆ Eb,min , ∆Eb,max ] and 
+
+∆Ef,all ∈ [∆ Ef,min , ∆Ef,max ], while the discrete input is the pit stop decision PS ∈ { 0, 1, 2, 3}, where PS = 0 denotes no stop and PS ∈ { 1, 2, 3} denotes a tire change to the soft (S), medium (M), or hard (H) compound, respectively. The physical states are the battery energy Eb, fuel energy Ef ,car mass mcar , tire wear TW , tire compound TC , and race time Trace . Regulatory constraints impose Eb ∈ [0 , E b,max ]
+
+and Ef ∈ [0 , E f,race ], where Eb,max is the maximum allowed battery capacity and Ef,race is the maximum allowed fuel load per race. The remaining states are not subject to explicit constraints beyond the system dynamics. The core of the model is the lap time, which is defined as 
+
+Tlap = Tnom (Eb, ∆Eb,all , ∆Ef,all , m car , PS) + ∆ T TC (TW) , (13) where Tnom maps the given input to the nominal lap time. The second term ∆T TC relates tire wear TW and tire com-pound TC to additional lap time. Tire wear evolves according to a degradation model that captures compound-specific degradation rates and dependence on vehicle mass [3]. The optimization objective is to minimize the total race time Trace .Building on the problem setup of [3], we introduce two modifications. First, we refine the MINLP formulation, im-proving its numerical conditioning and reducing the solve 
+
+> Cost-to-go  C [s]
+
+Lap                           
+
+> ∆C [s]
+> 0
+> 2000
+> 4000
+> 10 20 30 40 50
+> −10
+> 0
+> 10
+> 20
+> 30
+> C∗
+> CReLU
+> CSmoothReLU
+> C∗−CReLU
+> CReLU −CSmoothReLU
+> Fig. 2. Cost-to-go evaluated along the closed-loop trajectory for
+> γ=0.9999 . In the top plot, the critics with ReLU (blue) and Smooth ReLU (red) activation functions approximate C∗(x, u )(black), all de-creasing as fewer laps remain. The bottom plot shows that both critics underestimate C∗(x, u )by up to 30 s which is around 0.5% of total race time, an error that becomes increasingly relevant for shorter prediction horizons, where the MPC relies more heavily on the critic to capture long-term performance. The difference between ReLU and SmoothReLU remains negligible along the optimal solution trajectory.
+
+time from 50 s [3] to approximately 3 s . Second, we refine the critic architecture to a narrower and deeper network, improving the cost-to-go estimate compared to [3]. For the hybrid RL-MPC framework, we use the Soft Actor-Critic (SAC) algorithm, which offers strong sample efficiency through off-policy training and was introduced for hybrid action spaces in [25], building on [26] and [27]. The critic is trained with ReLU activation functions for better training performance, while at deployment it is replaced with its smooth approximation smooth ReLU (x) = x + √x2 + ϵ
+
+2 , with ϵ ≪ 1, (14) to ensure continuous differentiability of the terminal cost Cθ (x, u ), as required by gradient-based NLP solvers. Fig. 2 confirms that this modification leaves the cost-to-go evaluated along the closed-loop trajectory of the optimal solution essentially unchanged. 
+
+Implementation details: Since the race is finite, the receding-horizon scheme transitions to a shrinking horizon implementation in the final N laps, where the prediction hori-zon is reduced to the remaining race length and the terminal cost is omitted. The RL agent is trained following the setup of [3], with the modified critic architecture described above. The reduced NLP (12) is implemented in CasADi [32] and solved using IPOPT [33] on a commercial laptop (Lenovo Thinkpad, Intel Core Ultra 7, 64 GB RAM). 
+
+B. Benchmark comparison 
+
+We benchmark the hybrid RL-MPC framework against the MINLP optimal solution and the standalone RL agent. The MINLP is solved offline and serves as the optimal baseline that online methods cannot be expected to match in general. The hybrid RL-MPC and standalone RL are TABLE I PERFORMANCE COMPARISON ACROSS METHODS AND HORIZONS .Method ∆Trace Tcomp                                   
+
+> min mean max MINLP +0.00 s -3.37 s -RL +1.17 s 0.001 s 0.021 s 0.190 s
+> Hybrid N= 5 +0.85 s 0.039 s 0.088 s 0.241 s
+> Hybrid N= 10 +0.41 s 0.037 s 0.141 s 0.441 s
+> Hybrid N= 15 +0.0094 s 0.059 s 0.168 s 0.308 s
+> Hybrid N= 40 +0.0036 s 0.134 s 0.274 s 0.724 s
+
+evaluated online in closed loop, with suboptimalities and computation times summarized in Table I across a range of prediction horizons. For the RL agent, the computation time in Table I corresponds to a single forward pass, with the full rollout over N steps scaling approximately linearly. For the MINLP and hybrid RL-MPC, the computation time corresponds to the MINLP and NLP solve time, respectively. Selected race strategies are shown in Fig. 3, where the first plot shows the fuel allocation, which is expressed as a percentage of the nominal allocation, where 100% 
+
+corresponds to the constant per-lap allocation that exactly depletes the fuel budget over the race. The second plot shows the battery energy allocation, where positive values denote charging and negative values discharging. The pit stop plot at the bottom shows the timing and compound selection. The standalone RL agent achieves a suboptimality of +1 .17 s relative to the MINLP. To put this in context, F1 races are typically decided by margins of a few sec-onds, making this gap strategically relevant. The source of suboptimality lies in the continuous energy allocation, as the pit stop decisions are identical to the MINLP solution. This confirms that the discrete decisions are well-learned and the continuous actions require further refinement. The fuel allocation follows a bang-bang strategy, failing to capture the gradual decrease of the MINLP solution, as well as the adjustments around pit stops in laps 20 and 43. For the battery energy allocation, the agent captures the basic trends but charges the battery during the lap after the pit stop rather than during the pit stop lap, missing substantial recuperation potential of braking into the pit lane. The hybrid RL-MPC framework recovers this suboptimal-ity almost entirely. At N ≥ 40 , above which suboptimality and strategy remain constant, the framework achieves a residual gap of only +3 .6 ms , which is negligible given a total race time of approximately 90 minutes and within the configured solver tolerance. The differences between the MINLP and the long-horizon hybrid method visible in Fig. 3 are due to numerical discrepancies between the offline MINLP solution and the closed-loop receding-horizon implementation. Table I reveals a clear trade-off between suboptimality and computation time. As the horizon increases from N = 5 to 
+
+N = 40 , the mean NLP solve time grows from 88 ms to 
+
+274 ms , while suboptimality decreases from +0 .85 s to the solver tolerance. These trends are consistent with theoretical predictions of [6], [11], where a longer prediction horizon reduces reliance on the critic and corrects for its approxima-
+
+> ∆Ef,all  [−]∆Eb,all  [−]
+
+Lap                 
+
+> 90%
+> 100%
+> 110%
+> −1
+> 0
+> 1
+> 010 20 30 40 50
+> No pit
+> Pit for S
+> Pit for M
+> Pit for H
+> MINLP
+> RL
+> Hybrid RL-MPC N15
+> Hybrid RL-MPC N≥40
+> Fig. 3. Comparison of the MINLP offline benchmark (black), the trained RL agent (red), the online hybrid RL-MPC method for a horizon of N= 15
+> laps (blue), and the online hybrid RL-MPC method for a horizon of N≥40
+> laps (cyan, dashed), with constraint bounds shown as gray dashed lines. The plot shows the fuel allocation as a percentage of the nominal allocation (top), the battery energy allocation where positive values denote charging and negative values discharging (middle), and the pit stop timing with compound selection (bottom).
+
+tion error. The hybrid RL-MPC framework thus effectively bridges the gap between the fast but suboptimal standalone RL agent and complex mixed-integer optimization. In the following, we proceed with N = 15 , naturally motivated as a lower bound on stint length, which is the duration between two pit stops. At this horizon, the method achieves a suboptimality of +9 .4 ms at a mean solve time of 
+
+168 ms , representing a 99% reduction in suboptimality over the standalone RL agent. The residual gap is mainly due to suboptimal fuel allocation before the first pit stop, forcing a lower allocation in the remainder of the race compared to the MINLP. 
+
+C. Architectural adaptability 
+
+We demonstrate the adaptability of the hybrid RL-MPC framework by extending it to a traffic scenario without retraining the RL agent. We compare a nominal and amodified hybrid RL-MPC implementation, both operating in the same closed-loop environment with traffic present. The nominal hybrid RL-MPC implementation refers to the implementation from Section IV-B with N = 15 , operated without any modification in the presence of traffic. For the modified variant, we incorporate a model of the traffic into the MPC formulation, demonstrating that the framework adapts to new scenarios at zero retraining cost and low implementation effort. Traffic arises naturally in F1 races when a pit stop takes longer than expected and the car rejoins the track behind slower competitors. Pace differences between competitors arise from factors such as tire age, compound choice, and underlying car performance. A driver in traffic experiences an increase in their lap time primarily due to dirty air , the Tgap [s]             
+
+> Tlap ,penalty  [s]
+> −0.500.511.522.53
+> 0
+> 0.2
+> 0.4
+> Fig. 4. Lap time penalty as a function of gap time to the car ahead, with a maximum of approximately 0.5 s at a gap of 0.6 s , vanishing both in close proximity to the competitor and beyond 2.5 s .
+
+turbulent aerodynamic wake generated by the car ahead that reduces available downforce and degrades cornering perfor-mance. Critically, traffic is a situation where an additional pit stop is undesirable, since the time lost in the pit lane would far outweigh the benefit of rejoining on clear track, meaning that the only available lever is the continuous energy allocation. In the following, we introduce traffic after the first pit stop. The lap time penalty Tlap ,penalty in Fig. 4 is modeled as a heuristic function of the gap time to the car ahead, peaking at approximately 0.5 s for a gap of 0.6 s , vanishing beyond 
+
+2.5 s as the wake dissipates, and dropping to zero at small gaps as the cars are side by side. The gap time is introduced as a new continuous state in the MPC layer and updated via 
+
+Tgap (j + 1) = Tgap (j) + Tlap (j) − Tlap ,traffic (j) (15) initialized at 2 seconds at the lap of the first pit stop, where 
+
+Tlap ,traffic is the opponent’s lap time, which we model as 
+
+0.5 s slower than the lap time in a nominal scenario. The lap time in the traffic scenario then becomes 
+
+Tlap ,traffic (j) = Tlap (j) + Tlap ,penalty (Tgap (j)) , (16) where Tlap follows from (13). The nominal implementation has no model of (15) in its MPC formulation and therefore no estimate of the lap time penalty Tlap ,penalty , while the modified variant incorporates (15) as an additional state. In both cases, the RL actor and critic are identical to the nominal scenario presented in Section IV-B. The modified variant will naturally outperform the nom-inal one, as it explicitly predicts the traffic penalty and optimizes the energy allocation to minimize it. The goal of this case study is to quantify how much performance can be recovered through a simple extension at zero retraining cost. Fig. 5 compares the resulting race strategies. The first three plots show the same quantities as Fig. 3, and the bottom plot shows the gap time to the competitor, where positive values indicate being behind. Both implementations keep the pit stop strategy identical to the traffic-free scenario from Fig. 3, confirming that an additional stop is not beneficial given the time lost in the pit lane. The nominal hybrid RL-MPC retains the energy allocation of the nominal scenario in Fig. 3, as it does not have a traffic model. The car eventually overtakes by virtue of the competitor being slower. However, this happens only much later, accumulating a substantial lap time penalty of 6.87 s 
+
+compared to the traffic-free scenario. 
+
+> ∆Ef,all  [−]∆Eb,all  [−]
+
+Lap            
+
+> Tgap  [s]
+> 90%
+> 100%
+> 110%
+> −1
+> 0
+> 1
+> No pit
+> Pit for S
+> Pit for M
+> Pit for H
+> 010 20 30 40 50
+> −5
+> 0
+> No traffic model
+> With traffic model
+> Fig. 5. Comparison of the hybrid RL-MPC without traffic model (black) and with traffic model (15) (blue), with constraint bounds shown as gray dashed lines. The plot shows the fuel energy allocation (top), battery energy allocation (second), pit stop actions (third), and gap time to the competitor (bottom), where positive values indicate being behind. Both methods retain the nominal pit stop strategy, but only the hybrid RL-MPC with the traffic model modulates its energy allocation immediately after the first pit stop to clear the traffic earlier, finishing 5.19 s ahead of the nominal strategy.
+
+The modified hybrid RL-MPC responds immediately through the MPC layer. Right after the first pit stop, the modified controller increases fuel consumption and recharges the battery, exploiting load-point shifting to harvest electric energy while incurring the traffic penalty anyway. Once sufficient battery energy is accumulated, it is discharged ag-gressively to overtake the traffic and stay ahead, after which the energy allocation returns to the nominal strategy. The overtake occurs significantly earlier, and the accumulated lap time penalty is substantially reduced, with the modified implementation finishing 5.19 s ahead of the nominal one, which is a race-deciding margin. This result demonstrates that the MPC layer can be adapted to new scenarios by incorporating scenario-specific constraints without modifying or retraining the RL agent. V. CONCLUSION We proposed a hybrid RL-MPC framework for mixed-integer optimal control. By training the RL agent on the full hybrid action space, the resulting hybrid policy is optimized with respect to a cost function consistent with the true underlying hybrid MDP. During deployment, the RL actor is rolled out over the prediction horizon to parametrize a continuous NLP-MPC through the discrete action sequence. Additionally, it provides a warm-start for the continuous variables and the learned critic serves as a terminal cost. We proved recursive feasibility under a structural assumption on the discrete decisions, and validated the framework on an F1 race strategy problem, outperforming a standalone RL agent and achieving near-optimal performance relative to an offline MINLP benchmark. The hybrid architecture further enables adaptation to unseen disturbances, demonstrated through a traffic scenario, yielding a 5.19 s advantage without any retraining of the RL components. Two directions are of particular interest for future work. First, deriving formal suboptimality bounds similar to [11] would strengthen the theoretical foundation. Second, relaxing Assumption 1 to settings where discrete decisions affect feasibility could be addressed through safety filters [34] or control barrier functions [35], extending the framework to a broader class of hybrid action space systems. ACKNOWLEDGMENTS We wish to thank Ilse New for her careful proofreading and many helpful comments, as well as Marc-Philippe Neu-mann and Mohammad Moradi for fruitful discussions and feedback. 
+
+Use of generative artificial intelligence: The chatbot Claude (Anthropic) [36] was used to assist with grammar and phrasing in selected paragraphs of this manuscript. REFERENCES [1] M. Fiorentini, J. Wall, Z. Ma, J. H. Braslavsky, P. Cooper, ”Hybrid model predictive control of a residential HVAC system with on-site thermal energy generation and storage”, Applied Energy , vol. 187, pp. 465-479, 2017 [2] A. Bemporad, M. Morari, ”Control of systems integrating logic, dynamics, and constraints”, Automatica , vol. 35, pp. 407-427, 1999 [3] G. Fieni, J. W¨ uthrich, M. P. Neumann, M. M. Moradi, C. H. Onder, ”Towards Learning-Based Formula 1 Race Strategies”, arXiv preprint arXiv:2512.21570 , 2025 [4] J. B. Rawlings, D. Q. Mayne, M. M. Diehl, Model Predictive Control: Theory, Computation, and Design , Santa Barbara, CA, USA: Nob Hill Publish., LLC, 2nd ed., 2020, 3rd printing [5] R. S. Sutton, A. G. Barto, Reinforcement Learning: An Introduction ,Cambridge, MA, USA: A Bradford Book, 2nd ed., 2018 [6] D. P. Bertsekas, Lessons from AlphaZero for Optimal, Model Predic-tive, and Adaptive Control , Belmont, MA, USA: Athena Scientific, 2022 [7] N. P. Lawrence, P. D. Loewen, M. G. Forbes, R. Bhushan Gopaluni, A. Mesbah, ”A view on learning robust goal-conditioned value functions: Interplay between RL and MPC”, Annual Reviews in Control , vol. 60, 2025 [8] R. Reiter, J. Hoffmann, D. Reinhardt, F. Messerer, K. Baumg¨ artner, S. Sawant, J. B¨ odecker, M. Diehl, S. Gros, ”Synthesis of model predictive control and reinforcement learning: Survey and classification”, Annual Reviews in Control , vol. 61, 2026 [9] D. Hoeller, F. Farshidian, M. Hutter, ”Deep value model predictive control”, Conference on Robot Learning (CoRL) , PMLR, pp. 990-1004, 2020 [10] F. Moreno-Mora, S. Streif, ”Predictive Control with Terminal Costs Based on Online Learning Using Value Iteration”, European Control Conference (ECC) , pp. 1837-1842, 2024 [11] R. Reiter, A. Ghezzi, K. Baumg¨ artner, J. Hoffmann, R. D. McAllister, M. Diehl, ”AC4MPC: Actor-Critic Reinforcement Learning for Guid-ing Model Predictive Control”, IEEE Trans. Control Syst. Technol. ,vol. 34, no. 1, pp. 395-410, 2026 [12] S. Gros, M. Zanon, ”Data-Driven Economic NMPC Using Reinforce-ment Learning”, IEEE Trans. Autom. Control , vol. 65, no. 2, pp. 636-648, 2020 [13] B. Amos, I. D. Jimenez Rodriguez, J. Sacks, B. Boots, J. Zico Kolter, ”Differentiable MPC for End-to-end Planning and Control”, Advances in Neural Information Processing Systems , vol. 31, 2018 [14] S. Gros, M. Zanon, ”Reinforcement Learning for Mixed-Integer Prob-lems Based on MPC”, IFAC-PapersOnLine , vol. 53, no. 2, pp. 5219-5224, 2020 [15] S. Levine, V. Koltun, ”Guided Policy Search”, in Proc. Int. Conf. Mach. Learn. (ICML) , PMLR, vol. 30, pp. 1-9, 2013 [16] J. Carius, F. Farshidian, M. Hutter, ”MPC-Net: A First Principles Guided Policy Search”, IEEE Robotics and Automation Letters , vol. 5, no. 2, pp. 2897-2904, 2020 [17] A. Reske, J. Carius, Y. Ma, F. Farshidian, M. Hutter, ”Imitation Learning from MPC for Quadrupedal Multi-Gait Control”, in Proc. IEEE Int. Conf. Robot. Autom. (ICRA) , pp. 5014-5020, 2021 [18] C. F. O. da Silva, A. Dabiri, B. de Schutter, ”Integrating Reinforcement Learning and Model Predictive Control for Mixed-Logical Dynamical Systems”, IEEE Open Journal of Control Systems , vol. 4, pp. 316-331, 2025 [19] S. Mallick, G. Battocletti, Q. Dong, A. Dabiri, B. de Schutter, ”Learning-Based MPC for Fuel Efficient Control of Autonomous Vehicles With Discrete Gear Selection”, IEEE Control Systems Letters ,vol. 9, pp. 1117-1122, 2025 [20] J. Garc´ ıa, F. Fern´ andez, ”A Comprehensive Survey on Safe Reinforce-ment Learning”, Journal of Machine Learning Research , vol. 16, pp. 1437-1480, 2015 [21] D. Bertsekas, Dynamic Programming and Optimal Control , Belmont, MA, USA: Athena Scientific, 4th ed., 2017 [22] I. Grondman, L. Busoniu, G. A. D. Lopes, R. Babuska, ”A Survey of Actor-Critic Reinforcement Learning: Standard and Natural Policy Gradients”, IEEE Trans. on Systems, Man, and Cybernetics - Part C: Applications and Reviews , vol. 42, no. 6, pp. 1291-1307, 2012 [23] D. R. Morrison, S. H. Jacobson, J. J. Sauppe, E. C. Sewell, ”Branch-and-bound algorithms: A survey of recent advances in searching, branching, and pruning.”, Discrete Optimization , vol. 19, pp. 79-102, 2016 [24] S. Burer, A. N. Letchford, ”Non-convex mixed-integer nonlinear programming: A survey”, Surveys in Operations Research and Man-agement Science , vol. 17, no. 2, pp. 97-106, 2012 [25] O. Delalleau, M. Peter, E. Alonso, A. Logut, ”Discrete and continuous action representation for practical rl in video games”, arXiv preprint arXiv:1912.11077 , 2019 [26] T. Haarnoja, A. Zhou, P. Abbeel, S. Levine, ”Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor”, in Proc. Int. Conf. Mach. Learn. (ICML) , PMLR, vol. 35, pp. 1861-1870, 2018 [27] P. Christodoulou, ”Soft actor-critic for discrete action settings”, arXiv preprint arXiv:1910.07207 , 2019 [28] A. Forsgren, P. E. Gill, M. H. Wright, ”Interior methods for nonlinear optimization”, SIAM Review , vol. 44, no. 4, pp. 525-597, 2002 [29] P. T. Boggs, J. W. Tolle, Sequential quadratic programming, Acta numerica , vol. 4, pp. 1-51, 1995 [30] FIA, 2026 Formula One sporting regulations , Tech. rep., Geneva, Switzerland, 2026 [31] FIA, 2026 Formula One technical regulations , Tech. rep., Geneva, Switzerland, 2026 [32] J. A. E. Andersson, J. Gillis, G. Horn, J. B. Rawlings, M. Diehl, ”CasADi - A software framework for nonlinear optimization and optimal control”, Mathematical Programming Computation , vol. 11, no. 1, pp. 1-36, 2019 [33] A. W¨ achter, L. T. Biegler, ”On the implementation of an interior-point filter line search algorithm for large-scale nonlinear programming”, 
+
+Mathematical Programming , vol. 106, no. 1, pp. 25-57, 2006 [34] K. P. Wabersich, M. N. Zeilinger, ”A predictive safety filter for learning-based control of constrained nonlinear dynamical systems”, 
+
+Automatica , vol. 129, 2021 [35] A. D. Ames, X. Xu, J. W. Grizzle, P. Tabuada, ”Control barrier function based quadratic programs for safety critical systems”, IEEE Trans. Autom. Control , vol. 62, no. 8, pp. 3861-3876, 2017 [36] Anthropic, Claude Sonnet 4.6 (Large Language Model), https://claude.ai, Accessed: 2026

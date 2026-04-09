@@ -1,0 +1,506 @@
+Title: Flow-based Policy With Distributional Reinforcement Learning in Trajectory Optimization
+
+URL Source: https://arxiv.org/pdf/2604.00977v1
+
+Published Time: Thu, 02 Apr 2026 01:10:14 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Flow-based Policy With Distributional Reinforcement Learning in Trajectory Optimization 
+
+Ruijie Hao 1[0009 −0007 −6038 −2214] , Longfei Zhang 1[0000 −0001 −8259 −5148] , Yang Dai 1[0009 −0001 −4813 −8274] , Yang Ma 2[0000 −0001 −7067 −5423] , Xingxing Liang 1[0000 −0002 −3594 −2167] *, and Guangquan Cheng 1[0009 −0009 −6953 −7192] * 
+
+> 1
+
+College of Systems Engineering, National University of Defense Technology, Changsha 410073, China  
+
+> 2
+
+Aviation University of Air Force, Changchun 130000, China 
+
+Abstract. Reinforcement Learning (RL) has proven highly effective in addressing complex control and decision-making tasks. However, in most traditional RL algorithms, the policy is typically parameterized as a diag-onal Gaussian distribution, which constrains the policy from capturing multimodal distributions, making it difficult to cover the full range of optimal solutions in multi-solution problems, and the return is reduced to a mean value, losing its multimodal nature and thus providing in-sufficient guidance for policy updates. In response to these problems, we propose a RL algorithm termed flow-based policy with distributional RL (FP-DRL). This algorithm models the policy using flow matching, which offers both computational efficiency and the capacity to fit com-plex distributions. Additionally, it employs a distributional RL approach to model and optimize the entire return distribution, thereby more effec-tively guiding multimodal policy updates and improving agent perfor-mance. Experimental trails on MuJoCo benchmarks demonstrate that the FP-DRL algorithm achieves state-of-the-art (SOTA) performance in most MuJoCo control tasks while exhibiting superior representation ca-pability of the flow policy. 
+
+Keywords: Flow Matching · Distributional Reinforcement Learning ·
+
+Robot Control · Quantile Regression. 
+
+1 Introduction 
+
+Recently, Reinforcement Learning (RL) has achieved remarkable success across a wide range of domains [1, 2]. In most existing RL algorithms, the policy is parameterized as a deterministic function or a Gaussian distribution and the re-turn is regarded as the mean[3]. However, the theoretically optimal policy may exhibit strong multimodality, which cannot be sufficient modeled by determinis-tic or Gaussian policies, and the return of state-action pairs also exhibit strong  
+
+> 1
+
+Corresponding author.  
+
+> arXiv:2604.00977v1 [cs.LG] 1 Apr 2026 2Hao R. et al.
+
+multimodality [4], which is ignored by most existing algorithms. Restricted pol-icy representations like unimodal Gaussians can trap algorithms in local optimal by exhibiting mode-covering behavior that concentrates probability density in low value regions between distinct high value actions, thereby severely impairing policy performance. Additionally, if one policy cannot cover the full range of op-timal solutions in current state, which may also not find the optimal solution in next state. Moreover, two returns with the same mean can have vastly different distributions. Conditioning policy learning solely on the mean thus discards crit-ical information about return distribution, which is essential for distinguishing between actions that are consistently rewarding and those that are merely aver-age in expectation. Consequently, modeling the policy with a unimodal Gaussian distribution and guiding it by the mean of returns is likely to significantly impair policy learning. Lately, the generative model has been widely used in policy modeling for its powerful ability to fit multimodal distributions [5, 6]. In offline RL, expert behaviors can exhibit significant variability even in the same state. This necessi-tates the use of generative models capable of fitting multimodal distributions[7]. In Online RL, policy also need to be multimodal to fit all theoretically optimal actions. This allows the agent to achieve superior performance by capturing di-verse optimal behaviors and adapting more flexibly to dynamic environments[8]. However, most existing algorithms employ diffusion models as policies, which require numerous steps to generate the target distribution, making it difficult to meet the real-time constraints of complex control tasks. Additionally, the ma-jority of existing algorithms treat the return as a mean value, failing to provide sufficient guidance for policies with complex distributions. Therefore, this paper focuses on how the Policy can be trained as Flow-based policy, which requires only few steps inference to generate actions, and investigates the performance of guiding such policies via distributional RL. In this work, we propose flow-based policy with distributional RL (FP-DRL), a generalized new approach to combine flow-based policy with distributional critic in online RL. A recent work by Wang et al. [9] only uses the reverse diffusion processes to approximate policy and the optimization objective is to maximize the expected Q-value, which ignores the loss derived from supervised learning of diffusion model. Inspired by this work, We utilize only the network architecture of the flow model to enable the model to generate multimodal distributions, and train it directly using RL objectives, without incorporating a loss function between current actions and target actions. Then, we integrate distributional RL and employ the distributional critic to guide the policy update more effectively. In summary, the key contributions of this paper are the following: 1) We propose to approximate the policy using only the architecture of the Flow Matching (FM) model, training it directly with RL objectives rather than with the objectives derived from supervised learning. 2) We introduce distributional RL and leverage the representation of the full return distribution to provide more discriminative guidance for the multimodal policy. 3) We evaluate the effi-ciency, generality and performance of our method on the popular MuJoCo [10] Title Suppressed Due to Excessive Length 3
+
+benchmarking. Compared with SAC-Flow [11], DSAC-T[12], DACER[9], SAC[3], TD3[13], our approach achieves the SOTA performance. 4) We provide the FP-DRL code written in JAX and Pytorch to facilitate future researchers to follow our work. Section 2 reviews generative policies and distributional RL, motivating our approach. Section 3 outlines the theoretical foundations, including flow matching and distributional RL. Section 4 details the FP-DRL framework, integrating flow-based policies with a distributional critic in Soft Actor-Critic. Section 5 evaluates FP-DRL on MuJoCo benchmarks against baselines and via ablation studies. Finally, Section 6 summarizes our contributions and findings. 
+
+2 Related Works 
+
+2.1 Generative Policy in RL Diffusion Policy in RL Diffusion models were first employed in offline RL for cloning multiple expert behaviors. Cheng et al. [14] proposed a visuomotor policy based on conditional denoising diffusion, which achieves superior perfor-mance in robotic manipulation tasks by effectively modeling multimodal action distributions and enabling stable training. Wang et al. [15] introduced Diffusion-QL, which uses a diffusion model as an expressive policy class and integrates Q-learning guidance to achieve effective policy regularization and improvement. The original diffusion models need labels to train, while expert behaviors can serve as labels in offline RL, they are not available in online RL. Wang et al. [9] proposed the DACER algorithm, which leverages the reverse process of the dif-fusion model as the policy function, estimates entropy using a Gaussian mixture model, and directly employs Q-values to guide policy updates without requiring labels, making it applicable to online RL. 
+
+Flow Policy in RL Although diffusion policy can fit complex multimodal dis-tributions, it suffers from low efficiency due to numerous steps sampling, making it inadequate for real-time control tasks. A flow model learns a velocity field, en-abling sampling from an initial simple distribution to a complex multimodal dis-tribution in just a few steps, or even a single step [16, 17]. Research on flow-based policies is just beginning to emerge. Jiang et al. [18] proposed Streaming Flow Policy, which treats action trajectories as flow trajectories and enables streaming generation from a narrow Gaussian initialization while preserving multimodal-ity. Zhang et al. [11] proposed SAC-flow, which stabilizes off-policy training of flow-based policies by reparameterizing the velocity network as a GRU or Trans-former to mitigate gradient pathologies. 
+
+2.2 Distributional RL Distributional RL In value-based RL Distributional RL captures the full distribution of returns rather than just the expected value, providing a richer 4 Hao R. et al. 
+
+learning signal that enables more stable, efficient, and risk-aware policy opti-mization [19–21]. The groundbreaking paper of distributional RL is C51 [4] al-gorithm proposed by Bellmare et al. which parametrizes the return distribution as a categorical distribution over a discrete set of fixed supports, learning the probability mass per atom through minimization of the KL divergence. Quantile-based methods instead learn where the supports of the distribution should lie. QRDQN [22] uses a uniform mixture of Dirac delta functions to approximate the return distribution, where each quantile level is assigned equal probability. This formulation allows the minimization of the quantile regression loss, which is an approximation of the 1-Wasserstein distance. Further extensions, such as Implicit Quantile Networks (IQN) [23] or Fully Quantile Functions (FQF) [24] enhance the expressiveness of the learned distribution. IQN samples quantile fractions from some underlying base distribution and FQF learns the location of the fractions in an end-to-end manner. 
+
+Distributional RL With Actor-Critic Integration Recent works have ex-tended distributional RL to continuous control problems using the Actor-Critic (AC) framework [25–27]. Prior work, such as D4PG [28], adapted the categori-cal projection from C51, but inherited the limitations of fixed supports and the use of KL divergence. More recently, methods like DSAC [29] and DSAC-T [12] integrated the AC framework by modeling returns with a Gaussian distribution. However, a critical limitation persists: these methods optimize via Maximum Likelihood Estimation (MLE), which effectively minimizes the KL divergence rather than the contractive Wasserstein metric. Our method is motivated to propose a flow-based policy and a distributional critic that can be combined with most existing actor-critic frameworks. We first use the flow model as a policy function with strong representational power. Then, we construct a distributional critic to provide sufficient guidance for the multimodal distribution policy and improve the performance of the policy. 
+
+3 Preliminaries 
+
+3.1 Online RL 
+
+In online RL, the agent interacts with environment in real time, and this interac-tion can be modeled as a Markov Decision Process (MDP) defined by the tuple 
+
+(S, A, R, P, γ ) [30, 31]. Here, S denotes the state space, A denotes the action space, R denotes the reward function under the state and action, P denotes the transition probability from state S to S′ under action a. γ ∈ (0 , 1) denotes the reward discount factor. For an agent following a fixed policy π, the discounted return is denoted by the random variable: 
+
+Zπ (s, a ) = 
+
+> ∞
+
+X
+
+> t=0
+
+γtR(st, a t), (1) Title Suppressed Due to Excessive Length 5
+
+where s0 = s, a0 = a, st ∼ P (·| st−1, a t−1) and at ∼ π(·| st). The action-value function is defined as Qπ (s, a ) = E [Zπ (s, a )] and can be characterized by the Bellman equation: 
+
+Qπ (s, a ) = E [R(s, a )] + γEP,π [Qπ (s′, a ′)] . (2) The objective in RL is to find an optimal policy π∗, which maximizes E[Zπ ]
+
+and satisfies Qπ∗
+
+(s, a ) ≥ Qπ (s, a ) for all π and all s, a .
+
+3.2 Maximum Entropy RL 
+
+Standard RL aims to maximize the expected cumulative reward [32]. We consider a more general maximum entropy objective that augments the original objective with the expected entropy of the policy [33]: 
+
+Jπ = E(si≥t,a i≥t)∼ρπ
+
+" ∞X
+
+> i=t
+
+γi−t[ri + αH(π(· | si))] 
+
+#
+
+, (3) where γ ∈ (0 , 1) is the discount factor, α is the temperature coefficient and the policy entropy H is expressed as 
+
+H(π(· | s)) = Ea∼π(·| s)[− log π(a | s)] .
+
+We denote the entropy-augmented accumulated return from st as Gt =P∞ 
+
+> i=t
+
+γi−t[ri − α log π(ai | si)] , also referred to as soft return. The soft Q of 
+
+π is given as 
+
+Qπ (st, a t) = rt + γE(si>t ,a i>t )∼ρπ [Gt+1 ], (4) which defines the expected soft return for choosing at in state st and subsequently following policy π.We solve for the optimal policy using soft policy iteration, a method con-sisting of two interacting processes: evaluation and improvement. Soft policy evaluation fits the soft Q-function to the current policy π by iterating the Bell-man operator T π :
+
+T π Qπ (s, a ) = r + γ Es′∼p, a ′∼π
+
+Qπ (s′, a ′) − α log π(a′ | s′). (5) Soft policy improvement updates the policy by maximizing the expected soft Q-value. The updated policy πnew is obtained via: 
+
+πnew = arg max  
+
+> π
+
+Es∼ρπ , a ∼π
+
+Qπold (s, a ) − α log π(a | s). (6) As established in prior work [33], alternating between these evaluation and improvement steps ensures convergence to the global optimum. 6 Hao R. et al. 
+
+3.3 Distributional RL 
+
+Unlike traditional value-based RL, which estimates the scalar expectation of the cumulative return Qπ (s, a ) = E[Zπ (s, a )] , distributional RL seeks to model the full probability distribution of the random return Zπ (s, a ).The distribution of returns satisfies the distributional Bellman equation: 
+
+Zπ (s, a ) D
+
+= R(s, a ) + γZ π (S′, A ′), (7) where S′ ∼ P (·| s, a ), A′ ∼ π(·| S′) and D
+
+= denotes equality in distribution. The corresponding distributional Bellman operator T π is defined as 
+
+T π Z(s, a ):= R(s, a ) + γZ (S′, A ′). (8) For the control setting, the optimal return distribution Z∗ is the fixed point of the distributional optimality operator T :
+
+T Z(s, a ):= R(s, a ) + γZ (S′, π ∗(S′)) , (9) where π∗ is the greedy policy that maximizes the expected return, i.e., π∗(s′) = arg max a′∈A E[Z(s′, a ′)] .
+
+3.4 Flow Matching 
+
+FM is a family of generative models that learn to match the velocity fields between two probabilistic distributions, where the velocity is regarded as the flow [34, 35]. Unlike diffusion models [36], which require a two step process of first adding noise and then denoising, FM can directly transition from an initial simple distribution, such as a Gaussian, to a complex target distribution. The process of FM is shown as Fig. 1.   
+
+> Fig. 1. FM learns a velocity fields that transports samples from a simple prior distri-bution to the target data distribution via an ordinary differential equation (ODE). Title Suppressed Due to Excessive Length 7
+
+Given data x ∼ p1(x) and prior ϵ ∼ p0(ϵ), a flow path can be constructed as 
+
+zt = atx + btϵ with time t, where at and bt are predefined schedules. The velocity 
+
+vt is defined as vt = z′ 
+
+> t
+
+= a′
+
+> t
+
+x + b′
+
+> t
+
+ϵ, where ′ denotes the time derivative. The schedule used in Rectified Flow and now widely adopted is at = 1 − t and bt = t,which leads to vt = ϵ − x.Because a given zt and its vt can arise from different x and ϵ, FM essentially models the expectation over all possibilities, called the marginal velocity: 
+
+v(zt, t ) ≜ Ept(vt|zt)[vt]. (10) A neural network vθ parameterized by θ is learned to fit the marginal velocity field: LFM (θ) = Et,p t(zt)∥vθ (zt, t ) − v(zt, t )∥2. Although computing this loss func-tion is infeasible due to the marginalization in Eq. (10), it is proposed to instead evaluate the conditional FM loss [28]: LCFM (θ) = Et,x,ϵ ∥vθ (zt, t ) − vt(zt | x)∥2,where the target vt is the conditional velocity. Minimizing LCFM is equivalent to minimizing LFM [28]. Given a marginal velocity field v(zt, t ), samples are generated by solving an ODE for zt: ddt zt = v(zt, t ) (11) starting from z0 = ϵ ∼ p0. The solution can be written as: zr = zt −R tr v(zτ , τ )dτ ,where we use r to denote another time step. In practice, this integral is approx-imated numerically over discrete time steps. For example, the Euler method, a first-order ODE solver, computes each step as: zti+1 = zti + ( ti+1 − ti)v(zti , t i).Higher-order solvers can also be applied. 
+
+4 Method 
+
+In this section, we detail the design of our flow-based policy with distributional RL. First, we use FM as policy approximator, serving as the policy function in RL. Second, we directly optimize the flow-based policy using gradient descent, whose objective function is to maximize expected Q-values. At this point, the return is still regarded as the mean. However, the mean loses critical information such as risk and multimodality; only the full return distribution can provide all the necessary guidance for risk-aware, robustly optimized, and stably learned policies. Consequently, we employ a quantile-based approach to model the full return distribution and utilize distributional RL to update the returns. 
+
+4.1 Flow-based Policy Representation 
+
+We conceptualize the flow-based policy as a conditional FM conditioned on states S. Starting from an initial Gaussian distribution p0(· | s) ∼ N (0 , I ) on an action space A = Rd, the target policy p1(· | s) is reached via a time-indexed mapping 
+
+ϱ : [0 , 1] × A × S → A , with At := ϱt(A0 | s) for t ∈ [0 , 1] , where A0 ∼ p0(· | s)
+
+and A1 ∼ p1(· | s).8 Hao R. et al. 
+
+The trajectory satisfies the ODE ddt ϱt(A0 | s) = v(t, ϱ t(A0 | s), s ), where v is the velocity field to be learned. The learned field is integrated numerically with flow rollout to obtain: 
+
+Ati+1 = Ati + ∆t i vθ (ti, A ti , s ), 0 = t0 < · · · < t K = 1 , (12) Where ∆t i = ti+1 − ti. The resulting distribution over A1 induced by A0 ∼N (0 , I d) is denoted μθ (· | s) and serves as the stochastic policy a = A1 ∼ πθ (· | 
+
+s).We use Transformer to approximate the velocity field vθ (ti, A ti , s ), the model computes embeddings for the current action token Ati , time token ti and global embedding s. 
+
+4.2 Distributional Critic Learning via Quantile Regression 
+
+To provide more comprehensive guidance for the flow-based policy, we model the distributions of return rather than expected value which used by most ex-isting methods. We models the distribution over returns by assigning fixed and uniform probabilities to adjustabl locations. We use a neural network to learn the locations δθi(x,a ) . Then the quantile distribution Zθ of each state-action pair 
+
+(x, a ) can be represented as: 
+
+Zθ (x, a ) := 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+δθi(x,a ), (13) where δz denotes a Dirac at z ∈ R.
+
+Lemma 1 (Bellemare et al., 2017). The distributional Bellman operator T π
+
+for policy evaluation is a γ-contraction under the maximal p-Wasserstein metric 
+
+¯dp: ¯dp(T π Z1, T π Z2) ≤ γ ¯dp(Z1, Z 2). (14) Lemma 1 shows that ¯dp is a rigorous metric for analyzing the convergence of distributional RL algorithms toward the fixed point Zπ . Based on Lemma 1, we can learn value distributions by minimizing the Wasserstein distance between Z
+
+and its Bellman update T π Z, which is analogous to minimizing the L2 distance in standard temporal difference (TD) learning to align Q with T Q.We use huber loss to minimize the 1-Wasserstein distance of current return Z and target return T π Z:
+
+L(θ) = 1
+
+N
+
+> N
+
+X 
+
+> i=1
+> N′
+
+X
+
+> j=1
+
+ρκτi (yj − θi(x, a )) , (15) where yj = r + γθ j (x′, a ′) represents the sampled target returns from T π Z, and the quantile Huber loss ρκτ (δ) is defined as: 
+
+ρκτ (δ) = |τ − Iδ < 0| L κ(δ). (16) Title Suppressed Due to Excessive Length 9
+
+Here, I{·} is the indicator function, and Lκ(δ) is the standard Huber loss with threshold κ:
+
+Lκ(δ) = 
+
+( 12 δ2 if |δ| ≤ κ, κ  |δ| − 12 κ otherwise. (17) 
+
+4.3 Training via SAC 
+
+Once the policy parameterized by FM and the distributional critic are estab-lished, we integrate them into the Soft Actor-Critic (SAC) framework. In SAC, the actor and critic are trained alternately to optimize the maximum entropy objective. 
+
+Distributional Soft Critic Update In our FP-DRL framework, the critic models the full return distribution. To account for the maximum entropy objec-tive, we augment the target return distribution with the policy entropy. For a sampled transition (s, a, r, s ′), the target quantiles yj are computed as: 
+
+yj = r + γ θ′ 
+
+> j
+
+(s′, a ′) − α log πϕ(a′ | s′),
+
+where a′ ∼ πϕ(· | s′), α is the temperature parameter, and θ′ denotes the pa-rameters of the target distributional critic network. The critic is updated by minimizing the quantile Huber loss between the current predicted quantiles and the target quantiles, as defined in Eq. (15). 
+
+Flow-based policy update We consider the maximum entropy objective and directly employ the RL objective for policy updates. Thus, the policy objective function is formulated as: 
+
+Jπ (ϕ) = Es∼D ,a ∼πϕ
+
+"
+
+α log πϕ(a | s) − 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+θi(s, a )
+
+#
+
+,
+
+where D is the replay buffer and ϕ represents the parameters of the flow-based policy. To compute log πϕ(a|s) when the velocity field is only available at discrete times t0, . . . , t N with t0 = 0 , t N = 1 , we treat it as piecewise constant on each interval [ti−1, t i]. Given a base Gaussian p0 and learned fields vϕ,i (a, s ), the change in log probability follows 
+
+∂ log pt(at|s)
+
+∂t = − Tr  ∇at vϕ,i (t, a t, s ), t ∈ [ti−1, t i].
+
+Integrating over all segments yields 
+
+log πϕ(a1|s) = log p0(a0|s) −
+
+> N
+
+X
+
+> i=1
+
+Z ti
+
+> ti−1
+
+Tr  ∇at vϕ,i (t, a t, s ) dt, 10 Hao R. et al. 
+
+where at evolves as da t 
+
+> dt
+
+= vϕ,i (t, a t, s ) on each segment. In practice, the state and log probability are integrated numerically. The trace can be computed exactly for low-dimensional actions or approximated via Hutchinson’s estimator for high-dimensional control tasks. The adjustment of the temperature parameter α follows the standard SAC algorithm, where the parameter is automatically tuned to match a target entropy 
+
+¯H, typically set to the negative dimension of the action space. The objective for 
+
+α is: 
+
+J(α) = Es∼D ,a ∼πϕ
+
+−α  log πϕ(a | s) + ¯H .
+
+By alternating the optimization of the distributional critic, the flow-based ac-tor, and the temperature parameter, FP-DRL robustly learns multimodal poli-cies guided by rich, distributional value signals. The complete procedures are summarized in Algorithm 1. 
+
+Algorithm 1 FP-DRL Training via SAC                                         
+
+> 1: Initialize distributional critic θ, target θ′, flow-based policy πϕ; replay buffer D.2: for each update do
+> 3: Interact with the environment using πϕ; push (st, a t, r t, s t+1 )to D.4: Sample {(sh, a h, r h, s h+1 )}Bh=1 ∼ D .5: Critic: compute target quantiles yjand minimize the quantile Huber loss (Equ. 15). 6: Actor: draw a∼πϕand compute log πϕ(a|s)via numerical integration of velocity field vϕ,i ; minimize Jπ(ϕ).7: Temperature: automatically adjust αto match target entropy ¯Hby minimizing
+> J(α).8: Update target network θ′by an exponential moving average. 9: end for
+
+5 Experiments 
+
+We evaluate the performance of our method in locomotion and manipulation tasks of RL within MuJoCo. We conducted experiments on the most challenging benchmark tasks, which include Humanoid-v4, Ant-v4, HalfCheetah-v4, Hopper-v4, Reacher-v4 and InvertedPendulum-v4. 
+
+Benchmarks. We measure its performance on 6 original, unmodified continuous control tasks from MuJoCo, interfaced through OpenAI Gym. Fig. 2 illustrates the benchmark tasks used in this study. 
+
+Baselines. Our algorithm is compared and evaluated against the six well-known model-free algorithms. These include TD3, SAC, DSAC-T and SAC-Flow. These baselines have been extensively tested and applied in a series of demanding domains and prior to the arXiv submission of this article, SAC-Flow was the SOTA algorithm identified in our survey. Title Suppressed Due to Excessive Length 11                                               
+
+> (a) Humanoid-v4 (b) Ant-v4 (c) Hopper-v4
+> (d) HalfCheetah-v4 (e) InvertedPendulum-v4 (f) Reacher-v4
+> Fig. 2. Benchmarks. (a) Humanoid-v4: (s×a)∈R376 ×R17 . (b) Ant-v4: (s×a)∈
+> R111 ×R8. (c) Hopper-v4: (s×a)∈R11 ×R3. (d) HalfCheetah-v4: (s×a)∈R17 ×R6.(e) InvertedPendulum-v: (s×a)∈R4×R1. (f) Reacher-v4: (s×a)∈R11 ×R2.
+
+Experimental Details. To ensure a fair comparison, we reproduced all base-line algorithms in both JAX and PyTorch frameworks, achieving a 2–3 × speedup in training compared to using pure PyTorch while maintaining identical perfor-mance. All algorithms and tasks employed the same three-layer MLP neural network with ReLU activation functions, and all parameter updates were per-formed using the Adam optimizer. The total number of training steps was set to one million for all experiments, and the reported results were averaged over three random seeds. The experiments were conducted on an Intel(R) Xeon(R) Gold 6430 32-core CPU and an NVIDIA GeForce RTX 4090 GPU. 
+
+Evaluation Protocol . This study adopts the same evaluation metrics as DACER and DSAC-T: for each random seed, the highest return observed within the last 10% of training steps for each run is averaged, and each evaluation result is obtained by averaging over ten test episodes. The final results are aggregated across three seeds to compute the mean and standard deviation. Additionally, the training curves in Figure 1 illustrate the stability characteristics of the training process. 
+
+5.1 Comparative Performance 
+
+We conducted three independent training runs for each experiment, each using a different random seed, with these random seeds kept consistent across all al-gorithms and benchmark tasks. The learning curves and policy performance are 12 Hao R. et al. 
+
+Table 1. Comparison of FP-DRL with baseline algorithms on MuJoCo continuous control tasks. Each value reports the mean ± standard deviation of episodic return over the last 10% of training steps. The best value for each task is bolded. Task FP-DRL DSAC-T SAC TD3 SAC-FLOW DACER Ant 6665 ± 0 3499 ± 1081 5179 ± 1408 3023 ± 0 5312 ± 1622 5971 ± 410 Half. 15227 ± 512 11694 ± 171 13629 ± 994 8824 ± 0 12609 ± 0 10277 ± 399 Hopper. 3298 ± 608 1958 ± 599 2448 ± 769 3319 ± 0 3338 ± 367 1534 ± 619 Human. 11940 ± 0 77 ± 2 5184 ± 572 69 ± 0 10017 ± 0 4553 ± 1134 Invert. 1000 ± 5 860 ± 174 941 ± 164 778 ± 0 25 ± 5 5 ± 2Reacher -4 ± 0 -4 ± 1 -5 ± 1 -5 ± 0 -8 ± 2 -5 ± 1
+
+presented in Fig. 3 and Table 1, respectively. Our results demonstrate that FP-DRL outperforms, or at least matches, all baseline algorithms across all bench-mark tasks. Taking Ant-v4 as an example, compared to SAC-Flow [11], DACER [9], DSAC-T [12], SAC [3], and TD3 [13], our algorithm achieves relative perfor-mance improvements of 21.6%, 81.6%, 49.3%, 20.2%, and 72.6%, respectively. These results establish FP-DRL as a new performance benchmark for model-free RL algorithms. Furthermore, compared to other flow-based methods such as SAC-Flow, significant improvements are achieved in both learning stability and final performance. 0.0 0.2 0.4 0.6 0.8 1.0  
+
+> Environment Steps 1e6
+> 0
+> 1000
+> 2000
+> 3000
+> 4000
+> 5000
+> 6000
+> 7000
+> Average Return
+
+(a) Ant-v4 0.0 0.2 0.4 0.6 0.8 1.0   
+
+> Environment Steps 1e6
+> 0
+> 2500
+> 5000
+> 7500
+> 10000
+> 12500
+> 15000
+> Average Return
+
+(b) HalfCheetah-v4 0.0 0.2 0.4 0.6 0.8 1.0   
+
+> Environment Steps 1e6
+> 0
+> 500
+> 1000
+> 1500
+> 2000
+> 2500
+> 3000
+> 3500
+> 4000
+> Average Return
+
+(c) Hopper-v4 0.0 0.2 0.4 0.6 0.8 1.0  
+
+> Environment Steps 1e6
+> 0
+> 2000
+> 4000
+> 6000
+> 8000
+> 10000
+> 12000
+> Average Return
+
+(d) Humanoid-v4 0.0 0.2 0.4 0.6 0.8 1.0   
+
+> Environment Steps 1e6
+> 0
+> 200
+> 400
+> 600
+> 800
+> 1000
+> Average Return
+
+(e) InvertedPendulum-v4 0.0 0.2 0.4 0.6 0.8 1.0   
+
+> Environment Steps 1e6
+> 40
+> 30
+> 20
+> 10
+> 0
+> Average Return
+
+(f) Reacher-v4 FP-DRL(Ours) DACER SAC-Flow DSAC-T SAC TD3 
+
+Fig. 3. Training curves on benchmarks. The solid lines correspond to mean and shaded regions correspond to the standard error of the mean (SEM) over Three runs. Title Suppressed Due to Excessive Length 13 
+
+5.2 Ablation Study 
+
+Subsequently, we carry out ablation studies to evaluate the impact of individual refinement within FP-DRL. In this section, we analyze why FP-DRL outperforms all other baseline algorithms on MuJoCo tasks. We conduct ablation experiments to investigate the impact of the following four aspects on the performance of FP-DRL: 1) whether to introduce a distributional critic to model the return as a distribution; 2) introducing a distributional critic but modeling the action output as a Gaussian distribution instead of using a flow-based policy; 3) the impact of different Transformer sequence lengths on performance; 4) the impact of different numbers of quantiles on performance. 0.0 0.2 0.4 0.6 0.8 1.0  
+
+> Environment Steps 1e6
+> 0
+> 2000
+> 4000
+> 6000
+> 8000
+> 10000
+> 12000
+> 14000
+> 16000
+> Average Return
+> Flow-based Policy Ablation
+> FP-DRL
+> Only Flow-based Policy
+
+(a) Only Distributional Critic 0.0 0.2 0.4 0.6 0.8 1.0   
+
+> Environment Steps 1e6
+> 0
+> 2000
+> 4000
+> 6000
+> 8000
+> 10000
+> 12000
+> 14000
+> 16000
+> Average Return
+> Distributional Critic Ablation
+> FP-DRL
+> Only Distributional Critic
+
+(b) Only Flow-based Policy 0.0 0.2 0.4 0.6 0.8 1.0  
+
+> Environment Steps 1e6
+> 0
+> 2000
+> 4000
+> 6000
+> 8000
+> 10000
+> 12000
+> 14000
+> 16000
+> Average Return
+> Denoising Sequence Length
+> FP-DRL (T=4)
+> T=7
+> T=10
+> T=12
+
+(c) Quantiles number 0.0 0.2 0.4 0.6 0.8 1.0   
+
+> Environment Steps 1e6
+> 0
+> 2000
+> 4000
+> 6000
+> 8000
+> 10000
+> 12000
+> 14000
+> 16000
+> Average Return
+> Quantile Number
+> FP-DRL (N=32)
+> N=16
+> N=64
+
+(d) Sequence Length 
+
+Fig. 4. Ablation studies of FP-DRL. (a) Performance comparison between a Gaussian policy and the proposed transformer-based flow policy. (b) Comparison of modeling returns using the mean versus a quantile-based distributional critic. (c) Effect of varying the number of quantiles (N=16, 32, and 64) for the distributional critic. (d) Training curves across different transformer sequence lengths (K=4, 7, 10, and 12). 
+
+Only Flow-based Policy. To validate the significant role of introducing a distributional critic in final performance, we conducted the following two ex-periments on the HalfCheetah-v4 task: 1) modeling returns using the mean; 2) modeling the return distribution using a quantile-based approach. As shown in Fig. 4a, modeling the return distribution with a quantile-based approach provides more effective guidance for the flow-based policy, achieving the best performance. 
+
+Only Distributional Critic. To validate the significant role of the flow matching-based policy in performance, we conducted two experiments under the distribu-14 Hao R. et al. 
+
+tional critic setting: 1) modeling the policy using a Gaussian distribution; 2) modeling the policy using a transformer-based flow model. As shown in Fig. 4b, Flow-based Policy with distributional critic achieves the best performance. 
+
+Sequence Length. We further investigated the performance of the flow-based policy under varying transformer sequence lengths. On the HalfCheetah-v4 task, we plotted training curves for sequence lengths of K=4, 7, 10, and 12. As shown in Fig. 4c, sequence length of 4 achieves the best performance. Thus, we selected a sequence length of 4 for all experiments. 
+
+Quantiles number. We also examined the effect of the number of quantiles on the performance of the distributional critic. On the HalfCheetah-v4 task, we plotted training curves for N=16, 32, and 64. As shown in Fig. 4d, Quan-tiles number of 32 achieves the best performance. Thus, we selected a quantiles number of 32 for all experiments. 
+
+6 Conclusion 
+
+In this paper, we introduced FP-DRL, a novel RL framework that synergizes the expressive power of Flow Matching with the robust guidance of distribu-tional RL. By parameterizing the policy as a flow-based model, we overcome the inherent limitations of traditional Gaussian policies, enabling the agent to capture complex, multimodal action distributions with high computational effi-ciency. Furthermore, by shifting from scalar expected values to a quantile-based return distribution, our approach provides the policy with a richer, more dis-criminative signal that accounts for the aleatoric uncertainty and multimodality of rewards.   
+
+> Acknowledgments. This work is supported by National Natural Science Founda-tion of China (No. 72301289) and National Natural Science Foundation of China (No.62306335). We thank all the anonymous reviewers who generously contributed their time and efforts. Their professional recommendations have greatly enhanced the quality of the manuscript.
+> Disclosure of Interests. The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
+
+References  
+
+> 1. Liu, J., Yin, J., Jiang, Z., Liang, Q., Li, H.: Attention-based distributional rein-forcement learning for safe and efficient autonomous driving. IEEE Robotics and Automation Letters 9(9), 7477–7484 (2024) 2. Zhu, Z., Zhu, K.: Alphaqcm: Alpha discovery in finance with distributional rein-forcement learning. In: Forty-second International Conference on Machine Learning (2025) 3. Haarnoja, T., Zhou, A., Abbeel, P., Levine, S.: Soft actor-critic: Off-policy maxi-mum entropy deep reinforcement learning with a stochastic actor. In: International conference on machine learning. pp. 1861–1870. Pmlr (2018)
+
+Title Suppressed Due to Excessive Length 15 4. Bellemare, M.G., Dabney, W., Munos, R.: A distributional perspective on reinforce-ment learning. In: Proceedings of the 34th International Conference on Machine Learning, (ICML 2017). pp. 449–458. PMLR, Sydney, NSW, Australia (2017) 5. Rombach, R., Blattmann, A., Lorenz, D., Esser, P., Ommer, B.: High-resolution image synthesis with latent diffusion models. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 10684–10695 (2022) 6. Geng, Z., Deng, M., Bai, X., Kolter, J.Z., He, K.: Mean flows for one-step generative modeling. arXiv preprint arXiv:2505.13447 (2025) 7. Janner, M., Du, Y., Tenenbaum, J.B., Levine, S.: Planning with diffusion for flex-ible behavior synthesis. arXiv preprint arXiv:2205.09991 (2022) 8. Psenka, M., Escontrela, A., Abbeel, P., Ma, Y.: Learning a diffusion model pol-icy from rewards via q-score matching. In: International Conference on Machine Learning. pp. 41163–41182. PMLR (2024) 9. Wang, Y., Wang, L., Jiang, Y., Zou, W., Liu, T., Song, X., Wang, W., Xiao, L., Wu, J., Duan, J., et al.: Diffusion actor-critic with entropy regulator. Advances in Neural Information Processing Systems 37 , 54183–54204 (2024) 10. Todorov, E., Erez, T., Tassa, Y.: Mujoco: A physics engine for model-based control. In: 2012 IEEE/RSJ international conference on intelligent robots and systems. pp. 5026–5033. IEEE (2012) 11. Zhang, Y., Yu, S., Zhang, T., Guang, M., Hui, H., Long, K., Wang, Y., Yu, C., Ding, W.: Sac flow: Sample-efficient reinforcement learning of flow-based policies via velocity-reparameterized sequential modeling. arXiv preprint arXiv:2509.25756 (2025) 12. Duan, J., Wang, W., Xiao, L., Gao, J., Li, S.E., Liu, C., Zhang, Y.Q., Cheng, B., Li, K.: Distributional soft actor-critic with three refinements. IEEE Transactions on Pattern Analysis and Machine Intelligence (2025) 13. Fujimoto, S., Hoof, H., Meger, D.: Addressing function approximation error in actor-critic methods. In: International conference on machine learning. pp. 1587– 1596. PMLR (2018) 14. Chi, C., Xu, Z., Feng, S., Cousineau, E., Du, Y., Burchfiel, B., Tedrake, R., Song, S.: Diffusion policy: Visuomotor policy learning via action diffusion. The International Journal of Robotics Research 44 (10-11), 1684–1704 (2025) 15. Wang, Z., Hunt, J.J., Zhou, M.: Diffusion policies as an expressive policy class for offline reinforcement learning. In: The Eleventh International Conference on Learning Representations 16. Zhang, T., Yu, C., Su, S., Wang, Y.: Reinflow: Fine-tuning flow matching policy with online reinforcement learning. In: The Thirty-ninth Annual Conference on Neural Information Processing Systems 17. Celik, O., Li, Z., Blessing, D., Li, G., Palenicek, D., Peters, J., Chalvatzaki, G., Neumann, G.: Dime: Diffusion-based maximum entropy reinforcement learning. arXiv preprint arXiv:2502.02316 (2025) 18. Jiang, S., Fang, X., Roy, N., Lozano-Pérez, T., Kaelbling, L.P., Ancha, S.: Stream-ing flow policy: Simplifying diffusion/flow-matching policies by treating action tra-jectories as flow trajectories. In: 9th Annual Conference on Robot Learning 19. Bellemare, M.G., Dabney, W., Rowland, M.: Distributional reinforcement learning. MIT Press (2023) 20. Muller, T.H., Butler, J.L., Veselic, S., Miranda, B., Wallis, J.D., Dayan, P., Behrens, T.E., Kurth-Nelson, Z., Kennerley, S.W.: Distributional reinforcement learning in prefrontal cortex. Nature Neuroscience 27 (3), 403–408 (2024) 16 Hao R. et al. 21. Lowet, A.S., Zheng, Q., Meng, M., Matias, S., Drugowitsch, J., Uchida, N.: An opponent striatal circuit for distributional reinforcement learning. Nature pp. 1–10 (2025) 22. Dabney, W., Rowland, M., Bellemare, M., Munos, R.: Distributional reinforce-ment learning with quantile regression. In: Proceedings of the AAAI conference on artificial intelligence. vol. 32 (2018) 23. Dabney, W., Ostrovski, G., Silver, D., Munos, R.: Implicit quantile networks for dis-tributional reinforcement learning. In: International conference on machine learn-ing. pp. 1096–1105. PMLR (2018) 24. Yang, D., Zhao, L., Lin, Z., Qin, T., Bian, J., Liu, T.Y.: Fully parameterized quantile function for distributional reinforcement learning. Advances in neural in-formation processing systems 32 (2019) 25. Xiao, L., Lyu, Y., Zhang, F., Chen, L., Yu, G., Li, S.E., Ma, F., Duan, J.: Multi-style distributional soft actor-critic: Learning a unified policy for diverse control behaviors. IEEE Transactions on Intelligent Vehicles pp. 1–12 (2024). https://doi.org/10.1109/TIV.2024.3432891 26. Wiltzer, H., Farebrother, J., Gretton, A., Rowland, M.: Foundations of multivariate distributional reinforcement learning. Advances in Neural Information Processing Systems 37 , 101297–101336 (2024) 27. Wiltzer, H., Bellemare, M., Meger, D., Shafto, P., Jhaveri, Y.: Action gaps and advantages in continuous-time distributional reinforcement learning. Advances in Neural Information Processing Systems 37 , 47815–47848 (2024) 28. Barth-Maron, G., Hoffman, M.W., Budden, D., Dabney, W., Horgan, D., TB, D., Muldal, A., Heess, N., Lillicrap, T.P.: Distributed distributional deterministic policy gradients. In: 6th International Conference on Learning Representations, (ICLR 2018). Vancouver, BC, Canada (2018) 29. Duan, J., Guan, Y., Li, S.E., Ren, Y., Sun, Q., Cheng, B.: Distributional soft actor-critic: Off-policy reinforcement learning for addressing value estimation er-rors. IEEE transactions on neural networks and learning systems 33 (11), 6584– 6598 (2021) 30. Puterman, M.L.: Markov decision processes: Discrete stochastic dynamic program-ming (1994) 31. Wang, Q., Van Hoof, H.: Model-based meta reinforcement learning using graph structured surrogate models and amortized policy search. In: International Con-ference on Machine Learning. pp. 23055–23077. PMLR (2022) 32. Schulman, J., Wolski, F., Dhariwal, P., Radford, A., Klimov, O.: Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 (2017) 33. Haarnoja, T., Tang, H., Abbeel, P., Levine, S.: Reinforcement learning with deep energy-based policies. In: International conference on machine learning. pp. 1352– 1361. PMLR (2017) 34. Papamakarios, G., Nalisnick, E., Rezende, D.J., Mohamed, S., Lakshminarayanan, B.: Normalizing flows for probabilistic modeling and inference. Journal of Machine Learning Research 22 (57), 1–64 (2021) 35. Liu, X., Gong, C., Liu, Q.: Flow straight and fast: Learning to generate and transfer data with rectified flow. In: The Eleventh International Conference on Learning Representations (ICLR) (2023) 36. Ho, J., Jain, A., Abbeel, P.: Denoising diffusion probabilistic models. Advances in neural information processing systems 33 , 6840–6851 (2020)
