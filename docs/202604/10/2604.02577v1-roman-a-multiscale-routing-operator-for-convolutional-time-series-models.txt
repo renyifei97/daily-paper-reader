@@ -1,0 +1,555 @@
+Title: ROMAN: A Multiscale Routing Operator for Convolutional Time Series Models
+
+URL Source: https://arxiv.org/pdf/2604.02577v1
+
+Published Time: Mon, 06 Apr 2026 00:14:28 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+# ROMAN: A Multiscale Routing Operator for Convolutional Time Series Models 
+
+Gonzalo Uribarri 
+
+Department of Computer and Systems Sciences, Stockholm University 
+
+Abstract. We introduce ROMAN (ROuting Multiscale representAtioN), a deterministic operator for time series that maps temporal scale and coarse temporal position into an explicit channel structure while reduc-ing sequence length. ROMAN builds an anti-aliased multiscale pyramid, extracts fixed-length windows from each scale, and stacks them as pseu-dochannels, yielding a compact representation on which standard convo-lutional classifiers can operate. In this way, ROMAN provides a simple mechanism to control the inductive bias of downstream models: it can reduce temporal invariance, make temporal pooling implicitly coarse-position-aware, and expose multiscale interactions through channel mix-ing, while often improving computational efficiency by shortening the processed time axis. We formally analyze the ROMAN operator and then evaluate it in two complementary ways by measuring its impact as a preprocessing step for four representative convolutional classifiers: MiniRocket, MultiRocket, a standard CNN-based classifier, and a fully convolutional network (FCN) classifier. First, we design synthetic time series classification tasks that isolate coarse position awareness, long-range correlation, multiscale interaction, and full positional invariance, showing that ROMAN behaves consistently with its intended mechanism and is most useful when class information depends on temporal structure that standard pooled convolution tends to suppress. Second, we bench-mark the same models with and without ROMAN on long-sequence sub-sets of the UCR and UEA archives, showing that ROMAN provides a practically useful alternative representation whose effect on accuracy is task-dependent, but whose effect on efficiency is often favorable. Code is available at github.com/gon-uri/ROMAN. 
+
+Keywords: time series classification · convolutional models · multiscale representations · ROCKET · efficiency 
+
+## 1 Introduction 
+
+Convolutional methods are among the most successful approaches to time series classification (TSC) because they combine local pattern extraction, scalability, and a relatively simple optimization problem [1,2,3]. This includes both learned convolutional networks and the ROCKET family of random-convolution classi-fiers [4]. Their strength is tied to a particular inductive bias: they are highly effective at detecting whether a local motif occurs, but less explicit about where  
+
+> arXiv:2604.02577v1 [cs.LG] 2 Apr 2026 2Gonzalo Uribarri
+
+that motif occurs. This bias is induced by the subsequent application of convo-lutions and pooling operations along the temporal dimension [5]. This limitation is especially visible when convolutions are followed by global temporal aggregation, which is a common practice in many TSC models [4,7,8,9]. Global pooling is one of the main reasons convolutional models are robust and efficient, but it also suppresses temporal layout. The resulting representation is naturally shift-tolerant, which is desirable when translational invariance matches the task, but restrictive when the arrangement of events is itself discriminative. Simply removing pooling is not a satisfying alternative: flatten-based models preserve more temporal indexing, but they often sacrifice the simplicity and robustness that make pooled convolution attractive in the first place. We address this trade-off with ROMAN, a deterministic front-end operator that reroutes temporal structure before the downstream classifier sees the in-put. ROMAN builds an anti-aliased multiscale pyramid, extracts fixed-length windows at each scale, and stacks them as pseudochannels. In the transformed representation, scale and coarse temporal position become explicit channel struc-ture, while the processed temporal axis becomes shorter. Figure 1 illustrates the transformation. A downstream convolutional model can therefore remain local in time while operating on a representation that is more explicitly multiscale and more coarse-position-aware after pooling. ROMAN is not a classifier and is not intended as an architecture replacement; it is a representation operator that can be inserted before standard convolutional backbones. The aim of this article is to study whether the multiscale routing applied by the ROMAN operator provides a useful way to modify the inductive bias of convolutional time series models. Because the case S = 1 recovers the original input, varying S yields a controlled family of complementary representations with different balances between translational invariance, temporal awareness, multiscale coupling, and computational cost. The rest of the paper develops this perspective through formal analysis and targeted empirical evaluation. 
+
+Contributions. The paper makes an operator-level contribution rather than an architecture-level one. We introduce ROMAN as a deterministic represen-tation map that can be combined with standard convolutional backbones and studied through the inductive biases it induces. The main contributions are: 1. We formalize ROMAN as a deterministic multiscale routing operator for time series and show that the case S = 1 exactly recovers the original rep-resentation. 2. We analyze the transform conceptually and computationally, characteriz-ing how ROMAN rewrites temporal scale and coarse temporal position into pseudochannels, and how this changes the effective input size and complexity seen by MiniRocket, MultiRocket, CNNClassifier, and FCNClassifier. 3. We construct four synthetic mechanism studies that isolate the regimes RO-MAN is intended to affect: coarse temporal position, long-range correlation, multiscale interaction, and full positional invariance. ROMAN: Multiscale Routing for Time Series 3
+
+4. We evaluate ROMAN on the UCR and UEA archives using representative pooled and position-sensitive convolutional backbones, reporting both pre-dictive performance and computational efficiency. Taken together, these results support a claim narrower than universal superi-ority: multiscale routing provides a principled and controllable way to alter the balance between translational invariance, temporal awareness, multiscale cou-pling, and computational cost. 
+
+## 2 Related Work and Positioning 
+
+Convolutional Backbones and Inductive Bias. Convolutional methods are among the central paradigms in time series classification, achieving strong performance in both univariate and multivariate settings [1,3,6]. Two broad fam-ilies are particularly relevant here. The first consists of learned convolutional architectures, such as FCNClassifier, CNNClassifier, and InceptionTime, which learn temporal filters end-to-end from raw inputs [2,7,8]. The second consists of ROCKET-style models, which use large collections of fixed or random convo-lutional kernels followed by a simple classifier; representative examples include ROCKET, MiniRocket, MultiRocket, and Detach-Rocket [4,9,10,11]. This line of work showed that large convolutional feature sets can achieve strong accuracy while remaining highly scalable. For the purposes of this paper, the key distinction between these models is not convolution alone, but the temporal information retained after convolution. ROCKET and MiniRocket are strongly pooling-based and therefore emphasize motif occurrence while largely attenuating absolute temporal location. Later iterations like MultiRocket and HDC-MiniRocket enriches the temporal repre-sentation through additional pooling operators, but remains within the same general pooled-convolution paradigm [10,12]. FCNClassifier follows a learned variant of the same principle through global average pooling, whereas CNNClas-sifier ends with a flattened temporal representation and therefore preserves sub-stantially more positional indexing. This distinction is central for interpreting ROMAN: when class information depends on coarse temporal location, pooled and position-sensitive backbones should not be expected to respond in the same way. A second relevant distinction concerns how convolutional models access long-range temporal structure. In ROCKET-style methods, coverage over multiple temporal scales is obtained by using kernels with a wide range of dilation values, from highly local to effectively global ones [4,9,10]. This provides broad receptive-field coverage, but the same kernel does not naturally bind multiple distant local events while preserving detailed local structure. In learned convolutional networks, long-range dependencies are typically built through depth: successive convolutional layers enlarge the effective receptive field and progressively relate local evidence over longer temporal spans [2,5,7]. For long sequences, however, capturing relations between distant local events may require substantial network 4 Gonzalo Uribarri 
+
+depth before they fall within the effective receptive field, and such depth can make optimization more challenging. Previous CNN architectures have explicitly manipulated inductive biases in order to address multiscale representations and shift-invariance. To capture long-range and multiscale dependencies, models often use causal dilated convolutions [15] or parallel multi-branch kernels [7,16]. Conversely, local shift-invariance can be preserved via pre-decimation low-pass filtering [17], while absolute positional awareness can be achieved through coordinate channel injection [18]. However, these approaches primarily require fundamental architectural redesigns rather than operating as flexible, model-agnostic preprocessing tools. 
+
+Positioning of ROMAN. ROMAN is a deterministic front-end operator rather than a new classifier architecture. It does not replace downstream models or rely on learned task-specific filters. Instead, it maps an input of shape (C, L )
+
+to a multiscale routed representation of shape (C′, L base ), in which temporal scale and coarse temporal position are encoded as pseudochannels. This separation is scientifically useful because it enables representation-level analysis while keeping the downstream classifier fixed. At the operator level, the main questions concern exact recovery when S = 1 , the size and complex-ity of the transformed representation, and the inductive biases introduced by multiscale routing. At the model level, the question is how standard convolu-tional backbones behave on this transformed input. ROMAN is therefore best understood not as a replacement for strong time series classifiers, but as a prin-cipled way to expose temporal structure that standard pooled convolution often suppresses. 
+
+## 3 ROMAN: Definition and Properties 
+
+3.1 Definition and Basic Property 
+
+Let X ∈ RC×L be a multivariate time series with C channels and temporal length L. For fixed scale depth S ≥ 1 and overlap parameter α ∈ [0 , 1) , ROMAN constructs a dyadic anti-aliased pyramid, where s = 1 denotes the finest level and s = S the coarsest one. Define 
+
+X(1) = X, X(s) = D2
+
+
+
+h ∗ X(s−1) 
+
+, s = 2 , . . . , S, 
+
+where h = 14 [1 , 2, 1] , ∗ denotes channelwise one-dimensional convolution with fixed boundary handling, and D2 denotes decimation by a factor of two. Let Ls
+
+be the length of X(s), and set 
+
+Lbase := LS .
+
+Thus all routed windows share the common temporal length Lbase . The appli-cation of a low-pass filter prior to downsampling (BlurPool) is an established method for preventing aliasing and preserving local shift-equivariance, thereby ROMAN: Multiscale Routing for Time Series 5
+
+Fig. 1. Overview of the ROMAN transformation. Left: schematic multiscale construc-tion. Each scale s is partitioned into windows of common length Lbase , and the window index w records coarse temporal position within that scale. Right: Example of the stacked pseudochannels generated by applying ROMAN (S=2) to a real time series. 
+
+promoting motif stability and representation robustness [17]. We selected the bi-nomial filter h = 14 [1 , 2, 1] to satisfy the discrete scale-space axioms, guaranteeing no new extrema are created during smoothing [19]. At each scale s, ROMAN extracts windows of length Lbase . The number of windows is 
+
+Ws = 1 + 
+
+ Ls − Lbase 
+
+(1 − α)Lbase 
+
+
+
+,
+
+and the corresponding start indices are 
+
+as,w =
+
+
+
+1, Ws = 1 ,
+
+1 + 
+
+ (w − 1)( Ls − Lbase )
+
+Ws − 1
+
+
+
+, Ws > 1, w = 1 , . . . , W s.
+
+The extracted window at scale s and position w is 
+
+U(s,w ) = X(s):, a s,w :as,w +Lbase −1 ∈ RC×Lbase .
+
+This placement spreads the windows uniformly over the admissible start range; the realized overlap may therefore differ from the target value α only through integer rounding. The ROMAN output is obtained by concatenating all routed windows along the channel axis: 
+
+Z = U(1 ,1) ; . . . ; U(1 ,W 1); U(2 ,1) ; . . . ; U(S,W S ) ∈ RC′×Lbase , C′ = C
+
+> S
+
+X
+
+> s=1
+
+Ws,6 Gonzalo Uribarri 
+
+where the semicolon denotes concatenation along the channel axis. We denote this map by 
+
+ROMAN S,α : RC×L → RC′×Lbase .
+
+Each pseudochannel therefore corresponds to a triple consisting of an original channel, a scale, and a coarse temporal window. The ROMAN transformation process is illustrated in Figure 1. 
+
+Roles of S and α. The two hyperparameters play different roles. The depth S
+
+determines the common base length Lbase through the pyramid depth, whereas 
+
+α controls how densely each scale is tiled by overlapping windows. In particular, increasing S shortens the processed temporal axis, while increasing α increases representational redundancy through larger Ws.A basic property is immediate. When S = 1 , one has Lbase = L, W1 = 1 ,and C′ = C, so 
+
+ROMAN 1,α (X) = X.
+
+Thus S = 1 is exactly the identity case and provides the natural no-ROMAN baseline used throughout the experiments. Exact boundary-handling details, odd-length conventions, and an equivalent parameterization in terms of a mini-mum admissible base length are deferred to the appendix. 
+
+3.2 Representation and Inductive Bias 
+
+ROMAN changes the representation seen by the downstream model, not the model itself. After the transform, convolution operates on a pseudo-multivariate series in which each channel is indexed by original channel identity, pyramid scale, and coarse temporal window. Temporal scale and coarse temporal position are therefore made explicit before any learned or random convolution is applied. This has two immediate consequences: channel mixing can combine information across scales directly, and subsequent temporal pooling becomes less translation-invariant because activations from different coarse temporal regions are no longer pooled within the same channel. ROMAN is not equivalent to simply slicing the finest-scale signal into shorter windows. The coarser pyramid levels retain low-frequency and long-range struc-ture at reduced temporal resolution, so shrinking Lbase does not merely discard slow phenomena. In this sense, ROMAN defines a controlled family of represen-tations: S = 1 recovers the original balance between invariance and temporal sensitivity exactly, while larger S shortens the processed temporal axis and en-riches the channel axis with coarse location and scale information. The purpose of the paper is therefore not to claim that larger S is uniformly better, but to study when this change in inductive bias is useful. ROMAN: Multiscale Routing for Time Series 7
+
+3.3 Representation Size and Computational Implications 
+
+The transformed representation contains 
+
+|Z| = C′Lbase = CL base 
+
+> S
+
+X
+
+> s=1
+
+Ws
+
+scalars. Constructing the pyramid costs Θ C PSs=1 Ls
+
+, while extracting and stacking the routed windows costs Θ(|Z|). Since dyadic downsampling gives 
+
+PSs=1 Ls = Θ(L), the cost of applying ROMAN to a single series is 
+
+TROMAN = Θ(CL + |Z|),
+
+and the dataset-level cost is linear in the number of series. The practical effect on downstream models is consistent across the four back-bones studied here: ROMAN decreases temporal length from L to Lbase while increasing the number of channels from C to C′. For MiniRocket and Multi-Rocket, whose transform cost is driven primarily by sequence length, this often favors shorter processing, although very large channel expansions can require more kernels to preserve adequate random channel coverage. For CNNClassifier and FCNClassifier, the expanded channel dimension affects only the first convo-lutional layer directly, whereas the shorter temporal axis benefits the remaining temporal stack. Detailed backbone-specific size and complexity derivations are given in the appendix. 
+
+## 4 Experimental Design 
+
+Each experiment compares a standard backbone with the same backbone pre-ceded by ROMAN. Unless otherwise stated, we fix the overlap parameter α = 0 .5
+
+and evaluate S ∈ { 1, 2, 3, 4}, where S = 1 is the identity baseline and larger val-ues induce progressively stronger multiscale routing. 
+
+Choice of Downstream Backbones. The downstream backbones are MiniRocket, MultiRocket, CNNClassifier, and FCNClassifier, chosen to span pooled random-convolution models, a learned pooled-convolution model, and a learned position-sensitive convolutional model. This set is intended to isolate the contrasts most relevant to the mechanism study, in particular whether ROMAN is most useful when the downstream model would otherwise suppress coarse positional struc-ture. Full implementation details and fixed hyperparameter settings are deferred to the appendix. 
+
+Synthetic Mechanism Studies. The synthetic experiments isolate the rep-resentational regimes that ROMAN is intended to modify. We consider four fam-ilies of balanced binary tasks targeting coarse temporal position, long-range cor-relation, multiscale interaction, and full positional invariance. Results are aver-aged over 10 realizations under a fixed train/test protocol; exact data-generation procedures, sample sizes, and randomization details are given in the appendix. 8 Gonzalo Uribarri 
+
+Archive Evaluation. We evaluate ROMAN on the UCR and UEA archives [20,21], restricting attention to datasets with sequence length L ≥ 256 so that after applying ROMAN with S = 4 the reduced representation still has sufficient temporal extent for the downstream kernels to operate ( Lbase ≥ 32 ). We report both predictive performance and efficiency metrics. For the early-stopping convo-lutional models, a small number of long UCR datasets are excluded when severe class imbalance prevents a representative validation split; the exact exclusion list is reported in the appendix. 
+
+## 5 Synthetic Mechanism Studies 
+
+The synthetic experiments test the mechanisms claimed for ROMAN under con-trolled conditions. They isolate four representational regimes in which coarse temporal position, long-range relations, multiscale binding, or full translational invariance are decisive. We report representative examples and mean test accu-racy over ten realizations; implementation details and dataset generation proce-dures are given in the appendix. 
+
+a) Coarse Position Awareness. The first synthetic family isolates the sim-plest mechanism targeted by ROMAN: coarse temporal position can be dis-criminative even when local motif content is identical. Each series contains two identical spikes placed symmetrically with respect to the sequence boundaries, and the class label depends only on their coarse distance from the borders. The task therefore depends on coarse positional information rather than on motif identity. CNNClassifier is expected to perform strongly without ROMAN because its flattened head preserves temporal indexing. The more informative comparison is between pooled models and their ROMAN-augmented counterparts: if ROMAN improves MiniRocket, MultiRocket, or FCNClassifier in this setting, it indicates that routing coarse temporal position into pseudochannels restores information that temporal pooling would otherwise suppress. The results in Fig. 2(a) are consistent with this mechanism. 
+
+b) Long-Range Correlation. The second synthetic family tests whether classification depends on a relation between two distant localized events rather than on the presence of either event alone. Two sparse burst windows are placed at fixed, widely separated positions, and the class label depends on whether the two bursts contain the same local pattern or different local patterns. This task highlights a known tension in convolutional models: relating the two bursts requires a receptive field large enough to span both regions, but increasing dilation also makes it harder to preserve fine local structure. ROMAN is intended to relax this trade-off by routing distant regions into different pseudochannels, so that shorter-range convolutions can combine them after transformation. The results in Fig. 2(b) support this. ROMAN: Multiscale Routing for Time Series 9                       
+
+> (a) Coarse Position Awareness
+> Model Base ROMAN MiniRocket 0.710 0.908
+> MultiRocket 0.754 0.920
+> CNN Classifier 0.955 0.719 FCN Classifier 0.489 0.814 (b) Long-Range Correlation
+> Model Base ROMAN MiniRocket 0.514 0.676
+> MultiRocket 0.557 0.680
+> CNN Classifier 0.504 0.904
+> FCN Classifier 0.512 0.994 Fig. 2. Synthetic mechanism studies for (a) coarse position awareness and (b) long-range correlation. Left: representative examples. Right: mean test accuracy over ten realizations, comparing the baseline representation with ROMAN at S= 4 .
+
+c) Multiscale Interaction. The third synthetic family targets dependence between fine-scale and coarse-scale evidence at the same nominal temporal loca-tion. The construction combines a low-frequency cosine spanning the full series, a localized high-frequency burst, and a masked central region that hides the coarse phase locally. The class label depends on whether the fine burst phase matches the coarse-scale phase. A local detector can resolve the burst phase but not the surrounding coarse context, whereas a wide-scale detector can infer the coarse phase from the outer signal but does not naturally bind it to the local burst. This is a direct synthetic test of ROMAN as an explicit multiscale representation. In this setting, ROMAN converts a scale-binding problem into a channel-mixing problem on a shorter temporal axis. The results presented in Fig. 3(c) suggest that ROMAN helps to reveal the cross-scale structure to the convolutional backbones. 
+
+d) Full Positional Invariance. The fourth synthetic family serves as a neg-ative control in which full translational invariance is genuinely desirable. In this case, the class label depends solely on the presence of a target motif, which 10 Gonzalo Uribarri                        
+
+> (c) Multiscale Interaction
+> Model Base ROMAN MiniRocket 0.547 0.735
+> MultiRocket 0.537 0.744
+> CNN Classifier 0.494 0.998
+> FCN Classifier 0.502 1.000 (d) Full Positional Invariance
+> Model Base ROMAN MiniRocket 0.966 0.653 MultiRocket 0.836 0.629 CNN Classifier 0.505 0.488 FCN Classifier 1.000 0.510
+> Fig. 3. Synthetic mechanism studies for (c) multiscale interaction and (d) full posi-tional invariance. Left: representative examples. Right: mean test accuracy over ten realizations, comparing the baseline representation with ROMAN at S= 4 .
+
+can occur at any temporal location alongside additional similar distractor mo-tifs. Therefore, the task aligns naturally with pooling-based architectures that emphasise motif occurrence and suppress absolute position. This experiment tests the limits of ROMAN’s usefulness. If the discriminative structure is fully shift-invariant, routing coarse temporal position into pseudochannels is coun-terproductive because it weakens an invariance that already matches the task. Strong baseline performance from MiniRocket, MultiRocket, and FCNClassifier is therefore expected. The pattern in Fig. 3(d) is consistent with this interpre-tation. 
+
+## 6 Archive Benchmarks on UCR and UEA 
+
+6.1 UCR results 
+
+Table 1 summarizes the effect of ROMAN on the long-sequence UCR benchmark. For each backbone and each nontrivial configuration S ∈ { 2, 3, 4}, we report wins, ties, losses, accuracy differences, and relative training and inference times ROMAN: Multiscale Routing for Time Series 11 
+
+Table 1. Archive-level summary of ROMAN on the long-sequence UCR benchmark. For each backbone and each nontrivial ROMAN configuration S ∈ { 2, 3, 4}, the table reports wins, ties, and losses against the corresponding S = 1 baseline. The accuracy-difference columns are reported across datasets in percentage points as median [Q1, Q 3].The final two columns report median per-dataset training and inference time ratios relative to baseline. Model Config. Wins Ties Losses Acc. diff. Absolute acc. diff. Train ratio Infer. ratio MiniRocket S=2 35 22 26 +0.11 [-0.89, +2.09] 1.57 [0.43, 4.01] ×0.88 ×0.84 MiniRocket S=3 32 18 33 +0.00 [-2.12, +2.17] 2.29 [0.62, 4.01] ×0.73 ×0.63 MiniRocket S=4 23 20 40 -0.44 [-3.86, +0.70] 2.14 [0.61, 4.42] ×0.59 ×0.40 MultiRocket S=2 23 23 37 -0.33 [-1.48, +0.62] 1.00 [0.45, 2.32] ×0.77 ×0.71 MultiRocket S=3 22 21 40 -0.46 [-1.96, +0.59] 1.55 [0.49, 3.38] ×0.64 ×0.47 MultiRocket S=4 22 13 48 -0.84 [-3.87, +0.65] 2.31 [0.79, 4.98] ×0.49 ×0.30 CNN Classifier S=2 41 14 18 +1.09 [-0.43, +3.00] 2.00 [0.87, 5.20] ×0.92 ×0.99 CNN Classifier S=3 39 11 23 +0.67 [-1.16, +2.60] 2.20 [1.01, 4.27] ×0.93 ×1.00 CNN Classifier S=4 39 14 20 +1.16 [-0.71, +3.31] 2.04 [0.95, 5.87] ×0.93 ×1.00 FCN Classifier S=2 31 9 33 +0.00 [-3.79, +5.55] 4.36 [1.76, 12.43] ×0.79 ×0.98 FCN Classifier S=3 38 4 31 +0.57 [-4.80, +10.40] 6.15 [2.67, 15.76] ×0.69 ×0.98 FCN Classifier S=4 30 5 38 -1.01 [-8.92, +9.78] 9.04 [4.00, 16.88] ×0.66 ×1.01 
+
+against the corresponding S = 1 baseline. We also report the absolute accuracy-difference to summarize the typical magnitude of the change across datasets. Figure 4 complements this summary with per-dataset results for MiniRocket and FCNClassifier together with the computational time scaling as a function of S.The results support a balanced interpretation: ROMAN is not uniformly ben-eficial, but its effect depends on how discriminative information is distributed across temporal position, scale, and cross-channel structure. The UCR bench-mark is informative not because it identifies a universally best S, but because it shows that ROMAN often reduces computational cost and can improve perfor-mance on a substantial subset of datasets. 
+
+6.2 UEA results 
+
+The UEA benchmark provides a complementary evaluation in the multivari-ate setting, where ROMAN’s pseudochannel construction interacts with existing cross-variable structure. Table 2 reports the same archive-level summaries as in UCR under a common reporting scheme. The role of the UEA results is not to support a separate claim, but to evaluate the same one under a different data regime. 
+
+6.3 Efficiency and Sequence-Length Reduction 
+
+A central practical motivation for ROMAN is that it rewrites a long temporal axis into a shorter one before the downstream classifier is applied. This effect is visible in the archive-level timing summaries reported in Tables 1 and 2. For MiniRocket and MultiRocket, reducing L to Lbase lowers feature-extraction cost 12 Gonzalo Uribarri 
+
+Fig. 4. Baseline ( S = 1 ) vs. ROMAN-transformed data ( S ∈ { 2, 3, 4}) results for the MiniRocket and FCN Classifier models. We present the per-dataset UCR accuracies and the scaling of computational times with respect to S.
+
+Table 2. Archive-level summary of ROMAN on the long-sequence UEA benchmark. Model Config. Wins Ties Losses Acc. diff. Absolute acc. diff. Train ratio Infer. ratio MiniRocket S=2 6 1 8 -0.81 [-2.94, +1.45] 2.40 [1.37, 3.72] ×0.87 ×0.88 MiniRocket S=3 10 1 4 +1.11 [-0.43, +2.07] 1.75 [0.95, 4.44] ×0.67 ×0.57 MiniRocket S=4 7 4 4 +0.28 [-0.70, +2.68] 1.35 [0.65, 5.72] ×0.59 ×0.44 MultiRocket S=2 5 5 5 +0.00 [-1.64, +1.20] 1.33 [0.31, 2.27] ×0.78 ×0.77 MultiRocket S=3 5 4 6 -0.27 [-2.44, +1.64] 1.95 [0.85, 4.69] ×0.49 ×0.51 MultiRocket S=4 5 0 10 -0.97 [-3.23, +2.10] 2.67 [1.28, 4.28] ×0.34 ×0.35 CNN Classifier S=2 5 3 7 -0.06 [-1.94, +2.20] 2.50 [0.77, 3.40] ×0.99 ×1.03 CNN Classifier S=3 7 1 7 +0.32 [-2.63, +1.21] 2.60 [1.04, 5.65] ×0.90 ×1.13 CNN Classifier S=4 7 1 7 -0.13 [-3.07, +2.81] 3.71 [1.59, 8.51] ×1.04 ×1.21 FCN Classifier S=2 10 1 4 +1.02 [-0.41, +2.27] 1.33 [0.92, 2.60] ×0.80 ×0.95 FCN Classifier S=3 8 1 6 +0.78 [-2.31, +3.85] 3.05 [1.73, 4.67] ×0.95 ×1.10 FCN Classifier S=4 5 2 8 -1.44 [-3.96, +2.07] 3.67 [1.50, 6.11] ×0.95 ×1.12 
+
+directly, although very large pseudochannel expansions may require more kernels to maintain adequate random channel coverage. For CNNClassifier and FCN-Classifier, the shorter temporal axis reduces the cost of the convolutional stack, while the increase in channels affects only the first layer. ROMAN is therefore not free, but it often trades a channel expansion for a more valuable reduction in processed sequence length. Full environment details and backbone-specific complexity computations are given in the appendix. 
+
+## 7 Illustrative Use of ROMAN-Induced Diversity 
+
+This section provides a deliberately simple proof-of-concept rather than a new ensemble method. The aim is to test whether the representation diversity induced by different values of S can be exploited in a practical but easily interpretable ROMAN: Multiscale Routing for Time Series 13                                            
+
+> Table 3. Illustrative five-model hard-voting ensemble study: Mixed-scale Roman en-semble vs. Baseline ensemble. Accuracy difference is reported as Median[ Q1, Q 3]. Archive Model Wins Ties Losses Acc. diff. UCR MiniRocket 37 23 23 0.00 [-0.65, 1.92] UCR MultiRocket 32 26 25 0.00 [-0.80, 1.29] UCR FCN 41 10 22 1.10 [-2.29, 7.47] UCR CNN 42 18 13 1.28 [0.00, 3.59] UEA MiniRocket 7260.40 [-1.83, 2.37] UEA MultiRocket 6540.00 [-0.84, 0.72] UEA FCN 6450.00 [-0.89, 1.32] UEA CNN 9241.37 [-0.73, 3.90]
+
+way. For each backbone and archive, we compare two five-model hard-voting ensembles trained under the same protocol: a baseline-only ensemble composed of five standard models, and a mixed-scale ensemble composed of two standard models together with three ROMAN-based models using S = 2 , S = 3 , and 
+
+S = 4 . The two ensembles therefore differ only in whether part of the ensemble operates on ROMAN-transformed inputs at different routing scales. An extended description of the setup and results can be found in the Appendix. Table 3 summarizes the comparison through wins, ties, losses, and the ac-curacy difference, defined as mixed-scale ensemble accuracy minus baseline-only ensemble accuracy. The results are intended only as an illustrative case study, but they show that a simple mixed-scale construction is often better than the baseline-only ensemble. This supports the narrow practical claim made here: dif-ferent values of S can induce complementary representations with complemen-tary prediction behavior, and even a simple ensemble can exploit that diversity. 
+
+## 8 Discussion 
+
+When ROMAN Helps. Taken together, the synthetic and archive results support a task-structure interpretation of ROMAN. The operator is most useful when class information depends not only on motif presence, but also on coarse temporal position, on relations between distant events, or on interactions be-tween fine- and coarse-scale structure. In these regimes, routing scale and coarse temporal position into pseudochannels makes that information more accessible to standard convolutional backbones, especially when it would otherwise need to be recovered only indirectly through dilation or after aggressive temporal pool-ing. At the same time, ROMAN is not a universal improvement. When the task is well described by translation-invariant motif detection, pooled baselines al-ready have an appropriate inductive bias and ROMAN may reduce performance by weakening a useful invariance. 
+
+Limitations and Scope. The scope of the present study is constrained in three ways. First, the effective range of the main ROMAN hyperparameter is 14 Gonzalo Uribarri 
+
+inherently limited: increasing S shortens the processed temporal axis, but it also expands the pseudochannel dimension rapidly, so the representation can become overly fragmented and, especially for multivariate inputs, unnecessarily large. Second, the experiments therefore evaluate a small fixed grid of ROMAN config-urations rather than an exhaustive search. This keeps the effect of the operator interpretable, but the reported results should be read as evidence about con-trolled changes in representation rather than about fully optimized deployment. Third, the empirical evidence comes from mechanism-driven synthetic tasks and from long-sequence subsets of the UCR and UEA archives. These benchmarks are appropriate for testing the claims of the paper, but they do not span the full range of real-world time-series settings and are not necessarily representative of larger-scale or domain-specific applications. Accordingly, the contribution of this paper is best understood as a controlled operator-level study of when multiscale routing is useful, not as a final benchmark-optimized recipe. 
+
+Future Directions. First, ROMAN suggests a simple new source of repre-sentation diversity: different routing scales produce complementary views of the same time series, which may be useful in stronger ensemble families such as Arsenal or Detach-Rocket-Ensemble-style methods [13,14]. The present paper includes only a deliberately minimal proof-of-concept, so optimized ROMAN-based ensembles are left for future work. Second, because ROMAN is differen-tiable with respect to the input for fixed routing choices, an interesting future direction is to implement a ROMAN-inspired multiscale routing layer inside learned convolutional architectures. Such a layer could reduce temporal length early while preserving coarse positional and cross-scale structure, potentially reducing the need for very deep temporal stacks or extremely large receptive fields. 
+
+## 9 Conclusion 
+
+We introduced ROMAN, a deterministic multiscale routing operator for time series classification. By rewriting temporal scale and coarse temporal position as pseudochannels, ROMAN changes the representation presented to standard convolutional backbones while preserving the original input exactly when S = 1 .Across formal analysis, synthetic mechanism studies, and archive benchmarks, the results show that this representation change can alter inductive bias in a controlled and practically useful way. ROMAN is not intended to replace strong time series classifiers or to define a universally best configuration. Its value lies instead in its simplicity as an addi-tion to the TSC toolbox: it requires no learning, can be used as a preprocessing step without modifying the downstream model, and often shortens the temporal axis that the classifier must process. In this sense, ROMAN provides an easy-to-use way to make convolutional models more sensitive to temporal structure when class information depends on how events are organized across time and scale. ROMAN: Multiscale Routing for Time Series 15 
+
+Code availability. A public repository containing the implementation of the ROMAN operator, together with associated utilities and example use cases, is available at github.com/gon-uri/ROMAN. In addition, the full codebase required to reproduce all results reported in this paper is available at github.com/unknownscientist/ROMAN. 
+
+Acknowledgments. Acknowledgments will be added in the camera-ready version. 
+
+Disclosure of Interests. The authors declare that there are no competing interests relevant to this submission. 
+
+## References 
+
+1. Middlehurst, M., Schäfer, P., & Bagnall, A. (2024). Bake off redux: a review and experimental evaluation of recent time series classification algorithms: M. Middle-hurst et al. Data Mining and Knowledge Discovery, 38(4), 1958-2031. 2. Zhao, B., Lu, H., Chen, S., Liu, J., & Wu, D. (2017). Convolutional neural networks for time series classification. Journal of systems engineering and electronics, 28(1), 162-169. 3. Ruiz, A. P., Flynn, M., Large, J., Middlehurst, M., & Bagnall, A. (2021). The great multivariate time series classification bake off: a review and experimental evaluation of recent algorithmic advances. Data mining and knowledge discovery, 35(2), 401-449. 4. Tan, C. W., Dempster, A., Bergmeir, C., & Webb, G. I. (2022). MultiRocket: multiple pooling operators and transformations for fast and effective time series classification: CW Tan. Data Mining and Knowledge Discovery, 36(5), 1623-1646. 5. LeCun, Y., Bottou, L., Bengio, Y., & Haffner, P. (2002). Gradient-based learning applied to document recognition. Proceedings of the IEEE, 86(11), 2278-2324. 6. Bagnall, A., Lines, J., Bostrom, A., Large, J., & Keogh, E. (2017). The great time series classification bake off: a review and experimental evaluation of recent algorithmic advances. Data mining and knowledge discovery, 31(3), 606-660. 7. Ismail Fawaz, H., Lucas, B., Forestier, G., Pelletier, C., Schmidt, D. F., Weber, J., ... & Petitjean, F. (2020). Inceptiontime: Finding alexnet for time series classifica-tion. Data mining and knowledge discovery, 34(6), 1936-1962. 8. Wang, Z., Yan, W., & Oates, T. (2017, May). Time series classification from scratch with deep neural networks: A strong baseline. In 2017 International joint conference on neural networks (IJCNN) (pp. 1578-1585). IEEE. 9. Dempster, A., Schmidt, D. F., & Webb, G. I. (2021, August). Minirocket: A very fast (almost) deterministic transform for time series classification. In Proceedings of the 27th ACM SIGKDD conference on knowledge discovery & data mining (pp. 248-257). 10. Tan, C. W., Dempster, A., Bergmeir, C., & Webb, G. I. (2022). MultiRocket: multiple pooling operators and transformations for fast and effective time series classification: CW Tan. Data Mining and Knowledge Discovery, 36(5), 1623-1646. 11. Uribarri, G., Barone, F., Ansuini, A., & Fransén, E. (2024). Detach-ROCKET: sequential feature selection for time series classification with random convolutional kernels. Data Mining and Knowledge Discovery, 38(6), 3922-3947. 12. Schlegel, K., Neubert, P., & Protzel, P. (2022, July). HDC-MiniROCKET: Explicit time encoding in time series classification with hyperdimensional computing. In 2022 International Joint Conference on Neural Networks (IJCNN) (pp. 1-8). IEEE. 16 Gonzalo Uribarri 13. Solana, A., Fransén, E., & Uribarri, G. (2024, September). Classification of raw MEG/EEG data with detach-rocket ensemble: an improved rocket algorithm for multivariate time series analysis. In International Workshop on Advanced Analytics and Learning on Temporal Data (pp. 96-114). Cham: Springer Nature Switzerland. 14. Middlehurst, M., Large, J., Flynn, M., Lines, J., Bostrom, A., & Bagnall, A. (2021). HIVE-COTE 2.0: a new meta ensemble for time series classification. Machine Learning, 110(11), 3211-3243. 15. Bai, S., Kolter, J. Z., & Koltun, V. (2018). An empirical evaluation of generic convolutional and recurrent networks for sequence modeling. arXiv preprint arXiv:1803.01271. 16. Tang, W., Long, G., Liu, L., Zhou, T., Blumenstein, M., & Jiang, J. (2020). Omni-scale cnns: a simple and effective kernel size configuration for time series classifi-cation. arXiv preprint arXiv:2002.10061. 17. Zhang, R. (2019, May). Making convolutional networks shift-invariant again. In International conference on machine learning (pp. 7324-7334). PMLR. 18. Liu, R., Lehman, J., Molino, P., Petroski Such, F., Frank, E., Sergeev, A., & Yosinski, J. (2018). An intriguing failing of convolutional neural networks and the coordconv solution. Advances in neural information processing systems, 31. 19. Lindeberg, T. (2002). Scale-space for discrete signals. IEEE transactions on pattern analysis and machine intelligence, 12(3), 234-254. 20. Dau, H. A., Bagnall, A., Kamgar, K., Yeh, C. C. M., Zhu, Y., Gharghabi, S., ... & Keogh, E. (2019). The UCR time series archive. IEEE/CAA Journal of Automatica Sinica, 6(6), 1293-1305. 21. Bagnall, A., Dau, H. A., Lines, J., Flynn, M., Large, J., Bostrom, A., ... & Keogh, E. (2018). The UEA multivariate time series classification archive, 2018. arXiv preprint arXiv:1811.00075. 22. Ismail Fawaz, H., Forestier, G., Weber, J., Idoumghar, L., & Muller, P. A. (2019). Deep learning for time series classification: a review. Data mining and knowledge discovery, 33(4), 917-963. 23. Cheng, M., Yang, J., Pan, T., Liu, Q., Li, Z., & Wang, S. (2025, May). Convtimenet: A deep hierarchical fully convolutional model for multivariate time series analysis. In Companion Proceedings of the ACM on Web Conference 2025 (pp. 171-180). 24. Löning, M., Bagnall, A., Ganesh, S., Kazakov, V., Lines, J., & Király, F. J. (2019). sktime: A unified interface for machine learning with time series. arXiv preprint arXiv:1909.07872. 25. Tang, W., Long, G., Liu, L., Zhou, T., Blumenstein, M., & Jiang, J. (2020). Omni-scale cnns: a simple and effective kernel size configuration for time series classifi-cation. arXiv preprint arXiv:2002.10061. ROMAN: Multiscale Routing for Time Series 17 
+
+## Appendix A Operator Details and Additional Derivations 
+
+A.1 Boundary Handling, Odd Lengths, and Realized Scale Lengths 
+
+The ROMAN definition in the main paper is written in terms of the realized scale lengths Ls, rather than in terms of an idealized closed form. This is delib-erate. The pyramid is constructed recursively by channelwise convolution with the fixed low-pass filter h = 14 [1 , 2, 1] , followed by decimation by a factor of two, and the exact sequence lengths therefore depend on the chosen deterministic boundary-handling rule together with the treatment of odd input lengths. The formal construction remains unchanged under any fixed convention, provided the same convention is applied consistently at all scales. In particular, all sub-sequent quantities in the operator— Lbase = LS , the window counts Ws, and the start indices as,w —are defined from the realized values of Ls, not from an approximation. As an intuition, one can use the approximation Ls ≈ ⌈ L/ 2s−1⌉,while leaving exact values to the recursive filter–decimate procedure. For the window extraction step, the start indices 
+
+as,w =
+
+
+
+1, Ws = 1 ,
+
+1 + 
+
+ (w − 1)( Ls − Lbase )
+
+Ws − 1
+
+
+
+, Ws > 1, w = 1 , . . . , W s,
+
+spread the windows uniformly over the admissible start range. Consequently, the last window ends at or before the final valid position of the realized scale-s
+
+sequence, and the actual overlap may differ from the target value α only through integer rounding. In this sense, operator is exact once the realized Ls values are fixed. 
+
+A.2 Equivalent Parameterization by a Minimum Admissible Base Length 
+
+Although the main paper treats S as the primary hyperparameter, ROMAN also admits an equivalent parameterization in terms of a minimum admissible final length Lmin . The idea is to choose the deepest pyramid that still preserves at least that final temporal resolution: 
+
+S⋆(Lmin ) = max {S ≥ 1 : LS ≥ Lmin }.
+
+This does not define a different operator; it only defines a different rule for selecting S. In the approximate dyadic view LS ≈ ⌈ L/ 2S−1⌉, this becomes 
+
+S⋆(Lmin ) ≈ 1 + 
+
+
+
+log 2
+
+ LLmin 
+
+ 
+
+.
+
+This alternative view is useful when one wants to guarantee that the coarsest routed representation remains long enough for downstream kernels to operate 18 Gonzalo Uribarri 
+
+meaningfully. The current benchmark design in the main paper uses this logic implicitly when restricting attention to sufficiently long datasets and fixing S ∈{1, 2, 3, 4}.
+
+A.3 Backbone-Specific Size and Complexity Implications 
+
+The main paper shows that the ROMAN output has size 
+
+|Z| = C′Lbase = CL base 
+
+> S
+
+X
+
+> s=1
+
+Ws,
+
+and that the preprocessing cost is 
+
+TROMAN = Θ(CL + |Z|).
+
+What changes downstream is therefore the input shape: the temporal length is reduced from L to Lbase , while the channel dimension grows from C to C′.For MiniRocket and MultiRocket, the dominant cost of the transform stage scales primarily with the processed temporal length. With the number of ker-nels held fixed, replacing L by Lbase therefore reduces the temporal part of the convolutional feature-extraction cost from order L to order Lbase . The chan-nel expansion does not change this conclusion qualitatively, but it does reduce random channel coverage when C′/C becomes large. In practice, this is why ROMAN often accelerates ROCKET-style transforms on long sequences, while excessively large pseudochannel expansions may eventually require more kernels to maintain comparable coverage. This is also the reason the paper restricts attention to moderate values S ∈ { 1, 2, 3, 4}.For CNNClassifier and FCNClassifier, the increase from C to C′ affects the first convolutional layer directly, since its cost is proportional to the input-channel dimension. If the first layer has F1 filters of temporal width k1, its leading-order convolutional cost changes from 
+
+Θ(F1Ck 1L) to Θ(F1C′k1Lbase ).
+
+After that first layer, however, subsequent layers operate on learned feature maps rather than on the original C′ pseudochannels. Their cost therefore benefits pri-marily from the reduction in temporal length from L to Lbase . For FCNClassifier, the final global pooling stage also scales with the shortened temporal axis. For CNNClassifier, the flattening step and subsequent classifier head likewise oper-ate on a shorter temporal representation. This matches the empirical pattern reported in the main paper: ROMAN changes the first layer most directly, while the shorter temporal axis benefits the rest of the network stack. Taken together, these derivations explain the practical efficiency pattern ob-served in the archive results. ROMAN is not computationally free, because it expands the channel axis, but it often exchanges a moderate channel increase for a more valuable reduction in processed temporal extent. This trade-off is especially favorable on long sequences, which is why the empirical study focuses on long-sequence subsets of the UCR and UEA archives. ROMAN: Multiscale Routing for Time Series 19 
+
+## B Shared Experimental Environment and Reporting Conventions 
+
+B.1 Hardware and software environment 
+
+Code availability. All code necessary to reproduce the results of this paper is available at https://github.com/unknownscientist/ROMAN . A public library containing the ROMAN operator and associated tools will be released upon publication. All reported experiments for MiniRocket, MultiRocket, CNNClassifier, and FCNClassifier were run on a single MacBook Pro laptop (model identifier MacBookPro18,1 )equipped with an Apple M1 Pro chip, a 10-core CPU (8 performance cores and 2 efficiency cores), and 32 GB of unified memory, running macOS 14.3.1. The experiments use the sktime implementations and wrappers of these four back-bones; the installed sktime version in the reported environment is 0.30.0. This information is mainly relevant for the efficiency analysis: the timing values re-ported in the main paper should be interpreted as comparative measurements obtained in a single fixed environment, rather than as hardware-independent latency claims. 
+
+B.2 Shared ROMAN settings 
+
+Across the archive benchmarks, the overlap parameter is fixed to α = 0 .5, and the evaluated ROMAN scale settings are 
+
+S ∈ { 1, 2, 3, 4}.
+
+Throughout the paper, the case S = 1 is treated as the exact identity baseline. 
+
+B.3 Accuracy summaries and practical tie criterion 
+
+In the archive tables, each ROMAN configuration is compared against the corre-sponding S = 1 baseline of the same backbone and archive. Accuracy differences are first averaged across seeds at dataset level, and the resulting per-dataset mean differences are then summarized at archive level. The main paper reports wins, ties, losses, the median signed accuracy differ-ence, and the median absolute accuracy difference, with the latter two summa-rized as median [ Q1, Q 3]. A dataset is counted as a tie when the mean accuracy difference across seeds satisfies 
+
+|∆Acc | ≤ 0.005 ,
+
+that is, when the difference remains within 0.5 percentage points of the baseline. This threshold is used as a practical equivalence margin rather than as a formal significance criterion. 20 Gonzalo Uribarri 
+
+B.4 Timing conventions 
+
+The benchmark runners record three timing components: ROMAN preprocessing time, model fitting time, and post-training prediction time. For paper reporting, these are combined into two phase metrics: 
+
+Ttrain = TROMAN + Tfit , Tinfer = TROMAN + Tpredict .
+
+The baseline configuration also includes the S = 1 preprocessing path, since the benchmark pipeline still applies the same normalization, NaN handling, and identity-form ROMAN wrapper in that case. The training-time and inference-time ratios reported in the archive tables are computed by: (i) averaging each phase time across seeds on each dataset, (ii) dividing that mean by the corresponding baseline mean on the same dataset, and (iii) summarizing the resulting per-dataset ratios by their median across datasets. 
+
+## C Synthetic Dataset Construction 
+
+C.1 Common synthetic protocol 
+
+The synthetic experiments are designed as mechanism studies rather than bench-mark optimization exercises. Across all reported synthetic tasks, the shared pro-tocol is as follows: 
+
+– balanced binary classification; 
+
+– sequence length fixed by task family; 
+
+– 500 training instances and 250 test instances per realization; 
+
+– 10 independent realizations per reported comparison; 
+
+– per-series z-normalization; 
+
+– fixed ROMAN overlap parameter α = 0 .5;
+
+– comparison between the raw-input baseline and ROMAN( S = 4) with the same downstream backbone. 
+
+C.2 Position-awareness dataset 
+
+The position-awareness dataset uses univariate series of length 512. Each series contains exactly two identical single-sample spikes embedded in Gaussian back-ground noise with standard deviation 1.0. If the left spike is placed at distance 
+
+d from the left boundary, the right spike is placed symmetrically at the same distance from the right boundary. The experimental configuration is: 
+
+– dmin = 32 ,
+
+– center safety margin smin = 128 ,
+
+– inter-class gap parameter = 16 ,
+
+– spike amplitude sampled uniformly from [4 .0, 4.5] .ROMAN: Multiscale Routing for Time Series 21 
+
+The admissible distance interval is partitioned into two disjoint class ranges, so that the label depends only on the coarse distance regime and not on motif identity. Because the two spikes are identical and symmetric, the task isolates coarse positional information while avoiding simple asymmetric shortcuts. 
+
+C.3 Long-range correlation dataset 
+
+The long-range correlation dataset uses univariate series of length 512 with two fixed sparse burst windows centered near L/ 6 and 5L/ 6. Each burst occupies a local window of length 33 and contains 4 spikes with minimum within-burst spacing 6. The experimental configuration is: 
+
+– burst length = 33 ,
+
+– 4 spikes per burst, 
+
+– minimum within-burst spacing = 6 ,
+
+– minimum pattern distance = 6 ,
+
+– pattern-library size = 3 ,
+
+– spike amplitude = 4 .0,
+
+– Gaussian noise standard deviation = 1 .0.The class label depends on the relation between the two distant bursts: 
+
+– class 0: the two bursts use the same local pattern; 
+
+– class 1: the two bursts use different local patterns. Because the burst geometry is fixed across classes, the task cannot be solved from coarse position alone. Its purpose is to test whether a model can compare distant local structures rather than merely detect their presence. 
+
+C.4 Multiscale interaction dataset 
+
+The multiscale interaction dataset uses univariate series of length 512 built from a full-length low-frequency cosine and a localized high-frequency cosine burst. The local burst has width 32 and is embedded inside a wider masked region of width 96, so that the coarse phase is not directly visible within the local support of the burst. The experimental configuration is: 
+
+– 1 coarse cosine cycle across the full series, 
+
+– burst length = 32 ,
+
+– 4 fine oscillation cycles within the burst, 
+
+– mask length = 96 ,
+
+– 4 discrete phase values, 
+
+– fine amplitude = 4 .0,
+
+– coarse amplitude = 2 .0,
+
+– Gaussian noise standard deviation = 0 .75 .22 Gonzalo Uribarri 
+
+The class label depends on whether the fine burst phase matches the coarse phase implied by the outer context: 
+
+– class 0: coarse and fine phase agree; 
+
+– class 1: coarse and fine phase differ. This construction is designed to test cross-scale binding rather than simple local detection. 
+
+C.5 Full positional invariance dataset 
+
+The full positional invariance dataset serves as the negative-control synthetic task. It uses univariate series of length 512 containing a small number of local sparse motifs placed at random valid positions over the full timeline. The experimental configuration is: 
+
+– motif length = 33 ,
+
+– 4 spikes per motif, 
+
+– minimum within-motif spacing = 3 ,
+
+– 2 distractor patterns in the motif library, 
+
+– 1 distractor instance per series, 
+
+– 1 target instance in each positive example, 
+
+– minimum target–distractor pattern distance = 6 ,
+
+– minimum separation between motif instances = 16 ,
+
+– motif amplitude = 6 .0,
+
+– Gaussian noise standard deviation = 1 .0.Positive and negative examples contain the same total number of motif in-stances. In the positive class, one distractor slot is replaced by the target motif; in the negative class, all instances are distractors. Motif positions are sampled i.i.d. over the full valid start range in both training and test data. The dataset is therefore intentionally aligned with translation-invariant motif detection and serves as a negative control for ROMAN. 
+
+## D Archive Benchmark Protocol Details 
+
+D.1 Archive inclusion rule 
+
+For both UCR and UEA, the archive benchmark analysis is restricted to datasets whose time-series length satisfies 
+
+L ≥ 256 .
+
+This filter ensures that nontrivial ROMAN configurations remain meaningful and that the coarsest routed representation is not dominated by excessive down-sampling. ROMAN: Multiscale Routing for Time Series 23 
+
+D.2 Additional exclusion rule for the learned convolutional models 
+
+CNNClassifier and FCNClassifier are trained with an early-stopping protocol that requires an internal validation split. For these two models only, datasets are excluded when some classes are too underrepresented in the training set for that split to remain well posed. These exclusions are protocol-driven rather than performance-driven. The issue is not low test accuracy, but the inability of the early-stopping wrapper to construct a representative validation subset for those class distributions. 
+
+D.3 Explicit UCR exclusion list for CNN and FCN 
+
+Among the long-sequence UCR candidates, the datasets excluded from the CNN and FCN presentation are: 
+
+– DiatomSizeReduction 
+
+– FaceFour 
+
+– FiftyWords 
+
+– Mallat 
+
+– Phoneme 
+
+– PigAirwayPressure 
+
+– PigArtPressure 
+
+– PigCVP 
+
+– Symbols 
+
+– WordSynonyms 
+
+The filter L ≥ 256 yields 83 UCR candidate datasets. After applying the validation-split feasibility rule above, 73 datasets remain in the UCR CNN and FCN analysis. 
+
+## E Optional Ensemble Case Study Protocol 
+
+E.1 Ensemble construction 
+
+The main paper reports a five-model hard-voting protocol. For each backbone and archive, it compares: 
+
+– a baseline-only ensemble built from seeds 0, 1, 2, 3, 4 of the S = 1 model; 
+
+– a mixed-scale ensemble built from baseline seeds 0, 1 together with seed 0 of 
+
+S = 2 , seed 0 of S = 3 , and seed 0 of S = 4 .This construction was chosen so that both ensembles contain the same num-ber of members, use the same training data, and differ only in whether some members receive ROMAN preprocessing at different routing scales. 24 Gonzalo Uribarri  
+
+> UCR
+> UEA
+> Fig. 5. Critical-difference diagrams for the five-model hard-voting ensemble study on UCR and UEA. Each diagram compares the eight ensemble variants within the corre-sponding archive: the four baseline-only ensembles and their four mixed-scale ROMAN counterparts. Lower average rank is better.
+
+E.2 Voting and reported quantities 
+
+The ensemble result reported in the main paper uses hard voting. The reported difference is always 
+
+∆Acc = Acc mixed -scale − Acc baseline -only .
+
+For each model–archive pair, the compact ensemble table reports wins, ties, losses, and the median signed ensemble accuracy difference, summarized as 
+
+median [ Q1, Q 3]. The same practical tie criterion used in the archive tables is applied here: a dataset is counted as a tie when the corresponding mean accu-racy difference remains within 0.5 percentage points of zero. The archive-level comparison is complemented by the critical-difference diagrams in Fig. 5, which summarize average ranks across shared datasets for the eight ensemble variants considered in each archive. 
+
+## F Complete Archive Result Tables 
+
+This section presents the complete per-dataset archive results underlying the compact UCR and UEA summaries in the main paper, reported in Tables 1 through 8. Each cell gives the mean test accuracy across the five seeds, with ROMAN: Multiscale Routing for Time Series 25 
+
+the corresponding sample standard deviation in parentheses. Dataset names are followed by the time-series length in parentheses. 
+
+Table 4: Per-dataset UCR benchmark results for MiniRocket. Each cell reports the mean test ac-curacy with standard deviation in parentheses over the five seeds for the corresponding ROMAN setting. Dataset names are followed by the time-series length in parentheses. Dataset MiniRocket S=1 S=2 S=3 S=4 ACSF1 (1460) 0.908 (0.008) 0.896 (0.011) 0.860 (0.010) 0.830 (0.012) AllGestureWiimoteX (385) 0.643 (0.008) 0.691 (0.008) 0.707 (0.016) 0.667 (0.011) AllGestureWiimoteY (385) 0.684 (0.004) 0.713 (0.008) 0.725 (0.007) 0.687 (0.009) AllGestureWiimoteZ (385) 0.623 (0.011) 0.626 (0.010) 0.606 (0.007) 0.581 (0.008) AsphaltObstacles (736) 0.856 (0.006) 0.883 (0.006) 0.887 (0.006) 0.886 (0.007) Beef (470) 0.853 (0.018) 0.820 (0.030) 0.840 (0.028) 0.853 (0.018) BeetleFly (512) 0.920 (0.027) 0.950 (0.000) 0.940 (0.022) 0.890 (0.065) BirdChicken (512) 0.900 (0.000) 0.920 (0.027) 0.900 (0.079) 0.780 (0.057) Car (577) 0.910 (0.015) 0.897 (0.018) 0.933 (0.000) 0.920 (0.018) CinCECGTorso (1639) 0.808 (0.013) 0.906 (0.017) 0.950 (0.005) 0.959 (0.010) Coffee (286) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) Computers (720) 0.716 (0.012) 0.738 (0.004) 0.729 (0.010) 0.716 (0.012) CricketX (300) 0.795 (0.008) 0.769 (0.009) 0.738 (0.013) 0.717 (0.015) CricketY (300) 0.805 (0.007) 0.793 (0.007) 0.770 (0.007) 0.759 (0.010) CricketZ (300) 0.781 (0.009) 0.785 (0.013) 0.756 (0.004) 0.738 (0.004) DiatomSizeReduction (345) 0.933 (0.008) 0.944 (0.003) 0.976 (0.002) 0.976 (0.003) DodgerLoopDay (288) 0.647 (0.024) 0.645 (0.036) 0.662 (0.023) 0.610 (0.029) DodgerLoopGame (288) 0.868 (0.006) 0.923 (0.006) 0.930 (0.004) 0.919 (0.006) DodgerLoopWeekend (288) 0.978 (0.000) 0.986 (0.000) 0.986 (0.000) 0.986 (0.000) EOGHorizontalSignal (1250) 0.587 (0.006) 0.603 (0.008) 0.605 (0.011) 0.588 (0.023) EOGVerticalSignal (1250) 0.533 (0.011) 0.538 (0.015) 0.535 (0.011) 0.519 (0.014) Earthquakes (512) 0.748 (0.000) 0.748 (0.000) 0.748 (0.000) 0.748 (0.000) EthanolLevel (1751) 0.566 (0.009) 0.528 (0.006) 0.558 (0.006) 0.562 (0.010) FaceFour (350) 0.943 (0.000) 1.000 (0.000) 0.998 (0.005) 0.984 (0.013) FiftyWords (270) 0.805 (0.003) 0.812 (0.005) 0.801 (0.005) 0.768 (0.007) Fish (463) 0.959 (0.005) 0.967 (0.007) 0.959 (0.015) 0.960 (0.009) FordA (500) 0.949 (0.003) 0.940 (0.002) 0.929 (0.005) 0.913 (0.008) FordB (500) 0.825 (0.006) 0.808 (0.013) 0.791 (0.009) 0.777 (0.006) FreezerRegularTrain (301) 0.999 (0.000) 0.998 (0.000) 0.998 (0.000) 0.997 (0.001) FreezerSmallTrain (301) 0.940 (0.001) 0.931 (0.004) 0.929 (0.008) 0.940 (0.016) GestureMidAirD1 (360) 0.718 (0.013) 0.765 (0.010) 0.762 (0.009) 0.749 (0.018) GestureMidAirD2 (360) 0.614 (0.013) 0.668 (0.006) 0.648 (0.006) 0.662 (0.018) GestureMidAirD3 (360) 0.443 (0.021) 0.508 (0.022) 0.523 (0.020) 0.549 (0.017) GesturePebbleZ1 (455) 0.902 (0.005) 0.895 (0.004) 0.893 (0.003) 0.878 (0.004) GesturePebbleZ2 (455) 0.876 (0.017) 0.867 (0.012) 0.843 (0.010) 0.833 (0.010) Ham (431) 0.750 (0.025) 0.699 (0.014) 0.728 (0.009) 0.741 (0.018) HandOutlines (2709) 0.936 (0.005) 0.937 (0.004) 0.936 (0.007) 0.930 (0.006) Haptics (1092) 0.527 (0.012) 0.499 (0.005) 0.501 (0.007) 0.487 (0.013) Herring (512) 0.600 (0.014) 0.597 (0.007) 0.609 (0.016) 0.606 (0.017) HouseTwenty (2000) 0.955 (0.005) 0.963 (0.005) 0.971 (0.008) 0.968 (0.004) InlineSkate (1882) 0.415 (0.005) 0.363 (0.004) 0.379 (0.014) 0.371 (0.026) InsectEPGRegularTrain (601) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) InsectEPGSmallTrain (601) 0.998 (0.002) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) InsectWingbeatSound (256) 0.666 (0.001) 0.669 (0.003) 0.667 (0.003) 0.670 (0.004) LargeKitchenAppliances (720) 0.822 (0.007) 0.846 (0.012) 0.855 (0.008) 0.814 (0.009) Lightning2 (637) 0.744 (0.009) 0.761 (0.019) 0.708 (0.014) 0.715 (0.025) Lightning7 (319) 0.770 (0.015) 0.816 (0.008) 0.803 (0.025) 0.762 (0.023) Mallat (1024) 0.932 (0.011) 0.927 (0.010) 0.934 (0.005) 0.922 (0.009) Meat (448) 0.973 (0.019) 0.990 (0.009) 0.983 (0.017) 0.973 (0.022) MixedShapesRegularTrain (1024) 0.967 (0.002) 0.966 (0.001) 0.963 (0.001) 0.961 (0.002) MixedShapesSmallTrain (1024) 0.944 (0.002) 0.928 (0.002) 0.925 (0.003) 0.922 (0.004) NonInvasiveFetalECGThorax1 (750) 0.931 (0.002) 0.929 (0.002) 0.925 (0.004) 0.926 (0.002) NonInvasiveFetalECGThorax2 (750) 0.953 (0.001) 0.949 (0.003) 0.950 (0.001) 0.949 (0.004) Continued on next page 26 Gonzalo Uribarri 
+
+Table 4: UCR MiniRocket benchmark results (continued) Dataset MiniRocket S=1 S=2 S=3 S=4 OSULeaf (427) 0.921 (0.009) 0.859 (0.015) 0.772 (0.015) 0.737 (0.013) OliveOil (570) 0.940 (0.043) 0.940 (0.028) 0.913 (0.018) 0.953 (0.018) PLAID (1344) 0.944 (0.004) 0.935 (0.004) 0.939 (0.010) 0.930 (0.004) Phoneme (1024) 0.246 (0.004) 0.273 (0.005) 0.275 (0.001) 0.266 (0.004) PickupGestureWiimoteZ (361) 0.744 (0.026) 0.800 (0.000) 0.776 (0.022) 0.748 (0.036) PigAirwayPressure (2000) 0.218 (0.012) 0.099 (0.004) 0.096 (0.003) 0.083 (0.007) PigArtPressure (2000) 0.963 (0.005) 0.573 (0.010) 0.434 (0.017) 0.346 (0.016) PigCVP (2000) 0.732 (0.072) 0.403 (0.011) 0.256 (0.024) 0.227 (0.010) RefrigerationDevices (720) 0.469 (0.006) 0.487 (0.011) 0.481 (0.009) 0.499 (0.013) Rock (2844) 0.780 (0.024) 0.884 (0.038) 0.820 (0.014) 0.808 (0.011) ScreenType (720) 0.457 (0.011) 0.460 (0.013) 0.450 (0.014) 0.458 (0.022) SemgHandGenderCh2 (1500) 0.885 (0.013) 0.933 (0.006) 0.953 (0.006) 0.942 (0.004) SemgHandMovementCh2 (1500) 0.672 (0.015) 0.724 (0.015) 0.743 (0.005) 0.742 (0.011) SemgHandSubjectCh2 (1500) 0.859 (0.010) 0.891 (0.013) 0.904 (0.008) 0.922 (0.007) ShakeGestureWiimoteZ (385) 0.832 (0.018) 0.868 (0.023) 0.868 (0.011) 0.844 (0.017) ShapeletSim (500) 0.876 (0.026) 0.612 (0.028) 0.688 (0.041) 0.689 (0.026) ShapesAll (512) 0.903 (0.006) 0.887 (0.003) 0.874 (0.002) 0.860 (0.006) SmallKitchenAppliances (720) 0.798 (0.003) 0.820 (0.007) 0.829 (0.007) 0.813 (0.003) StarLightCurves (1024) 0.982 (0.001) 0.981 (0.000) 0.981 (0.000) 0.981 (0.001) Symbols (398) 0.977 (0.001) 0.963 (0.001) 0.965 (0.002) 0.958 (0.004) ToeSegmentation1 (277) 0.952 (0.008) 0.910 (0.020) 0.832 (0.023) 0.710 (0.046) ToeSegmentation2 (343) 0.912 (0.014) 0.868 (0.006) 0.863 (0.003) 0.832 (0.015) Trace (275) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 0.996 (0.005) UWaveGestureLibraryAll (945) 0.969 (0.002) 0.976 (0.002) 0.975 (0.001) 0.975 (0.002) UWaveGestureLibraryX (315) 0.842 (0.005) 0.845 (0.002) 0.840 (0.001) 0.830 (0.008) UWaveGestureLibraryY (315) 0.750 (0.002) 0.758 (0.004) 0.753 (0.003) 0.740 (0.010) UWaveGestureLibraryZ (315) 0.792 (0.003) 0.792 (0.002) 0.780 (0.001) 0.752 (0.005) WordSynonyms (270) 0.704 (0.001) 0.721 (0.005) 0.713 (0.009) 0.686 (0.006) Worms (900) 0.719 (0.020) 0.719 (0.012) 0.694 (0.022) 0.649 (0.030) WormsTwoClass (900) 0.758 (0.020) 0.753 (0.021) 0.696 (0.040) 0.686 (0.027) Table 5: Per-dataset UCR benchmark results for MultiRocket. Dataset MultiRocket S=1 S=2 S=3 S=4 ACSF1 (1460) 0.884 (0.011) 0.838 (0.013) 0.836 (0.009) 0.788 (0.022) AllGestureWiimoteX (385) 0.719 (0.006) 0.721 (0.006) 0.710 (0.019) 0.669 (0.019) AllGestureWiimoteY (385) 0.745 (0.010) 0.757 (0.010) 0.745 (0.017) 0.705 (0.007) AllGestureWiimoteZ (385) 0.682 (0.015) 0.661 (0.008) 0.665 (0.012) 0.623 (0.017) AsphaltObstacles (736) 0.829 (0.012) 0.847 (0.019) 0.862 (0.009) 0.856 (0.019) Beef (470) 0.707 (0.028) 0.687 (0.051) 0.720 (0.069) 0.793 (0.028) BeetleFly (512) 0.890 (0.042) 0.880 (0.076) 0.870 (0.057) 0.890 (0.042) BirdChicken (512) 0.940 (0.022) 0.900 (0.071) 0.870 (0.045) 0.860 (0.082) Car (577) 0.887 (0.007) 0.883 (0.012) 0.890 (0.019) 0.897 (0.007) CinCECGTorso (1639) 0.861 (0.005) 0.937 (0.038) 0.973 (0.017) 0.978 (0.021) Coffee (286) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) Computers (720) 0.719 (0.010) 0.726 (0.022) 0.704 (0.005) 0.686 (0.013) CricketX (300) 0.762 (0.011) 0.771 (0.010) 0.757 (0.008) 0.718 (0.016) CricketY (300) 0.784 (0.010) 0.782 (0.011) 0.775 (0.015) 0.751 (0.017) CricketZ (300) 0.817 (0.008) 0.803 (0.013) 0.768 (0.011) 0.745 (0.008) DiatomSizeReduction (345) 0.956 (0.004) 0.954 (0.019) 0.951 (0.012) 0.963 (0.015) DodgerLoopDay (288) 0.470 (0.029) 0.542 (0.046) 0.568 (0.053) 0.597 (0.037) DodgerLoopGame (288) 0.893 (0.017) 0.896 (0.018) 0.888 (0.036) 0.884 (0.007) DodgerLoopWeekend (288) 0.975 (0.004) 0.978 (0.005) 0.986 (0.000) 0.986 (0.000) EOGHorizontalSignal (1250) 0.623 (0.039) 0.635 (0.021) 0.615 (0.013) 0.606 (0.018) EOGVerticalSignal (1250) 0.587 (0.018) 0.608 (0.012) 0.599 (0.020) 0.568 (0.032) Continued on next page ROMAN: Multiscale Routing for Time Series 27 
+
+Table 5: UCR MultiRocket benchmark results (continued) Dataset MultiRocket S=1 S=2 S=3 S=4 Earthquakes (512) 0.715 (0.023) 0.706 (0.039) 0.741 (0.013) 0.721 (0.027) EthanolLevel (1751) 0.580 (0.013) 0.578 (0.017) 0.561 (0.019) 0.589 (0.020) FaceFour (350) 0.927 (0.006) 0.936 (0.017) 0.968 (0.015) 0.975 (0.012) FiftyWords (270) 0.829 (0.008) 0.827 (0.008) 0.795 (0.012) 0.767 (0.005) Fish (463) 0.981 (0.007) 0.953 (0.009) 0.960 (0.011) 0.947 (0.011) FordA (500) 0.900 (0.009) 0.890 (0.008) 0.898 (0.002) 0.877 (0.012) FordB (500) 0.757 (0.014) 0.760 (0.008) 0.758 (0.017) 0.751 (0.015) FreezerRegularTrain (301) 0.998 (0.000) 0.995 (0.001) 0.996 (0.001) 0.994 (0.002) FreezerSmallTrain (301) 0.959 (0.004) 0.930 (0.015) 0.846 (0.025) 0.842 (0.051) GestureMidAirD1 (360) 0.705 (0.042) 0.714 (0.013) 0.755 (0.010) 0.746 (0.020) GestureMidAirD2 (360) 0.602 (0.020) 0.652 (0.015) 0.626 (0.024) 0.625 (0.027) GestureMidAirD3 (360) 0.406 (0.032) 0.438 (0.031) 0.463 (0.024) 0.491 (0.010) GesturePebbleZ1 (455) 0.924 (0.006) 0.913 (0.000) 0.893 (0.003) 0.884 (0.004) GesturePebbleZ2 (455) 0.854 (0.004) 0.839 (0.006) 0.792 (0.019) 0.827 (0.015) Ham (431) 0.750 (0.008) 0.741 (0.017) 0.733 (0.021) 0.709 (0.020) HandOutlines (2709) 0.894 (0.010) 0.903 (0.013) 0.912 (0.017) 0.916 (0.012) Haptics (1092) 0.519 (0.017) 0.506 (0.016) 0.518 (0.015) 0.513 (0.025) Herring (512) 0.647 (0.036) 0.650 (0.034) 0.619 (0.070) 0.637 (0.026) HouseTwenty (2000) 0.946 (0.020) 0.926 (0.016) 0.931 (0.021) 0.938 (0.033) InlineSkate (1882) 0.470 (0.009) 0.444 (0.024) 0.414 (0.009) 0.414 (0.007) InsectEPGRegularTrain (601) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) InsectEPGSmallTrain (601) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) InsectWingbeatSound (256) 0.640 (0.003) 0.646 (0.006) 0.652 (0.006) 0.643 (0.007) LargeKitchenAppliances (720) 0.765 (0.023) 0.803 (0.015) 0.818 (0.011) 0.776 (0.023) Lightning2 (637) 0.734 (0.014) 0.725 (0.050) 0.734 (0.036) 0.725 (0.024) Lightning7 (319) 0.775 (0.016) 0.737 (0.047) 0.756 (0.042) 0.726 (0.036) Mallat (1024) 0.952 (0.003) 0.953 (0.013) 0.960 (0.005) 0.950 (0.023) Meat (448) 0.957 (0.009) 0.947 (0.018) 0.963 (0.032) 0.957 (0.025) MixedShapesRegularTrain (1024) 0.974 (0.002) 0.969 (0.005) 0.968 (0.001) 0.967 (0.002) MixedShapesSmallTrain (1024) 0.948 (0.002) 0.944 (0.003) 0.933 (0.004) 0.932 (0.003) NonInvasiveFetalECGThorax1 (750) 0.933 (0.004) 0.918 (0.009) 0.920 (0.006) 0.925 (0.006) NonInvasiveFetalECGThorax2 (750) 0.943 (0.004) 0.937 (0.011) 0.944 (0.006) 0.942 (0.004) OSULeaf (427) 0.948 (0.010) 0.869 (0.015) 0.793 (0.015) 0.765 (0.013) OliveOil (570) 0.880 (0.051) 0.873 (0.064) 0.893 (0.043) 0.913 (0.038) PLAID (1344) 0.947 (0.007) 0.945 (0.004) 0.943 (0.008) 0.947 (0.004) Phoneme (1024) 0.324 (0.006) 0.333 (0.010) 0.323 (0.004) 0.319 (0.003) PickupGestureWiimoteZ (361) 0.788 (0.023) 0.756 (0.036) 0.756 (0.036) 0.764 (0.048) PigAirwayPressure (2000) 0.778 (0.039) 0.290 (0.018) 0.185 (0.011) 0.157 (0.008) PigArtPressure (2000) 0.969 (0.003) 0.887 (0.031) 0.776 (0.050) 0.687 (0.027) PigCVP (2000) 0.855 (0.005) 0.736 (0.023) 0.613 (0.026) 0.499 (0.011) RefrigerationDevices (720) 0.517 (0.026) 0.510 (0.019) 0.515 (0.019) 0.525 (0.023) Rock (2844) 0.792 (0.027) 0.856 (0.022) 0.864 (0.030) 0.868 (0.027) ScreenType (720) 0.462 (0.012) 0.439 (0.017) 0.449 (0.016) 0.442 (0.029) SemgHandGenderCh2 (1500) 0.930 (0.004) 0.936 (0.008) 0.932 (0.008) 0.938 (0.006) SemgHandMovementCh2 (1500) 0.737 (0.012) 0.749 (0.025) 0.746 (0.024) 0.760 (0.014) SemgHandSubjectCh2 (1500) 0.858 (0.014) 0.881 (0.011) 0.883 (0.008) 0.906 (0.013) ShakeGestureWiimoteZ (385) 0.912 (0.018) 0.888 (0.011) 0.896 (0.017) 0.876 (0.054) ShapeletSim (500) 1.000 (0.000) 0.842 (0.046) 0.718 (0.093) 0.651 (0.073) ShapesAll (512) 0.921 (0.003) 0.889 (0.005) 0.871 (0.006) 0.866 (0.008) SmallKitchenAppliances (720) 0.765 (0.015) 0.779 (0.013) 0.780 (0.007) 0.779 (0.011) StarLightCurves (1024) 0.980 (0.001) 0.980 (0.001) 0.981 (0.000) 0.981 (0.001) Symbols (398) 0.983 (0.001) 0.978 (0.003) 0.974 (0.005) 0.966 (0.007) ToeSegmentation1 (277) 0.919 (0.006) 0.901 (0.033) 0.867 (0.038) 0.796 (0.021) ToeSegmentation2 (343) 0.880 (0.009) 0.888 (0.028) 0.848 (0.023) 0.858 (0.015) Trace (275) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 0.994 (0.009) UWaveGestureLibraryAll (945) 0.975 (0.001) 0.974 (0.001) 0.973 (0.001) 0.972 (0.001) UWaveGestureLibraryX (315) 0.852 (0.004) 0.847 (0.003) 0.837 (0.005) 0.832 (0.003) UWaveGestureLibraryY (315) 0.781 (0.001) 0.767 (0.003) 0.765 (0.006) 0.746 (0.006) UWaveGestureLibraryZ (315) 0.795 (0.002) 0.786 (0.008) 0.776 (0.005) 0.757 (0.003) WordSynonyms (270) 0.737 (0.005) 0.743 (0.009) 0.708 (0.010) 0.686 (0.010) Continued on next page 28 Gonzalo Uribarri 
+
+Table 5: UCR MultiRocket benchmark results (continued) Dataset MultiRocket S=1 S=2 S=3 S=4 Worms (900) 0.730 (0.027) 0.709 (0.020) 0.714 (0.018) 0.717 (0.023) WormsTwoClass (900) 0.766 (0.033) 0.756 (0.025) 0.771 (0.028) 0.766 (0.021) Table 6: Per-dataset UCR benchmark results for CNN. Dataset CNN S=1 S=2 S=3 S=4 ACSF1 (1460) 0.228 (0.057) 0.176 (0.058) 0.200 (0.067) 0.316 (0.141) AllGestureWiimoteX (385) 0.342 (0.053) 0.426 (0.037) 0.424 (0.039) 0.388 (0.034) AllGestureWiimoteY (385) 0.286 (0.112) 0.392 (0.059) 0.436 (0.052) 0.406 (0.051) AllGestureWiimoteZ (385) 0.251 (0.121) 0.266 (0.059) 0.307 (0.067) 0.339 (0.037) AsphaltObstacles (736) 0.756 (0.024) 0.765 (0.022) 0.760 (0.032) 0.753 (0.043) Beef (470) 0.700 (0.041) 0.720 (0.030) 0.660 (0.098) 0.687 (0.077) BeetleFly (512) 0.700 (0.184) 0.690 (0.182) 0.700 (0.137) 0.700 (0.100) BirdChicken (512) 0.630 (0.045) 0.600 (0.100) 0.610 (0.055) 0.630 (0.057) Car (577) 0.687 (0.007) 0.683 (0.187) 0.760 (0.030) 0.750 (0.000) CinCECGTorso (1639) 0.546 (0.184) 0.503 (0.229) 0.518 (0.182) 0.430 (0.175) Coffee (286) 0.979 (0.020) 0.993 (0.016) 0.971 (0.016) 0.971 (0.030) Computers (720) 0.510 (0.044) 0.508 (0.035) 0.503 (0.039) 0.502 (0.027) CricketX (300) 0.502 (0.026) 0.507 (0.028) 0.476 (0.022) 0.441 (0.035) CricketY (300) 0.481 (0.022) 0.544 (0.027) 0.487 (0.016) 0.439 (0.035) CricketZ (300) 0.485 (0.056) 0.512 (0.026) 0.480 (0.025) 0.439 (0.022) DiatomSizeReduction (345) – – – –DodgerLoopDay (288) 0.595 (0.033) 0.603 (0.037) 0.578 (0.116) 0.620 (0.031) DodgerLoopGame (288) 0.619 (0.187) 0.710 (0.125) 0.767 (0.144) 0.787 (0.112) DodgerLoopWeekend (288) 0.984 (0.003) 0.980 (0.006) 0.972 (0.006) 0.974 (0.004) EOGHorizontalSignal (1250) 0.409 (0.031) 0.414 (0.020) 0.425 (0.027) 0.429 (0.017) EOGVerticalSignal (1250) 0.360 (0.037) 0.393 (0.020) 0.378 (0.055) 0.374 (0.017) Earthquakes (512) 0.750 (0.003) 0.748 (0.000) 0.748 (0.000) 0.748 (0.000) EthanolLevel (1751) 0.258 (0.013) 0.248 (0.014) 0.258 (0.008) 0.251 (0.002) FaceFour (350) – – – –FiftyWords (270) – – – –Fish (463) 0.539 (0.035) 0.715 (0.064) 0.723 (0.055) 0.798 (0.022) FordA (500) 0.894 (0.024) 0.893 (0.011) 0.852 (0.015) 0.732 (0.017) FordB (500) 0.703 (0.019) 0.686 (0.027) 0.693 (0.004) 0.680 (0.018) FreezerRegularTrain (301) 0.932 (0.097) 0.927 (0.091) 0.954 (0.042) 0.949 (0.010) FreezerSmallTrain (301) 0.745 (0.030) 0.733 (0.021) 0.771 (0.021) 0.733 (0.027) GestureMidAirD1 (360) 0.474 (0.043) 0.472 (0.053) 0.525 (0.040) 0.511 (0.020) GestureMidAirD2 (360) 0.489 (0.046) 0.457 (0.036) 0.488 (0.052) 0.506 (0.050) GestureMidAirD3 (360) 0.257 (0.071) 0.297 (0.031) 0.268 (0.045) 0.231 (0.036) GesturePebbleZ1 (455) 0.776 (0.042) 0.834 (0.028) 0.842 (0.027) 0.824 (0.014) GesturePebbleZ2 (455) 0.667 (0.052) 0.715 (0.037) 0.790 (0.064) 0.733 (0.041) Ham (431) 0.705 (0.013) 0.674 (0.049) 0.661 (0.037) 0.714 (0.007) HandOutlines (2709) 0.892 (0.014) 0.907 (0.006) 0.898 (0.009) 0.906 (0.006) Haptics (1092) 0.388 (0.021) 0.401 (0.033) 0.390 (0.017) 0.402 (0.026) Herring (512) 0.594 (0.000) 0.609 (0.031) 0.591 (0.026) 0.597 (0.007) HouseTwenty (2000) 0.666 (0.140) 0.689 (0.056) 0.676 (0.064) 0.721 (0.080) InlineSkate (1882) 0.189 (0.026) 0.206 (0.031) 0.214 (0.029) 0.188 (0.006) InsectEPGRegularTrain (601) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) InsectEPGSmallTrain (601) 1.000 (0.000) 1.000 (0.000) 0.966 (0.075) 1.000 (0.000) InsectWingbeatSound (256) 0.578 (0.017) 0.583 (0.013) 0.595 (0.010) 0.593 (0.020) LargeKitchenAppliances (720) 0.515 (0.017) 0.596 (0.046) 0.575 (0.037) 0.529 (0.023) Lightning2 (637) 0.643 (0.094) 0.669 (0.117) 0.623 (0.102) 0.695 (0.089) Lightning7 (319) 0.633 (0.062) 0.633 (0.111) 0.649 (0.028) 0.633 (0.043) Mallat (1024) – – – –Meat (448) 0.873 (0.032) 0.903 (0.040) 0.817 (0.031) 0.900 (0.029) Continued on next page ROMAN: Multiscale Routing for Time Series 29 
+
+Table 6: UCR CNN benchmark results (continued) Dataset CNN S=1 S=2 S=3 S=4 MixedShapesRegularTrain (1024) 0.813 (0.043) 0.827 (0.043) 0.839 (0.033) 0.838 (0.012) MixedShapesSmallTrain (1024) 0.724 (0.030) 0.740 (0.063) 0.728 (0.075) 0.742 (0.027) NonInvasiveFetalECGThorax1 (750) 0.875 (0.004) 0.806 (0.027) 0.850 (0.010) 0.847 (0.015) NonInvasiveFetalECGThorax2 (750) 0.915 (0.009) 0.870 (0.012) 0.893 (0.008) 0.879 (0.010) OSULeaf (427) 0.379 (0.081) 0.450 (0.006) 0.411 (0.054) 0.412 (0.026) OliveOil (570) 0.380 (0.045) 0.400 (0.000) 0.380 (0.045) 0.380 (0.045) PLAID (1344) 0.342 (0.060) 0.358 (0.075) 0.371 (0.065) 0.401 (0.062) Phoneme (1024) – – – –PickupGestureWiimoteZ (361) 0.560 (0.040) 0.628 (0.030) 0.592 (0.058) 0.640 (0.032) PigAirwayPressure (2000) – – – –PigArtPressure (2000) – – – –PigCVP (2000) – – – –RefrigerationDevices (720) 0.354 (0.031) 0.429 (0.057) 0.327 (0.032) 0.326 (0.019) Rock (2844) 0.552 (0.186) 0.444 (0.151) 0.540 (0.113) 0.488 (0.171) ScreenType (720) 0.403 (0.028) 0.419 (0.018) 0.424 (0.043) 0.418 (0.043) SemgHandGenderCh2 (1500) 0.901 (0.011) 0.906 (0.013) 0.908 (0.025) 0.908 (0.015) SemgHandMovementCh2 (1500) 0.571 (0.024) 0.672 (0.075) 0.694 (0.040) 0.731 (0.032) SemgHandSubjectCh2 (1500) 0.877 (0.017) 0.848 (0.011) 0.876 (0.012) 0.888 (0.018) ShakeGestureWiimoteZ (385) 0.504 (0.082) 0.548 (0.072) 0.524 (0.142) 0.596 (0.030) ShapeletSim (500) 0.487 (0.033) 0.491 (0.017) 0.512 (0.025) 0.504 (0.009) ShapesAll (512) 0.519 (0.032) 0.593 (0.021) 0.630 (0.023) 0.577 (0.022) SmallKitchenAppliances (720) 0.560 (0.055) 0.641 (0.027) 0.636 (0.028) 0.640 (0.019) StarLightCurves (1024) 0.908 (0.028) 0.935 (0.013) 0.932 (0.005) 0.924 (0.010) Symbols (398) – – – –ToeSegmentation1 (277) 0.518 (0.029) 0.508 (0.030) 0.535 (0.033) 0.515 (0.033) ToeSegmentation2 (343) 0.514 (0.230) 0.331 (0.210) 0.468 (0.264) 0.409 (0.247) Trace (275) 0.944 (0.011) 0.772 (0.149) 0.754 (0.122) 0.626 (0.097) UWaveGestureLibraryAll (945) 0.909 (0.008) 0.910 (0.013) 0.918 (0.007) 0.907 (0.011) UWaveGestureLibraryX (315) 0.691 (0.024) 0.727 (0.010) 0.718 (0.013) 0.695 (0.009) UWaveGestureLibraryY (315) 0.619 (0.012) 0.629 (0.007) 0.639 (0.010) 0.633 (0.011) UWaveGestureLibraryZ (315) 0.638 (0.020) 0.654 (0.028) 0.650 (0.012) 0.642 (0.011) WordSynonyms (270) – – – –Worms (900) 0.421 (0.012) 0.353 (0.038) 0.366 (0.055) 0.387 (0.030) WormsTwoClass (900) 0.558 (0.048) 0.564 (0.042) 0.584 (0.036) 0.571 (0.033) Table 7: Per-dataset UCR benchmark results for FCN. Dataset FCN S=1 S=2 S=3 S=4 ACSF1 (1460) 0.660 (0.062) 0.660 (0.060) 0.612 (0.043) 0.562 (0.060) AllGestureWiimoteX (385) 0.649 (0.025) 0.638 (0.065) 0.655 (0.033) 0.561 (0.036) AllGestureWiimoteY (385) 0.637 (0.018) 0.674 (0.026) 0.659 (0.046) 0.596 (0.059) AllGestureWiimoteZ (385) 0.644 (0.021) 0.591 (0.022) 0.539 (0.051) 0.443 (0.059) AsphaltObstacles (736) 0.867 (0.019) 0.854 (0.011) 0.840 (0.010) 0.828 (0.020) Beef (470) 0.340 (0.123) 0.647 (0.112) 0.767 (0.024) 0.713 (0.093) BeetleFly (512) 0.750 (0.087) 0.630 (0.104) 0.790 (0.065) 0.690 (0.147) BirdChicken (512) 0.660 (0.230) 0.630 (0.179) 0.600 (0.141) 0.540 (0.042) Car (577) 0.447 (0.194) 0.677 (0.140) 0.750 (0.035) 0.800 (0.065) CinCECGTorso (1639) 0.401 (0.056) 0.742 (0.025) 0.853 (0.028) 0.753 (0.203) Coffee (286) 0.836 (0.193) 0.807 (0.248) 0.871 (0.230) 0.921 (0.064) Computers (720) 0.762 (0.023) 0.584 (0.034) 0.514 (0.022) 0.553 (0.051) CricketX (300) 0.724 (0.016) 0.716 (0.024) 0.642 (0.037) 0.597 (0.011) CricketY (300) 0.716 (0.028) 0.678 (0.018) 0.676 (0.023) 0.627 (0.015) CricketZ (300) 0.737 (0.020) 0.693 (0.041) 0.675 (0.018) 0.665 (0.029) DiatomSizeReduction (345) – – – –DodgerLoopDay (288) 0.380 (0.150) 0.662 (0.025) 0.680 (0.029) 0.630 (0.058) Continued on next page 30 Gonzalo Uribarri 
+
+Table 7: UCR FCN benchmark results (continued) Dataset FCN S=1 S=2 S=3 S=4 DodgerLoopGame (288) 0.532 (0.085) 0.514 (0.018) 0.554 (0.077) 0.701 (0.164) DodgerLoopWeekend (288) 0.942 (0.010) 0.877 (0.122) 0.968 (0.006) 0.932 (0.086) EOGHorizontalSignal (1250) 0.569 (0.044) 0.548 (0.023) 0.537 (0.023) 0.502 (0.031) EOGVerticalSignal (1250) 0.423 (0.024) 0.365 (0.018) 0.533 (0.024) 0.521 (0.011) Earthquakes (512) 0.748 (0.000) 0.725 (0.021) 0.740 (0.003) 0.706 (0.045) EthanolLevel (1751) 0.287 (0.048) 0.618 (0.040) 0.637 (0.056) 0.664 (0.035) FaceFour (350) – – – –FiftyWords (270) – – – –Fish (463) 0.897 (0.031) 0.859 (0.040) 0.899 (0.020) 0.885 (0.042) FordA (500) 0.919 (0.004) 0.937 (0.007) 0.932 (0.003) 0.885 (0.009) FordB (500) 0.778 (0.010) 0.791 (0.022) 0.782 (0.011) 0.721 (0.015) FreezerRegularTrain (301) 0.898 (0.128) 0.970 (0.030) 0.988 (0.009) 0.986 (0.005) FreezerSmallTrain (301) 0.644 (0.120) 0.676 (0.149) 0.635 (0.145) 0.709 (0.032) GestureMidAirD1 (360) 0.626 (0.043) 0.577 (0.030) 0.589 (0.018) 0.569 (0.032) GestureMidAirD2 (360) 0.595 (0.025) 0.531 (0.044) 0.509 (0.037) 0.542 (0.036) GestureMidAirD3 (360) 0.278 (0.043) 0.332 (0.015) 0.314 (0.040) 0.322 (0.024) GesturePebbleZ1 (455) 0.817 (0.054) 0.843 (0.042) 0.862 (0.012) 0.856 (0.019) GesturePebbleZ2 (455) 0.728 (0.037) 0.851 (0.043) 0.870 (0.053) 0.861 (0.060) Ham (431) 0.703 (0.021) 0.680 (0.071) 0.676 (0.019) 0.676 (0.023) HandOutlines (2709) 0.718 (0.032) 0.911 (0.012) 0.899 (0.020) 0.911 (0.013) Haptics (1092) 0.356 (0.060) 0.389 (0.022) 0.403 (0.028) 0.412 (0.034) Herring (512) 0.566 (0.020) 0.566 (0.046) 0.619 (0.063) 0.581 (0.065) HouseTwenty (2000) 0.859 (0.113) 0.914 (0.057) 0.706 (0.182) 0.753 (0.028) InlineSkate (1882) 0.200 (0.026) 0.340 (0.079) 0.352 (0.018) 0.339 (0.009) InsectEPGRegularTrain (601) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) 1.000 (0.000) InsectEPGSmallTrain (601) 1.000 (0.000) 0.933 (0.092) 0.722 (0.237) 1.000 (0.000) InsectWingbeatSound (256) 0.345 (0.027) 0.565 (0.024) 0.575 (0.021) 0.561 (0.021) LargeKitchenAppliances (720) 0.878 (0.012) 0.837 (0.035) 0.715 (0.053) 0.594 (0.041) Lightning2 (637) 0.711 (0.099) 0.734 (0.029) 0.757 (0.044) 0.682 (0.034) Lightning7 (319) 0.742 (0.023) 0.732 (0.059) 0.748 (0.034) 0.652 (0.050) Mallat (1024) – – – –Meat (448) 0.497 (0.123) 0.513 (0.221) 0.467 (0.189) 0.623 (0.169) MixedShapesRegularTrain (1024) 0.918 (0.017) 0.894 (0.011) 0.907 (0.007) 0.912 (0.003) MixedShapesSmallTrain (1024) 0.692 (0.101) 0.830 (0.008) 0.849 (0.030) 0.835 (0.017) NonInvasiveFetalECGThorax1 (750) 0.887 (0.032) 0.890 (0.011) 0.890 (0.016) 0.885 (0.036) NonInvasiveFetalECGThorax2 (750) 0.909 (0.008) 0.913 (0.017) 0.915 (0.007) 0.921 (0.010) OSULeaf (427) 0.851 (0.036) 0.593 (0.021) 0.547 (0.036) 0.521 (0.027) OliveOil (570) 0.360 (0.055) 0.360 (0.055) 0.587 (0.185) 0.400 (0.000) PLAID (1344) 0.370 (0.046) 0.331 (0.041) 0.376 (0.037) 0.360 (0.045) Phoneme (1024) – – – –PickupGestureWiimoteZ (361) 0.624 (0.084) 0.700 (0.032) 0.728 (0.072) 0.680 (0.091) PigAirwayPressure (2000) – – – –PigArtPressure (2000) – – – –PigCVP (2000) – – – –RefrigerationDevices (720) 0.519 (0.023) 0.498 (0.048) 0.428 (0.048) 0.364 (0.025) Rock (2844) 0.240 (0.040) 0.372 (0.120) 0.348 (0.088) 0.480 (0.174) ScreenType (720) 0.537 (0.079) 0.412 (0.026) 0.430 (0.028) 0.393 (0.021) SemgHandGenderCh2 (1500) 0.845 (0.006) 0.948 (0.006) 0.953 (0.010) 0.955 (0.012) SemgHandMovementCh2 (1500) 0.498 (0.039) 0.800 (0.025) 0.832 (0.022) 0.828 (0.021) SemgHandSubjectCh2 (1500) 0.604 (0.016) 0.919 (0.014) 0.923 (0.015) 0.940 (0.009) ShakeGestureWiimoteZ (385) 0.856 (0.096) 0.872 (0.030) 0.816 (0.048) 0.760 (0.051) ShapeletSim (500) 0.913 (0.080) 0.624 (0.170) 0.508 (0.017) 0.514 (0.032) ShapesAll (512) 0.847 (0.020) 0.762 (0.020) 0.761 (0.016) 0.737 (0.035) SmallKitchenAppliances (720) 0.742 (0.014) 0.745 (0.007) 0.669 (0.047) 0.623 (0.044) StarLightCurves (1024) 0.966 (0.006) 0.949 (0.007) 0.954 (0.010) 0.956 (0.007) Symbols (398) – – – –ToeSegmentation1 (277) 0.889 (0.102) 0.690 (0.061) 0.646 (0.096) 0.686 (0.055) ToeSegmentation2 (343) 0.560 (0.346) 0.780 (0.040) 0.738 (0.124) 0.774 (0.042) Trace (275) 1.000 (0.000) 1.000 (0.000) 0.986 (0.011) 0.934 (0.013) UWaveGestureLibraryAll (945) 0.785 (0.020) 0.936 (0.008) 0.958 (0.005) 0.954 (0.008) Continued on next page ROMAN: Multiscale Routing for Time Series 31 
+
+Table 7: UCR FCN benchmark results (continued) Dataset FCN S=1 S=2 S=3 S=4 UWaveGestureLibraryX (315) 0.743 (0.010) 0.777 (0.011) 0.777 (0.016) 0.747 (0.020) UWaveGestureLibraryY (315) 0.627 (0.013) 0.678 (0.007) 0.680 (0.012) 0.657 (0.015) UWaveGestureLibraryZ (315) 0.696 (0.012) 0.697 (0.015) 0.708 (0.018) 0.693 (0.023) WordSynonyms (270) – – – –Worms (900) 0.634 (0.039) 0.584 (0.039) 0.522 (0.034) 0.504 (0.051) WormsTwoClass (900) 0.704 (0.032) 0.595 (0.021) 0.621 (0.035) 0.613 (0.039) Table 8: Complete per-dataset UEA benchmark results for MiniRocket. Each cell reports the mean test accuracy with standard deviation in parentheses over the five seeds for the corresponding RO-MAN setting. Dataset names are followed by the time-series length in parentheses. Dataset S=1 S=2 S=3 S=4 AsphObstCoord (736) 0.828 (0.008) 0.840 (0.003) 0.844 (0.008) 0.824 (0.005) AsphPaveTypeCoord (2371) 0.924 (0.007) 0.935 (0.005) 0.941 (0.004) 0.932 (0.005) AsphaltRegularityCoordinates (4201) 0.992 (0.002) 0.995 (0.001) 0.998 (0.001) 0.994 (0.001) AtrialFibrillation (640) 0.093 (0.060) 0.053 (0.056) 0.053 (0.056) 0.133 (0.047) Cricket (1197) 0.961 (0.006) 0.978 (0.008) 0.972 (0.010) 0.964 (0.008) DuckDuckGeese (270) 0.644 (0.036) 0.568 (0.023) 0.500 (0.024) 0.464 (0.033) EigenWorms (17984) 0.925 (0.019) 0.899 (0.026) 0.876 (0.014) 0.864 (0.024) EthanolConcentration (1751) 0.304 (0.011) 0.289 (0.015) 0.322 (0.025) 0.373 (0.009) HandMovementDirection (400) 0.468 (0.028) 0.543 (0.058) 0.565 (0.040) 0.481 (0.042) Heartbeat (405) 0.745 (0.013) 0.730 (0.006) 0.753 (0.018) 0.756 (0.008) MotorImagery (3000) 0.548 (0.042) 0.572 (0.027) 0.572 (0.019) 0.530 (0.032) SelfRegulationSCP1 (896) 0.911 (0.014) 0.878 (0.031) 0.905 (0.007) 0.911 (0.005) SelfRegulationSCP2 (1152) 0.514 (0.025) 0.549 (0.019) 0.563 (0.022) 0.579 (0.014) StandWalkJump (2500) 0.307 (0.037) 0.267 (0.000) 0.333 (0.115) 0.360 (0.037) UWaveGestureLibrary (315) 0.934 (0.009) 0.926 (0.004) 0.931 (0.012) 0.924 (0.011) Table 9: Complete per-dataset UEA benchmark results for MultiRocket. Dataset S=1 S=2 S=3 S=4 AsphObstCoord (736) 0.773 (0.015) 0.794 (0.014) 0.823 (0.013) 0.828 (0.016) AsphPaveTypeCoord (2371) 0.895 (0.010) 0.875 (0.015) 0.878 (0.016) 0.885 (0.015) AsphaltRegularityCoordinates (4201) 0.989 (0.002) 0.989 (0.003) 0.986 (0.004) 0.983 (0.005) AtrialFibrillation (640) 0.187 (0.056) 0.173 (0.060) 0.120 (0.056) 0.147 (0.056) Cricket (1197) 0.986 (0.010) 0.983 (0.006) 0.983 (0.006) 0.969 (0.012) DuckDuckGeese (270) 0.500 (0.020) 0.436 (0.017) 0.432 (0.054) 0.472 (0.054) EigenWorms (17984) 0.889 (0.014) 0.864 (0.022) 0.873 (0.020) 0.852 (0.013) EthanolConcentration (1751) 0.478 (0.039) 0.392 (0.039) 0.434 (0.016) 0.415 (0.026) HandMovementDirection (400) 0.341 (0.050) 0.419 (0.042) 0.430 (0.020) 0.438 (0.012) Heartbeat (405) 0.697 (0.020) 0.707 (0.026) 0.716 (0.014) 0.723 (0.015) MotorImagery (3000) 0.534 (0.065) 0.532 (0.061) 0.502 (0.019) 0.524 (0.026) SelfRegulationSCP1 (896) 0.863 (0.028) 0.863 (0.012) 0.884 (0.018) 0.879 (0.016) SelfRegulationSCP2 (1152) 0.532 (0.046) 0.536 (0.044) 0.534 (0.026) 0.487 (0.024) StandWalkJump (2500) 0.413 (0.087) 0.427 (0.076) 0.427 (0.076) 0.440 (0.101) UWaveGestureLibrary (315) 0.930 (0.009) 0.949 (0.004) 0.934 (0.007) 0.924 (0.006) 32 Gonzalo Uribarri 
+
+Table 10: Complete per-dataset UEA benchmark results for CNN. Dataset S=1 S=2 S=3 S=4 AsphObstCoord (736) 0.633 (0.017) 0.604 (0.026) 0.477 (0.109) 0.275 (0.010) AsphPaveTypeCoord (2371) 0.752 (0.212) 0.840 (0.060) 0.825 (0.022) 0.851 (0.070) AsphaltRegularityCoordinates (4201) 0.988 (0.003) 0.989 (0.003) 0.991 (0.002) 0.987 (0.004) AtrialFibrillation (640) 0.347 (0.119) 0.320 (0.119) 0.320 (0.056) 0.293 (0.076) Cricket (1197) 0.739 (0.054) 0.764 (0.033) 0.822 (0.033) 0.825 (0.025) DuckDuckGeese (270) 0.376 (0.036) 0.300 (0.089) 0.416 (0.046) 0.292 (0.067) EigenWorms (17984) 0.421 (0.003) 0.424 (0.010) 0.395 (0.068) 0.431 (0.020) EthanolConcentration (1751) 0.299 (0.009) 0.287 (0.021) 0.290 (0.011) 0.275 (0.018) HandMovementDirection (400) 0.522 (0.035) 0.541 (0.102) 0.532 (0.134) 0.538 (0.080) Heartbeat (405) 0.737 (0.028) 0.729 (0.011) 0.731 (0.019) 0.700 (0.048) MotorImagery (3000) 0.480 (0.032) 0.526 (0.051) 0.490 (0.027) 0.520 (0.021) SelfRegulationSCP1 (896) 0.857 (0.024) 0.849 (0.023) 0.779 (0.043) 0.840 (0.032) SelfRegulationSCP2 (1152) 0.482 (0.017) 0.521 (0.024) 0.493 (0.047) 0.498 (0.031) StandWalkJump (2500) 0.347 (0.073) 0.320 (0.056) 0.320 (0.030) 0.467 (0.170) UWaveGestureLibrary (315) 0.756 (0.036) 0.756 (0.043) 0.769 (0.031) 0.751 (0.018) Table 11: Complete per-dataset UEA benchmark results for FCN. Dataset S=1 S=2 S=3 S=4 AsphObstCoord (736) 0.808 (0.026) 0.788 (0.037) 0.739 (0.033) 0.765 (0.026) AsphPaveTypeCoord (2371) 0.963 (0.009) 0.954 (0.004) 0.948 (0.004) 0.949 (0.003) AsphaltRegularityCoordinates (4201) 0.994 (0.002) 0.991 (0.006) 0.990 (0.002) 0.990 (0.004) AtrialFibrillation (640) 0.307 (0.060) 0.293 (0.060) 0.360 (0.037) 0.320 (0.030) Cricket (1197) 0.989 (0.006) 0.983 (0.015) 0.969 (0.021) 0.942 (0.023) DuckDuckGeese (270) 0.552 (0.039) 0.564 (0.033) 0.512 (0.036) 0.528 (0.039) EigenWorms (17984) 0.656 (0.226) 0.666 (0.134) 0.626 (0.051) 0.528 (0.032) EthanolConcentration (1751) 0.294 (0.014) 0.300 (0.041) 0.310 (0.019) 0.297 (0.016) HandMovementDirection (400) 0.308 (0.055) 0.400 (0.053) 0.495 (0.031) 0.484 (0.037) Heartbeat (405) 0.686 (0.114) 0.742 (0.042) 0.724 (0.037) 0.670 (0.046) MotorImagery (3000) 0.506 (0.023) 0.538 (0.058) 0.536 (0.030) 0.534 (0.054) SelfRegulationSCP1 (896) 0.798 (0.026) 0.808 (0.042) 0.837 (0.018) 0.869 (0.043) SelfRegulationSCP2 (1152) 0.502 (0.028) 0.516 (0.050) 0.510 (0.020) 0.466 (0.045) StandWalkJump (2500) 0.347 (0.030) 0.360 (0.101) 0.320 (0.056) 0.280 (0.056) UWaveGestureLibrary (315) 0.804 (0.013) 0.909 (0.014) 0.883 (0.016) 0.859 (0.016)

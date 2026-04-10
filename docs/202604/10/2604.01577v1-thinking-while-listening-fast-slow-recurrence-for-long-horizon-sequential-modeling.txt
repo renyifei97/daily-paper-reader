@@ -1,0 +1,684 @@
+Title: Thinking While Listening: Fast-Slow Recurrence for Long-Horizon Sequential Modeling
+
+URL Source: https://arxiv.org/pdf/2604.01577v1
+
+Published Time: Fri, 03 Apr 2026 00:27:24 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# Thinking While Listening: Fast–Slow Recurrence for Long-Horizon Sequential Modeling 
+
+Shota Takashiro 1 Masanori Koyama 1 Takeru Miyato 2 Yusuke Iwasawa 1 Yutaka Matsuo 1 Kohei Hayashi 1
+
+## Abstract 
+
+We extend the recent latent recurrent modeling to sequential input streams. By interleaving fast, recurrent latent updates with self-organizational ability between slow observation updates, our method facilitates the learning of stable internal structures that evolve alongside the input. This mechanism allows the model to maintain coherent and clustered representations over long horizons, improving out-of-distribution generalization in re-inforcement learning and algorithmic tasks com-pared to sequential baselines such as LSTM, state space models, and Transformer variants. 
+
+## 1. Introduction 
+
+Humans are capable of reasoning while simultaneously pro-cessing external inputs, allowing them to cope with long-horizon streams of variable lengths (Baddeley, 1992; Hasson et al., 2015). In such settings, an agent must maintain and update an internal state that summarizes past information while processing new observations, selectively extracting task-relevant signals and retaining them until future inputs resolve their relevance. Such a state-tracking type computa-tion is central to navigation, decision-making, and predic-tion in nonstationary environments (Kaelbling et al., 1998; Thrun, 2000; Hausknecht & Stone, 2015). However, learn-ing to reliably maintain such an internal state over long horizons is a well-known challenge for recurrent neural networks (Bengio et al., 1994; Pascanu et al., 2013) and it remains a major bottleneck in modern neural sequential models such as Transformers (Tay et al., 2021; Liu et al., 2023; Sinha et al., 2025). To explore this endeavor, we draw on recent advances in latent recurrent modeling (Geiping et al., 2025; Hao et al., 2024a; Gladstone et al., 2025; Wang et al., 2025; Miyato 
+
+> 1
+
+The University of Tokyo, Hongo 7-3-1, Bunkyo-ku, Tokyo, 113-8656 Japan 2University of T ¨ubingen, T ¨ubingen, Germany. Correspondence to: Shota Takashiro <takashiro@weblab.t.u-tokyo.ac.jp >.
+
+Preprint. April 3, 2026. 10 1 10 2 10 3 10 4 10 5
+
+> sequence length
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> accuracy
+> Gemini 3.0 Pro
+> Claude Opus 4.5
+> GPT 5.1 Thinking
+> Ours
+
+Figure 1. Token-wise accuracy vs. sequence length on the Dyck-
+
+(30 , 5) task. Frontier LLMs are prompted with the ground-truth generation algorithm of the Dyck language in text form, so that they only need to execute the plan described in the prompt; see Appendix B.3 for the exact prompt and the evaluation protocol. Their performance drops rapidly as sequence length increases, consistent with the behavior reported by Shojaee et al. (2025); Sinha et al. (2025). Our model(FSRM), in contrast, is trained exclusively on raw strings of short length (shaded range, ≤ 40 ). It maintains approximately 90% accuracy over sequence lengths spanning four orders of magnitude beyond the training range. 
+
+et al., 2025; Darlow et al., 2025; Koishekenov et al., 2025). These methods iteratively apply a recurrent block in latent space to a fixed input, learning an internal evolution of the state whose repeated application leads to improved perfor-mance. While they are often motivated as a mechanism to scale the test-time compute, we particularly want to exploit its ability to iteratively refine and organize the information in the latent space. This ability is supported empirically by recent works like (Miyato et al., 2025; Darlow et al., 2025) as well as by theoretical results showing that recurrent mod-ules can dynamically cluster information (Kuramoto, 1984; Geshkovski et al., 2024; 2025). These results suggest la-tent recurrent models as a promising computational core for “tracking the evolving state of both real and abstract worlds” (Li & Janson, 2025). However, the approaches we introduced above lack an explicit mechanism to scalably integrate evolving external inputs into the dynamics of the internal representation. In direct applications of these ap-proaches, the latent state is reinitialized at the beginning of each loop that processes incoming input, and prior compu-tation is preserved by appending latent summaries to the external context. The goal of this work is to explore the extension of the re-cent latent recurrent model to evolving sequential inputs, so that new observations can be continuously incorporated into 1
+
+> arXiv:2604.01577v1 [cs.LG] 2 Apr 2026 Thinking While Listening
+
+Transformer Iterative Transformer RNN/SSM Ours  
+
+> Figure 2. Comparison of architectures. Transformers compute dense pairwise interactions in a single pass, while iterative variants such as looped transformers (Fan et al., 2024) repeatedly update the representations through a recurrent layer. In contrast, RNNs/SSMs update hidden states strictly along the time axis. Our model(FSRM) performs multiple recurrent updates within each observation interval.
+
+the latent representation of fixed size. We achieve this by reformulating the latent recurrent system as a pair of cou-pled dynamical processes: a fast -evolving latent reasoning process and a slow -evolving observation process. We refer to this architecture as Fast Slow Recurrent Model(FSRM). More concretely, without resetting the latent state, we run a continuous latent recurrence that is conditioned on external observations, which evolve on a slower timescale. We study this construction through benchmark tasks that fun-damentally require (i) selective extraction of task-relevant signals from long streams of variable lengths without stor-ing the full history (ii) long-horizon retention of selected contextual information. Our strategy enables continuous in-tegration of new observations while preserving the benefits of recurrent latent computation. As an example that high-lights these requirements, we particularly consider the next token prediction task on Dyck language (Sch ¨utzenberger, 1963), which we will elaborate in 5.2. On Dyck-(30,5), our model maintains 90% token accuracy up to length 10 5 after training only on lengths ≤ 40 , whereas the accuracy of the frontier LLMs prompted with the rule of Dyck language de-cays rapidly with length under the same evaluation protocol (Figure 1). We also compare our approach against various competitive baselines, including SSMs and Transformers, on other benchmarks including reinforcement learning tasks. Finally, we provide qualitative visualizations illustrating how our architectural design transforms incoming informa-tion in a structured and traceable manner. 
+
+## 2. Preliminary: Latent Recurrent Model 
+
+Our method is inspired by models that conduct reasoning in the latent space by iterating a recurrent block (Gladstone et al., 2025; Geiping et al., 2025; Miyato et al., 2025). Given a specified number of recurrent iterations T at training time, this class of approaches takes an observation O as input together with an initial noise tensor X0 ∈ RK×D , where K
+
+is the number of latent tokens and D is the model dimension. The model then iteratively updates the latent state X(t) by initializing X(0) = X0 and applying 
+
+X(t + 1) = R (X(t), Encoder( O)) (1) for t = 0 , 1, . . . , T − 1. This produces X(T ), a latent con-clusion of depth T . We use Decoder( X(T )) for inference. This system can be applied autoregressively; for example, one may set Decoder( X(T )) to serve as the next observa-tion O in a subsequent round of reasoning. When applied autoregressively at turn index s, models in this family typi-cally use the accumulated set of the latent tokens Xs(T ), or its decoded form, as contextual input, and reinitialize Xs(0) 
+
+at every turn (Gladstone et al., 2025; Hao et al., 2024a). A naive extension of this strategy to an evolving observa-tion sequence Os is to concatenate {Xs(T )}s with {Os}s
+
+as context, which causes the context length to grow with increasing s. This introduces one source of long-horizon failure, namely the difficulty associated with the use of excessively long contexts (Liu et al., 2023; Shojaee et al., 2025). In the next section, we extend the latent recurrent model more directly so that the reasoning proceeds continu-ously while listening to an evolving stream of observations. 
+
+## 3. Fast–Slow Coupling of Latent Recurrence with the Observational Process 
+
+Our goal is to explore a system that can continuously inte-grate the evolving external signals into the latent reasoning process. To this end, we modify latent recurrent reasoning by considering a coupled dynamical system in which the observational process and the reasoning process evolve on the same timeline but at different speeds. In our model, the reasoning process proceeds T times faster than the observa-tion process, so that T also represents the number of latent reasoning iterations performed per observation. Let t denote the fast time scale, and let s = ⌊t/T ⌋ denote the slow time scale indexing the observations, with observa-tions given by Os. Let C(t) ∈ RK×D denote the encoded observation process and X(t) denote the latent process of 2Thinking While Listening 
+
+thought, operating in the same latent space as C(t). The discretized dynamics of our model are given by 
+
+
+
+C(t) = Encoder( Os)
+
+for s = ⌊t/T ⌋ ∈ { 0, . . . , S − 1},
+
+X(t + 1) = Π ( X(t) + γF (X(t), C(t); θ)) 
+
+for t ∈ { 0, . . . , ST − 1},
+
+(2) where F is a neural network parameterized by θ and shared across timesteps, γ > 0 is the step size, and Π( x) = x/∥x∥
+
+is a normalization operator. When the observation sequence has length S, the recurrent module performs a total of ST 
+
+latent updates while receiving S encoded observation sig-nals. Importantly, this differs from standard latent recurrent reasoning in that the time axis of the observation process is aligned with that of the fast latent reasoning, whose state transitions persist over time. The latent state is initialized as X(0) ∼ N (0 , I ) at the be-ginning of each episode and is never reset until the episode ends; instead, it continuously moves forward in time and integrates the slow evolution of C(t) into its dynamics, even when the observational process evolves independently of 
+
+X(t). See Figure 2 for visualization of our scheme. We train the parameters θ and γ as well as the encoder and decoder for various tasks that use the sequential output of 
+
+X(t) for inference. For the prediction task on the observa-tion sequence, Os+1 is predicted by Decoder( X(sT )) .
+
+3.1. The Choice of F
+
+For the choice of F in our experiment, we explored a mech-anism related to the architecture with self-organization prop-erties (Kuramoto, 1984; Geshkovski et al., 2025; 2024). In particular, we used the approach of Miyato et al. (2025) with attention-type update as follows: 
+
+F (X, C)i := Ωixi + Proj xi
+
+
+
+J(X, C)i
+
+
+
+(3) where xi is the i-th latent token in X, Proj x(v) = v −
+
+(v⊤x)x is the projection of the vector onto the tangent of the unit sphere, Ωi is an anti-symmetric matrix, and each 
+
+xi(t) is normalized so that the latent tokens remain on the unit sphere for every t. Following Miyato et al. (2025), our 
+
+J is an attention-based function that mixes latent tokens 
+
+{xi} while integrating C in an additive manner. Please see Appendix A.1 for details. We also observe that a variant where J is implemented as a vanilla Transformer block works competitively as well, but the model based on Miyato et al. (2025) performed most stably (Appendix C.3). 
+
+Energy-like scalar This model also provides a scalar quantity that is useful for tracing the behavior of the la-tent updates. The update can be interpreted as a dynam-ical system of interacting latent tokens evolving toward self-organization, and there exists a tractable, energy-like scalar that represents the degree of self-organization of the neuronal population (Kuramoto, 1984); see Appendix A.2. In the experimental section, we will demonstrate that our model learns to dynamically align the interpretable struc-tural properties of the system with this energy state. 
+
+## 4. Related Work 
+
+Recent studies have given birth to many models that utilize recurrent mechanisms in the latent space. Unlike approaches based on chain-of-thought (Wei et al., 2022; Kojima et al., 2022), Geiping et al. (2025) argue that such latent recur-rent approaches do not require specialized training data, can work with small context windows, and can capture types of reasoning that are not easily represented in the output space, such as words and symbols. Geiping et al. (2025), similar to Miyato et al. (2025), propose the framework of applying a recurrent module to a randomly initialized la-tent signal while injecting the conditional input. Du et al. (2022) formulates a relevant mechanism through energy minimization in EBMs, and Gladstone et al. (2025) pro-vides transformer-based instantiations. Unlike our approach, when we apply these approaches to sequential inputs, these methods decode each output, and the conditional context grows in length with the sequence. The same applies to Zhu et al. (2025) and Fan et al. (2025) as well. Coconut (Hao et al., 2024b), on the other hand, does not decode the output and conducts all computation of the sequence in the latent space. However, this approach also makes the conditional context grow in the latent space. Our approach carries over the latent variable over sequences of any length. Contexts are compressed and organized into a latent variable of fixed size through recurrence. As a recurrent method that conducts all computations in the latent space of fixed dimension, we shall mention Per-ceiver (Jaegle et al., 2021), which proposes an RNN-style latent update to incorporate sequential signals. While re-lated to our approach, this approach is not equipped with a recurrent reasoning loop that proceeds faster than the ob-servations. Adaptive Computation Time (Graves, 2017) is also closely related to our approach, as it separates the fast-loop RNN from the slow input dynamics. However, it does not apply a recurrent mechanism with a self-organization property like a transformer (Geshkovski et al., 2024), and the latent at the end of the fast loop is not directly carried over to the next loop. Instead, the initial latent of the next loop is produced by the ensemble of the trajectories in the previous fast loop. Universal Transformer (Dehghani et al., 2019) uses recurrent self-attention, but without input injec-tion. (Sch ¨one et al., 2025) is more related to our approach, except that they use SSM to model the fast process, and introduce another auxiliary variable in the fast process that 3Thinking While Listening 
+
+is initialized at every loop. We shall also mention HRM (Wang et al., 2025), which is inspired by biological findings (Murray et al., 2014; Hunten-burg et al., 2018; Zeraati et al., 2023), as well as its exten-sion, TRM (Jolicoeur-Martineau, 2025). These methods also introduce a system of coupled fast and slow dynamics. However, unlike our approach, these methods do not con-sider temporally varying input sequences, and their reason-ing is conducted on a stationary input. Also, CTM (Darlow et al., 2025) applies fast recurrence in autoregressive time segments, and is capable of handling the temporally varying input sequences. CTM frames their architecture as a dy-namical system of interacting neurons (latents). Unlike our approach, they explicitly define the synchronization strength between each pair of neurons that is integrated over time, and produce the output from the synchronization pattern itself as opposed to our direct readout from the latents. 
+
+## 5. Experiments 
+
+We conducted a series of experiments to assess our model’s ability to dynamically integrate sequential inputs into its re-current process in support of correct inference. We selected tasks that fundamentally require the model to iteratively and selectively identify task-relevant information from an evolv-ing input sequence, and to consolidate it by continuously integrating this information into the latent state. We first present results on the egocentric maze and Dyck tasks, both of which provide supervision in the form of cor-rect answers. In these settings, the model can retrospectively infer which parts of the input are irrelevant to the correct underlying structure of the data. We additionally consider more challenging reinforcement learning tasks on MiniGrid. In these online settings, the model cannot directly compute the correct regret or value signal from immediate rewards, and therefore must learn indirectly how to integrate episodic information as it explores the environment.             
+
+> (a) In-distribution ( 19 ×19 )(b) OOD ( 39 ×39 )
+> Figure 4. Egocentric maze examples. Models are trained on small mazes (a) and evaluated on larger mazes (b). The green cell denotes the start, the red cell denotes the goal, and the observation is always limited to a 7×7region centered on its current position.
+
+Hyperparameter For the maze and Dyck tasks, we first identified a common set of training hyperparame-ters—specifically the number of epochs, batch size, and learning rate—for which validation performance converged across all baselines. After fixing these shared settings, we further tuned model-specific hyperparameters (e.g., learn-ing rate and hidden dimensionality) independently for each baseline in order to maximize validation performance. For the MiniGrid experiments, we adopted the same hyperpa-rameters for all baselines as in Smirnov & Gu (2025), while tuning the hyperparameters of our proposed method sepa-rately. Also see Appendix (Tables 2 and 3). 
+
+5.1. Egocentric Maze 
+
+The goal of this task is to infer the shortest path from the start to the end, while receiving a stream of egocentric ob-servations from a navigator exploring the maze. In this task, the information corresponding to dead-end paths is naturally task-irrelevant. In order for the model to be able to general-ize its inference capability to OOD mazes of large size, the model must learn to efficiently integrate the task-relevant information and iteratively consolidate its hypothesis about the shortest path. More specifically, the model in this task is given a sequence of local, cropped 7×7 neighborhood images Os correspond-ing to the egocentric observations of a navigator agent that explores the maze following the right-hand rule (the model has no control over the navigator). The navigator streams egocentric observations until the goal is reached. The de-coded output of the model is a sequence of movements ( up, down, left, right, pause ) corresponding to the estimated shortest path. Depending on the geometry of the maze, the length of the observation sequence S naturally varies across samples. As a supervisory signal to be com-pared against the decoded output, we provide the model, at the end of each episode, with the true shortest path for the maze, represented in the same format. We evaluate accuracy using a binary exact-match criterion on the entire predicted action sequence, after removing all pause tokens from both the prediction and the ground-truth shortest path. 
+
+Setup The mazes are generated randomly. During train-ing, they are of size 19 × 19 . We evaluate the model’s generalization on out-of-distribution (OOD) mazes of size 
+
+39 × 39 . Figure 4 shows examples of mazes for both the in-distribution (ID) and OOD settings. In the OOD setting, the observation sequence length S tends to be naturally larger. We evaluate seven models on the maze task: LSTM, Trans-former (TF), Mamba-2 (Dao & Gu, 2024), looped TF (Fan et al., 2025), S5 (Smith et al., 2022), CTM (Darlow et al., 2025), and our model. Our dataset contains 45,000 train-ing and 5,000 validation examples, in which training mazes 4Thinking While Listening LSTM 
+
+> Mamba
+> TF
+> Looped TF
+> S5
+> CTM
+> Ours
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Accuracy
+
+(a) ID mazes ( 19 × 19 )LSTM  
+
+> Mamba
+> TF
+> Looped TF
+> S5
+> CTM
+> Ours
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Accuracy
+
+(b) OOD mazes ( 39 × 39 )
+
+Figure 5. Accuracy comparison of our model(FSRM) with baselines on the maze task. Our model(FSRM) shows substantially better OOD generalization. 
+
+Table 1. Results of the maze task, represented in the format of Mean ± std over 3 seeds. Layer=1 results describe how our recur-rent structure with weight sharing performs with respect to Ttrain ,the number of inner loop iterations in training. Layers > 1 repre-sent the results of multi-layer networks without weight sharing. Layers Ttrain OOD Acc. 11 0.306 ± 0.135 2 0.431 ± 0.186 4 0.595 ± 0.036 5 0.612 ± 0.019 8 0.673 ± 0.006 16 0.673 ± 0.032 5 1 0.509 ± 0.098 10 0.445 ± 0.164 
+
+are generated so that shortest -path lengths are uniformly distributed. For the default setting, we set T = 5 . Hy-perparameters are tuned on the ID validation set and used unchanged for OOD evaluation. See Appendix B.2 for de-tails. We report the mean ± sd over three seeds. 
+
+Results Our model significantly outperforms all baselines on the maze task. As shown in Figure 5, it achieves near-perfect accuracy on the 19 × 19 (ID) mazes and, crucially, demonstrates strong generalization to unseen 39 × 39 mazes with approximately 60% accuracy. In contrast, the baseline models all fail to generalize. 
+
+Effect of fast-loop iterations The number of fast inner-loop iterations ( T ) controls how many recurrent updates occur between successive observations (Eq. 2). To inves-tigate whether the model benefits from longer recurrence, we conducted experiments with varying values of T while keeping all other components fixed. As shown in Table 1, OOD accuracy improves monotonically as T increases, with gains saturating beyond T = 8 .input target 
+
+> ()[{}()<()>][... )*]}])]>)>]*]...
+
+(a) ID (random pattern) input target  
+
+> [()()()()()()...
+> ])])])])])])]...
+
+(b) OOD (1-regular run) 
+
+Figure 6. Dyck examples. (a) The target at position s is the token that closes the most recent unclosed bracket in the prefix up to s.When the stack is empty, “ ∗” is predicted. (b) In a 1-regular run, the predictor is required to output the token that closes the first open bracket (e.g., “ [”) at every odd step, while remembering this unresolved bracket for as long as the sequence continues. 
+
+Effect of weight sharing (recurrence) in the fast loop 
+
+Our fast module applies the same update rule repeatedly for 
+
+T inner steps, i.e., it is recurrent or weight-shared across fast iterations. To investigate the importance of this recurrent structure, we replaced it with an unrolled residual stack of T
+
+distinct layers, while keeping the overall fast–slow interface unchanged. The results (Table 1) show that weight sharing is crucial for OOD generalization: with the same inner-loop budget ( T =5 ), the non-recurrent 5-layer stack reduces OOD accuracy from approximately 0.6 to approximately 
+
+0.5. Increasing depth without sharing does not recover this performance: a 10-layer unshared stack further degrades OOD accuracy to approximately 0.45 , even after adjusting the learning rate. These results support our design choice of a recurrent fast module. Please also see C.1. 
+
+5.2. Dyck-(k, m )
+
+We also experimented with the symbolic generalization task on Dyck-(k, m ) (Hewitt et al., 2020), with k bracket types and maximum depth m. Dyck is a stack-related task that heavily requires long-range lookup as well as iterative con-solidation of the current stack structure, and it is the task referred to in the introduction. We set m = 5 and k = 30 .Given a streaming input of brackets as “[ {([((”, the goal is to sequentially predict the next bracket token that closes 5Thinking While Listening 10 1 10 2 10 3  
+
+> sequence length
+> 0.50
+> 0.75
+> 1.00
+> accuracy
+> LSTM
+> Mamba2
+> Transformer
+> Ours 10 110 210 3
+> sequence length
+> 0.50
+> 0.75
+> 1.00
+> accuracy <[[[[[]]]]]{{{{{}}}}}{{{{{}}}}}((((())))
+> fast step t
+
+Figure 7. Dyck results. Left: Token-wise prediction accuracy of Dyck sequences, plotted against length on ID (top) and OOD (bottom). The shaded range indicates the sequence lengths used in training. The ID strings are randomly generated under the constraint of bracket-depth ≤ 5. For the OOD setting, we use 1-regular runs (see Figure 6). Right: An energy trace (See 3.1) for the first and second layers during a 5-regular run, aligned with the input sequence (shown at the top of the plot). The energy of the first -layer spikes with the arrival of a new bracket-type , and then settles to the level specific to it. The energy of the second -layer is organized by bracket-depth . The dashed lines indicate the token arrival times. 
+
+the most recent unclosed bracket. For example, when the input sequence up to s = 4 is “ ({[] ”, the prediction at 
+
+s = 4 should be “ }”. When there is no bracket to close, the prediction should be “*”; also see Figure 6. The streaming sequence of brackets is analogous to an ever-growing stack of jobs, where the depth at time s corresponds to the number of remaining brackets to close. By design, this task requires the model to remember all unclosed brack-ets for as long as the sequence continues. For example, for sequences of the form “ [()()()() · · · ” in Figure 6, the model must remember the unclosed “ [” as long as the sequence continues. See B.3 for more details. 
+
+Setup For the ID dataset, we randomly generate Dyck-
+
+(30 , 5) strings. For the OOD dataset, we define a sequence to be an n-regular run if it has the following structure: (i) it begins with a random sequence of open brackets of random length, and (ii) it is followed by an infinite repetition of depth-n openings and depth-n closings. For example, “({[([[]](()){{}} . . . ” is a 2-regular run, and the one in Figure 6 is a 1-regular run. We use 1-regular run for the OOD evaluation. We trained the model on 10,000 random strings in an ID dataset of length ≤ 40 . For evaluation, the model sequen-tially predicts on 1,000 n-regular runs of length up to 2,560. Accuracy is computed for the prediction of each bracket. We compare our model against LSTM, Transformer, and Mamba-2, which achieved relatively good performance in the maze experiments. Since this task involves a hierarchical structure, we eval-uate an extended variant of Eq. 2 with two fast processes. Specifically, for ℓ = 0 , 1, 2, we set X(0) (t) = C(t) and 
+
+X(ℓ)(t + 1) = Π 
+
+
+
+X(ℓ)(t) + γF 
+
+
+
+X(ℓ)(t), X(ℓ−1) (t)
+
+ 
+
+Predictions are obtained by decoding the last layer’s output at each slow-time index s. See Appendix B.3 for details. 
+
+Results Figure 7 shows token-level accuracy against the sequence length for both ID and OOD settings. On ID data, all models except the vanilla Transformer extrapolate reason-ably well across sequence lengths. In contrast, on the OOD patterns of 1-regular runs, all baselines eventually fall to the chance level ( 0.5) as the sequence length increases. This chance-level behavior corresponds to the cases of failing to predict the token that closes the first open bracket (colored red in Figure 6). Our model, however, maintains near 100% 
+
+accuracy over indefinitely long sequences, indicating that it retains the information of the first opening token while correctly predicting all other subsequent closures. 
+
+Comparison to LLMs To relate this benchmark to current foundation models, we also compared our model against three frontier LLMs on the same Dyck-(30 , 5) task (see Fig-ure 1 in the introduction). For the evaluation of our method in this comparative study, we used the model trained with the seed that attained the highest OOD accuracy at length 2,560 in producing Figure 7. In contrast to our model, which is trained only on raw Dyck strings of length ≤ 40 , the LLMs are provided with a natural-language prompt describing the ground-truth algorithm that generates the sequence and are instructed to iteratively execute it; see B.3 for more details of the setup. Despite their advantage in parameter scale and access to the explicit algorithm, their token-wise accu-racy deteriorates as sequence length increases, whereas our 6Thinking While Listening 0.0 
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalized traversal step
+
+(a) Ours: 1st-layer states 0.0  
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalized traversal step
+
+(b) Ours: 2nd-layer states 0.0  
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalized traversal step
+
+(c) Mamba: last-layer states 
+
+Figure 8. Comparison of latent trajectories of a 5-regular run of length 2,560, visualized via PCA; ◦ marker indicates an open bracket and 
+
+× marker indicates a close bracket. (a) Trajectory of the first layer latents of our model(FSRM). The color of the node indicates the bracket type. (b) Trajectory of the second layer latents of our model(FSRM). They are organized by stack depth (color) and opening/closing state. (c) Mamba’s state trajectories at its last layer. They form a diffuse, overlapping cloud with frequent crossings and weaker organization. 
+
+model maintains accuracy above 90% on sequences that are two orders of magnitude longer. 
+
+Emergent structure in layerwise energies and latents 
+
+Interestingly, through learning the prediction task, our model discovers latent reasoning that aligns with the struc-tural organization of the Dyck language. Recall that for the recurrence used in our experiments (Section 3.1), there exists an energy-like scalar that reflects the organizational level of the state. We show the evolution of this energy in Figure 7, and the evolution of the latent in Figure 8. The energy of X(1) spikes upon the arrival of a new token and then stabilizes at a level that depends on the bracket type and whether the current token is opening or closing. In contrast, the energy of X(2) is largely insensitive to bracket identity and is instead organized by stack depth . This qualitative shift in energy organization indicates that the second fast process abstracts away from token identity and operates at a higher structural level. PCA projections of the latents for both X(1) and X(2) support this interpretation: the state trajectories form a crisp, spring-shaped manifold indexed by stack depth that remains coherent over long horizons. This structured organization in the learned latent space is similar to the report in (Zhu et al., 2025) that the looped model tends to produce interpretable reasoning traces. This behavior stands in stark contrast to Mamba (Figure 8c). 
+
+5.3. Reinforcement Learning 
+
+We next evaluate our model on challenging partially observ-able reinforcement learning tasks from the MiniGrid envi-ronment (Chevalier-Boisvert et al., 2023). We consider three MiniGrid tasks: DoorKey, MultiRoom, and LavaCrossing (see Figure 15). In these navigation tasks, DoorKey requires the agent to pick up a key, open a door, and then reach the goal in this order. MultiRoom requires the agent to open multiple doors sequentially to reach the goal. LavaCross-ing requires the agent to reach the goal while avoiding the lava. In all tasks, the reward is provided only at the end of a successful episode (i.e., sparse rewards). Most importantly, because these tasks do not provide a ground-truth supervisory sequence of actions, it is more dif-ficult for the model to retrospectively infer which informa-tion in the episode is worth incorporating into its reasoning and consolidating into intermediate conclusions. At each slow step, the agent receives an egocentric 7 ×
+
+7 observation with object/color/door-state channels. The agent then selects an action from the set as ∈ { left ,
+
+right , forward , toggle , pickup , drop , done }.
+
+Setup We designed our evaluation protocol to test the model’s generalization capabilities in a zero-shot transfer setting. The agent is trained exclusively on the simplest ID configuration and is subsequently evaluated, without any further training, on more complex and previously un-seen OOD environments, which are typically larger than the ID environments (see Table 4 in the Appendix for de-tails). We compare our model against a few competitive sequence-modeling baselines, including LSTM, Mamba-2, and Transformer-XL. Results are averaged over five random seeds, and we report the mean and standard deviation. All models are trained end-to-end using Proximal Policy Optimization (PPO; Schulman et al. (2017)). For our model, the agent’s encoder (sensory module) first processes the input observations through a series of convolutional lay-ers, followed by our recurrent core (Eq. 2). Please see Appendix B.4 for more details. 
+
+Results Figure 9 shows the success rates across all Mini-Grid tasks. Our model performs comparably to or better than 7Thinking While Listening 
+
+the baselines across all tested environments. This suggests that the recurrent mechanism of thinking while listening 
+
+is effective in these complex sequential decision-making problems as well. Also, we again observe a clear emer-gent structure in the latent space of our learned model. We find that fluctuations in the energy value reflect the agent’s level of “frustration”, for example, when the agent’s vision changes beyond a certain threshold (Figure 10). Figure 11 shows PCA-projected latent state transitions for DoorKey; irrespective of the trajectories, the model organizes its rep-resentations around key-events such as the “key pickup”, “door opening”, and “goal discovery.” 
+
+## 6. Conclusion 
+
+We proposed a recurrent model that integrates sequential ob-servations into recurrent modeling. Across the tasks that re-quire long horizon information of task-relevant information while tending to incoming observation of varying relevance, our approach consistently outperformed strong baselines, including an LSTM, Mamba-2, and Transformer-XL, and it demonstrated competitive generalization and decision-making in dynamic environments. This suggests the cou-pling of fast recurrent latent dynamics with slowly evolving observation dynamics as a promising mechanism for sequen-tial inference over long-horizon. 
+
+Limitations and future work Despite strong perfor-mance on controlled benchmarks, our study has several limitations. First, experiments are limited to relatively small-scale synthetic and grid-based domains, and we have not yet validated the approach on larger real-world tasks such as language, video, or robotics. Second, the proposed fast-slow architecture incurs computational overhead due to its double-loop structure, resulting in lower GPU efficiency and slower inference than standard baselines (Appendix, Figure 18); improving efficiency via recursion-friendly parallelization methods (e.g., (Danieli et al., 2025)) is an important future direction. Finally, we do note that there is a sensitivity to the random initialization, as observed in Figure 9. This suggests gradient instability from repeated layer reuse, as observed in RNNs (Pascanu et al., 2013), and motivates further architectural and optimization improvements. 
+
+## Acknowledgments 
+
+We thank Peyman Faratin, along with our collaborators and colleagues, for valuable feedback and discussions. Takeru Miyato acknowledges his affiliation with the ELLIS (Euro-pean Laboratory for Learning and Intelligent Systems) PhD program and is supported by the Google PhD Fellowship. S9N1(ID) S9N2(OOD) S9N3(OOD) S11N5(OOD) 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Success Rate (%)
+> LSTM
+> Mamba
+> TransformerXL
+> Ours
+
+(a) LavaCrossing 5x5(ID) 6x6(OOD) 8x8(OOD) 16x16(OOD)  
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Success Rate (%)
+> LSTM
+> Mamba
+> TransformerXL
+> Ours
+
+(b) DoorKey N2-S4(ID) N4-S5(OOD) N6(OOD) 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Success Rate (%)
+> LSTM
+> Mamba
+> TransformerXL
+> Ours
+
+(c) MultiRoom ID OOD  
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Success Rate (%)
+> LSTM
+> Mamba
+> TransformerXL
+> Ours
+
+(d) All tasks 
+
+Figure 9. Success rates on MiniGrid tasks, averaged over 5 random seeds. Error bars denote the standard deviation across seeds. Our model(FSRM) consistently matches or outperforms strong sequence-model baselines and achieves superior average performance across all tasks. 
+
+8Thinking While Listening 0 10 20 30 40           
+
+> Event State
+> 010 20 30 40
+> Step
+> 35.0
+> 32.5
+> 30.0
+> 27.5
+> 25.0
+> 22.5
+> Energy
+> Figure 10. Energy traces (See 3.1) along an episode in the DoorKey-16x16 (OOD) environment. Top: Event history along the trajectory. See the legend of Figure 11 for event markings. The red cross marks the changes in agent’s view. Bottom: Energy trajectories.
+> Figure 11. Latent state trajectories of 30 episodes for DoorKey-16x16 (OOD) environment, visualized by PCA. Observe that im-portant events are forming trajectory-independent clusters.
+
+## Impact Statement 
+
+This paper presents work whose goal is to advance the field of machine learning. There are many potential societal consequences of our work, none of which we feel must be specifically highlighted here. 
+
+## References 
+
+Baddeley, A. D. Working memory. Science , 255(5044): 556–559, 1992. doi: 10.1126/science.1736359. Bengio, Y., Simard, P., and Frasconi, P. Learning long-term dependencies with gradient descent is difficult. IEEE Transactions on Neural Networks , 5(2):157–166, 1994. Chae, H., Kim, Y., Kim, S., Ong, K. T.-i., Kwak, B.-w., Kim, M., Mac Kim, S., Kwon, T., Chung, J., Yu, Y., et al. Language models as compilers: Simulating pseudocode execution improves algorithmic reasoning in language models. In Proceedings of the 2024 Conference on Em-pirical Methods in Natural Language Processing , pp. 22471–22502, 2024. Chevalier-Boisvert, M., Dai, B., Towers, M., de Lazcano, R., Willems, L., Lahlou, S., Pal, S., Castro, P. S., and Terry, J. Minigrid & miniworld: modular & customizable reinforcement learning environments for goal-oriented tasks. In Proceedings of the 37th International Confer-ence on Neural Information Processing Systems , NIPS ’23, Red Hook, NY, USA, 2023. Curran Associates Inc. Danieli, F., Rodriguez, P., Sarabia, M., Suau, X., and Zap-pella, L. Pararnn: Unlocking parallel training of non-linear rnns for large language models. arXiv preprint arXiv:2510.21450 , 2025. Dao, T. and Gu, A. Transformers are ssms: Generalized models and efficient algorithms through structured state space duality. arXiv preprint arXiv:2405.21060 , 2024. Darlow, L., Regan, C., Risi, S., Seely, J., and Jones, L. Continuous thought machines, 2025. URL https:// arxiv.org/abs/2505.05522 .Dehghani, M., Gouws, S., Vinyals, O., Uszkoreit, J., and Kaiser, L. Universal transformers. In Interna-tional Conference on Learning Representations (ICLR) ,2019. URL https://openreview.net/forum? id=HyzdRiR9Y7 . OpenReview preprint. Du, Y., Li, S., Tenenbaum, J., and Mordatch, I. Learn-ing iterative reasoning through energy minimization. In Chaudhuri, K., Jegelka, S., Song, L., Szepesvari, C., Niu, G., and Sabato, S. (eds.), Proceedings of the 39th In-ternational Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , pp. 5570–5582. PMLR, 17–23 Jul 2022. URL https:// proceedings.mlr.press/v162/du22d.html .Fan, Y., Du, Y., Ramchandran, K., and Lee, K. Looped transformers for length generalization. arXiv preprint arXiv:2409.15647 , 2024. Fan, Y., Du, Y., Ramchandran, K., and Lee, K. Looped transformers for length generalization. In International Conference on Learning Representations (ICLR) , 2025. URL https://arxiv.org/abs/2409.15647 .Geiping, J., McLeish, S. M., Jain, N., Kirchenbauer, J., Singh, S., Bartoldson, B. R., Kailkhura, B., Bhatele, A., and Goldstein, T. Scaling up test-time compute with latent reasoning: A recurrent depth approach. In 
+
+ES-FoMo III Spotlight (ICML 2025 Workshop) , June 2025. URL https://openreview.net/forum? 
+
+9Thinking While Listening 
+
+id=D6o6Bwtq7h . OpenReview preprint / workshop version. Geshkovski, B., Koubbi, H., Polyanskiy, Y., and Rigollet, P. Dynamic metastability in the self-attention model. 
+
+arXiv preprint arXiv:2410.06833 , 2024. URL https: //arxiv.org/pdf/2410.06833 .Geshkovski, B., Letrouit, C., Polyanskiy, Y., and Rigollet, P. A mathematical perspective on transformers. Bulletin of the American Mathematical Society , 62(3):427–479, 2025. Gladstone, A., Nanduru, G., Islam, M. M., Han, P., Ha, H., Chadha, A., Du, Y., Ji, H., Li, J., and Iqbal, T. Energy-based transformers are scalable learners and thinkers. 
+
+arXiv preprint arXiv:2507.02092 , 2025. URL https: //arxiv.org/abs/2507.02092 .Graves, A. Adaptive computation time for recurrent neural networks, 2017. URL https://arxiv.org/abs/ 1603.08983 .Hao, S., Sukhbaatar, S., Su, D., Li, X., Hu, Z., Weston, J., and Tian, Y. Training large language models to reason in a continuous latent space. 2024a. URL https:// arxiv.org/abs/2412.06769 . arXiv preprint. Hao, S., Sukhbaatar, S., Su, D., Li, X., Hu, Z., Weston, J., and Tian, Y. Training large language models to reason in a continuous latent space. arXiv preprint arXiv:2412.06769 , 2024b. Hasson, U., Chen, J., and Honey, C. J. Hierarchical process memory: memory as an integral component of informa-tion processing. Trends in Cognitive Sciences , 19(6): 304–313, 2015. doi: 10.1016/j.tics.2015.04.006. Hausknecht, M. J. and Stone, P. Deep recurrent q-learning for partially observable mdps. In AAAI fall symposia ,volume 45, pp. 141, 2015. Hewitt, J., Hahn, M., Ganguli, S., Liang, P., and Manning, C. D. Rnns can generate bounded hierarchical languages with optimal memory. arXiv preprint arXiv:2010.07515 ,2020. Huntenburg, J. M., Bazin, P.-L., and Margulies, D. S. Large-scale gradients in human cortical organization. Trends in Cognitive Sciences , 22(1):21–31, 2018. doi: 10.1016/j. tics.2017.11.002. Jaegle, A., Gimeno, F., Brock, A., Zisserman, A., Vinyals, O., and Carreira, J. Perceiver: General percep-tion with iterative attention. In Proceedings of the 38th International Conference on Machine Learning (ICML) , volume 139, pp. 4651–4664. PMLR, 2021. URL http://proceedings.mlr.press/v139/ jaegle21a.html .Jolicoeur-Martineau, A. Less is more: Recursive reasoning with tiny networks. arXiv preprint , arXiv:2510.04871, 2025. doi: 10.48550/arXiv.2510.04871. URL https: //arxiv.org/abs/2510.04871 .Kaelbling, L. P., Littman, M. L., and Cassandra, A. R. Plan-ning and acting in partially observable stochastic domains. 
+
+Artificial intelligence , 101(1-2):99–134, 1998. Koishekenov, Y., Lipani, A., and Cancedda, N. Encode, think, decode: Scaling test-time reasoning with recursive latent thoughts. arXiv preprint arXiv:2510.07358 , 2025. Kojima, T., Gu, S. S., Reid, M., Matsuo, Y., and Iwasawa, Y. Large language models are zero-shot reasoners. Ad-vances in neural information processing systems , 35: 22199–22213, 2022. Kuramoto, Y. Chemical Turbulence , pp. 111– 140. Springer Berlin Heidelberg, Berlin, Hei-delberg, 1984. ISBN 978-3-642-69689-3. doi: 10.1007/978-3-642-69689-3 7. URL https://doi. org/10.1007/978-3-642-69689-3_7 .Li, B. Z. and Janson, L. (how) do language models track state? 2025. URL https://arxiv.org/abs/ 2503.02854 . arXiv preprint. Liu, N. F., Lin, K., Hewitt, J., Paranjape, A., Bevilacqua, M., Petroni, F., and Liang, P. Lost in the middle: How lan-guage models use long contexts, 2023. URL https://arxiv. org/abs/2307.03172 , 2023. Miyato, T., Jaeger, B., Welling, M., and Geiger, A. Gta: A geometry-aware attention mechanism for multi-view transformers. arXiv preprint arXiv:2310.10375 , 2023. Miyato, T., L ¨owe, S., Geiger, A., and Welling, M. Artificial kuramoto oscillatory neurons. In Interna-tional Conference on Learning Representations (ICLR) ,2025. URL https://openreview.net/forum? id=nwDRD4AMoN .Murray, J. D., Bernacchia, A., Freedman, D. J., Romo, R., Wallis, J. D., Cai, X., Padoa-Schioppa, C., Pasternak, T., Seo, H., Lee, D., et al. A hierarchy of intrinsic timescales across primate cortex. Nature Neuroscience , 17(12):1661– 1663, 2014. doi: 10.1038/nn.3862. Pascanu, R., Mikolov, T., and Bengio, Y. On the difficulty of training recurrent neural networks. In Proceedings of the 30th International Conference on Machine Learning (ICML) , pp. 1310–1318, 2013. Sch ¨one, M., Rahmani, B., Kremer, H., Falck, F., Ballani, H., and Gladrow, J. Implicit language models are rnns: balancing parallelization and expressivity. arXiv preprint arXiv:2502.07827 , 2025. 10 Thinking While Listening 
+
+Schulman, J., Wolski, F., Dhariwal, P., Radford, A., and Klimov, O. Proximal policy optimization al-gorithms. CoRR , abs/1707.06347, 2017. URL 
+
+http://dblp.uni-trier.de/db/journals/ corr/corr1707.html#SchulmanWDRK17 .Sch ¨utzenberger, M. P. On context-free languages and push-down automata. Information and Control , 6(3):246–264, 1963. ISSN 0019-9958. doi: 10.1016/S0019-9958(63)90306-1. URL https://www.sciencedirect.com/ science/article/pii/S0019995863903061 .Shojaee, P., Mirzadeh, I., Alizadeh, K., Horton, M., Bengio, S., and Farajtabar, M. The illusion of thinking: Un-derstanding the strengths and limitations of reasoning models via the lens of problem complexity. 2025. URL 
+
+https://arxiv.org/abs/2506.06941 .Sinha, A., Arun, A., Goel, S., Staab, S., and Geip-ing, J. The illusion of diminishing returns: Measur-ing long horizon execution in llms. arXiv preprint ,arXiv:2509.09677, 2025. URL https://arxiv. org/abs/2509.09677 . Version 2. Smirnov, I. and Gu, S. Rlbenchnet: The right network for the right reinforcement learning task. Arxiv , 2025. Smith, J. T., Warrington, A., and Linderman, S. W. Sim-plified state space layers for sequence modeling. arXiv preprint arXiv:2208.04933 , 2022. Tay, Y., Dehghani, M., Abnar, S., Shen, Y., Bahri, D., Pham, P., Rao, J., Yang, L., Ruder, S., and Metzler, D. Long range arena: A benchmark for efficient transformers. In 
+
+International Conference on Learning Representations (ICLR) , 2021. URL https://openreview.net/ forum?id=qVyeW-grC2k .Thrun, S. Probabilistic algorithms in robotics. Ai Magazine ,21(4):93–93, 2000. Wang, G., Li, J., Sun, Y., Chen, X., Liu, C., Wu, Y., Lu, M., Song, S., and Yadkori, Y. A. Hierarchical reasoning model. arXiv preprint arXiv:2506.21734 , 2025. URL 
+
+https://arxiv.org/abs/2506.21734 .Wei, J., Wang, X., Schuurmans, D., Bosma, M., Xia, F., Chi, E., Le, Q. V., Zhou, D., et al. Chain-of-thought prompting elicits reasoning in large language models. Advances in neural information processing systems , 35:24824–24837, 2022. Yang, G., Yu, D., Zhu, C., and Hayou, S. Tensor programs vi: Feature learning in infinite-depth neural networks. 
+
+arXiv preprint arXiv:2310.02244 , 2023. Zeraati, R., Shi, Y.-L., Steinmetz, N. A., Gieselmann, M. A., Thiele, A., Moore, T., Levina, A., and Engel, T. A. Intrinsic timescales in the visual cortex change with selective attention and reflect spatial connectiv-ity. Nature Communications , 14(1):1858, 2023. doi: 10.1038/s41467-023-37595-w. Zhu, R.-J., Wang, Z., Hua, K., Zhang, T., Li, Z., Que, H., Wei, B., Wen, Z., Yin, F., Xing, H., et al. Scaling latent reasoning via looped language models. arXiv preprint arXiv:2510.25741 , 2025. 11 Thinking While Listening 
+
+## A. Model Details 
+
+A.1. Implementation of J
+
+In our fast update rule (Eq. (3) ), the interaction term J determines how latent tokens mix with one another while incorporating the encoded observation signal. We build on the attention-based design originally introduced in Miyato et al. (2025). The original implementation uses only attention as its core. We extend their J to an attention + MLP block: we first compute an attention update over the latent tokens (with the observation stream integrated additively), and then apply a position-wise MLP to the resulting features. The MLP uses a ReLU activation. We found that this simple extension yields a performance improvement on the maze task in particular. We use this implementation of J for all tasks reported in the paper. For the attention module, we use GTA (Miyato et al., 2023) as positional embeddings. Pseudocode is provided in Figure 12.   
+
+> class J(): def init (dim, oscillator dim): self.attn = SelfAttention(dim) self.mlp = MLP(dim) self.omega = Omega(dim, oscillator dim) def forward(x, c): y = self.attn(x + c) y = self.mlp(x + c + y) y = proj(y, x) # projection onto the tangent space y = y + self.omega(x) return y
+
+Figure 12. Pseudocode of J.
+
+A.2. Energy-like Scalar 
+
+A key advantage of using the AKOrN model (Miyato et al., 2025) is its interpretation as an energy-based model. We define the scalar energy of the dynamics as 
+
+E(X) = − 12
+
+X
+
+> i
+
+xTi J(X, C)i. (4) Under certain structural constraints on J, this value becomes a proper energy; the dynamics in Eq.3 always update the vectors in the direction that decreases Eq.4 (see Appendix A of Miyato et al. (2025) for details). This energy is related to the one introduced in (Kuramoto, 1984), which represents the level of the organization of the set of token neurons. Moreover, the original paper shows that even without such constraints, the energy value aligns with the confidence of the model’s output. We also observe that the evolution of this energy value effectively summarizes the model’s dynamics across different domains/tasks, which we describe in detail in Section 5. Similar energy also exists for self-attention under a structural constraint (Geshkovski et al., 2025). 
+
+## B. Experiment Details 
+
+B.1. Hyperparameters 
+
+We report the main hyperparameters in Tables 2 and 3. For our model we only finetuned the rotation dimension and T ,which are specific to our model. rotation dimension was set to 2, and T was set to 10. 
+
+B.2. Ego-centric Maze 
+
+Because the maze task is particularly related to memorizing task-relevant information, we experimented with a memory-inspired design of J. In particular, we wrapped the original attention-based J in Appendix A.1 with a GRU. Letting Zt
+
+denote the hidden state of the GRU, we replaced the original J with 
+
+JGRU (X, C) = GRU( J(X, C); Z)i. (5) where Z is updated at every fast step by the GRU’s internal recurrence (omitted for brevity). This module also acts as an internal filter of the interaction features, encouraging continuity of the effective coupling even when Ct varies rapidly. 12 Thinking While Listening  
+
+> Table 2. Default hyperparameters for Maze (supervised), Dyck (supervised), and MiniGrid (RL/PPO). We use these settings for all the baselines unless otherwise specified.
+
+Parameter Maze Dyck MiniGrid 
+
+Optimizer AdamW AdamW Adam Batch size 256 256 3200 Training epochs 300 30 —Weight decay 0.1 0.01 —Gradient clip 0.1 1.0 0.5 Scheduler cosine cosine —Dataset size (train/val) 45,000 / 5,000 10,000 / 1,000 —Bracket types ( k) — 30 —Training depth ( m) — 5 —Sequence length (train) — 10 –40 tokens —Total timesteps — — 1.0 × 10 6
+
+# Environments — — 32 # Steps / env — — 96 Update epochs — — 4Discount factor ( γ) — — 0.995 GAE λ — — 0.95 Value loss coef. ( cv ) — — 0.5 Clip coefficient (PPO ratio) — — 0.1 As shown in Figure 13, this design indeed improves performance. At the same time, note that our model outperforms the baselines on OOD with and without the GRU design. This suggests that the recurrent module itself is more essential to latent reasoning with evolving sequential input in a setting like the maze. This memory-inspired design was used only for maze experiments. 
+
+B.3. Dyck Language 
+
+The pseudocode of the two-stage architecture used for the Dyck language experiments is shown in Figure 14. We set the history size as H = 4 . Hewitt et al. (2020) originally formulated this task as standard next-token prediction. However, because there are multiple valid choices for the type of the next open bracket, the task is not deterministic when formulated as pure next-token prediction. To eliminate this source of indeterminacy in accuracy evaluation, we restrict the predictor to output only the closing bracket. For the comparison with production LLMs on Dyck-(30,5), we queried each model via its public API using a common prompt that describes the stack -based algorithm (Table 7). Following Chae et al. (2024), we designed the prompt so that it clearly separates (i) a natural -language specification of the ground - truth stack algorithm from (ii) explicit execution instructions that tell the model to simulate this algorithm step -by -step and output only the prediction string. No additional fine - tuning was performed; all models were evaluated in a pure inference setting. We set the temperature to 0 if the API accepts it, so that the model’s behavior is more deterministic. Modern LLMs can adapt their test - time compute by varying the length of their internal “reasoning tokens”, but commercial APIs strictly enforce a maximum on the total number of output tokens (reasoning plus final answer). As of November 2025, the documented upper limits for our models are 32k tokens for Claude Opus 4.5 and 64k tokens for both Gemini 3.0 Pro and GPT - 5.1. For each provider, we first empirically determined the longest Dyck input length for which the prompt, the model’s reasoning tokens, and the final prediction string all remain within this limit. We then generated 100 Dyck sequences at this length and measured token - level prediction accuracy. Use of external tools such as Python interpreters or code execution APIs was explicitly disabled so that each model had to execute the algorithm internally. 13 Thinking While Listening  
+
+> Table 3. Model-specific hyperparameters for Maze/Dyck/MiniGrid. Parameter counts and key architectural/training choices for each baseline and our method. When three numbers are shown, they correspond to Maze/Dyck/MiniGrid respectively.
+
+LSTM Mamba Transformer Ours 
+
+Parameters (M) 2.86/37.1/2.47 1.25/16.5/2.81 1.73/21.3/3.30 1.16/1.41/1.19 Hidden dim 128/512/512 128/256/380 128/256/384 64/256/512 Entropy coef. —/—/1e-4 —/—/1e-2 —/—/1e-2 —/—/1e-2 RNN hidden dim 256/512/256 — — —Transformer heads — — 8/8/4 4Memory len. — — —/—/119 —
+
+dstate — 64 — —
+
+dconv — 4 — —Expand ratio — 2 — —Depth 4/2/1 6/4/1 6/4/3 1/2/1 Oscillator dim — — — 4/4/2 Internal Steps — — — 5/5/10 Initial γ — — — 0.1 Initial Ω — — — 0.1 Chunk size — — — 16/—/— Learning rate 1e-3/1e-3/2.5e-4 1e-3/5e-3/1.5e-4 1e-3/1e-3/2.5e-4 1e-3/5e-3/2.5e-4 For our proposed recurrent model, we used the same two - layer Dyck architecture as in the main experiment (Section 5.2) and selected the checkpoint that achieved the best accuracy at the maximum length of 2,560. No additional training or hyperparameter tuning was performed when extending the evaluation to longer sequences. For reference, Table 8 shows an example of the internal reasoning tokens produced by Claude Opus 4.5 on a representative input. 
+
+B.4. Reinforcement Learning 
+
+In these tasks, the agents are required to navigate an environment to reach the goal, while: • DoorKey : finding a key and unlocking a door • LavaCrossing : avoiding the impassable lava river • MultiRoom : going through multiple rooms with doors. We provide the illustrated examples of the environment for each environment in figure 15. For the training of our model, we followed the strategy of Geiping et al. (2025); Wang et al. (2025) for computational efficiency and used the gradient truncation. In particular, we set T = 10 , and backpropagated through only the last 5 iterations of the recurrent loop at each 
+
+s.
+
+## C. Additional Results 
+
+C.1. Ablation on the recurrence (weight-shared structure) 
+
+We evaluated whether the recurrent (weight-shared) architecture is a factor underlying the performance improvements. We evaluate three models under the maze setup (Section 5.1): • Recurrent ( T =5 ). Iterating the AKOrN update T times with shared weights. • Non-recurrent ( T =5 ). A stack of 5 distinct layers (no weight sharing), analogous to a standard deep residual stack. 14 Thinking While Listening LSTM 
+
+> Mamba
+> TF
+> Looped TF
+> S5
+> CTM
+> Ours(V)
+> Ours(I)
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Accuracy
+
+(a) ID mazes ( 19 × 19 )LSTM  
+
+> Mamba
+> TF
+> Looped TF
+> S5
+> CTM
+> Ours(V)
+> Ours(I)
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Accuracy
+
+(b) OOD mazes ( 39 × 39 )
+
+Figure 13. Accuracy comparison of our model with baselines on the maze task, where Ours(V) uses the vanilla J in A.1 and Ours(I) uses its GRU variant (5) . Our model shows better OOD generalization than the baselines regardless of the use of GRU-equipped construction of J.
+
+Table 4. The splits of In-distribution (ID) and out-of-distribution (OOD) for the MiniGrid environments. We train agents on the simplest configuration and test for zero-shot generalization on OOD environments. 
+
+Environment Label ID OOD MiniGrid-MultiRoom-N2-S4-v0 N2-S4 ✓ ✗
+
+MiniGrid-MultiRoom-N4-S5-v0 N4-S5 ✗ ✓
+
+MiniGrid-MultiRoom-N6-v0 N6 ✗ ✓
+
+MiniGrid-DoorKey-5x5-v0 5x5 ✓ ✗
+
+MiniGrid-DoorKey-6x6-v0 6x6 ✗ ✓
+
+MiniGrid-DoorKey-8x8-v0 8x8 ✗ ✓
+
+MiniGrid-DoorKey-16x16-v0 16x16 ✗ ✓
+
+MiniGrid-LavaCrossingS9N1-v0 S9N1 ✓ ✗
+
+MiniGrid-LavaCrossingS9N2-v0 S9N2 ✗ ✓
+
+MiniGrid-LavaCrossingS9N3-v0 S9N3 ✗ ✓
+
+MiniGrid-LavaCrossingS11N5-v0 S11N5 ✗ ✓
+
+• Non-recurrent ( T =10 ). A deeper stack of 10 distinct layers. All other components and training details follow our maze protocol. For non-recurrent baselines, we scale the learning rate with depth as lr (T ) = pTbase /T × 10 −3, Tbase = 5 , according to the Depth μP scaling rule (Yang et al., 2023). We found that without this scaling the accuracies dropped significantly in non-recurrent models. 
+
+Results Table 6 reports mean ± std over three seeds for validation ID ( 19 ×19 ) and OOD ( 39 ×39 ) mazes. Without weight sharing, increasing the number of layers from 5 to 10 degrades OOD performance (from 0.509 to 0.445 ). This trend contrasts with the recurrent model, where increasing the number of inner-loop steps T improves OOD accuracy. Increasing depth without sharing degrades OOD generalization, whereas increasing the number of recurrent updates T in the shared model improves it. Simply stacking more independent layers does not reproduce the same benefits of a recurrent, weight-shared model. 
+
+C.2. Effect of Test-Time Scaling of Fast-Process Iterations T
+
+In Table 1 we showed how changing the number of fast inner-loop iterations T during training affects performance. Here we ask the complementary question: keeping the learned weights fixed, what happens if we change T only at inference time? We show the result of this test-time scaling in Figure 16 when T was set to 10 during training. Using a larger T does not significantly harm the performance. Note that because we are aligning the time axis of the loop with that of the observation process, we are not using the loop in the same setting as (Geiping et al., 2025). It is possible that a careful balance of the fast 15 Thinking While Listening       
+
+> class FastLayer(): def init (init gamma): self.J = J() self.gamma = nn.Parameter(init gamma, require grad=True) def forward(state, cond, T): for t in range(T): state += self.gamma ∗self.J(state, cond) state /= norm(state) return state class FastSlow(): def init (init gamma): self.embed = nn.Embedding() self.fast1 = FastLayer(init gamma) self.fast2 = FastLayer(init gamma) def forward(tokens, H, T): # C: channels, K: num oscillators per token, H: history size c = self.embed(tokens) # (L, K, C) x = randn(K, C) z = randn(H, K, C) h = queue(H) # length
+
+−H history queue z out = zeros(H, K, C) # Slow loop for s in range(len(embeddings)): # First fast −layer x = self.fast1(x, c[s], T) x out = x readout(x) # Second fast −layer h.enqueue(x out) z = self.fast2(z, h + z out, T) z out = z readout(z) logits[s] = classifier(z out) return logits 
+
+Figure 14. Pseudocode for the two-stage architecture used in Section 5.2. 
+
+Table 5. Effect of model size on OOD accuracy in the maze task (mean ± std over 3 seeds). “Heads” denotes the number of attention heads in J.
+
+Channels Heads Param. (M) Mean ± Std 64 4 1.16 0.692 ± 0.030 
+
+128 4 3.35 0.670 ± 0.045 
+
+256 8 11.39 0.727 ± 0.021 
+
+and slow processes is important in pursuing scaling of T at test time, and it is an important direction for future work. 
+
+C.3. Ablation on the Fast Module F
+
+In the proposed architecture, the fast module F in Eq.2 is instantiated with an AKOrN layer, but in principle any recurrent block could be used in place of (3) . To investigate this design choice, we performed an ablation study on the maze task by replacing F with alternative modules. Specifically, we compared: 1. the original AKOrN fast module, 2. a Transformer block followed by an RMSnorm as a post-normalization, and 3. a standard LSTM cell. In all cases, we used the same setup as in Section 5.1, and only changed the implementation of F .
+
+Results Figure 17 shows the resulting ID and OOD accuracies. As we can see, using a transformer block for the recurrent module works competitively, although the model based on AKOrN shows the best performance. Meanwhile, LSTM does not perform as well as the other two, suggesting that the role of the self-organizing mechanism, like the ones studied in (Geshkovski et al., 2024; Kuramoto, 1984), is crucial. 16 Thinking While Listening              
+
+> (a) DoorKey-5x5 (ID) (b) DoorKey-16x16 (OOD) (c) MultiRoom (OOD) (d) LavaCrossing (OOD)
+> Figure 15. MiniGrid tasks. Left panels: ID to OOD in DoorKey. Right panels: MultiRoom and LavaCrossing requiring long-horizon reasoning.
+> Table 6. Recurrent-structure ablation on the maze task. When the “Weight Sharing” is Yes, the model computes Tcomputations in the loop with the same weights. When the “Weight Sharing” is no, distinct Tlayers are being used without recurrence.
+
+Layers ( T ) Weight Sharing Param. (M) ID Acc OOD Acc 5 Yes 1.16 0.968 ± 0.001 0.612 ± 0.019 
+
+5 No 2.38 0.913 ± 0.059 0.509 ± 0.098 
+
+10 No 3.90 0.775 ± 0.320 0.445 ± 0.164 
+
+C.4. Inference cost 
+
+Unlike SSMs and LSTMs, our proposed model performs T forward passes for each observation. To quantify the resulting inference speed, we measured wall-clock time on the MiniGrid RL task. All models were implemented in PyTorch without using optimizations such as torch.compile , and timing was recorded on a single NVIDIA GH200 core. The results are shown in Figure 18. With the default choice T = 5 , our method is roughly three times slower than the Mamba and Transformer baselines. We note that this computational overhead is partly due to software constraints: competing models rely on highly optimized CUDA kernels and mature library implementations, whereas our current implementation lacks comparable low-level optimizations. We therefore expect that specialized kernels and recursion-friendly parallelization strategies could substantially reduce this gap without changing the model architecture. 
+
+C.5. Parameter size vs OOD performance 
+
+As summarized in Table 3, our proposed model is roughly an order of magnitude smaller in parameter count than common sequence models. This is because the recurrent core is highly parameter-efficient, and because our implementation does not yet benefit from the kernel-level optimizations available for architectures such as LSTMs or SSMs; scaling up the model size would therefore lead to comparatively higher computational cost despite the smaller parameter count. A natural concern is therefore whether the observed generalization gains could be attributed to reduced overfitting due to the smaller model size. We scale the channel width of our model to {64, 128, 256 } and train on the maze task using the same data and protocol. Unless otherwise noted, all training hyperparameters follow Section 5.1 (see Appendix B.1). For this ablation, we set the batch size to 128 and adopt a width-scaling learning rate lr = p64 /channels × 10 −3.
+
+Results Table 5 reports OOD accuracy (mean ± std over 3 seeds). The 256 -channel variant attains the best OOD performance, suggesting that increasing capacity does not necessarily lead to overfitting in this setting. These results indicate that our OOD gains cannot be explained solely by a smaller model size. 17 Thinking While Listening 2.5 5.0 7.5 10.0 12.5 15.0 17.5 20.0 
+
+T
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Accuracy
+> MiniGrid-LavaCrossingS11N5-v0
+> MiniGrid-LavaCrossingS9N1-v0
+> MiniGrid-LavaCrossingS9N2-v0
+> MiniGrid-LavaCrossingS9N3-v0
+
+Figure 16. Test-time scaling of fast-process iterations T when the Ttrain was set to be 10 . We evaluated OOD generalization performance on LavaCrossing by varying the number of inner-loop reasoning steps T during inference. TF 
+
+> LSTM
+> AKOrN
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Accuracy
+
+(a) ID accuracy ( 19 × 19 ). TF  
+
+> LSTM
+> AKOrN
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Accuracy
+
+(b) OOD accuracy ( 39 × 39 ). 
+
+Figure 17. Comparison of different fast modules in the maze task. We replaced the AKOrN fast module with either a Transformer block or an LSTM while keeping the remaining architecture and training protocol fixed. The results suggest that a transformer can also serve as a recurrent core in our fast-slow modeling. LSTM 
+
+> Mamba
+> Transformer
+> Ours (T=2)
+> Ours (T=5)
+> Ours (T=10)
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> Forward time per batch(ms)
+
+Figure 18. Forward computation wall-clock time per batch in the Minigrid task. For the proposed method, the computation time increases linearly with the number of fast inner loops T compared with the baselines. 
+
+18 Thinking While Listening 
+
+Table 7. Prompt used to solve for Dyck-(30 , 5) .
+
+You are a deterministic stack machine that implements the Dyck(30, 5) prediction task. GENERAL BEHAVIOR * For every new input string S, start with an EMPTY stack. * Process S strictly LEFT TO RIGHT, one character at a time. * You MUST follow the algorithm below exactly. Do not guess, summarize, or skip steps. * Your only goal is to output a prediction string P of the SAME LENGTH as S. * Ignore all prior conversation context except this specification. ALPHABET * Opening brackets: ( [ { < * Closing brackets: ) ] } > * Letters: * Opening: A-Z * Closing: a-z BRACKET PAIRS Opening -> closing: * ( -> )* [ -> ]* { -> }* < -> >* For uppercase X (A-Z): X -> x (its lowercase) ALGORITHM (PSEUDOCODE) We define a function Predict(S): 
+
+``` 
+
+stack = empty list P = empty list for each character c in S, in order: # UPDATE STACK if c is in '([{<' OR c is uppercase A-Z: push c onto stack else if c is in ')]}>' OR c is lowercase a-z: if stack is not empty: pop the top element # If stack is empty, do nothing # SET OUTPUT CHARACTER if stack is empty: p = '*' else: top = top element of stack if top is '(' then p = ')' if top is '[' then p = ']' if top is '{' then p = '}' if top is '<' then p = '>' if top is an uppercase letter X then p = lowercase xappend p to P return concatenation of all characters in P 
+
+``` 
+
+INPUT FORMAT * A Dyck(30, 5) string of various length. OUTPUT FORMAT * When I send you an input string S: 1. Treat S exactly as the argument to Predict(S). 2. Compute P using the ALGORITHM above. 3. Output ONLY P, with: * No spaces * No quotes * No extra text * No explanations * IMPORTANT: The length of P MUST equal the length of S. If you notice a mismatch while reasoning, you must correct it before answering. RUNTIME BEHAVIOR * **Do NOT use tools such as Python or external code.** * Do NOT describe your reasoning, stack contents, or steps. * Do NOT apologize or add commentary. * Always behave as the deterministic function Predict(S). 
+
+19 Thinking While Listening 
+
+Table 8. Claude Opus 4.5 Reasoning Tokens Example. 
+
+Let me work through this step by step, processing the string character by character. Input string S: MNnSsXx<>BbIiDdFf()Dd<>Oo()<>BbUuMmSsFfSsQqIiOoIiUuSsRrGgHh{}GgWwFfPpBb<>Mm{}Oo<>EeGg<>QqWwFf[]HhIi<> LlLlZzCcCcAaEeTtDdUu[][]RrWwRrJjSs[]TtSsSsTtXxQqVvGgHhWwLlQqKkOoVvNnAaDdLlKkVvTtRrHhPpWwWwTt[]EeBb()DdYy() OoUuPpQqNnNnFfHhOoCcIi<>HhGg<>WwDdPpSs[]JjUu[]RrPpLl<>AaBbZzQqTtWw()PpQqFfZzQq{}Ee{}()JjEeBbSsMmQqRrCcXxWwWw[]EeL Let me count the length first: MNnSsXx<>BbIiDdFf()Dd<>Oo()<>BbUuMmSsFfSsQqIiOoIiUuSsRrGgHh{}GgWwFfPpBb<>Mm{}Oo<>EeGg<>QqWwFf[]HhIi<>LlLlZzCcCcAaEeTtDdUu[][] RrWwRrJjSs[]TtSsSsTtXxQqVvGgHhWwLlQqKkOoVvNnAaDdLlKkVvTtRrHhPpWwWwTt[]EeBb()DdYy()OoUuPpQqNnNnFfHhOoCcIi<>HhGg<>WwDdP I'll continue processing the remaining characters, tracking the stack and output carefully. I'll focus on the next segment of characters, maintaining the systematic approach of tracking uppercase and lowercase letters. Position 1: 'p' (lowercase, closing) Stack: [previous stack state] Output: updated output Position 2: 'S' (uppercase, opening) Stack: [updated stack] Output: continues transforming I'll methodically work through each character, ensuring precise tracking of the stack and output transformations. I continue tracking the stack and output pattern, maintaining 'M' as the base element. Each uppercase letter gets pushed onto the stack, generating its lowercase counterpart as output. When a matching lowercase letter appears, I pop the corresponding uppercase letter, reverting the output to 'm'. The sequence continues with uppercase letters like 'F', 'S', 'Q', 'I', 'O', and 'U' being processed systematically. Each follows the same pattern: pushing onto the stack, outputting its lowercase version, then popping when the matching lowercase letter arrives, always returning to 'm' as the base output. The stack management remains consistent, with 'M' persistently at the bottom, ensuring a stable reference point throughout the character processing. ... 
+
+20
