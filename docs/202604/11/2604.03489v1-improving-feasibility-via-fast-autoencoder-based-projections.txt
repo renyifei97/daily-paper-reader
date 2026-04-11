@@ -1,0 +1,4112 @@
+Title: Improving Feasibility via Fast Autoencoder-Based Projections
+
+URL Source: https://arxiv.org/pdf/2604.03489v1
+
+Published Time: Tue, 07 Apr 2026 00:14:49 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# IMPROVING FEASIBILITY VIA FAST AUTOENCODER -BASED 
+
+# PROJECTIONS 
+
+Maria Chzhen 
+
+University of Toronto Toronto, ON, Canada 
+
+maria.chzhen@mail.utoronto.ca 
+
+Priya L. Donti 
+
+Massachusetts Institute of Technology Cambridge, MA, USA 
+
+donti@mit.edu 
+
+## ABSTRACT 
+
+Enforcing complex (e.g., nonconvex) operational constraints is a critical challenge in real-world learning and control systems. However, existing methods struggle to efficiently enforce general classes of constraints. To address this, we propose a novel data-driven amortized approach that uses a trained autoencoder as an approximate projector to provide fast corrections to infeasible predictions. Specifically, we train an autoencoder using an adversarial objective to learn a structured, convex latent representation of the feasible set. This enables rapid correction of neural network outputs by projecting their associated latent representations onto a simple convex shape before decoding into the original feasible set. We test our approach on a diverse suite of constrained optimization and reinforcement learning problems with challenging nonconvex constraints. Results show that our method effectively enforces constraints at a low computational cost, offering a practical alternative to expensive feasibility correction techniques based on traditional solvers. 1
+
+## 1 INTRODUCTION 
+
+Many learning and control systems, across areas such as robotics, energy systems, and industrial automa-tion, must produce outputs that respect difficult-to-satisfy (often nonconvex) constraints. Enforcing these constraints reliably and efficiently is crucial for both safety and real-world usability. A number of ap-proaches have been proposed to address this challenge within learning-based systems, including penalty methods (Fioretto et al., 2021; Stooke et al., 2020), differentiable projection and correction methods (Chen et al., 2021; Pan et al., 2022), and post-hoc repair algorithms (Zamzam & Baker, 2020; Nocedal & Wright, 2006). However, each of these approaches comes with distinct trade-offs in terms of reliability, generality, computational cost, and solution quality – for instance, failing to satisfy constraints in practice, not handling general classes of constraints, being slower than desired (and potentially prohibitively slow) to deploy in real-world systems, and/or degrading end-to-end model performance. To address this challenge, we propose a data-driven amortized alternative to traditional constraint enforce-ment algorithms: a trained autoencoder that acts as an approximate projector to provide fast corrections to infeasible predictions. Specifically, we train an autoencoder to learn a structured, convex latent repre-sentation of the feasible set, in a way that enables rapid mapping from infeasible to feasible points. This autoencoder can then be leveraged as a plug-and-play “attachment” to standard neural networks. While not aiming to supersede strict projections in regimes demanding hard feasibility, this approach is designed to improve feasibility in low-latency settings or in settings where moving predictions closer to the feasible set suffices to guarantee downstream system performance. Our key contributions are as follows: 
+
+> 1
+
+Code for the method and all experiments can be found at: https://github.com/MOSSLab-MIT/ Fast-Autoencoder-Based-Projections 
+
+1
+
+> arXiv:2604.03489v1 [cs.LG] 3 Apr 2026
+
+• Framework for data-driven feasibility improvement. We pose an approach for learning feasibility improvement mappings that can be appended to neural networks, as an alternative to expensive (albeit exact) constraint enforcement approaches. We propose a particular instantiation of this approach, FAB, which employs an autoencoder as the basis of the learned mapping. • Structured latent representation learning. We propose a mechanism to learn faithful, feasibility-preserving latent representations of the feasible set, via adversarial training. • Empirical validation. We test our method on a range of constrained optimization and reinforcement learning (RL) problems. In our constrained optimization settings, the method consistently provides an efficient approximate projection, learning to map solutions to the feasible set close to 100% of the time in a fraction of a millisecond (faster than any other method). For RL settings, the method consistently provides safer actions than methods like proximal policy optimization (PPO) and trust-region policy optimization (TRPO), as well as their constrained variants. Overall, this demonstrates the initial promise of our approach in providing fast, reliable feasibility across a wide range of settings. 
+
+## 2 RELATED WORK 
+
+Amortized optimization with constraints. Also known as learning to optimize , amortized optimization is a paradigm designed to accelerate the process of solving optimization problems by using machine learning models as fast function approximators (Amos, 2023). Models are trained either via supervised learning on a dataset of known solutions (Chen et al., 2022), or through unsupervised/self-supervised methods, where the model’s loss function incorporates the optimization problem’s objectives and constraints (Van Henten-ryck, 2025). A primary challenge in amortized optimization is ensuring that the model’s output satisfies constraints. Several lines of work have emerged to address this, including penalty methods, differentiable projection and/or correction methods, and post-hoc “repair” techniques. Penalty methods turn constrained optimization problems into unconstrained ones by incorporating penalty terms for constraint violations into the optimization objective (Fioretto et al., 2021; Stooke et al., 2020; Raissi et al., 2019); while these methods 
+
+incentivize feasibility, they do not guarantee it, and may produce highly infeasible solutions in practice. In contrast, differentiable projection and/or correction methods embed exact solvers directly as layers in neural networks (Pham et al., 2018; Chen et al., 2021; Pan et al., 2022; Nguyen & Donti, 2025; Donti et al., 2021). While these methods do provide feasibility guarantees, they are often expensive to run, or highly specialized to certain classes of constraints (Min & Azizan, 2024; Tordesillas et al., 2023). Likewise, post-hoc “repair” methods (Boyd et al., 2011; Douglas & Rachford, 1956; Zamzam & Baker, 2020) are often either expensive or highly specialized, and the inherent train-test mismatch can further degrade overall performance. In this work, we propose an alternative, data-driven approach that can learn an inexpensive, non-iterative transformation from a latent convex set to any arbitrary constraint set, thereby speeding up feasibility im-provement in practice (albeit at the expense of provable guarantees). The work closest in the literature to ours is (Liang et al., 2024; 2023), proposing a homeomorphic projection approach which learns an invertible mapping from a hypersphere to a topologically-equivalent constraint set, and then uses a bisection proce-dure to recover feasibility. However, this procedure is designed for post-hoc feasibility correction rather than end-to-end training, and is limited to ball-homeomorphic constraint sets. Our work presents a method that can learn a mapping between a latent hypersphere and any continuous constraint set, and is compatible with end-to-end training and inference. In addition, while homeomorphic projections rely on an iterative bisection procedure, FAB projections are one-shot, leading to significant speed gains in practice. 
+
+Safe reinforcement learning. Safe reinforcement learning (RL) is an extension of standard RL, where an agent learns to make a sequence of decisions in an environment to maximize a cumulative reward signal while also aiming to minimize the costs associated with constraint violations (Garcıa & Fern´ andez, 2015; Gu et al., 2024). While standard RL algorithms, such as Proximal Policy Optimization (PPO, Schulman et al., 2017) and Trust Region Policy Optimization (TRPO, Schulman et al., 2015) excel in unconstrained set-2Figure 1: A schematic of FAB approximate projections. (1) Phase 1 of autoencoder training aims to enable reconstructions of the feasible set. (2) Phase 2 of autoencoder training introduces a discriminator (critic) to enable further structuring and refinement of the latent representation. (3) The trained autoencoder can be utilized as a plug-and-play attachment to another neural network model. tings, they are not equipped to handle constraints. Prominent approaches to address this include Lagrangian relaxation (Stooke et al., 2020), safe exploration (Hans et al., 2008), and differentiable projection (Pham et al., 2018; Chen et al., 2021). However, mirroring the discussion on constraint enforcement in amortized optimization, these approaches come with distinct trade-offs in terms of reliability and computational cost. 
+
+Adversarial training. Adversarial training, widely known for its application in Generative Adversarial Net-works (GANs) (Goodfellow et al., 2014) and adversarially robust deep learning (Bai et al., 2021), offers a general framework for learning in the face of complex data distributions. In the canonical GAN setup, a generator network learns to produce realistic data samples from a noise vector, while a discriminator is trained to distinguish between real and generated samples. Minimax training of the generator and discrim-inator drives the generator to produce increasingly plausible outputs. Inspired by this approach, our work uses adversarial training to learn latent representations of feasible sets, where the “discriminator” is trained to distinguish between feasible and infeasible outputs produced by another model, and that output-producing model is thereby forced to learn more robust decision boundaries between feasible and infeasible points. 
+
+## 3 FAST AUTOENCODER -B ASED (FAB) F EASIBILITY IMPROVEMENT 
+
+In this paper, we consider the task of repeatedly solving parametric optimization problems of the form: 
+
+y⋆(x) ∈ arg min 
+
+> y∈C (x)
+
+f (y; x), (1) where x ∈ X ⊆ Rm are the problem parameters, y ∈ Y ⊆ Rn are decision variables, f : Y × X → R
+
+is the objective function, C(x) ⊆ Y is a (parameter-dependent) constraint set, and y⋆(x) ∈ C (x) is a solution. Because the optimal solutions of the problems change as the parameters x change, this suggests a mapping between parameters x and optimal solutions. In addition to offline optimization, this formulation also captures RL settings, where X and Y are the state and action spaces, respectively (Amos, 2023). Our aim is to use neural networks to approximate a mapping from x to y⋆(x) such that the resultant solution has low objective value, satisfies constraints, and is fast to compute at inference time. We specifically consider neural networks of the form: 
+
+ˆyθ := ϕx ◦ Nθ , (2) where Nθ : X → Rd is a standard feedforward network with parameters θ, and ϕx : Rd → C (x) is a differentiable feasibility improvement procedure that aims to map to a point in the constraint set. Prior work 3has considered the design of mappings ϕx that can ensure exact feasibility, e.g., by solving a differentiable orthogonal projection or via exact iterative procedures (see Section 2). While such approaches are indeed useful for, e.g., safety-critical settings where provable constraint satisfaction is a must, they tend to be relatively expensive for general classes of constraints. Instead, we propose to learn a fast, data-driven, 
+
+approximate mapping for use in settings where (near-)feasibility is important, but where the benefits of reduced latency outweigh the need for strict constraint satisfaction. The particular choice of ϕx that we propose in this work is motivated by the observation that while C(x) may be expensive to enforce directly, we can potentially learn a transformation between this set and some other specially-structured set that is much cheaper to work with. In particular, let Eγ : I → Z be an encoder with parameters γ, where I := Y × X and Z ⊆ Rk, and let Rψ : Z → Y be a decoder (“reconstructor”) with parameters ψ, where both Eγ and Rψ are standard feedforward neural networks. 2 In addition, let S ⊆ Z 
+
+be a set that is by construction simple to map onto (e.g., a simplex or a ball), and let ϕS : Z → S be a cheap exact mapping to points in S (e.g., a softmax operation or closed-form projection). We then define our feasibility improvement procedure as 
+
+ϕx := Rψ ◦ ϕS ◦ Eγ . (3) In other words, given an output from Nθ alongside its corresponding input, we feed these into an encoder, map the encoded latent point into S, and then decode the resultant point. The idea is that once Eγ and Rψ
+
+are trained, each step of ϕx is cheap to execute, leading to fast overall inference. The key challenge with this approach is that we must now design the autoencoder parameters (γ, ψ ) such that the output of ϕx is actually feasible, i.e., actually lies within C(x). To do this, we propose a two-stage autoencoder training procedure aimed at structuring the latent space Z such that, to the extent possible, latent points decode to our feasible set C(x) if and only if they lie within S ⊆ Z . A schematic of our overall approach is provided in Figure 1. We now provide additional detail on the two-stage training procedure. 3.1 TWO -PHASE AUTOENCODER TRAINING 
+
+We train the encoder-decoder pair (Eγ , R ψ ) in two phases: (1) a constraint set reconstruction phase using standard autoencoder training, and (2) a latent space structuring phase involving adversarial training with a discriminator. Together, these aim to enable the autoencoder to faithfully reconstruct the feasible set, and encourage latent points from S to decode to feasible points. Pseudocode for both phases is in Algorithm 1. 
+
+Phase 1: Constraint set reconstruction. We first train the autoencoder to reconstruct the feasible set. Specifically, we train on a dataset of exclusively feasible points, Tfeas := {(y(i), x (i)) | y(i) ∈ C (x(i))}.As standard in autoencoder training, the encoder Eγ and the decoder Rψ are jointly trained to minimize a standard L2 reconstruction loss to prioritize the fidelity of decoded points: 
+
+Lrecon (y, x ) = ∥y − Rψ (Eγ (y, x )) ∥22. (4) 
+
+Phase 2: Latent space structuring. The second autoencoder training phase aims to structure the latent space such that any point sampled from S ⊆ Z , when decoded, results in a feasible point. To do this, we draw loose inspiration from generative adversarial network (GAN) training, and train our autoencoder alter-natingly with a discriminator Dξ : I → [0 , 1] whose role is to distinguish between feasible and infeasible points. Specifically, the discriminator maps from inputs in I to an estimated probability that the input is feasible. We let Dξ be a standard feedforward neural network.       
+
+> 2We focus our discussion in the main text on the case of input-varying constraints C(x), but note that the formulations for input-independent constraints are similar. In the latter case, I:= Y; our autoencoder is simply a standard, rather than conditional, autoencoder; and all mentions of xin Section 3.1 can be dropped.
+
+4Algorithm 1 Two-Phase Autoencoder Training for FAB Feasibility Improvement 
+
+1: input: Dataset of feasible points Tfeas = {(y(i), x (i)) | y(i) ∈ C (x(i))}
+
+2: input: Discriminator dataset Tdisc :=   (y(i), x (i)), c (i) | c(i) = 1 if y(i) ∈ C (x(i)), 0 otherwise 
+
+3: 4: procedure PHASE 1( Tfeas ) // Constraint set reconstruction 
+
+5: init encoder Eγ , decoder Rψ
+
+6: while not converged do for batch of (y, x ) ∈ T feas 
+
+7: compute Lrecon (y, x ) via Eq. 4 
+
+8: update γ, ψ using ∇γ Lrecon , ∇ψ Lrecon 
+
+9: end while 
+
+10: return Eγ , Rψ
+
+11: end procedure 
+
+12: 13: procedure PHASE 2( Tdisc , Eγ , Rψ ) // Latent set structuring 
+
+14: init discriminator Dξ
+
+15: while not converged do for batch of (( y, x ), c ) ∈ T disc 
+
+16: // Update discriminator Dξ
+
+17: compute Ldisc (y, x, c ) via Eq. 5 
+
+18: update ξ using ∇ξ Ldisc 
+
+19: // Update autoencoder (Eγ , R ψ )
+
+20: compute Lrecon (y, x ), Lhinge (y, x, c ) via Eq. 4, 7 
+
+21: sample batch of z ∼ S 
+
+22: compute Llatent (z), Lgeom (batch of z) via Eq. 8–9 
+
+23: compute Lstruc from Lrecon , Lhinge , Llatent , Lgeom via Eq. 6 
+
+24: update γ, ψ using ∇γ Lstruc , ∇ψ Lstruc 
+
+25: end while 
+
+26: return Eγ , Rψ
+
+27: end procedure 
+
+We leverage two datasets during this training phase: (a) a labeled dataset of feasible and infeasible points, 
+
+Tdisc :=   (y(i), x (i)), c (i) | c(i) = 1 if y(i) ∈ C (x(i)), 0 otherwise , and (b) samples z(j) ∼ S from our latent subset. Unlike in GANs, where the generator and discriminator are trained via a minimax loss, here, the autoencoder and discriminator are trained using distinct loss functions. Specifically, the discriminator Dξ is trained to distinguish between feasible and infeasible points, by mini-mizing the negative log likelihood on Tdisc :
+
+Ldisc (y, x, c ) = − (c log Dξ (y, x ) + (1 − c) log (1 − Dξ (y, x ))) . (5) The autoencoder is trained to minimize a composite loss function using both Tdisc and z(j) ∼ S , defined as: 
+
+Lstruc = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+h
+
+λrecon Lrecon (y(i), x (i))
+
+i
+
++ 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+h
+
+λhinge Lhinge (y(i), x (i), c (i))
+
+i
+
++ 1
+
+M
+
+> M
+
+X
+
+> j=1
+
+h
+
+λlatent Llatent (z(j))
+
+i
+
++ λgeom Lgeom ({z(1) , . . . , z (M )}),
+
+(6) where λrecon , λ latent , λ hinge , λ geom ∈ R; Lrecon is defined above; and the remaining loss terms are defined as: • The hinge loss Lhinge : Structures the latent space by mapping feasible points to the interior of a hy-persphere and infeasible points to its exterior. Here, we write the hinge loss for the specific choice of 5S := {z : ∥z∥2 ≤ r} for some radius r:
+
+Lhinge (y, x, c ) = c ReLU  ∥Eγ (y, x )) ∥2 − r + (1 − c) ReLU  r − ∥ Eγ (y, x )∥2
+
+. (7) • The latent loss Llatent : Encourages outputs decoded from latent points z ∈ S to be feasible, via super-vision from the discriminator: 
+
+Llatent (z) = − log Dξ (Rψ (z)) . (8) • The Jacobian regularization term Lgeom : Encourages uniform coverage of the feasible set by the decoder (Nazari et al., 2023), and is computed over a set of latent points ˆS ⊆ S :
+
+Lgeom ( ˆS) = Variance z∼ ˆS
+
+log det( Jz J⊤ 
+
+> z
+
++ εI k) , (9) where Jz = ∇z Rψ (z) is the Jacobian of the decoder with respect to z, Ik is the k × k identity matrix, and ε is a small scalar value. This loss term measures how the decoder’s output changes under small changes in the latent code ( εI k). Specifically, it calculates the determinant of the Gram matrix Jz J⊤
+
+> z
+
+and measures how much the decoder locally stretches or shrinks the space. 3.2 LEVERAGING THE TRAINED FEASIBILITY MAPPING 
+
+After autoencoder training, we fix the weights of the encoder and decoder and use them to construct the feasibility mapping ϕx = Rψ ◦ ϕS ◦ Eγ , as given by Equation 3. We then append the feasibility mapping to our base neural network as ˆyθ = ϕx ◦ Nθ , as given by Equation 2. The resultant neural network ˆyθ
+
+(with learnable parameters θ) can then be trained end-to-end as usual to address the amortized optimization problem at hand, i.e., to aim to learn optimal solutions to Problem 1. In particular, Nθ learns to adapt to the autoencoder’s mapping procedure as part of end-to-end training, i.e., can account for this mapping in picking neural network parameters aimed at improving the optimality of the end-to-end solution. (While the encoder/decoder parameters ψ, γ could also be further trained end-to-end alongside the parameters θ, rather than being fixed, we do not consider that case here.) Overall, our learned mapping serves as a plug-and-play attachment to standard deep learning models that can be used during training and inference to improve model feasibility, while also being fast to run. In the following sections, we demonstrate the performance of 
+
+ˆyθ in learning feasible amortized optimization solutions in both offline optimization and RL settings. 
+
+## 4 EXPERIMENTS ON CONSTRAINED OPTIMIZATION PROBLEMS 
+
+Problem classes . We test our approach on constrained optimization problems with three objective types: linear, quadratic, and distance minimization. We consider four classes of 2-dimensional nonconvex con-straint families (Figure 2) as well as 3-, 5-, and 10-dimensional hyperspherical shell constraints C := {x ∈
+
+Rd | 1 ≤ ∥ x∥22 ≤ 2}. We note that these are input-independent constraint sets C ⊆ Y (we will consider input-dependent constraint sets in Section 5). The problems are formulated as: Linear: 
+
+min  
+
+> y
+
+a⊤y
+
+s.t. y ∈ C 
+
+Quadratic: 
+
+min  
+
+> y
+
+y⊤Qy + a⊤y
+
+s.t. y ∈ C 
+
+Distance minimization: 
+
+min  
+
+> y
+
+y − t 2
+
+s.t. y ∈ C ,
+
+where y ∈ Y := Rn is the decision variable, and problem parameters a ∈ Rn, Q ∈ Rn×n, t ∈ Rn
+
+vary between instances. Our goal is to learn a neural network approximator ˆyθ for each problem class that minimizes the objective while satisfying constraints. 
+
+Baselines . We compare FAB feasibility improvement against: 6Figure 2: The nonconvex constraint sets tested in our constrained optimization settings, termed (from left to right): Blob with Bite, Concentric Circles, Star-Shaped, and Two Moons. • Projected Gradient Descent . A classical optimization algorithm that iteratively takes a gradient descent step and then projects the current iterate onto the feasible set to enforce constraints. • Penalty . A classical optimization approach that solves an unconstrained version of the problem, 
+
+minimize y J(y) = f (y) + μP (y), where μ is a large penalty coefficient. • Augmented-Lagrangian . A classical optimization method that combines penalty terms and La-grange multipliers to handle constraints. The objective is to minimize J(y, λ ) = f (y) + λT c(y) +  
+
+> ρ
+> 2
+
+∥c(y)∥2. We alternate between updating the primal variables y using estimated gradients and updating the dual variables λ.• Interior Point (a.k.a. barrier method). A classical optimization algorithm that ensures feasibility by strictly penalizing the optimizer as it approaches constraint boundaries. Iterates are initialized within the feasible set, and a logarithmic barrier function −μ P log( ˆd(y)) is added to the objective, where ˆd(y) is a smoothed proximity score (derived from local sampling). The barrier coefficient μ
+
+is annealed over time to guide the solution toward the optimum. • Penalty Neural Network . A neural network that learns to minimize the unconstrained version of the problem, minimize y J(y) = f (y) + λd (y), where λ is a large penalty coefficient and d(y) is the distance between the constraint set boundary and an infeasible predicted point. • FSNet (Nguyen & Donti, 2025). A learning-based method that combines NNs with an exact solu-tion of an iterative constraint violation-minimization optimization problem. • Homeomorphic Projection (Liang & Chen, 2025). A method that learns an invertible mapping be-tween a hypersphere and a ball-homeomorphic constraint set, using a post-hoc bisection procedure to recover feasibility of neural network outputs. 
+
+Ablations . We also test the following ablations and variants of our method: • Different numbers of decoder networks: We examine the effect of training the autoencoder with multiple decoder networks, in principle allowing different decoder networks to “specialize” in different parts of the latent space. Specifically, we consider a collection of ρ decoder networks 
+
+R(1)  
+
+> ψ1
+
+, . . . , R (ρ) 
+
+> ψρ
+
+each mapping from Z → Y. In addition, we introduce a weighting network 
+
+Mω : Z → Rρ that maps from the latent space to a set of logits (one per decoder). For any 
+
+z ∈ Z , we compute mixture weights α(z) = softmax( Mω (z)) ∈ Rρ and define the final decoded output as the convex combination Rψ (z) = Pρi=1 αi(z)R(i) 
+
+> ψi
+
+. The weighting network Mω and all decoder networks R(i) 
+
+> ψi
+
+are trained jointly end-to-end using the same loss functions as described in Section 3.1, with Rψ (z) as the decoded output. In our ablations, we test the settings where ρ = 2 , 3.7Method Quadratic Linear Dist. Min.                                                                                                                                                    
+
+> ↑Feas (%) ↓Time (ms) ↓Gap ↑Feas (%) ↓Time (ms) ↓Gap ↑Feas (%) ↓Time (ms) ↓Gap
+> Projected Gradient 80.5
+> σ=39.6
+> 79.07
+> σ=91.65
+> 1.18
+> σ=1.58
+> 76.3
+> σ=42.5
+> 48.23
+> σ=52.86
+> 0.90
+> σ=0.99
+> 79.2
+> σ=40.6
+> 69.79
+> σ=25.09
+> 4.65
+> σ=5.87
+> Penalty Method 20.4
+> σ=40.3
+> 78.39
+> σ=71.27
+> 1.36
+> σ=1.67
+> 10.4
+> σ=30.5
+> 61.58
+> σ=111.21
+> 1.52
+> σ=1.49
+> 14.6
+> σ=35.3
+> 38.67
+> σ=10.02
+> 6.39
+> σ=7.07
+> Augmented Lagrangian 20.9
+> σ=40.7
+> 85.71
+> σ=119.17
+> 1.33
+> σ=1.59
+> 10.9
+> σ=31.1
+> 56.98
+> σ=62.66
+> 1.56
+> σ=1.56
+> 15.7
+> σ=36.3
+> 42.58
+> σ=6.69
+> 6.43
+> σ=6.70
+> Classical
+> Interior Point 78.3
+> σ=41.2
+> 82.80
+> σ=110.99
+> 1.64
+> σ=2.02
+> 77.3
+> σ=41.9
+> 46.37
+> σ=33.68
+> 1.03
+> σ=1.03
+> 79.9
+> σ=40.0
+> 42.00
+> σ=12.03
+> 6.12
+> σ=6.41
+> Penalty NN 91.1
+> σ=28.4
+> 0.20
+> σ=1.02
+> 0.61
+> σ=1.06
+> 80.0
+> σ=38.4
+> 0.14
+> σ=0.04
+> 0.85
+> σ=1.25
+> 40.7
+> σ=49.1
+> 0.24
+> σ=1.30
+> 4.34
+> σ=6.30
+> FSNet 98.7
+> σ=11.5
+> 4.42
+> σ=2.77
+> 1.13
+> σ=1.45
+> 98.3
+> σ=12.8
+> 3.40
+> σ=2.08
+> 0.96
+> σ=1.01
+> 99.3
+> σ=8.5
+> 4.03
+> σ=1.67
+> 5.30
+> σ=5.51
+> Homeomorphic Projection 73.9
+> σ=43.9
+> 247
+> σ=105
+> 1.74
+> σ=1.90
+> 76.1
+> σ=42.6
+> 240
+> σ=104
+> 1.67
+> σ=1.48
+> 76.1
+> σ=42.6
+> 243
+> σ=105
+> 8.12
+> σ=7.80
+> FAB 96.8
+> σ=17.6
+> 0.55
+> σ=0.40
+> 0.85
+> σ=1.16
+> 83.5
+> σ=37.1
+> 0.43
+> σ=0.27
+> 0.73
+> σ=0.73
+> 88.3
+> σ=32.2
+> 0.41
+> σ=0.20
+> 4.22
+> σ=4.15
+> FAB: 2 Decoder Nets 100.0
+> σ=0.0
+> 0.59
+> σ=0.35
+> 1.31
+> σ=1.36
+> 100.0
+> σ=0.0
+> 0.55
+> σ=0.37
+> 0.94
+> σ=0.89
+> 100.0
+> σ=0.0
+> 0.50
+> σ=0.25
+> 5.64
+> σ=5.73
+> FAB: 3 Decoder Nets 100.0
+> σ=0.0
+> 0.80
+> σ=1.03
+> 1.02
+> σ=1.15
+> 100.0
+> σ=0.0
+> 0.62
+> σ=0.36
+> 0.90
+> σ=0.84
+> 100.0
+> σ=0.0
+> 0.60
+> σ=0.32
+> 5.44
+> σ=4.84
+> FAB: Phase 1 Only 82.5
+> σ=38.0
+> 0.64
+> σ=0.14
+> 0.86
+> σ=1.21
+> 69.9
+> σ=45.9
+> 1.07
+> σ=4.12
+> 0.72
+> σ=0.69
+> 64.1
+> σ=48.0
+> 0.54
+> σ=0.09
+> 3.83
+> σ=4.07
+> FAB: No Hinge Loss 28.4
+> σ=45.1
+> 0.63
+> σ=0.16
+> 1.13
+> σ=1.23
+> 18.8
+> σ=39.1
+> 0.76
+> σ=0.84
+> 0.85
+> σ=0.80
+> 28.1
+> σ=44.9
+> 0.56
+> σ=0.16
+> 5.14
+> σ=4.96
+> ML-Based
+> FAB: No Dξ
+> 75.1
+> σ=43.2
+> 0.64
+> σ=0.22
+> 0.86
+> σ=1.21
+> 54.4
+> σ=49.8
+> 0.67
+> σ=0.31
+> 0.70
+> σ=0.69
+> 13.6
+> σ=34.3
+> 0.55
+> σ=0.19
+> 3.61
+> σ=4.00
+
+Table 1: Mean and std. dev. for feasibility (%), time (ms), and optimality gap for each method: Two Moons. • Phase 1 Only: The autoencoder was trained using only the reconstruction loss and no Phase 2. • No Hinge Loss: The autoencoder was trained without the hinge loss. • No discriminator Dξ : The adversarial discriminator was removed from Phase 2 training entirely, relying only on the other losses, to isolate the discriminator’s contribution. In Appendix C, we also provide experiments testing the effect of (a) incomplete coverage of the constraint set in the autoencoder training data, and (b) using different decoder depth and width configurations. 
+
+Implementation details . We run experiments over 5 seeds with 300 problems per seed (trained for 500 epochs with a batch size of 32, tested on 1,500 problems), totaling 18,000 optimization problems across the entire testing suite. All methods were run on a workstation equipped with one NVIDIA RTX 4090 GPU. We choose S to be a 0.5-radius hypersphere. Hyperparameters are given in Appendix A.1. 
+
+Evaluation metrics . We evaluate the methods by their feasibility rates, optimality gaps, and inference times over the 4 constraint types and 3 objective types. 
+
+Results . As presented in Table 1 and Appendix B, our methods achieve a substantial reduction in com-putation time, with sub-millisecond inference times (1-2 orders of magnitude faster than exact feasibility methods), while consistently achieving high feasibility rates across the feasible sets. Across most experi-ments, the best-performing method was found to be FAB with one decoder; FAB with multiple decoders 8emerges as the strongest method for the Two Moons disjoint constraint set. Notably, we see that FAB does well at finding feasible solutions even in difficult cases with disjoint or non-ball-homeomorphic sets. 
+
+## 5 EXPERIMENTS ON SAFETY GYM (S AFE RL) 
+
+Safe RL problem formulation . Safe RL can be framed within our parametric optimization setup from Equation 1. We consider a discrete-time dynamical system where the state evolves according to: 
+
+sk+1 = f (sk, u k), (10) where sk ∈ X ⊆ Rm is the current state and uk ∈ Y ⊆ Rn is the control action at timestep k. In this context, the actions uk are the decision variables, and the states sk correspond to the problem parameters. The constraint set C(sk) is state-dependent (i.e., problem-parameter-dependent). An action uk is considered safe, i.e., uk ∈ C (sk), if executing it from state sk does not lead to an immediate constraint violation (e.g., collision). The objective is to learn a policy πθ : X → Y , that maximizes the expected cumulative reward while also satisfying constraints. 
+
+Environment . We evaluate our approach using the SafetyPointGoal2-v0 and SafetyPointPush2-v0 envi-ronments from the Safety Gymnasium benchmark suite (Ji et al., 2023). In the Goal task, an agent must navigate to a series of goal locations while avoiding randomly-placed hazards. In the Push task, an agent must navigate to and manipulate a movable box, pushing it toward a target location while avoiding randomly placed hazards. The state vector comprises simulated sensor readings (e.g., accelerometers, gyroscope, and a LiDAR-like sensor for hazard detection), while the action vector controls the agent’s forward/backward movement, as well as its rotational velocities. 
+
+Baselines . We evaluate the following baselines: • PPO (Schulman et al., 2017). A state-of-the-art unconstrained RL algorithm. • TRPO (Schulman et al., 2015). Another robust unconstrained RL algorithm. • Lagrangian PPO (PPO-LAG) and Lagrangian TRPO (TRPO-LAG) (Stooke et al., 2020; Ray et al., 2019). Constrained versions of PPO and TRPO that use Lagrangian relaxation to penalize constraint violations during training. We compare these against the approach of using PPO with FAB projections ( PPO-FAB ). 
+
+Implementation details . For each environment, the FAB autoencoder was trained on a dataset of 100,000 state-action pairs, approximately evenly balanced between safe and unsafe examples, which were collected by running a random policy in the environment. The performance of all algorithms was evaluated over 50 independent seeds. All methods were run on a workstation equipped with one NVIDIA RTX 4090 GPU. We choose S to be a 0.5-radius hypersphere. Hyperparameters are given in Appendix A.2. 
+
+Evaluation metrics . We assess performance based on several metrics, averaged over the evaluation episodes: episode rewards, episode costs, and mean inference time. Episode reward is the cumulative rewards obtained by the agent in one episode (which is 1000 steps). Episode cost is the total number of constraint violations (i.e., entering hazard zones). 
+
+Results . As presented in Tables 2 and 3, PPO-FAB achieves the lowest constraint violation costs among the evaluated methods, substantially outperforming standard baselines like PPO and TRPO on this metric, and even somewhat outperforming the safe variants PPO-LAG and TRPO-LAG. Furthermore, it also exhibits the highest levels of reliability, in the sense of having the lowest standard deviations in both cost and reward across all methods compared. However, this focus on safety also corresponds to a more conservative reward-seeking policy, resulting in lower reward means (sometimes much lower) compared to the other algorithms. 9Algorithm Reward Mean ↑ Reward Std ↓ Cost Mean ↓ Cost Std ↓ Time Mean (s) ↓
+
+PPO-FAB -1.12 1.11 24.32 37.84 2.75 PPO 13.26 14.05 167.46 87.06 2.47 PPO-LAG 2.24 5.10 54.10 64.50 2.40 
+
+TRPO 15.58 10.31 164.14 88.43 2.59 TRPO-LAG 2.37 8.46 89.04 187.67 2.78 Table 2: Results for SafetyPointGoal2-v0 environment. 
+
+Algorithm Reward Mean ↑ Reward Std ↓ Cost Mean ↓ Cost Std ↓ Time Mean (s) ↓
+
+PPO-FAB -0.07 0.52 7.70 37.51 3.71 
+
+PPO 0.41 3.11 59.86 120.18 3.78 PPO-LAG 0.60 1.58 31.34 58.17 4.09 TRPO 0.20 2.50 106.88 216.19 4.03 TRPO-LAG -0.77 5.51 28.22 67.21 4.05 Table 3: Results for SafetyPointPush2-v0 environment. 
+
+## 6 CONCLUSION 
+
+In this work, we introduced a novel-data driven method, Fast Autoencoder-Based (FAB) projections, to address the challenge of efficiently enforcing nonconvex constraints in learning-based systems. Our method specially trains autoencoders to learn approximate projections onto general (e.g., potentially nonconvex or disjoint) feasible sets. The trained autoencoders can be leveraged as plug-and-play attachments to standard neural networks as part of a broader constrained learning pipeline. By structuring the autoencoder’s latent space to correspond to a simple convex shape that is easy to map into, we can perform a fast projection within this latent space at inference and decode the result back into a point that is highly likely to be feasible. On our constrained optimization benchmarks, we show FAB consistently achieves near-perfect feasibility rates (often approaching 100%) across a diverse set of challenging, nonconvex feasible sets. In the Safety-Gym benchmark, it consistently achieves low constraint violation costs. Crucially, it achieves both of these with inference times that are significantly faster than those of other methods. While methods with formal guarantees can ensure exact feasibility, their computational overhead can be prohibitive for certain real-time applications. Therefore, FAB presents a compelling alternative for latency-sensitive domains where rapid, high-fidelity approximate projections may be sufficient. Limitations of FAB include lack of hard guarantees, and its reliance on having a representative dataset of feasible and infeasible points in order for autoencoder training to perform well. We also observe that the adversarial training process can be somewhat unstable, requiring, e.g., extensive hyperparameter tuning. We also note that the experiments in this work, while spanning diverse settings, are relatively small-scale. Future work includes both larger-scale evaluations and identifying ways to improve sample efficiency, distributional performance, and interpretability of the data-driven mapping – e.g., through the use of specialized neural network structures such as input-convex neural networks (Amos et al., 2017) or operator learning-based networks (Kovachki et al., 2024), or even simpler parameterized functions – as well as exploring toolkits such as formal verification to better understand and assess the behavior of the learned data-driven mapping after it is trained. Another future direction includes exploring adaptive co-training of the data-driven feasi-bility improvement mapping with the neural network to which it will be attached (rather than training the mapping fully separately), motivated by prior results on the benefits of end-to-end learning (Cameron et al., 2022). Overall, we believe that the paradigm of data-driven feasibility mapping offers a compelling yet un-derexplored middle ground between penalty methods and exact feasibility enforcement, and look forward to future work that investigates alternative approaches within this space beyond simply the one presented here. 10 ACKNOWLEDGMENTS 
+
+We thank Hoang Nguyen and Khai Nguyen for their input and feedback on this work. This work was supported by the U.S. National Science Foundation under award #2325956. 
+
+## REFERENCES 
+
+Brandon Amos. Tutorial on amortized optimization. Foundations and Trends® in Machine Learning , 16(5): 592–732, 2023. Brandon Amos, Lei Xu, and J Zico Kolter. Input convex neural networks. In International conference on machine learning , pp. 146–155. PMLR, 2017. Tao Bai, Jinqi Luo, Jun Zhao, Bihan Wen, and Qian Wang. Recent advances in adversarial training for adversarial robustness. arXiv preprint arXiv:2102.01356 , 2021. Stephen Boyd, Neal Parikh, Eric Chu, Borja Peleato, and Jonathan Eckstein. Distributed optimization and statistical learning via the alternating direction method of multipliers. Foundations and Trends in Ma-chine Learning , 3(1):1–122, 2011. URL https://web.stanford.edu/˜boyd/papers/admm_ distr_stats.pdf .Chris Cameron, Jason Hartford, Taylor Lundy, and Kevin Leyton-Brown. The perils of learning before optimizing. In Proceedings of the AAAI conference on artificial intelligence , volume 36, pp. 3708–3715, 2022. Bingqing Chen, Priya L. Donti, Kyri Baker, J. Zico Kolter, and Mario Berg´ es. Enforcing policy feasibility constraints through differentiable projection for energy optimization. In Proceedings of the Twelfth ACM International Conference on Future Energy Systems (e-Energy ’21) , pp. 199–210. ACM, 2021. ISBN 978-1-4503-8333-2. doi: 10.1145/3447555.3464874. Wenbo Chen, Seonho Park, Mathieu Tanneau, and Pascal Van Hentenryck. Learning optimization proxies for large-scale security-constrained economic dispatch. Electric Power Systems Research , 213:108566, 2022. Priya L. Donti, David Rolnick, and J Zico Kolter. DC3: A learning method for optimization with hard constraints. In International Conference on Learning Representations , 2021. URL https: //openreview.net/forum?id=V1ZHVxJ6dSS .Jim Douglas, Jr. and H. H. Rachford. On the numerical solution of heat conduction problems in two and three space variables. Transactions of the American Mathematical Society , 82(2):421–439, 1956. Ferdinando Fioretto, Pascal Van Hentenryck, Terrence WK Mak, Cuong Tran, Federico Baldo, and Michele Lombardi. Lagrangian duality for constrained deep learning. In Machine learning and knowledge discov-ery in databases. applied data science and demo track: European conference, ECML pKDD 2020, Ghent, Belgium, September 14–18, 2020, proceedings, part v , pp. 118–135. Springer, 2021. Javier Garcıa and Fernando Fern´ andez. A comprehensive survey on safe reinforcement learning. Journal of Machine Learning Research , 16(1):1437–1480, 2015. Ian J Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and Yoshua Bengio. Generative adversarial nets. Advances in neural information processing systems , 27, 2014. 11 Shangding Gu, Long Yang, Yali Du, Guang Chen, Florian Walter, Jun Wang, and Alois Knoll. A review of safe reinforcement learning: Methods, theories and applications. IEEE Transactions on Pattern Analysis and Machine Intelligence , 2024. Alexander Hans, Daniel Schneegaß, Anton Maximilian Sch¨ afer, and Steffen Udluft. Safe exploration for reinforcement learning. In ESANN , pp. 143–148, 2008. Jiaming Ji, Borong Zhang, Jiayi Zhou, Xuehai Pan, Weidong Huang, Ruiyang Sun, Yiran Geng, Yifan Zhong, Josef Dai, and Yaodong Yang. Safety gymnasium: A unified safe reinforcement learning bench-mark. Advances in Neural Information Processing Systems , 36:18964–18993, 2023. Nikola B Kovachki, Samuel Lanthaler, and Andrew M Stuart. Operator learning: Algorithms and anal-ysis. In Siddhartha Mishra and Alex Townsend (eds.), Numerical Analysis Meets Machine Learning ,volume 25 of Handbook of Numerical Analysis , pp. 419–467. Elsevier, 2024. doi: https://doi.org/ 10.1016/bs.hna.2024.05.009. URL https://www.sciencedirect.com/science/article/ pii/S1570865924000097 .Enming Liang and Minghua Chen. Efficient bisection projection to ensure NN solution feasibility for opti-mization over general set. 2025. URL https://openreview.net/forum?id=7TXdglI1g0 .Enming Liang, Minghua Chen, and Steven H Low. Low complexity homeomorphic projection to ensure neural-network solution feasibility for optimization over (non-) convex set. In 40th International Confer-ence on Machine Learning (ICML 2023) , pp. 20623–20649, 2023. Enming Liang, Minghua Chen, and Steven H Low. Homeomorphic projection to ensure neural-network solution feasibility for constrained optimization. Journal of Machine Learning Research , 25(329):1–55, 2024. Youngjae Min and Navid Azizan. Hardnet: Hard-constrained neural networks with universal approximation guarantees. arXiv preprint arXiv:2410.10807 , 2024. Philipp Nazari, Sebastian Damrich, and Fred A Hamprecht. Geometric autoencoders–what you see is what you decode. arXiv preprint arXiv:2306.17638 , 2023. Hoang T Nguyen and Priya L Donti. FSNet: Feasibility-seeking neural network for constrained optimization with guarantees. arXiv preprint arXiv:2506.00362 , 2025. Jorge Nocedal and Stephen J. Wright. Numerical Optimization . Springer, 2006. Xiang Pan, Minghua Chen, Tianyu Zhao, and Steven H Low. DeepOPF: A feasibility-optimized deep neural network approach for AC optimal power flow problems. IEEE Systems Journal , 17(1):673–683, 2022. Tu-Hoa Pham, Giovanni De Magistris, and Ryuki Tachibana. Optlayer-practical constrained optimization for deep reinforcement learning in the real world. In 2018 IEEE International Conference on Robotics and Automation (ICRA) , pp. 6236–6243. IEEE, 2018. Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learn-ing framework for solving forward and inverse problems involving nonlinear partial differential equations. 
+
+Journal of Computational physics , 378:686–707, 2019. Alex Ray, Joshua Achiam, and Dario Amodei. Benchmarking safe exploration in deep reinforcement learn-ing. arXiv preprint arXiv:1910.01708 , 2019. John Schulman, Sergey Levine, Pieter Abbeel, Michael Jordan, and Philipp Moritz. Trust region policy optimization. In International conference on machine learning , pp. 1889–1897. PMLR, 2015. 12 John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy opti-mization algorithms. arXiv preprint arXiv:1707.06347 , 2017. Adam Stooke, Joshua Achiam, and Pieter Abbeel. Responsive safety in reinforcement learning by pid lagrangian methods. In International Conference on Machine Learning (ICML) , 2020. Jesus Tordesillas, Jonathan P How, and Marco Hutter. Rayen: Imposition of hard convex constraints on neural networks. arXiv preprint arXiv:2307.08336 , 2023. Pascal Van Hentenryck. Optimization learning. arXiv preprint arXiv:2501.03443 , 2025. Ahmed S Zamzam and Kyri Baker. Learning optimal solutions for extremely fast AC optimal power flow. In 2020 IEEE International Conference on Communications, Control, and Computing Technologies for Smart Grids (SmartGridComm) , pp. 1–6. IEEE, 2020. 13 A HYPERPARAMETERS 
+
+A.1 CONSTRAINED OPTIMIZATION HYPERPARAMETERS 
+
+Hyperparameters for autoencoder training in the constrained optimization experiments (Section 4). The optimal loss weights were found using a grid search over the following values: • λrecon options = [1.5, 2.0] • λfeas options = [1.0, 1.5, 2.0] • λlatent options = [1.0, 1.5] • λgeom options = [0.025] • λhinge options = [0.5, 1.0] The remaining hyperparameters for both our methods and the baselines were manually chosen via informal experimentation. 
+
+Phase 1 Training (phase1 training.py) 
+
+• Batch size: 256 • Epochs: 500 • Learning rate: 0.001 • Optimizer: Adam • Training/validation split: 80% / 20% • Hidden dimension: 64 • Number of decoders: 1 • Number of samples: 60000 
+
+Phase 2 Training (phase2 training.py) 
+
+• Batch size: 256 • Epochs: 150 • Learning rates: AE=0.0005, Discriminator=0.001 • Loss weights: λrecon =1.0, λfeasibility =1.0, λlatent = 1 .0, λhinge = 0 .1, λgeometric = 0 .1
+
+• Optimizer: Adam • Critic steps: 3 3• Training/validation split: 80% / 20% • Normalization: enabled • Hidden dimension: 64 • Number of decoders: 1 Hyperparameters for the ablation and decoder configuration experiments described in Appendix C are in Table A.1. 
+
+> 3
+
+This hyperparameter describes the number of discriminator gradient descent steps per one pass through the autoen-coder. 
+
+14 Shape Exp. Type Config λrecon ⋆ λfeas ⋆ λlatent ⋆ λgeom ⋆ λhinge ⋆ Throughput 
+
+blob with bite coverage Cov 10 1.5 1.0 1.0 0.025 0.5 457.44 blob with bite coverage Cov 25 1.5 1.0 1.0 0.025 0.5 453.23 blob with bite coverage Cov 50 1.5 1.0 1.0 0.025 0.5 446.47 blob with bite coverage Cov 75 1.5 1.0 1.0 0.025 0.5 446.20 blob with bite capacity W32 D2 1.5 1.0 1.0 0.025 0.5 404.14 blob with bite capacity W32 D4 1.5 1.0 1.0 0.025 0.5 384.20 blob with bite capacity W32 D6 1.5 1.0 1.0 0.025 0.5 368.88 blob with bite capacity W64 D2 1.5 1.0 1.0 0.025 0.5 399.35 blob with bite capacity W64 D4 1.5 1.0 1.0 0.025 0.5 379.72 blob with bite capacity W64 D6 1.5 1.0 1.0 0.025 0.5 366.03 blob with bite capacity W128 D2 1.5 1.0 1.0 0.025 0.5 394.16 blob with bite capacity W128 D4 1.5 1.0 1.0 0.025 0.5 379.71 blob with bite capacity W128 D6 1.5 1.0 1.0 0.025 0.5 367.23 blob with bite num dec 2 decoders 1.5 1.0 1.0 0.025 0.5 349.43 star shaped coverage Cov 10 1.5 1.0 1.0 0.025 0.5 448.20 star shaped coverage Cov 25 1.5 1.0 1.0 0.025 0.5 444.26 star shaped coverage Cov 50 1.5 1.0 1.0 0.025 0.5 441.18 star shaped coverage Cov 75 1.5 1.0 1.0 0.025 0.5 436.32 star shaped capacity W32 D2 1.5 1.0 1.0 0.025 0.5 399.33 star shaped capacity W32 D4 1.5 1.0 1.0 0.025 0.5 379.74 star shaped capacity W32 D6 1.5 1.0 1.0 0.025 0.5 368.52 star shaped capacity W64 D2 1.5 1.0 1.0 0.025 0.5 394.05 star shaped capacity W64 D4 1.5 1.0 1.5 0.025 0.5 385.30 star shaped capacity W64 D6 1.5 1.0 1.0 0.025 0.5 366.63 star shaped capacity W128 D2 1.5 1.0 1.5 0.025 0.5 401.35 star shaped capacity W128 D4 1.5 1.0 1.0 0.025 0.5 382.05 star shaped capacity W128 D6 1.5 1.0 1.0 0.025 1.0 369.05 star shaped num dec 2 decoders 1.5 1.0 1.0 0.025 1.0 352.57 two moons coverage Cov 10 1.5 1.0 1.0 0.025 0.5 805.99 two moons coverage Cov 25 1.5 1.0 1.0 0.025 0.5 809.56 two moons coverage Cov 50 1.5 1.0 1.0 0.025 0.5 802.55 two moons coverage Cov 75 1.5 1.0 1.0 0.025 0.5 810.32 two moons capacity W32 D2 2.0 2.0 1.5 0.025 0.5 650.05 two moons capacity W32 D4 1.5 1.5 1.5 0.025 1.0 469.24 two moons capacity W32 D6 1.5 1.0 1.5 0.025 0.5 449.40 two moons capacity W64 D2 1.5 1.0 1.5 0.025 0.5 503.61 two moons capacity W64 D4 1.5 1.0 1.0 0.025 0.5 532.68 two moons capacity W64 D6 1.5 1.0 1.0 0.025 0.5 447.05 two moons capacity W128 D2 2.0 1.5 1.5 0.025 0.5 604.86 two moons capacity W128 D4 1.5 2.0 1.5 0.025 0.5 553.15 two moons capacity W128 D6 1.5 1.0 1.5 0.025 0.5 490.69 two moons num dec 2 decoders 1.5 1.0 1.5 0.025 0.5 433.12 concentric circles coverage Cov 10 1.5 1.0 1.0 0.025 0.5 834.29 concentric circles coverage Cov 25 1.5 1.0 1.0 0.025 0.5 829.25 concentric circles coverage Cov 50 1.5 1.0 1.0 0.025 0.5 736.49 concentric circles coverage Cov 75 1.5 1.0 1.0 0.025 0.5 830.27 concentric circles capacity W32 D2 1.5 1.0 1.0 0.025 0.5 862.89 concentric circles capacity W32 D4 1.5 1.0 1.0 0.025 0.5 703.99 concentric circles capacity W32 D6 1.5 1.0 1.0 0.025 0.5 637.08 concentric circles capacity W64 D2 1.5 1.0 1.5 0.025 1.0 764.57 concentric circles capacity W64 D4 1.5 1.0 1.0 0.025 1.0 791.68 concentric circles capacity W64 D6 1.5 1.0 1.0 0.025 1.0 708.25 concentric circles capacity W128 D2 1.5 1.0 1.0 0.025 1.0 895.01 concentric circles capacity W128 D4 1.5 1.0 1.0 0.025 1.0 788.96 concentric circles capacity W128 D6 1.5 1.0 1.0 0.025 1.0 737.83 concentric circles num dec 2 decoders 1.5 1.0 1.0 0.025 1.0 634.10 
+
+Table A.1: Optimal configurations for ablations and training throughput comparisons. The default decoder configuration is W64 D4. 15 A.2 SAFETY GYM HYPERPARAMETERS 
+
+Hyperparameters for autoencoder training in the Safety Gym experiments (Section 5). Most of the hyperpa-rameters were borrowed from the Safety Gymnasium benchmark suite implementations (Ji et al., 2023), as well as manually chosen via informal experimentation. 
+
+Phase 1 Training (safety-gym/phase1 training.py) 
+
+• Batch size: 256 • Epochs: 500 • Learning rate: 0.001 • Optimizer: Adam • Training set: 80% • Validation set: 20% • λrecon : 1.0 • Hidden dimension: 64 • Number of decoders: 1 • Number of samples: 100000 • State dimension: 60 (safety gym) • Action dimension: 2 (safety gym) • Latent dimension: equal to action dimension 
+
+Phase 2 Training (safety-gym/phase2 training.py) 
+
+• Batch size: 256 • Epochs: 100 • Learning rates: AE=0.0001, Discriminator=0.0002 • Loss weights: λrecon = 1 .0, λfeasibility = 0 .5, λlatent = 0 .5, λhinge = 0 .5, λgeometric = 0 .1
+
+• Optimizer: Adam • Validation split: 0.2 • Hidden dimension: 64 • Number of decoders: 1 16 B ADDITIONAL EXPERIMENTAL RESULTS 
+
+Tables B.2–B.4 provide experimental results for the Blob with Bite, Concentric Circles, and Star-Shaped constraint families described in Section 4, Figure 2. Results for the Two Moons constraint family are pro-vided in the main body (Table 1). Table B.5 provides results for the 3-, 5-, and 10-dimensional hyperspherical shell constraints C := {x ∈
+
+Rd | 1 ≤ ∥ x∥22 ≤ 2}.
+
+Method Quadratic Linear Dist. Min. 
+
+↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap 
+
+Projected Gradient 100.0 
+
+σ= 0.0 
+
+38.73 
+
+σ= 28.68 
+
+0.60 
+
+σ= 0.88 
+
+100.0 
+
+σ= 0.0 
+
+19.80 
+
+σ= 31.73 
+
+1.04 
+
+σ= 1.11 
+
+100.0 
+
+σ= 0.0 
+
+32.34 
+
+σ= 49.68 
+
+0.95 
+
+σ= 2.42 
+
+Penalty Method 59.7 
+
+σ= 49.0 
+
+64.76 
+
+σ= 47.86 
+
+0.97 
+
+σ= 1.39 
+
+43.7 
+
+σ= 49.6 
+
+38.72 
+
+σ= 52.87 
+
+1.29 
+
+σ= 1.28 
+
+55.1 
+
+σ= 49.7 
+
+55.01 
+
+σ= 156.36 
+
+5.37 
+
+σ= 6.47 
+
+Augmented Lagrangian 58.5 
+
+σ= 49.3 
+
+71.64 
+
+σ= 64.04 
+
+0.98 
+
+σ= 1.42 
+
+44.5 
+
+σ= 49.7 
+
+42.68 
+
+σ= 49.49 
+
+1.33 
+
+σ= 1.29 
+
+56.5 
+
+σ= 49.6 
+
+45.49 
+
+σ= 33.47 
+
+5.54 
+
+σ= 6.73 
+
+> Classical
+
+Interior Point 95.3 
+
+σ= 21.2 
+
+61.82 
+
+σ= 35.51 
+
+2.50 
+
+σ= 2.61 
+
+92.6 
+
+σ= 26.2 
+
+45.66 
+
+σ= 56.51 
+
+1.63 
+
+σ= 1.66 
+
+94.5 
+
+σ= 22.7 
+
+40.50 
+
+σ= 41.82 
+
+11.89 
+
+σ= 11.35 
+
+Penalty NN 97.1 
+
+σ= 16.9 
+
+0.19 
+
+σ= 0.06 
+
+0.50 
+
+σ= 0.76 
+
+90.4 
+
+σ= 29.5 
+
+0.14 
+
+σ= 0.03 
+
+1.04 
+
+σ= 1.14 
+
+66.0 
+
+σ= 47.4 
+
+0.14 
+
+σ= 0.02 
+
+1.24 
+
+σ= 2.41 
+
+FSNet 99.5 
+
+σ= 7.3 
+
+2.66 
+
+σ= 11.09 
+
+1.15 
+
+σ= 1.67 
+
+98.7 
+
+σ= 11.2 
+
+2.49 
+
+σ= 1.43 
+
+2.09 
+
+σ= 1.98 
+
+99.8 
+
+σ= 4.5 
+
+2.31 
+
+σ= 1.33 
+
+13.63 
+
+σ= 13.30 
+
+Homeomorphic Projection 100.0 
+
+σ= 0.0 
+
+196.631 
+
+σ= 193.4 
+
+4.37 
+
+σ= 4.28 
+
+100.0 
+
+σ= 0.0 
+
+196.247 
+
+σ= 195.8 
+
+2.58 
+
+σ= 2.30 
+
+100.0 
+
+σ= 0.0 
+
+196.021 
+
+σ= 195.5 
+
+13.36 
+
+σ= 12.73 
+
+FAB 100.0 
+
+σ= 0.0 
+
+0.69 
+
+σ= 1.44 
+
+0.53 
+
+σ= 0.71 
+
+100.0 
+
+σ= 0.0 
+
+0.50 
+
+σ= 0.48 
+
+1.14 
+
+σ= 0.96 
+
+100.0 
+
+σ= 0.0 
+
+0.39 
+
+σ= 0.17 
+
+2.89 
+
+σ= 4.26 
+
+FAB: 2 Decoder Nets 62.0 
+
+σ= 48.5 
+
+1.14 
+
+σ= 4.08 
+
+0.52 
+
+σ= 0.69 
+
+55.9 
+
+σ= 49.7 
+
+0.59 
+
+σ= 0.43 
+
+1.09 
+
+σ= 0.95 
+
+86.0 
+
+σ= 34.7 
+
+0.45 
+
+σ= 0.15 
+
+2.59 
+
+σ= 4.23 
+
+FAB: 3 Decoder Nets 95.6 
+
+σ= 20.5 
+
+1.15 
+
+σ= 3.18 
+
+0.53 
+
+σ= 0.70 
+
+95.3 
+
+σ= 21.2 
+
+0.60 
+
+σ= 0.35 
+
+1.11 
+
+σ= 0.92 
+
+94.6 
+
+σ= 22.6 
+
+0.55 
+
+σ= 0.42 
+
+3.59 
+
+σ= 4.49 
+
+FAB: Phase 1 Only 66.7 
+
+σ= 47.1 
+
+0.77 
+
+σ= 0.34 
+
+0.51 
+
+σ= 0.62 
+
+64.1 
+
+σ= 48.0 
+
+1.16 
+
+σ= 2.88 
+
+1.06 
+
+σ= 0.83 
+
+76.7 
+
+σ= 42.3 
+
+0.56 
+
+σ= 0.13 
+
+1.32 
+
+σ= 1.48 
+
+FAB: No Hinge Loss 100.0 
+
+σ= 0.0 
+
+0.94 
+
+σ= 1.79 
+
+0.63 
+
+σ= 0.79 
+
+100.0 
+
+σ= 0.0 
+
+1.15 
+
+σ= 1.58 
+
+1.29 
+
+σ= 1.11 
+
+100.0 
+
+σ= 0.0 
+
+0.61 
+
+σ= 0.40 
+
+6.47 
+
+σ= 5.28 
+
+> ML-Based
+
+FAB: No Dξ
+
+80.8 
+
+σ= 39.4 
+
+0.74 
+
+σ= 0.50 
+
+0.52 
+
+σ= 0.69 
+
+80.6 
+
+σ= 39.5 
+
+0.82 
+
+σ= 0.47 
+
+1.11 
+
+σ= 0.92 
+
+77.9 
+
+σ= 41.5 
+
+0.73 
+
+σ= 0.58 
+
+4.79 
+
+σ= 4.34 
+
+Table B.2: Mean and std.dev. for feasibility (%), time (ms), and optimality gap for each method: Blob with Bite. 17 Method Quadratic Linear Dist. Min. 
+
+↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap 
+
+Projected Gradient 100.0 
+
+σ= 0.0 
+
+31.24 
+
+σ= 13.55 
+
+0.96 
+
+σ= 1.27 
+
+100.0 
+
+σ= 0.0 
+
+14.83 
+
+σ= 14.92 
+
+1.16 
+
+σ= 1.16 
+
+100.0 
+
+σ= 0.0 
+
+24.36 
+
+σ= 17.34 
+
+0.40 
+
+σ= 0.88 
+
+Penalty Method 35.5 
+
+σ= 47.8 
+
+56.68 
+
+σ= 44.47 
+
+1.12 
+
+σ= 1.41 
+
+42.5 
+
+σ= 49.4 
+
+39.15 
+
+σ= 63.11 
+
+1.35 
+
+σ= 1.30 
+
+49.0 
+
+σ= 50.0 
+
+40.05 
+
+σ= 31.26 
+
+5.55 
+
+σ= 6.60 
+
+Augmented Lagrangian 37.2 
+
+σ= 48.3 
+
+57.59 
+
+σ= 43.84 
+
+1.16 
+
+σ= 1.43 
+
+42.1 
+
+σ= 49.4 
+
+52.09 
+
+σ= 85.00 
+
+1.39 
+
+σ= 1.30 
+
+49.3 
+
+σ= 50.0 
+
+43.93 
+
+σ= 46.15 
+
+5.70 
+
+σ= 6.91 
+
+> Classical
+
+Interior Point 93.4 
+
+σ= 24.8 
+
+54.53 
+
+σ= 34.56 
+
+2.67 
+
+σ= 2.71 
+
+89.9 
+
+σ= 30.2 
+
+39.76 
+
+σ= 29.55 
+
+1.78 
+
+σ= 1.79 
+
+92.6 
+
+σ= 26.2 
+
+44.17 
+
+σ= 38.55 
+
+11.89 
+
+σ= 11.28 
+
+Penalty NN 92.3 
+
+σ= 26.7 
+
+0.24 
+
+σ= 0.51 
+
+0.92 
+
+σ= 1.19 
+
+96.2 
+
+σ= 19.1 
+
+0.14 
+
+σ= 0.03 
+
+1.06 
+
+σ= 1.17 
+
+51.6 
+
+σ= 50.0 
+
+0.14 
+
+σ= 0.02 
+
+0.97 
+
+σ= 2.08 
+
+FSNet 99.9 
+
+σ= 2.6 
+
+1.75 
+
+σ= 1.01 
+
+1.29 
+
+σ= 1.72 
+
+98.5 
+
+σ= 12.0 
+
+3.04 
+
+σ= 6.11 
+
+1.72 
+
+σ= 2.01 
+
+99.1 
+
+σ= 9.3 
+
+2.03 
+
+σ= 0.97 
+
+9.72 
+
+σ= 14.52 
+
+Homeomorphic Projection 93.7 
+
+σ= 24.4 
+
+166 
+
+σ= 86 
+
+4.83 
+
+σ= 4.31 
+
+93.4 
+
+σ= 24.8 
+
+168 
+
+σ= 87 
+
+2.56 
+
+σ= 2.32 
+
+93.4 
+
+σ= 24.8 
+
+173 
+
+σ= 90 
+
+14.08 
+
+σ= 13.51 
+
+FAB 100.0 
+
+σ= 0.0 
+
+0.45 
+
+σ= 0.21 
+
+1.75 
+
+σ= 1.67 
+
+100.0 
+
+σ= 0.0 
+
+0.38 
+
+σ= 0.13 
+
+1.48 
+
+σ= 1.36 
+
+99.9 
+
+σ= 2.6 
+
+0.48 
+
+σ= 0.36 
+
+5.72 
+
+σ= 7.72 
+
+FAB: 2 Decoder Nets 99.8 
+
+σ= 4.5 
+
+0.50 
+
+σ= 0.17 
+
+1.49 
+
+σ= 1.44 
+
+92.7 
+
+σ= 27.5 
+
+0.49 
+
+σ= 0.30 
+
+1.52 
+
+σ= 1.33 
+
+81.4 
+
+σ= 38.9 
+
+0.52 
+
+σ= 0.30 
+
+1.54 
+
+σ= 1.53 
+
+FAB: 3 Decoder Nets 99.3 
+
+σ= 8.1 
+
+0.86 
+
+σ= 1.94 
+
+1.50 
+
+σ= 1.43 
+
+96.9 
+
+σ= 17.4 
+
+0.61 
+
+σ= 0.44 
+
+1.60 
+
+σ= 1.47 
+
+82.5 
+
+σ= 38.0 
+
+0.71 
+
+σ= 1.21 
+
+1.25 
+
+σ= 1.25 
+
+FAB: Phase 1 Only 99.1 
+
+σ= 3.6 
+
+0.77 
+
+σ= 2.51 
+
+0.89 
+
+σ= 0.82 
+
+98.0 
+
+σ= 14.0 
+
+0.54 
+
+σ= 0.11 
+
+1.12 
+
+σ= 0.81 
+
+25.9 
+
+σ= 43.8 
+
+0.51 
+
+σ= 0.04 
+
+4.61 
+
+σ= 3.63 
+
+FAB: No Hinge Loss 99.1 
+
+σ= 9.9 
+
+0.74 
+
+σ= 0.57 
+
+1.30 
+
+σ= 1.29 
+
+98.1 
+
+σ= 13.5 
+
+0.58 
+
+σ= 0.21 
+
+1.48 
+
+σ= 1.29 
+
+68.7 
+
+σ= 46.4 
+
+0.51 
+
+σ= 0.03 
+
+7.08 
+
+σ= 7.85 
+
+> ML-Based
+
+FAB: No Dξ
+
+98.3 
+
+σ= 12.8 
+
+0.74 
+
+σ= 0.67 
+
+1.02 
+
+σ= 0.92 
+
+98.5 
+
+σ= 12.3 
+
+0.72 
+
+σ= 2.67 
+
+1.23 
+
+σ= 0.96 
+
+82.7 
+
+σ= 37.9 
+
+0.51 
+
+σ= 0.03 
+
+1.58 
+
+σ= 2.15 
+
+Table B.3: Mean and std. dev. for feasibility (%), time (ms), and optimality gap for each method: Concentric Circles constraint family. 5 seeds, 300 problems each per problem per objective type. 18 Method Quadratic Linear Dist. Min. 
+
+↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap 
+
+Projected Gradient 100.0 
+
+σ= 0.0 
+
+38.41 
+
+σ= 39.50 
+
+0.34 
+
+σ= 0.41 
+
+100.0 
+
+σ= 0.0 
+
+18.99 
+
+σ= 10.97 
+
+0.78 
+
+σ= 0.69 
+
+100.0 
+
+σ= 0.0 
+
+31.18 
+
+σ= 27.47 
+
+1.01 
+
+σ= 1.86 
+
+Penalty Method 75.8 
+
+σ= 42.8 
+
+61.37 
+
+σ= 33.75 
+
+0.87 
+
+σ= 1.32 
+
+38.0 
+
+σ= 48.5 
+
+40.03 
+
+σ= 33.05 
+
+1.17 
+
+σ= 1.15 
+
+57.3 
+
+σ= 49.5 
+
+39.41 
+
+σ= 13.16 
+
+4.84 
+
+σ= 5.99 
+
+Augmented Lagrangian 75.0 
+
+σ= 43.3 
+
+70.70 
+
+σ= 74.02 
+
+0.89 
+
+σ= 1.38 
+
+40.4 
+
+σ= 49.1 
+
+39.49 
+
+σ= 20.97 
+
+1.19 
+
+σ= 1.10 
+
+58.1 
+
+σ= 49.3 
+
+48.25 
+
+σ= 32.70 
+
+4.99 
+
+σ= 6.17 
+
+> Classical
+
+Interior Point 96.6 
+
+σ= 18.1 
+
+70.65 
+
+σ= 75.77 
+
+1.77 
+
+σ= 1.99 
+
+92.9 
+
+σ= 25.7 
+
+40.25 
+
+σ= 21.66 
+
+1.45 
+
+σ= 1.46 
+
+95.0 
+
+σ= 21.8 
+
+53.22 
+
+σ= 62.60 
+
+9.43 
+
+σ= 8.70 
+
+Penalty NN 98.2 
+
+σ= 13.3 
+
+0.20 
+
+σ= 0.07 
+
+0.27 
+
+σ= 0.32 
+
+83.5 
+
+σ= 37.1 
+
+0.14 
+
+σ= 0.03 
+
+0.80 
+
+σ= 0.71 
+
+63.9 
+
+σ= 48.0 
+
+0.14 
+
+σ= 0.02 
+
+1.40 
+
+σ= 2.71 
+
+FSNet 99.9 
+
+σ= 3.6 
+
+3.13 
+
+σ= 3.00 
+
+1.03 
+
+σ= 1.91 
+
+99.7 
+
+σ= 5.2 
+
+3.76 
+
+σ= 2.06 
+
+1.05 
+
+σ= 1.04 
+
+99.7 
+
+σ= 5.2 
+
+5.41 
+
+σ= 11.90 
+
+7.24 
+
+σ= 7.61 
+
+Homeomorphic Projection 100.0 
+
+σ= 0.0 
+
+128.653 
+
+σ= 48.4 
+
+3.70 
+
+σ= 3.35 
+
+100.0 
+
+σ= 0.0 
+
+126.350 
+
+σ= 48.9 
+
+2.35 
+
+σ= 2.07 
+
+100.0 
+
+σ= 0.0 
+
+126.455 
+
+σ= 48.9 
+
+12.49 
+
+σ= 11.84 
+
+FAB 99.9 
+
+σ= 2.6 
+
+0.56 
+
+σ= 0.45 
+
+0.34 
+
+σ= 0.40 
+
+99.9 
+
+σ= 2.6 
+
+0.60 
+
+σ= 1.61 
+
+0.77 
+
+σ= 0.65 
+
+95.4 
+
+σ= 20.9 
+
+0.64 
+
+σ= 0.93 
+
+2.01 
+
+σ= 1.96 
+
+FAB: 2 Decoder 100.0 
+
+σ= 0.0 
+
+0.60 
+
+σ= 0.32 
+
+0.37 
+
+σ= 0.43 
+
+99.5 
+
+σ= 7.3 
+
+0.49 
+
+σ= 0.26 
+
+0.73 
+
+σ= 0.59 
+
+94.7 
+
+σ= 22.3 
+
+0.71 
+
+σ= 0.83 
+
+2.30 
+
+σ= 2.28 
+
+FAB: 3 Decoder 99.9 
+
+σ= 2.6 
+
+0.65 
+
+σ= 0.29 
+
+0.34 
+
+σ= 0.39 
+
+99.9 
+
+σ= 3.6 
+
+0.55 
+
+σ= 0.24 
+
+0.75 
+
+σ= 0.62 
+
+94.5 
+
+σ= 22.9 
+
+0.93 
+
+σ= 2.39 
+
+2.02 
+
+σ= 2.00 
+
+FAB: Phase 1 Only 100.0 
+
+σ= 0.0 
+
+0.61 
+
+σ= 0.08 
+
+0.34 
+
+σ= 0.41 
+
+100.0 
+
+σ= 0.0 
+
+0.54 
+
+σ= 0.08 
+
+0.76 
+
+σ= 0.65 
+
+100.0 
+
+σ= 0.0 
+
+0.53 
+
+σ= 0.08 
+
+3.05 
+
+σ= 3.04 
+
+FAB: No Hinge Loss 100.0 
+
+σ= 0.0 
+
+0.60 
+
+σ= 0.07 
+
+0.38 
+
+σ= 0.49 
+
+100.0 
+
+σ= 0.0 
+
+0.54 
+
+σ= 0.07 
+
+0.83 
+
+σ= 0.75 
+
+100.0 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.04 
+
+5.00 
+
+σ= 4.27 
+
+> ML-Based
+
+FAB: No Dξ
+
+100.0 
+
+σ= 0.0 
+
+0.86 
+
+σ= 2.05 
+
+0.35 
+
+σ= 0.40 
+
+100.0 
+
+σ= 0.0 
+
+0.54 
+
+σ= 0.07 
+
+0.78 
+
+σ= 0.65 
+
+96.8 
+
+σ= 17.6 
+
+0.52 
+
+σ= 0.04 
+
+1.62 
+
+σ= 1.64 
+
+Table B.4: Mean and std. dev. for feasibility (%), time (ms), and optimality gap for each method: Star Shaped constraint family. 5 seeds, 300 problems each per problem per objective type. 
+
+Constraint Dimension Quadratic Linear Dist. Min. 
+
+↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap 
+
+Penalty NN: 3D 86.6 
+
+σ= 34.1 
+
+0.12 
+
+σ= 0.06 
+
+1.6316 
+
+σ= 1.6897 
+
+77.8 
+
+σ= 41.6 
+
+0.08 
+
+σ= 0.02 
+
+1.5220 
+
+σ= 1.4711 
+
+55.0 
+
+σ= 49.7 
+
+0.09 
+
+σ= 0.03 
+
+6.8719 
+
+σ= 9.6887 
+
+Penalty NN: 5D 88.3 
+
+σ= 32.1 
+
+0.12 
+
+σ= 0.03 
+
+1.8296 
+
+σ= 1.7225 
+
+85.8 
+
+σ= 34.9 
+
+0.08 
+
+σ= 0.02 
+
+1.7951 
+
+σ= 1.1600 
+
+28.4 
+
+σ= 45.1 
+
+0.08 
+
+σ= 0.02 
+
+12.5372 
+
+σ= 12.5638 
+
+Penalty NN: 10D 64.3 
+
+σ= 47.9 
+
+0.13 
+
+σ= 0.09 
+
+3.1529 
+
+σ= 2.2872 
+
+80.4 
+
+σ= 39.7 
+
+0.09 
+
+σ= 0.05 
+
+3.6322 
+
+σ= 1.6177 
+
+0.5 
+
+σ= 7.3 
+
+0.08 
+
+σ= 0.01 
+
+49.9375 
+
+σ= 27.8050 
+
+FAB: 3D 100.00 
+
+σ= 0.00 
+
+0.81 
+
+σ= 0.01 
+
+2.08 
+
+σ= 1.74 
+
+99.47 
+
+σ= 0.07 
+
+0.77 
+
+σ= 0.04 
+
+1.66 
+
+σ= 1.40 
+
+97.67 
+
+σ= 0.15 
+
+0.80 
+
+σ= 0.04 
+
+6.28 
+
+σ= 6.98 
+
+FAB: 5D 90.50 
+
+σ= 0.32 
+
+0.83 
+
+σ= 0.03 
+
+2.08 
+
+σ= 1.52 
+
+95.20 
+
+σ= 0.22 
+
+0.74 
+
+σ= 0.02 
+
+1.94 
+
+σ= 1.20 
+
+96.47 
+
+σ= 0.18 
+
+0.77 
+
+σ= 0.04 
+
+4.30 
+
+σ= 4.77 
+
+FAB: 10D 100.00 
+
+σ= 0.00 
+
+0.81 
+
+σ= 0.01 
+
+10.97 
+
+σ= 6.45 
+
+100.00 
+
+σ= 0.00 
+
+0.74 
+
+σ= 0.01 
+
+1.94 
+
+σ= 1.48 
+
+100.00 
+
+σ= 0.00 
+
+0.74 
+
+σ= 0.01 
+
+12.69 
+
+σ= 8.96 
+
+Table B.5: Mean and std. dev. for feasibility (%), time (ms), and optimality gap for Penalty NN and FAB run on the 3-, 5-, and 10-dimensional hyperspherical shell constraint sets. 19 C ADDITIONAL ABLATIONS AND CONFIGURATIONS 
+
+In Tables C.6–C.9, we provide results for two additional types of variants of our FAB method for the 2-dimensional constrained optimization settings: • Incomplete coverage ablations test the performance of our method when the training data only consists of part of the constraint set (10%, 25%, 50%, and 75%). • Decoder capacity experiments test the performance of multiple decoder depth and width configu-rations. W indicates decoder width, while D indicates decoder depth. For the incomplete coverage ablations, we find that FAB is generally able to maintain feasibility even when the feasible set is not fully covered during training, achieving relatively high feasibility rates across all ablations (with the lowest being 80.1 ± 0.0% for Concentric Circles Cov-75 and 76.5 ± 24.7% for Two Moons Cov-25, and with other scores all above 90% and largely at 100%). Notably, the 10% coverage ablation achieves 100% feasibility across all feasibility sets, likely because the feasibility sets may become topologically simpler if the coverage is low enough, which means they are easier for the autoencoder to learn. Optimality gaps vary across the experiments, depending on whether the optimal solution happens to lie within the part of the constraint set that is sampled. (The reported optimality gaps also vary based on whether feasibility is maintained, as infeasible solutions can achieve artificially low “optimality gaps.”) Overall, we find that while perfect coverage of the constraint set is not necessary, better coverage of the constraint set during training unsurprisingly enables better representation of the full constraint set and thereby better end-to-end learning outcomes in general. For the decoder capacity experiments, we find that performance varies depending on the problem type. Therefore, while we did not systematically tune the decoder width and depth during our main experiments, tuning these parameters may indeed be beneficial in general for overall performance. 20 Method Quadratic Linear Dist. Min. 
+
+↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap 
+
+Cov-10 100.0 
+
+σ= 0.0 
+
+1.12 
+
+σ= 1.10 
+
+0.82 
+
+σ= 1.02 
+
+100.0 
+
+σ= 0.0 
+
+0.87 
+
+σ= 0.04 
+
+1.53 
+
+σ= 1.39 
+
+100.0 
+
+σ= 0.0 
+
+0.85 
+
+σ= 0.04 
+
+10.25 
+
+σ= 7.33 
+
+Cov-25 100.0 
+
+σ= 0.0 
+
+1.08 
+
+σ= 0.09 
+
+0.81 
+
+σ= 1.01 
+
+100.0 
+
+σ= 0.0 
+
+0.86 
+
+σ= 0.01 
+
+1.52 
+
+σ= 1.39 
+
+100.0 
+
+σ= 0.0 
+
+0.85 
+
+σ= 0.03 
+
+10.15 
+
+σ= 7.20 
+
+Cov-50 100.0 
+
+σ= 0.0 
+
+1.08 
+
+σ= 0.09 
+
+0.80 
+
+σ= 0.98 
+
+100.0 
+
+σ= 0.0 
+
+0.86 
+
+σ= 0.01 
+
+1.47 
+
+σ= 1.30 
+
+100.0 
+
+σ= 0.0 
+
+0.85 
+
+σ= 0.03 
+
+9.15 
+
+σ= 6.97 
+
+> Incomplete Coverage
+
+Cov-75 100.0 
+
+σ= 0.0 
+
+1.08 
+
+σ= 0.09 
+
+0.81 
+
+σ= 1.01 
+
+100.0 
+
+σ= 0.0 
+
+0.86 
+
+σ= 0.03 
+
+1.52 
+
+σ= 1.38 
+
+100.0 
+
+σ= 0.0 
+
+0.85 
+
+σ= 0.03 
+
+9.46 
+
+σ= 6.86 
+
+W32-D2 99.5 
+
+σ= 6.8 
+
+1.09 
+
+σ= 1.48 
+
+0.62 
+
+σ= 0.80 
+
+98.5 
+
+σ= 12.0 
+
+0.79 
+
+σ= 0.03 
+
+1.21 
+
+σ= 1.03 
+
+72.5 
+
+σ= 44.6 
+
+0.80 
+
+σ= 0.03 
+
+6.36 
+
+σ= 5.14 
+
+W32-D4 98.6 
+
+σ= 11.8 
+
+1.11 
+
+σ= 0.08 
+
+0.67 
+
+σ= 0.88 
+
+98.5 
+
+σ= 12.3 
+
+0.86 
+
+σ= 0.03 
+
+1.35 
+
+σ= 1.23 
+
+77.3 
+
+σ= 41.9 
+
+0.88 
+
+σ= 0.03 
+
+9.52 
+
+σ= 7.37 
+
+W32-D6 99.4 
+
+σ= 7.7 
+
+1.17 
+
+σ= 0.08 
+
+0.72 
+
+σ= 0.81 
+
+98.7 
+
+σ= 11.5 
+
+0.93 
+
+σ= 0.03 
+
+1.20 
+
+σ= 1.06 
+
+96.8 
+
+σ= 17.6 
+
+0.95 
+
+σ= 0.03 
+
+6.54 
+
+σ= 5.17 
+
+W64-D2 100.0 
+
+σ= 0.0 
+
+1.03 
+
+σ= 0.07 
+
+0.58 
+
+σ= 0.77 
+
+100.0 
+
+σ= 0.0 
+
+0.79 
+
+σ= 0.03 
+
+1.17 
+
+σ= 0.99 
+
+100.0 
+
+σ= 0.0 
+
+0.80 
+
+σ= 0.02 
+
+6.19 
+
+σ= 5.09 
+
+W64-D6 67.3 
+
+σ= 46.9 
+
+1.16 
+
+σ= 0.08 
+
+0.76 
+
+σ= 0.93 
+
+68.6 
+
+σ= 46.4 
+
+0.93 
+
+σ= 0.03 
+
+1.42 
+
+σ= 1.28 
+
+52.2 
+
+σ= 50.0 
+
+0.94 
+
+σ= 0.02 
+
+7.10 
+
+σ= 5.50 
+
+W128-D2 99.9 
+
+σ= 3.7 
+
+1.04 
+
+σ= 0.07 
+
+0.57 
+
+σ= 0.76 
+
+99.7 
+
+σ= 5.2 
+
+0.79 
+
+σ= 0.03 
+
+1.22 
+
+σ= 1.03 
+
+95.3 
+
+σ= 21.2 
+
+0.80 
+
+σ= 0.02 
+
+6.13 
+
+σ= 5.08 
+
+W128-D4 100.0 
+
+σ= 0.0 
+
+1.10 
+
+σ= 0.07 
+
+0.82 
+
+σ= 0.98 
+
+100.0 
+
+σ= 0.0 
+
+0.86 
+
+σ= 0.03 
+
+1.51 
+
+σ= 1.36 
+
+100.0 
+
+σ= 0.0 
+
+0.87 
+
+σ= 0.02 
+
+9.70 
+
+σ= 7.01 
+
+> Decoder capacity
+
+W128-D6 100.0 
+
+σ= 0.0 
+
+1.16 
+
+σ= 0.08 
+
+0.82 
+
+σ= 1.02 
+
+100.0 
+
+σ= 0.0 
+
+0.93 
+
+σ= 0.03 
+
+1.55 
+
+σ= 1.41 
+
+100.0 
+
+σ= 0.0 
+
+0.94 
+
+σ= 0.06 
+
+10.26 
+
+σ= 7.38 
+
+Table C.6: Mean and std. dev. for feasibility (%), time (ms), and optimality gap for each ablation: Blob with Bite. 21 Method Quadratic Linear Dist. Min. 
+
+↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap 
+
+Cov-10 100.0 
+
+σ= 0.0 
+
+1.37 
+
+σ= 0.33 
+
+1.62 
+
+σ= 1.54 
+
+100.0 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.04 
+
+1.70 
+
+σ= 1.61 
+
+100.0 
+
+σ= 0.0 
+
+0.53 
+
+σ= 0.03 
+
+11.54 
+
+σ= 9.31 
+
+Cov-25 100.0 
+
+σ= 0.0 
+
+1.36 
+
+σ= 0.12 
+
+2.75 
+
+σ= 2.42 
+
+100.0 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.02 
+
+1.69 
+
+σ= 1.60 
+
+100.0 
+
+σ= 0.0 
+
+0.54 
+
+σ= 0.47 
+
+10.71 
+
+σ= 9.97 
+
+Cov-50 100.0 
+
+σ= 0.0 
+
+1.36 
+
+σ= 0.13 
+
+2.43 
+
+σ= 2.16 
+
+100.0 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.02 
+
+1.60 
+
+σ= 1.51 
+
+100.0 
+
+σ= 0.0 
+
+0.53 
+
+σ= 0.02 
+
+9.69 
+
+σ= 11.02 
+
+> Incomplete Coverage
+
+Cov-75 80.1 
+
+σ= 0.0 
+
+1.34 
+
+σ= 0.14 
+
+1.39 
+
+σ= 1.38 
+
+84.3 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.02 
+
+1.16 
+
+σ= 1.02 
+
+35.5 
+
+σ= 0.0 
+
+0.53 
+
+σ= 0.02 
+
+4.29 
+
+σ= 5.27 
+
+W32-D2 99.5 
+
+σ= 0.0 
+
+0.94 
+
+σ= 0.37 
+
+0.95 
+
+σ= 0.80 
+
+94.5 
+
+σ= 0.0 
+
+0.48 
+
+σ= 0.02 
+
+1.18 
+
+σ= 0.89 
+
+14.7 
+
+σ= 0.0 
+
+0.47 
+
+σ= 0.02 
+
+1.82 
+
+σ= 1.65 
+
+W32-D4 99.0 
+
+σ= 0.0 
+
+0.97 
+
+σ= 0.19 
+
+1.36 
+
+σ= 1.31 
+
+95.8 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.01 
+
+1.32 
+
+σ= 1.11 
+
+23.7 
+
+σ= 0.0 
+
+0.51 
+
+σ= 0.01 
+
+3.75 
+
+σ= 6.07 
+
+W32-D6 99.1 
+
+σ= 0.0 
+
+1.02 
+
+σ= 0.19 
+
+1.33 
+
+σ= 1.27 
+
+91.0 
+
+σ= 0.0 
+
+0.55 
+
+σ= 0.01 
+
+1.27 
+
+σ= 1.08 
+
+23.0 
+
+σ= 0.0 
+
+0.55 
+
+σ= 0.01 
+
+3.17 
+
+σ= 5.37 
+
+W64-D2 98.7 
+
+σ= 0.0 
+
+0.94 
+
+σ= 0.19 
+
+0.96 
+
+σ= 0.83 
+
+95.3 
+
+σ= 0.0 
+
+0.47 
+
+σ= 0.01 
+
+1.19 
+
+σ= 0.86 
+
+14.7 
+
+σ= 0.0 
+
+0.47 
+
+σ= 0.01 
+
+1.44 
+
+σ= 1.00 
+
+W64-D4 98.7 
+
+σ= 0.0 
+
+0.98 
+
+σ= 0.19 
+
+1.25 
+
+σ= 1.16 
+
+98.1 
+
+σ= 0.0 
+
+0.51 
+
+σ= 0.01 
+
+1.38 
+
+σ= 1.23 
+
+24.5 
+
+σ= 0.0 
+
+0.51 
+
+σ= 0.01 
+
+3.08 
+
+σ= 4.28 
+
+W64-D6 98.9 
+
+σ= 0.0 
+
+1.01 
+
+σ= 0.18 
+
+1.38 
+
+σ= 1.30 
+
+94.1 
+
+σ= 0.0 
+
+0.55 
+
+σ= 0.01 
+
+1.30 
+
+σ= 1.10 
+
+21.1 
+
+σ= 0.0 
+
+0.55 
+
+σ= 0.01 
+
+2.89 
+
+σ= 3.90 
+
+W128-D2 99.9 
+
+σ= 0.0 
+
+0.93 
+
+σ= 0.19 
+
+1.40 
+
+σ= 1.32 
+
+98.3 
+
+σ= 0.0 
+
+0.48 
+
+σ= 0.01 
+
+1.43 
+
+σ= 1.25 
+
+27.3 
+
+σ= 0.0 
+
+0.48 
+
+σ= 0.01 
+
+3.91 
+
+σ= 5.96 
+
+W128-D4 98.8 
+
+σ= 0.0 
+
+0.99 
+
+σ= 0.20 
+
+1.32 
+
+σ= 1.22 
+
+94.1 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.01 
+
+1.36 
+
+σ= 1.18 
+
+21.7 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.01 
+
+2.95 
+
+σ= 3.96 
+
+> Decoder capacity
+
+W128-D6 99.5 
+
+σ= 0.0 
+
+1.03 
+
+σ= 0.21 
+
+1.35 
+
+σ= 1.30 
+
+96.9 
+
+σ= 0.0 
+
+0.56 
+
+σ= 0.01 
+
+1.40 
+
+σ= 1.22 
+
+16.4 
+
+σ= 0.0 
+
+0.56 
+
+σ= 0.01 
+
+3.22 
+
+σ= 5.07 
+
+Table C.7: Mean and std. dev. for feasibility (%), time (ms), and optimality gap for each ablation: Concentric Circles. 22 Method Quadratic Linear Dist. Min. 
+
+↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap 
+
+Cov-10 100.0 
+
+σ= 0.0 
+
+1.06 
+
+σ= 0.11 
+
+1.30 
+
+σ= 1.25 
+
+100.0 
+
+σ= 0.0 
+
+0.87 
+
+σ= 0.02 
+
+1.43 
+
+σ= 1.40 
+
+100.0 
+
+σ= 0.0 
+
+0.88 
+
+σ= 0.03 
+
+9.57 
+
+σ= 7.80 
+
+Cov-25 100.0 
+
+σ= 0.0 
+
+1.04 
+
+σ= 0.09 
+
+1.21 
+
+σ= 1.36 
+
+100.0 
+
+σ= 0.0 
+
+0.86 
+
+σ= 0.01 
+
+1.00 
+
+σ= 0.99 
+
+100.0 
+
+σ= 0.0 
+
+0.87 
+
+σ= 0.02 
+
+5.31 
+
+σ= 4.25 
+
+Cov-50 100.0 
+
+σ= 0.0 
+
+1.05 
+
+σ= 0.09 
+
+0.84 
+
+σ= 0.93 
+
+100.0 
+
+σ= 0.0 
+
+0.86 
+
+σ= 0.01 
+
+0.92 
+
+σ= 0.91 
+
+100.0 
+
+σ= 0.0 
+
+0.87 
+
+σ= 0.03 
+
+5.93 
+
+σ= 5.43 
+
+> Incomplete Coverage
+
+Cov-75 100.0 
+
+σ= 0.0 
+
+1.05 
+
+σ= 0.09 
+
+0.75 
+
+σ= 0.78 
+
+100.0 
+
+σ= 0.0 
+
+0.86 
+
+σ= 0.01 
+
+0.82 
+
+σ= 0.75 
+
+100.0 
+
+σ= 0.0 
+
+0.87 
+
+σ= 0.03 
+
+4.72 
+
+σ= 4.39 
+
+W32-D2 100.0 
+
+σ= 0.0 
+
+1.01 
+
+σ= 0.11 
+
+0.41 
+
+σ= 0.48 
+
+100.0 
+
+σ= 0.0 
+
+0.81 
+
+σ= 0.03 
+
+0.76 
+
+σ= 0.66 
+
+100.0 
+
+σ= 0.0 
+
+0.81 
+
+σ= 0.03 
+
+3.66 
+
+σ= 3.48 
+
+W32-D4 100.0 
+
+σ= 0.0 
+
+1.07 
+
+σ= 0.09 
+
+0.37 
+
+σ= 0.44 
+
+100.0 
+
+σ= 0.0 
+
+0.88 
+
+σ= 0.05 
+
+0.79 
+
+σ= 0.68 
+
+100.0 
+
+σ= 0.0 
+
+0.88 
+
+σ= 0.04 
+
+3.55 
+
+σ= 3.46 
+
+W32-D6 100.0 
+
+σ= 0.0 
+
+1.13 
+
+σ= 0.09 
+
+0.39 
+
+σ= 0.46 
+
+100.0 
+
+σ= 0.0 
+
+0.95 
+
+σ= 0.03 
+
+0.77 
+
+σ= 0.66 
+
+100.0 
+
+σ= 0.0 
+
+0.95 
+
+σ= 0.02 
+
+3.77 
+
+σ= 3.58 
+
+W64-D2 100.0 
+
+σ= 0.0 
+
+1.00 
+
+σ= 0.09 
+
+0.39 
+
+σ= 0.46 
+
+100.0 
+
+σ= 0.0 
+
+0.80 
+
+σ= 0.02 
+
+0.76 
+
+σ= 0.65 
+
+100.0 
+
+σ= 0.0 
+
+0.81 
+
+σ= 0.02 
+
+3.74 
+
+σ= 3.54 
+
+W64-D6 100.0 
+
+σ= 0.0 
+
+1.14 
+
+σ= 0.09 
+
+0.87 
+
+σ= 1.10 
+
+100.0 
+
+σ= 0.0 
+
+0.95 
+
+σ= 0.03 
+
+1.06 
+
+σ= 1.11 
+
+100.0 
+
+σ= 0.0 
+
+0.95 
+
+σ= 0.02 
+
+7.90 
+
+σ= 7.51 
+
+W128-D2 100.0 
+
+σ= 0.0 
+
+0.99 
+
+σ= 0.09 
+
+0.38 
+
+σ= 0.44 
+
+100.0 
+
+σ= 0.0 
+
+0.81 
+
+σ= 0.02 
+
+0.77 
+
+σ= 0.67 
+
+100.0 
+
+σ= 0.0 
+
+0.81 
+
+σ= 0.02 
+
+3.62 
+
+σ= 3.48 
+
+W128-D4 100.0 
+
+σ= 0.0 
+
+1.05 
+
+σ= 0.09 
+
+0.38 
+
+σ= 0.44 
+
+100.0 
+
+σ= 0.0 
+
+0.88 
+
+σ= 0.01 
+
+0.83 
+
+σ= 0.73 
+
+100.0 
+
+σ= 0.0 
+
+0.88 
+
+σ= 0.02 
+
+3.51 
+
+σ= 3.34 
+
+> Decoder capacity
+
+W128-D6 100.0 
+
+σ= 0.0 
+
+1.14 
+
+σ= 0.09 
+
+0.37 
+
+σ= 0.44 
+
+100.0 
+
+σ= 0.0 
+
+0.96 
+
+σ= 0.01 
+
+0.74 
+
+σ= 0.63 
+
+100.0 
+
+σ= 0.0 
+
+0.95 
+
+σ= 0.02 
+
+3.40 
+
+σ= 3.39 
+
+Table C.8: Mean and std. dev. for feasibility (%), time (ms), and optimality gap for each ablation: Star Shaped. 23 Method Quadratic Linear Dist. Min. 
+
+↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap ↑ Feas (%) ↓ Time (ms) ↓ Gap 
+
+Cov-10 100.0 
+
+σ= 0.0 
+
+1.48 
+
+σ= 1.05 
+
+1.64 
+
+σ= 1.50 
+
+100.0 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.04 
+
+1.70 
+
+σ= 1.61 
+
+100.0 
+
+σ= 0.0 
+
+0.53 
+
+σ= 0.03 
+
+11.54 
+
+σ= 9.31 
+
+Cov-25 76.5 
+
+σ= 24.7 
+
+1.46 
+
+σ= 0.15 
+
+2.15 
+
+σ= 1.92 
+
+81.1 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.02 
+
+1.69 
+
+σ= 1.60 
+
+50.5 
+
+σ= 0.0 
+
+0.54 
+
+σ= 0.47 
+
+10.71 
+
+σ= 9.97 
+
+Cov-50 92.7 
+
+σ= 26.5 
+
+1.45 
+
+σ= 0.11 
+
+0.82 
+
+σ= 0.90 
+
+100.0 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.02 
+
+1.60 
+
+σ= 1.51 
+
+64.4 
+
+σ= 0.0 
+
+0.53 
+
+σ= 0.02 
+
+9.69 
+
+σ= 11.02 
+
+> Incomplete Coverage
+
+Cov-75 91.2 
+
+σ= 28.3 
+
+1.46 
+
+σ= 0.13 
+
+0.90 
+
+σ= 1.02 
+
+84.3 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.02 
+
+1.16 
+
+σ= 1.02 
+
+23.1 
+
+σ= 0.0 
+
+0.53 
+
+σ= 0.02 
+
+4.29 
+
+σ= 5.27 
+
+W32-D2 99.5 
+
+σ= 0.0 
+
+0.94 
+
+σ= 0.37 
+
+0.95 
+
+σ= 0.80 
+
+94.5 
+
+σ= 0.0 
+
+0.48 
+
+σ= 0.02 
+
+1.18 
+
+σ= 0.89 
+
+14.7 
+
+σ= 0.0 
+
+0.47 
+
+σ= 0.02 
+
+1.82 
+
+σ= 1.65 
+
+W32-D4 99.0 
+
+σ= 0.0 
+
+0.97 
+
+σ= 0.19 
+
+1.36 
+
+σ= 1.31 
+
+95.8 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.01 
+
+1.32 
+
+σ= 1.11 
+
+23.7 
+
+σ= 0.0 
+
+0.51 
+
+σ= 0.01 
+
+3.75 
+
+σ= 6.07 
+
+W32-D6 99.1 
+
+σ= 0.0 
+
+1.02 
+
+σ= 0.19 
+
+1.33 
+
+σ= 1.27 
+
+91.0 
+
+σ= 0.0 
+
+0.55 
+
+σ= 0.01 
+
+1.27 
+
+σ= 1.08 
+
+23.0 
+
+σ= 0.0 
+
+0.55 
+
+σ= 0.01 
+
+3.17 
+
+σ= 5.37 
+
+W64-D2 98.7 
+
+σ= 0.0 
+
+0.94 
+
+σ= 0.19 
+
+0.96 
+
+σ= 0.83 
+
+95.3 
+
+σ= 0.0 
+
+0.47 
+
+σ= 0.01 
+
+1.19 
+
+σ= 0.86 
+
+14.7 
+
+σ= 0.0 
+
+0.47 
+
+σ= 0.01 
+
+1.44 
+
+σ= 1.00 
+
+W64-D4 98.7 
+
+σ= 0.0 
+
+0.98 
+
+σ= 0.19 
+
+1.25 
+
+σ= 1.16 
+
+98.1 
+
+σ= 0.0 
+
+0.51 
+
+σ= 0.01 
+
+1.38 
+
+σ= 1.23 
+
+24.5 
+
+σ= 0.0 
+
+0.51 
+
+σ= 0.01 
+
+3.08 
+
+σ= 4.28 
+
+W64-D6 98.9 
+
+σ= 0.0 
+
+1.01 
+
+σ= 0.18 
+
+1.38 
+
+σ= 1.30 
+
+94.1 
+
+σ= 0.0 
+
+0.55 
+
+σ= 0.01 
+
+1.30 
+
+σ= 1.10 
+
+21.1 
+
+σ= 0.0 
+
+0.55 
+
+σ= 0.01 
+
+2.89 
+
+σ= 3.90 
+
+W128-D2 99.9 
+
+σ= 0.0 
+
+0.93 
+
+σ= 0.19 
+
+1.40 
+
+σ= 1.32 
+
+98.3 
+
+σ= 0.0 
+
+0.48 
+
+σ= 0.01 
+
+1.43 
+
+σ= 1.25 
+
+27.3 
+
+σ= 0.0 
+
+0.48 
+
+σ= 0.01 
+
+3.91 
+
+σ= 5.96 
+
+W128-D4 98.8 
+
+σ= 0.0 
+
+0.99 
+
+σ= 0.20 
+
+1.32 
+
+σ= 1.22 
+
+94.1 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.01 
+
+1.36 
+
+σ= 1.18 
+
+21.7 
+
+σ= 0.0 
+
+0.52 
+
+σ= 0.01 
+
+2.95 
+
+σ= 3.96 
+
+> Decoder capacity
+
+W128-D6 99.5 
+
+σ= 0.0 
+
+1.03 
+
+σ= 0.21 
+
+1.35 
+
+σ= 1.30 
+
+96.9 
+
+σ= 0.0 
+
+0.56 
+
+σ= 0.01 
+
+1.40 
+
+σ= 1.22 
+
+16.4 
+
+σ= 0.0 
+
+0.56 
+
+σ= 0.01 
+
+3.22 
+
+σ= 5.07 
+
+Table C.9: Mean and std. dev. for feasibility (%), time (ms), and optimality gap for each ablation: Two Moons. 
+
+## D STATEMENT ON USE OF LARGE LANGUAGE MODELS (LLM S)
+
+LLMs did not play a significant role in research ideation and/or writing for this paper. Perplexity was used to facilitate literature discovery as part of the research process, alongside other (non-LLM-based) tools. LLMs were also used to aid in sentence-level rewording for a small number of sentences during the preparation of this manuscript. 24
