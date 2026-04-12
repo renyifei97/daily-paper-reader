@@ -1,0 +1,504 @@
+Title: Supervised Dimensionality Reduction Revisited: Why LDA on Frozen CNN Features Deserves a Second Look
+
+URL Source: https://arxiv.org/pdf/2604.03928v1
+
+Published Time: Tue, 07 Apr 2026 00:50:12 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+> 1
+
+# Supervised Dimensionality Reduction Revisited: Why LDA on Frozen CNN Features Deserves a Second Look 
+
+Indar Kumar, Girish Karhana, Sai Krishna Jasti, and Ankit Hemant Lade 
+
+Abstract —Transfer learning with frozen pretrained convolu-tional neural networks (CNNs) has become standard practice for image classification when labeled data or computational budgets are limited. The dominant pipeline extracts high-dimensional feature vectors from a penultimate layer and feeds them directly to a linear classifier. We investigate a question that has received surprisingly little systematic attention in the literature: whether reducing the dimensionality of these features before classification improves downstream accuracy, and if so, which method should be preferred. 
+
+Through controlled experiments spanning four back-bone architectures (ResNet-18, ResNet-50, MobileNetV3-Small, EfficientNet-B0), two datasets (CIFAR-100 and Tiny ImageNet), and ten dimensionality reduction strategies, we find that clas-sical Linear Discriminant Analysis (LDA) consistently improves 
+
+classification accuracy over full-dimensional features—by up to 4.6 percentage points—while reducing feature dimensionality by 61–95%. This improvement is statistically significant ( p < 0.001 ,paired t-test, 5 seeds) across all eight backbone–dataset configu-rations. LDA outperforms unsupervised PCA in 7 of 8 settings and dominates more complex alternatives including Local Fisher Discriminant Analysis and Neighbourhood Components Analysis in both accuracy and computational cost. We further introduce two lightweight extensions—Residual Discriminant Augmenta-tion (RDA) and Discriminant Subspace Boosting (DSB)—that yield an additional 0.2–0.4% accuracy at the cost of doubled computation time, though standard LDA suffices in most prac-tical scenarios. We derive concrete guidelines for practitioners: when to prefer LDA over PCA, how many components to retain, at what dataset sizes the crossover occurs, and which backbone–dataset combinations benefit most. Our results indicate that supervised dimensionality reduction has been undervalued in the transfer learning pipeline, and that a well-configured LDA projection step should be considered standard practice for frozen-feature classification. 
+
+Index Terms —Dimensionality reduction, linear discriminant analysis, transfer learning, image classification, frozen features, computational efficiency. 
+
+I. I NTRODUCTION 
+
+The transfer learning paradigm has fundamentally changed how practitioners approach image classification. Rather than training a deep network from scratch on a target task, the stan-dard recipe is to take a network pretrained on ImageNet [1], freeze its weights, extract feature vectors from a late layer, and train a lightweight classifier on top [2]–[4]. This frozen-feature approach is attractive when labeled data is scarce, when 
+
+Manuscript submitted for review. I. Kumar, G. Karhana, S. K. Jasti, and A. H. Lade are independent researchers (e-mail: indark-arhana@gmail.com, girishkarhana8@gmail.com, jsaikrishna379@gmail.com, ankitlade12@gmail.com). 
+
+computational resources are limited, or when rapid iteration across many target tasks is needed. A frozen ResNet-18, for instance, produces 512-dimensional feature vectors; a ResNet-50 produces 2048-dimensional vectors. These vectors are then fed to a logistic regression or small MLP. What is rarely questioned is whether the full feature vector is the right input to the downstream classifier. After all, these features were optimized for 1000-way ImageNet classification. When the target task has far fewer classes—100 in CIFAR-100, 200 in Tiny ImageNet—the features live in a space whose intrinsic dimensionality may be much lower than the ambient one. Dimensionality reduction before classification is one of the oldest ideas in pattern recognition. Principal Component Analysis (PCA) [5], [6] finds directions of maximal variance; Linear Discriminant Analysis (LDA) [7], [8] finds directions that maximize the ratio of between-class to within-class scatter. Both are textbook methods dating to the early twentieth century. Yet despite the extensive body of work on transfer learning, applying LDA to frozen CNN features as a post-hoc step has received minimal investigation. Heras and de Polavieja [9] demonstrated that LDA on pretrained features preserves class structure, but their evaluation was limited to modified MNIST and a small butterfly dataset with a single backbone and no multi-method comparison. A systematic empirical study spanning modern architectures, challenging multi-class benchmarks, and competing reduction methods has, to our knowledge, not been conducted. Our experiments demonstrate that the answer is affirmative, and the improvement is both consistent and practically signifi-cant. Across all eight combinations of four backbones and two datasets, LDA reduces feature dimensionality by 61–95% and improves accuracy over the full-feature baseline by 0.3 to 4.6 percentage points ( p < 0.001 ). To illustrate the magnitude: on MobileNetV3-Small with Tiny ImageNet, full features achieve 59.2% accuracy in 576 dimensions; LDA achieves 63.4% in 199 dimensions—a gain of 4.1 points with a 65% reduction in dimensionality. The underlying mechanism is well understood in principle. LDA projects features onto the subspace that best separates the target classes, discarding feature dimensions that carry noise or information relevant to ImageNet but not to the target task. The result is an implicit form of regularization: the downstream classifier operates in a lower-dimensional, more discriminative space. This intuition dates to Fisher’s original formulation [7], but its empirical strength in the modern transfer learning 
+
+> arXiv:2604.03928v1 [cs.LG] 5 Apr 2026 2
+
+setting—where features are extracted from networks trained on 1,000 categories and applied to far smaller target label sets—has not been systematically documented. 
+
+A. Contributions 
+
+This paper makes the following contributions: 1) We present a comprehensive empirical study of dimen-sionality reduction in the frozen-feature transfer learning pipeline, comparing ten methods across four CNN back-bones and two datasets. To our knowledge, this is the most extensive controlled comparison of dimensionality reduction methods applied to frozen CNN features to date. 2) We establish that LDA improves accuracy over full features in all eight backbone–dataset configurations tested, with statistical significance ( p < 0.001 ). This finding challenges the implicit assumption that more dimensions are always better. 3) We benchmark LDA against published alternatives— Regularized LDA [10], Local Fisher Discriminant Analysis (LFDA) [11], and Neighbourhood Components Analysis (NCA) [12]—and show that plain LDA achieves the best accuracy-to-cost ratio in the majority of configurations. 4) We introduce two lightweight extensions—Residual Dis-criminant Augmentation (RDA) and Discriminant Sub-space Boosting (DSB)—and characterize the regimes where they offer marginal gains over standard LDA. 5) We derive practical guidelines covering backbone selection, the number of components to retain, training set size requirements, and the accuracy–speed tradeoff, aimed at practitioners who use frozen features in production or research. The rest of this paper is organized as follows. Section II reviews related work on dimensionality reduction and transfer learning. Section III formalizes the problem and describes the methods compared, including the two proposed extensions. Section IV presents the experimental setup and main results. Section V provides deeper analysis including statistical testing, data efficiency, computational costs, and practitioner guide-lines. Section VI concludes. II. R ELATED WORK 
+
+Our work sits at the intersection of three research threads: transfer learning with frozen features, supervised dimension-ality reduction, and the recent literature on efficient inference. We review each in turn. 
+
+A. Transfer Learning and Linear Probing 
+
+Using pretrained networks as fixed feature extractors was among the earliest demonstrations of deep transfer learning. Donahue et al. [2] showed that features from a network trained on ImageNet generalize across visual recognition tasks. Sharif Razavian et al. [3] extended this observation systematically, establishing that “CNN features off-the-shelf” are strong base-lines for a range of tasks. Kornblith et al. [4] later stud-ied the correlation between ImageNet accuracy and transfer performance, using logistic regression on frozen features as their evaluation protocol. Ericsson et al. [13] benchmarked self-supervised representations using the same linear probing methodology. A notable gap in this literature is the treatment of feature dimensionality. All of the studies above feed the full feature vector to the linear classifier. To the best of our knowledge, none systematically evaluates whether intermediate dimen-sionality reduction improves the downstream task. The few that mention dimensionality do so in passing—Kornblith et al. observe that higher-dimensional models tend to transfer better, but do not test whether reducing dimensions of a fixed model’s features can be beneficial. 
+
+B. Linear Discriminant Analysis 
+
+LDA, introduced by Fisher [7] and extended to multiple classes by Rao [8], remains one of the most widely used supervised dimensionality reduction methods. It seeks a linear projection that maximizes the ratio of between-class scatter Sb
+
+to within-class scatter Sw:
+
+W∗ = arg max 
+
+> W
+
+|W⊤SbW||W⊤SwW| . (1) The solution consists of the leading eigenvectors of S−1 
+
+> w
+
+Sb,yielding at most C − 1 discriminant directions for C classes. LDA’s well-known limitations include the Gaussian class-conditional assumption, sensitivity to singular or ill-conditioned scatter matrices, and the hard cap of C − 1
+
+components. Several extensions address these issues. Reg-ularized LDA [10] replaces Sw with a shrinkage estimate 
+
+(1 − λ)Sw + λI to stabilize inversion. Penalized Discrim-inant Analysis [14] imposes smoothness constraints. Kernel LDA [15] handles nonlinear class boundaries. Heteroscedastic extensions [16] relax the equal-covariance assumption. Recent work by Li et al. [17] surveys these and other variants. In the context of deep features, LDA has been used pri-marily during training—for example, as a regularizer in loss functions [18] or in metric learning objectives [19]. The simple approach of applying LDA after feature extraction, as a post-hoc dimensionality reduction step, has received little attention. The closest precedent is Heras and de Polavieja [9], who applied LDA to pretrained CNN features and demonstrated that the resulting low-dimensional embeddings preserve mean-ingful class structure. However, their study was limited to modified MNIST and a small butterfly dataset, used a single backbone, and did not benchmark against other reduction methods or report classification accuracy with statistical con-trols. Our work extends this line of inquiry to challenging 100-and 200-class benchmarks, four architectures, ten competing methods, and rigorous five-seed evaluation with significance testing. 
+
+C. Local Fisher Discriminant Analysis 
+
+LFDA, proposed by Sugiyama [11], addresses the multi-modal limitation of LDA by incorporating local structure. It uses an affinity matrix derived from nearest-neighbor distances to weight the scatter matrices, preserving the local geometry of each class. While theoretically appealing, LFDA introduces 3
+
+a hyperparameter (the number of neighbors) and incurs higher computational cost due to the k-NN graph construction. Our experiments show that this additional complexity does not translate into accuracy gains on frozen CNN features (Sec-tion IV). 
+
+D. Neighbourhood Components Analysis 
+
+NCA [12] takes a different approach: it learns a linear transformation that maximizes a differentiable approximation to leave-one-out k-NN accuracy. This makes NCA a metric learning method rather than a projection-based one. While NCA can discover task-specific feature transformations, it is notoriously slow to train—in our experiments, NCA is 10– 25 × slower than LDA for negligible or negative accuracy differences. 
+
+E. PCA as a Baseline 
+
+PCA [5] is the standard unsupervised baseline for dimen-sionality reduction. It finds orthogonal directions of maximum variance, discarding low-variance dimensions. In the transfer learning setting, PCA is sometimes used as a preprocessing step [3] but is rarely compared systematically against super-vised alternatives like LDA. An important question that our study addresses is whether the label information used by LDA provides a meaningful advantage over PCA’s purely variance-based criterion. 
+
+F. Efficient Inference and Model Compression 
+
+Our work is tangentially related to the literature on effi-cient inference. Knowledge distillation [20], pruning [21], and quantization [22] reduce the cost of running the backbone itself. Our approach is complementary: we reduce the cost of the downstream classifier by operating in a lower-dimensional feature space. This is particularly relevant in settings where the backbone is a fixed, deployed model and only the clas-sification head can be modified—a common scenario in edge deployment and multi-task systems. III. M ETHOD 
+
+We begin by formalizing the frozen-feature classification pipeline, then describe each dimensionality reduction method evaluated in this study, and finally present two extensions we propose. 
+
+A. Problem Setting 
+
+Let fθ : X → RD denote a CNN backbone with frozen weights θ, pretrained on ImageNet [1]. Given a target dataset {(xi, y i)}Ni=1 with C classes, we extract features 
+
+zi = fθ (xi) ∈ RD and seek a projection W ∈ RD×d (with 
+
+d ≪ D) such that a linear classifier trained on the projected features W⊤zi ∈ Rd achieves high accuracy on held-out data. The pipeline is: Image fθ
+
+−→ Feature (D-dim) W
+
+−−→ Reduced Feature (d-dim) g
+
+−→ Prediction .For the classifier g, we use ℓ2-regularized logistic regression throughout, with identical hyperparameters across all methods. This isolates the effect of the dimensionality reduction step. 
+
+B. Methods Compared 
+
+We compare ten methods organized into four categories. All methods except Full produce d = C − 1 dimensional features (99 for CIFAR-100, 199 for Tiny ImageNet), unless otherwise noted. 
+
+1) Control Methods: a) Full Features: The feature vector zi is passed directly to the classifier without reduction. This is the standard transfer learning baseline. 
+
+b) PCA: Principal Component Analysis [5] projects onto the d leading eigenvectors of the feature covariance matrix. PCA is unsupervised and serves as a lower bound for what label-free dimensionality reduction can achieve. 
+
+2) Classical Supervised Methods: a) LDA: Linear Discriminant Analysis [7] solves the generalized eigenvalue problem Sbw = λSww, where 
+
+Sb =
+
+> C
+
+X
+
+> c=1
+
+nc(μc−μ)( μc−μ)⊤, Sw =
+
+> C
+
+X
+
+> c=1
+
+X
+
+> i∈C c
+
+(zi−μc)( zi−μc)⊤,
+
+(2) with μc and μ the class and global means, nc = |C c| the class count, and Cc the set of indices belonging to class c. The d =
+
+C − 1 eigenvectors corresponding to the largest eigenvalues form the projection W. We use the implementation in scikit-learn [23], which applies an SVD-based solver that handles rank-deficient scatter matrices gracefully. 
+
+b) PCA+LDA: A two-stage approach: PCA first reduces dimensionality to C − 1, then LDA is applied in the reduced space. This is sometimes recommended when D ≫ N to improve the conditioning of the scatter matrices. 
+
+3) Academic Variants: a) Regularized LDA (R-LDA): Replaces Sw with the shrinkage estimate [10]: 
+
+ˆSw = (1 − α)Sw + α · tr( Sw)
+
+D I, (3) where the shrinkage intensity α is set automatically using the Ledoit–Wolf estimator [24]. This stabilizes inversion when 
+
+Sw is near-singular, which can occur with high-dimensional features and limited samples per class. 
+
+b) Local Fisher Discriminant Analysis (LFDA): 
+
+Sugiyama’s extension [11] constructs localized scatter matrices using a k-nearest-neighbor affinity matrix, preserving multi-modal class structure. We set k = 7 following the original recommendation. 
+
+c) Neighbourhood Components Analysis (NCA): Gold-berger et al.’s metric learning approach [12] learns a projection by maximizing a stochastic k-NN leave-one-out accuracy objective. We use the scikit-learn implementation with default hyperparameters. 
+
+4) Proposed Extensions: We additionally evaluate two lightweight extensions of LDA that exploit complementary information in the feature space. 
+
+a) Residual Discriminant Augmentation (RDA): LDA projects onto C − 1 directions that maximize class separa-tion. The orthogonal complement—the space not captured by LDA—may still contain useful variance. RDA appends a 4
+
+small number of PCA components computed in this residual subspace: 
+
+zRDA  
+
+> i
+
+= W⊤
+
+> LDA
+
+zi ; W⊤
+
+> res
+
+(zi − WLDA W⊤
+
+> LDA
+
+zi) ∈ R(C−1)+ k,
+
+(4) where Wres contains the k leading PCA components of the LDA residuals, with k set to 20 or 30 depending on the original feature dimension. The total dimensionality is (C − 1) + k,still far below D.
+
+b) Discriminant Subspace Boosting (DSB): Inspired by boosting [25], DSB iteratively reweights the training samples and refits LDA. In each round, samples that were misclassified in the previous round receive higher weight in the scatter matrix computation. After T rounds, the final projection is the LDA solution from the last round. We use T = 2 rounds, which balances the small accuracy gain against the doubling of LDA fitting time. The projection dimensionality remains 
+
+C − 1.Both extensions are computationally inexpensive relative to methods like NCA or LFDA, adding only a constant factor to LDA’s fitting time. 
+
+C. Standardization 
+
+All features are standardized to zero mean and unit variance before classification, using statistics computed on the training set. This is critical for fair comparison: different reduction methods produce features at different scales, and the ℓ2-regularized logistic regression is sensitive to feature scaling. Standardization is applied after projection, following standard machine learning practice. IV. E XPERIMENTS 
+
+A. Datasets a) CIFAR-100: [26] contains 60,000 color images of size 32 × 32 pixels across 100 classes, with 500 training and 100 test images per class. Images are resized to 224 × 224 
+
+before feature extraction to match the input resolution expected by ImageNet-pretrained networks. 
+
+b) Tiny ImageNet: [27] is a subset of ImageNet with 200 classes, each containing 500 training images and 50 validation images at 64 ×64 pixels. Images are similarly resized to 224 ×
+
+224 .The two datasets provide complementary evaluation condi-tions: CIFAR-100 tests the low-resolution regime with C −1 = 99 LDA components, while Tiny ImageNet provides more classes ( C − 1 = 199 ), more training data, and higher native resolution. 
+
+B. Backbone Architectures 
+
+We extract features from four pretrained ImageNet classi-fiers spanning a range of architectures and feature dimensions:  
+
+> •
+
+ResNet-18 [28] ( D = 512 ): a compact residual network, widely used as a baseline.  
+
+> •
+
+ResNet-50 [28] ( D = 2048 ): a deeper variant with 4 ×
+
+higher feature dimensionality.  
+
+> •
+
+MobileNetV3-Small [29] ( D = 576 ): designed for mobile deployment; lightweight architecture.  
+
+> •
+
+EfficientNet-B0 [30] ( D = 1280 ): a modern compound-scaled network balancing depth, width, and resolution. All backbones use ImageNet-pretrained weights from torchvision [31]. Features are extracted from the layer imme-diately before the classification head (global average pooling output), with all backbone parameters frozen. Features are extracted once and cached. 
+
+C. Experimental Protocol 
+
+For each backbone–dataset pair: 1) Extract features from all training and test images. 2) Fit the dimensionality reduction method on training fea-tures only. 3) Transform both training and test features. 4) Standardize features (zero mean, unit variance; fit on training set). 5) Train an ℓ2-regularized logistic regression classifier (LBFGS solver, max_iter = 5000 , C = 1 .0). 6) Evaluate top-1 accuracy on the test set. All reduction methods project to d = C − 1 dimensions (99 for CIFAR-100, 199 for Tiny ImageNet), except RDA which produces (C − 1) + k dimensions. Timing is measured using wall-clock time with time.perf_counter() and includes both the reduction step and classifier training. For statistical significance, we repeat each configuration across 5 random seeds (affecting classifier initialization and any stochastic components) and report mean accuracy with standard deviations. 
+
+D. Main Results 1) CIFAR-100: Table I reports accuracy and total wall-clock time for all ten methods across four backbones on CIFAR-100. Several patterns emerge. First, LDA improves over full features on all four backbones: by +4.12% on ResNet-18, +0.26% on ResNet-50, +2.89% on MobileNetV3, and +0.89% on EfficientNet. The gains are most pronounced on compact backbones (ResNet-18, MobileNetV3), where the full-feature classifier struggles most and LDA’s discriminant projection provides the greatest lift. Second, LDA strictly dominates PCA: the supervisory signal consistently translates into higher accuracy. The gap ranges from +1.91% (ResNet-18) to +3.86% (MobileNetV3). This confirms that label information provides value beyond variance-based feature selection. Third, more complex academic methods provide no advan-tage over plain LDA. R-LDA slightly underperforms LDA in three of four cases—the Ledoit–Wolf shrinkage adds computa-tion without benefit because scikit-learn’s SVD solver already handles conditioning implicitly. LFDA performs poorly across the board, 1.7–4.0 points below LDA, suggesting that the multimodal assumption does not hold for frozen CNN features, which tend to form unimodal, approximately Gaussian class clusters. NCA is 10–25 × slower than LDA while delivering lower accuracy. Fourth, our extensions (RDA, DSB) can improve on LDA, but the gains are modest: DSB adds 0.30% on ResNet-18 at 5
+
+TABLE I: Classification accuracy (%, mean ±std over 5 seeds) and total time (seconds) on CIFAR-100 across four backbones. The best result per backbone is bolded ; the second best is underlined. All reduction methods project to d = 99 dimensions (C − 1) except RDA variants which use 99 +k. Methods marked with † are single-seed results. 
+
+ResNet-18 (512D) ResNet-50 (2048D) MobileNetV3 (576D) EfficientNet (1280D) Cat. Method Acc. Time Acc. Time Acc. Time Acc. Time Control Full 62.85 ±.02 56 71.98 ±.00 48 65.58 ±.07 69 71.41 ±.04 49 PCA 65.06 ±.01 11 69.18 ±.12 15 64.61 ±.01 11 69.77 ±.13 14 Classical LDA 66.97 ±.00 11 72.24 ±.05 23 68.47 ±.03 13 72.30 ±.04 16 PCA+LDA † 66.63 10 70.68 19 67.97 12 70.80 17 Academic R-LDA 66.68 ±.02 13 71.89 ±.06 43 67.86 ±.04 15 71.95 ±.03 24 LFDA 65.25 ±.00 15 68.20 ±.09 22 64.90 ±.03 19 69.33 ±.11 20 NCA † 64.93 258 69.32 267 65.71 283 69.95 269 Ours RDA 66.75 ±.07 25 72.67 ±.05 44 68.72 ±.04 29 72.35 ±.03 35 DSB 67.27 ±.00 25 72.62 ±.06 58 68.88 ±.04 33 72.55 ±.00 42 RDA+SMD † 66.74 37 73.06 182 68.73 51 72.40 76 
+
+2.3 × the cost, and RDA+SMD adds 0.82% on ResNet-50 at 8× the cost. Whether these marginal improvements justify the extra computation depends on the application. 
+
+2) Tiny ImageNet: Table II shows results on Tiny Ima-geNet, which has 200 classes and twice the training data. The Tiny ImageNet results reinforce the patterns observed on CIFAR-100, with some interesting differences. LDA again beats full features on all four backbones, with the gains on lower-capacity architectures being particularly striking: +4.58 points on ResNet-18 and +4.11 on MobileNetV3. On ResNet-50, LDA achieves 75.01% versus 74.29% for full features—a more modest but still consistent improvement. A notable difference is that PCA performs relatively better on Tiny ImageNet, particularly on ResNet-18 where it slightly exceeds LDA (64.46 vs. 64.42). With 200 classes and 100,000 training samples, the variance structure captured by PCA is richer, partially compensating for the lack of supervisory information. R-LDA shows stronger performance on Tiny ImageNet than on CIFAR-100, achieving the highest accuracy on ResNet-50 (75.37%) and EfficientNet (72.58%). With 200 classes and higher-dimensional features, the scatter matrix conditioning becomes more of a concern, and regularization provides a genuine benefit. RDA+SMD, which was the top method on ResNet-50/CIFAR-100, does not generalize its advantage to Tiny ImageNet. Its time cost on ResNet-50 is extreme (621s vs. 80s for LDA), making it impractical at scale. 
+
+E. Summary of Main Results 
+
+Across all eight backbone–dataset configurations:  
+
+> •
+
+LDA beats Full features in 8/8 cases (+0.26% to +4.58%), while reducing dimensionality by 61–95%.  
+
+> •
+
+LDA beats PCA in 7/8 cases. The exception is ResNet-18 on Tiny ImageNet, where PCA edges LDA by 0.04%.  
+
+> •
+
+LDA beats or matches LFDA in 8/8 cases and beats NCA in 8/8 cases , while being 3–25 × faster.  
+
+> •
+
+DSB achieves the highest accuracy in 4/8 cases 
+
+(both MobileNetV3 configs, ResNet-18/CIFAR-100, and EfficientNet/CIFAR-100), at 2–3 × LDA’s cost. R18/C100   
+
+> R50/C100
+> MV3/C100
+> EB0/C100
+> R18/TIN
+> R50/TIN
+> MV3/TIN
+> EB0/TIN
+> 2
+> 0
+> 2
+> 4
+> Accuracy gain over Full (%)  Accuracy Improvement Over Full Features
+> PCA LDA DSB
+
+Fig. 1: Accuracy improvement over full features for PCA, LDA, and DSB across all eight backbone–dataset configu-rations. LDA consistently outperforms full features (all bars positive), with the largest gains on compact backbones.  
+
+> •
+
+R-LDA is the strongest academic variant , competitive with LDA on CIFAR-100 and slightly better on some Tiny ImageNet configs. Fig. 1 visualizes the accuracy gain of PCA, LDA, and DSB over Full features across all eight configurations, highlighting LDA’s consistent improvement. V. A NALYSIS 
+
+This section presents four complementary analyses: statis-tical significance, data efficiency, computational cost, and a synthesis of practical guidelines. 
+
+A. Statistical Significance 
+
+To confirm that the observed accuracy differences are not due to random variation, we run each method five times with different random seeds and conduct paired t-tests and Wilcoxon signed-rank tests comparing each method against LDA. Table III summarizes selected comparisons (for each backbone–dataset pair, we show the three most informative contrasts). LDA’s advantage over full features is significant at 
+
+p < 0.001 in all eight configurations. The gain over PCA is significant in seven of eight ( p = 0 .27 for ResNet-18/Tiny ImageNet, where the two methods perform nearly identi-cally). LFDA is significantly worse than LDA everywhere 6
+
+TABLE II: Classification accuracy (%, mean ±std over 5 seeds) and total time (seconds) on Tiny ImageNet across four backbones. Formatting follows Table I. All reduction methods project to d = 199 dimensions. 
+
+ResNet-18 (512D) ResNet-50 (2048D) MobileNetV3 (576D) EfficientNet (1280D) Cat. Method Acc. Time Acc. Time Acc. Time Acc. Time Control Full 59.84 ±.04 122 74.29 ±.00 84 59.24 ±.06 150 71.79 ±.00 68 PCA 64.46 ±.02 30 73.35 ±.08 52 61.95 ±.04 35 71.99 ±.17 46 Classical LDA 64.42 ±.06 41 75.01 ±.01 80 63.35 ±.01 46 72.34 ±.06 53 PCA+LDA † 64.29 42 74.03 77 63.30 50 72.01 61 Academic R-LDA 64.74 ±.05 50 75.37 ±.09 118 62.94 ±.06 48 72.58 ±.07 58 LFDA 64.15 ±.03 49 73.54 ±.12 73 62.57 ±.00 50 71.92 ±.04 64 NCA † 64.27 278 73.13 300 62.03 295 71.91 328 Ours RDA 64.52 ±.03 44 75.04 ±.06 95 63.46 ±.02 49 71.87 ±.06 71 DSB 64.70 ±.00 88 75.24 ±.06 218 63.73 ±.00 87 72.14 ±.06 147 RDA+SMD † 64.47 69 74.96 621 63.41 61 72.10 172 
+
+TABLE III: Multi-seed statistical significance (5 seeds). Each row compares a method against LDA using a paired t-test. 
+
+∆: mean accuracy difference (method − LDA). Bold p-values indicate statistical significance at α = 0 .05 . We show all six comparison methods; the pattern is consistent across all four backbones (see supplementary for full table). 
+
+Backbone Dataset Method ∆(%) p-value ResNet-18 C100 Full −4.12 < . 001 
+
+PCA −1.91 < . 001 
+
+DSB +0.30 < . 001 
+
+TinyIN Full −4.58 < . 001 
+
+PCA +0.04 .273 R-LDA +0.32 < . 001 
+
+ResNet-50 C100 Full −0.26 < . 001 
+
+LFDA −4.04 < . 001 
+
+RDA +0.43 < . 001 
+
+TinyIN Full −0.72 < . 001 
+
+PCA −1.66 < . 001 
+
+RDA +0.03 .303 MobNetV3 C100 Full −2.89 < . 001 
+
+PCA −3.86 < . 001 
+
+DSB +0.41 < . 001 
+
+TinyIN Full −4.11 < . 001 
+
+PCA −1.40 < . 001 
+
+DSB +0.38 < . 001 
+
+EffNet C100 Full −0.89 < . 001 
+
+PCA −2.53 < . 001 
+
+RDA +0.05 .075 TinyIN Full −0.55 < . 001 
+
+PCA −0.35 .015 
+
+DSB −0.20 .002 
+
+(e.g., ∆ = −4.04% on ResNet-50/CIFAR-100). Among our proposed extensions, DSB significantly outperforms LDA in six of eight cases (up to +0 .41% ), but on EfficientNet/Tiny ImageNet it is significantly worse (∆ = −0.20% , p = 0 .002 ), indicating that iterative scatter reweighting does not uniformly help. Three configurations show non-significant differences be-tween RDA and LDA (ResNet-18/Tiny ImageNet: p = 0 .058 ;ResNet-50/Tiny ImageNet: p = 0 .303 ; EfficientNet/CIFAR-TABLE IV: Accuracy (%) at different training set fractions on CIFAR-100 (3-seed mean). Bold : best method per fraction. 
+
+Backbone Method 10% 25% 50% 100% ResNet-18 Full 57.7 60.3 61.6 62.9 PCA 51.4 58.4 62.5 65.1 LDA 54.7 58.8 63.9 67.0 DSB 55.3 58.4 64.2 67.3 
+
+ResNet-50 Full 66.8 70.0 71.2 72.0 PCA 59.2 63.6 66.9 69.1 LDA 62.9 66.9 69.4 72.2 DSB 64.3 67.0 69.3 72.6 
+
+100: p = 0 .075 ). This indicates that RDA’s residual augmenta-tion provides inconsistent benefits—the extra PCA dimensions capture noise as often as signal. In the significant cases, RDA sometimes helps (ResNet-50/CIFAR-100: +0 .43 ) and some-times hurts (EfficientNet/Tiny ImageNet: −0.47 ), reinforcing the conclusion that plain LDA is the more reliable choice. 
+
+Note on variance: Several methods exhibit near-zero stan-dard deviations across seeds (e.g., LDA on ResNet-18/CIFAR-100: all five seeds yield 66.97%). This occurs because LDA’s projection is deterministic and the logistic regression solver converges to the same optimum regardless of initialization. While this makes t-statistics numerically large, it reflects genuine reproducibility rather than a statistical artifact. We ad-ditionally confirm all key comparisons with the non-parametric Wilcoxon signed-rank test, which makes no distributional assumptions. 
+
+B. Data Efficiency 
+
+A natural question is how much labeled data LDA needs to outperform the full-feature baseline. We subsample the training set at fractions of 10%, 25%, 50%, and 100%, repeating each configuration three times with different random subsamples. Table IV reveals an important pattern. At 10% of the training data (5,000 images for CIFAR-100), full features outperform all reduction methods. This makes sense: LDA estimates C ×D parameters for the within-class scatter matrix, 710 25 50 100    
+
+> Training data (%)
+> 52
+> 54
+> 56
+> 58
+> 60
+> 62
+> 64
+> 66
+> 68
+> Accuracy (%)
+> ResNet-18 / CIFAR-100
+> Full
+> PCA
+> LDA
+> DSB
+> 10 25 50 100
+> Training data (%)
+> 60
+> 62
+> 64
+> 66
+> 68
+> 70
+> 72
+> Accuracy (%)
+> ResNet-50 / CIFAR-100
+> Full
+> PCA
+> LDA
+> DSB
+
+Fig. 2: Accuracy vs. training set fraction on CIFAR-100 for ResNet-18 (left) and ResNet-50 (right). Full features dominate at 10%, but LDA overtakes between 25–50% and widens the gap at 100%. TABLE V: Average accuracy and time across all 8 backbone– dataset configurations. “Pareto” counts configurations (out of 8) where the method is Pareto-optimal. 
+
+Method Avg. Acc. (%) Avg. Time (s) Pareto (/8) PCA 67.5 27 8
+
+LDA 69.4 35 7
+
+R-LDA 69.2 46 3LFDA 67.5 39 0RDA 69.4 49 6DSB 69.6 87 4Full 67.1 81 0
+
+and with only 50 samples per class, these estimates are noisy. PCA suffers even more because it discards variance directions that happen to be discriminative. The crossover occurs between 25% and 50% of the data. At 50% (25,000 images), LDA overtakes full features on ResNet-18 by 2.3 points and closes the gap on ResNet-50. At 100%, LDA’s advantage is clear. This has a practical implication: if your target dataset has fewer than approximately 50 samples per class, skip dimensionality reduction and classify the full features directly. 
+
+Above that threshold, LDA is the better choice. For ResNet-50, the crossover is later because the 2048-dimensional full features are already quite effective, and the scatter matrix estimation is harder in higher dimensions. This underscores a general principle: the benefit of supervised re-duction scales with the gap between the feature dimensionality and the intrinsic task complexity. Fig. 2 plots the accuracy–fraction curves, clearly showing the crossover point. 
+
+C. Computational Cost Analysis 
+
+A method’s value depends not just on its accuracy but on the cost of achieving it. We analyze this through Pareto optimality : a method is Pareto-optimal if no other method is simultaneously faster and more accurate. Table V reveals the accuracy–cost landscape. PCA is Pareto-optimal in all eight configurations by virtue of its speed, but trails LDA by nearly 2 points in accuracy. LDA is Pareto-optimal in seven of eight—it achieves the same accuracy as RDA while being 1.4 × faster, and is within 0.2% of DSB at 2.5 × lower cost. 20 30 40 50     
+
+> Wall-clock time (s)
+> 67.0
+> 67.5
+> 68.0
+> 68.5
+> 69.0
+> 69.5
+> 70.0
+> 70.5
+> Accuracy (%)
+> CIFAR-100
+> Full
+> PCA
+> LDA
+> R-LDA
+> LFDA
+> RDA
+> DSB
+> 40 60 80 100 120
+> Wall-clock time (s)
+> 66.5
+> 67.0
+> 67.5
+> 68.0
+> 68.5
+> 69.0
+> Accuracy (%)
+> Tiny ImageNet
+
+Fig. 3: Accuracy vs. wall-clock time (averaged across four backbones) for CIFAR-100 (left) and Tiny ImageNet (right). Dashed line: Pareto frontier. Full features are dominated— slower and less accurate than LDA. Crucially, full features are never Pareto-optimal : they are both slower (due to higher-dimensional logistic regression) and less accurate than LDA in every configuration. This counterintuitive result—that discarding 80–95% of dimensions 
+
+improves both speed and accuracy—is the central practical finding of this paper. LFDA is also never Pareto-optimal: it is slower than LDA while being less accurate. NCA is dominated by every other method due to its extreme training time (260–330s). Among extensions, DSB is Pareto-optimal in four configurations where its accuracy gain justifies the 2–3 × time cost. Fig. 3 visualizes the accuracy–time tradeoff, with the Pareto frontier shown as a dashed line. LDA sits close to the frontier on both datasets. 
+
+D. Effect of Number of Components 
+
+Our main experiments use d = C − 1 components, the theoretical maximum for LDA. To validate this choice, we sweep d ∈ { 5, 10 , 20 , 40 , 60 , 80 , 99 } for both LDA and PCA on CIFAR-100 with two backbones (3 seeds each). Fig. 4 shows that accuracy increases monotonically with 
+
+d for both methods, with LDA dominating PCA at every dimensionality. On ResNet-18, LDA at d = 99 achieves 66.97%, surpassing the full-feature baseline (62.85%) by over 4 points. On ResNet-50, LDA at d = 99 reaches 72.19%, matching the full baseline (72.05%). The curves show no sign of overfitting or diminishing returns as d approaches 
+
+C − 1, confirming that using the maximum number of LDA components is optimal .The LDA–PCA gap widens with d: at d = 5, LDA leads by 2–7 points; at d = 99 , the gap is 1.9–4.1 points. This suggests that the later LDA components (higher-order discriminant directions) carry less discriminative information but still contribute positively. 
+
+E. Why Does LDA Help? 
+
+The consistent benefit of LDA over full features warrants explanation. We identify three complementary mechanisms: 
+
+a) Implicit regularization.: By projecting from D to 
+
+C − 1 dimensions, LDA eliminates feature dimensions that contribute to overfitting in the downstream classifier. The 85 10 20 40 60 80 99       
+
+> Number of components ( d)
+> 20
+> 30
+> 40
+> 50
+> 60
+> Accuracy (%)
+> ResNet-18 (512D)
+> LDA
+> PCA
+> Full (512D)
+> 510 20 40 60 80 99
+> Number of components ( d)
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> Accuracy (%)
+> ResNet-50 (2048D)
+> LDA
+> PCA
+> Full (2048D)
+
+Fig. 4: Accuracy vs. number of projected dimensions ( d) on CIFAR-100 for LDA and PCA, with full-feature baselines (dashed). Both LDA and PCA improve monotonically; d =
+
+C − 1 = 99 is optimal. logistic regression in D = 2048 dimensions with ℓ2 regu-larization still has more capacity to overfit than in d = 99 
+
+dimensions. LDA acts as a structured alternative to stronger 
+
+ℓ2 penalties, one that uses label information to select which dimensions to keep. 
+
+b) Removal of task-irrelevant variance.: ImageNet fea-tures encode information about 1,000 categories. For a 100-class target task, much of this information is irrelevant. PCA retains high-variance directions regardless of task relevance; LDA explicitly retains directions that separate the target classes. 
+
+c) Improved conditioning for the classifier.: High-dimensional feature spaces often contain near-collinear fea-ture groups, which slow convergence of iterative solvers like LBFGS. LDA produces orthogonal, decorrelated features that are better conditioned, leading to faster and more stable classifier training. The magnitude of LDA’s gain correlates strongly with the ratio D/ (C − 1) : how much the full feature space exceeds the discriminant subspace. Across our eight configurations, we observe a Pearson correlation of r = −0.78 between 
+
+D/ (C − 1) and LDA’s accuracy gain over Full features. When D/ (C − 1) is low —meaning the backbone is compact relative to the number of classes (e.g., ResNet-18 on Tiny ImageNet, D/ (C − 1) = 2 .6)—the full-feature classifier is already stretched thin, and LDA provides the greatest lift (+4.58%). Conversely, when D/ (C − 1) is high (e.g., ResNet-50 on CIFAR-100, D/ (C − 1) = 20 .7), the full-feature space has ample capacity and LDA’s gain is modest (+0.26%). This suggests that LDA’s primary value is not in reducing “excess” dimensions from oversized feature spaces, but rather in concentrating information when the full-feature classifier is under-performing—precisely the regime where practitioners need the most help. 
+
+F. When Does LDA Not Help? 
+
+Our results identify two regimes where LDA’s advantage is minimal: 1) Very small training sets (< 50 samples per class). LDA’s scatter matrix estimates become unreliable, and full features with strong regularization are preferable (Sec-tion V-B). 2) High-capacity backbones on few-class tasks. When 
+
+D/ (C − 1) is large (e.g., ResNet-50 at 2048D on 100-class CIFAR-100, ratio = 20 .7), the full features already carry enough discriminative capacity that ℓ2-regularized logistic regression performs well, and LDA’s projection offers only marginal improvement. This explains why PCA can also match LDA in certain configurations—on ResNet-18/Tiny ImageNet ( D/ (C −1) = 2 .6), both PCA and LDA achieve ≈ 64 .4% because the 2.6 × reduction ratio leaves little room to differentiate supervised from unsupervised projection. 
+
+G. Practitioner Guidelines 
+
+Based on our comprehensive evaluation, we offer the fol-lowing concrete recommendations: 1) Always try LDA before deploying full features. In every configuration we tested, LDA either matched or improved accuracy while simultaneously reducing dimensionality and accelerating inference. The risk is minimal: we observed no configuration where LDA degraded performance relative to full features. 2) Set d = C − 1. This is the maximum number of LDA components and consistently the best choice (Section V-D). Lower values sacrifice accuracy without meaningful speed gains. 3) Skip PCA+LDA. Two-stage reduction provides no benefit over direct LDA and adds unnecessary complexity. Modern LDA implementations handle the conditioning internally. 4) Skip LFDA and NCA. Neither improves on LDA for frozen CNN features, and both are substantially slower. 5) Consider DSB only if 0.2–0.4% accuracy matters and doubling the reduction time is acceptable. For most appli-cations, the marginal gain does not justify the cost. 6) Use R-LDA when D ≫ C and the training set is moderate. Regularization helps on high-dimensional back-bones (ResNet-50, EfficientNet) with Tiny ImageNet’s 200 classes. 7) If the training set has < 50 samples per class, use full features. LDA’s scatter estimates need sufficient data to be reliable. 8) Standardize after projection. Feature scaling before the classifier is essential for fair and stable results regardless of the reduction method. VI. C ONCLUSION 
+
+We have presented a comprehensive empirical study of dimensionality reduction applied to frozen CNN features for image classification, evaluating ten methods across four back-bones and two datasets. The central finding is that Linear Dis-criminant Analysis—a technique dating to 1936—consistently improves classification accuracy over using full features, while reducing dimensionality by 61–95% and cutting downstream classifier training time by 2–5 × on most configurations. This result is not marginal. LDA outperforms full features in all eight backbone–dataset configurations, with gains of 0.3 to 4.6 percentage points that are statistically significant at p < 0.001 in every case. It also outperforms PCA in seven 9
+
+of eight configurations, confirming that supervised projection is genuinely valuable, not merely redundant with unsupervised variance selection. Among more sophisticated alternatives, only DSB— a boosting-inspired reweighting of the scatter matrices— provides a consistent (though small) improvement over LDA, and at 2–3 × the computational cost. LFDA, NCA, and two-stage PCA+LDA all fail to improve on plain LDA for frozen CNN features. Regularized LDA matches standard LDA in most cases and provides modest gains on high-dimensional backbones. These findings carry immediate practical implications. For any transfer learning pipeline using frozen features, inserting an LDA projection step is straightforward with standard imple-mentations (e.g., scikit-learn [23]), adds negligible latency, and reliably improves accuracy. In no configuration in our study does this step degrade performance. 
+
+a) Limitations.: Our study is bounded by its experimen-tal scope: two image classification datasets (100 and 200 classes), four ImageNet-pretrained backbones, and a linear classifier. Whether LDA’s advantage extends to tasks with thousands of classes, fine-tuned features, or non-linear classi-fiers remains open. LDA’s upper bound of C − 1 components may also be restrictive for tasks where C is small relative to the intrinsic feature dimensionality. Additionally, our evaluation uses a single classification paradigm (logistic regression); nearest-neighbor or SVM classifiers might respond differently to reduced features. 
+
+b) Future work.: Several directions follow naturally. First, extending the evaluation to larger-scale datasets (ImageNet-1K, iNaturalist) and to fine-grained classification where inter-class differences are subtle. Second, investigating whether LDA’s benefit persists with non-linear classifiers such as small MLPs. Third, exploring LDA in continual and few-shot learning settings where dimensionality reduction could mitigate catastrophic forgetting or data scarcity. Finally, study-ing whether the LDA projection can be learned end-to-end as a differentiable layer within a frozen-backbone pipeline, bridging the gap between classical and deep metric learning. 
+
+c) Reproducibility.: All code, data pipelines, experiment configurations, and raw results (CSV) are publicly available at https://github.com/IndarKarhana/lda-image-classification. The repository includes feature extraction scripts for all four back-bones, all ten reduction methods with fixed random seeds, and scripts to regenerate every figure and table in this paper. REFERENCES [1] J. Deng, W. Dong, R. Socher, L.-J. Li, K. Li, and L. Fei-Fei, “ImageNet: A large-scale hierarchical image database,” in IEEE Conference on Computer Vision and Pattern Recognition , 2009, pp. 248–255. [2] J. Donahue, Y. Jia, O. Vinyals, J. Hoffman, N. Zhang, E. Tzeng, and T. Darrell, “DeCAF: A deep convolutional activation feature for generic visual recognition,” in Proceedings of the 31st International Conference on Machine Learning , 2014, pp. 647–655. [3] A. Sharif Razavian, H. Azizpour, J. Sullivan, and S. Carlsson, “CNN features off-the-shelf: An astounding baseline for recognition,” in IEEE Conference on Computer Vision and Pattern Recognition Workshops ,2014, pp. 806–813. [4] S. Kornblith, S. Srinivas, and Q. V. Le, “Do better ImageNet models transfer better?” in IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2019, pp. 2661–2671. [5] K. Pearson, “On lines and planes of closest fit to systems of points in space,” The London, Edinburgh, and Dublin Philosophical Magazine and Journal of Science , vol. 2, no. 11, pp. 559–572, 1901. [6] I. T. Jolliffe, Principal Component Analysis , 2nd ed. Springer, 2002. [7] R. A. Fisher, “The use of multiple measurements in taxonomic prob-lems,” Annals of Eugenics , vol. 7, no. 2, pp. 179–188, 1936. [8] C. R. Rao, “The utilization of multiple measurements in problems of biological classification,” Journal of the Royal Statistical Society: Series B, vol. 10, no. 2, pp. 159–203, 1948. [9] F. J. H. Heras and G. G. de Polavieja, “Supervised dimensionality reduction by a linear discriminant analysis on pre-trained CNN features,” 
+
+arXiv preprint arXiv:2006.12127 , 2020. [10] J. H. Friedman, “Regularized discriminant analysis,” Journal of the American Statistical Association , vol. 84, no. 405, pp. 165–175, 1989. [11] M. Sugiyama, “Dimensionality reduction of multimodal labeled data by local Fisher discriminant analysis,” Journal of Machine Learning Research , vol. 8, pp. 1027–1061, 2007. [12] J. Goldberger, G. E. Hinton, S. Roweis, and R. Salakhutdinov, “Neigh-bourhood components analysis,” in Advances in Neural Information Processing Systems , vol. 17, 2004. [13] L. Ericsson, H. Gouk, and T. M. Hospedales, “How well do self-supervised models transfer?” in IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2021, pp. 5124–5133. [14] T. Hastie, A. Buja, and R. Tibshirani, “Penalized discriminant analysis,” 
+
+The Annals of Statistics , vol. 23, no. 1, pp. 73–102, 1995. [15] S. Mika, G. Rätsch, J. Weston, B. Schölkopf, and K.-R. Müller, “Fisher discriminant analysis with kernels,” in IEEE Signal Processing Society Workshop on Neural Networks for Signal Processing , 1999, pp. 41–48. [16] M. Loog, R. P. W. Duin, and R. Haeb-Umbach, “Multiclass linear dimen-sion reduction by weighted pairwise Fisher criteria,” IEEE Transactions on Pattern Analysis and Machine Intelligence , vol. 23, no. 7, pp. 762– 766, 2001. [17] Y. Li and J. Wang, “A survey on dimensionality reduction techniques,” 
+
+arXiv preprint arXiv:2206.12368 , 2022. [18] M. Dorfer, R. Kelz, and G. Widmer, “Deep linear discriminant analysis,” in International Conference on Learning Representations , 2016. [19] Y. Wen, K. Zhang, Z. Li, and Y. Qiao, “A discriminative feature learning approach for deep face recognition,” in European Conference on Computer Vision , 2016, pp. 499–515. [20] G. Hinton, O. Vinyals, and J. Dean, “Distilling the knowledge in a neural network,” arXiv preprint arXiv:1503.02531 , 2015. [21] S. Han, H. Mao, and W. J. Dally, “Deep compression: Compressing deep neural networks with pruning, trained quantization and Huffman coding,” in International Conference on Learning Representations , 2016. [22] B. Jacob, S. Kligys, B. Chen, M. Zhu, M. Tang, A. Howard, H. Adam, and D. Kalenichenko, “Quantization and training of neural networks for efficient integer-arithmetic-only inference,” in IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2018, pp. 2704–2713. [23] F. Pedregosa, G. Varoquaux, A. Gramfort, V. Michel, B. Thirion, O. Grisel, M. Blondel, P. Prettenhofer, R. Weiss, V. Dubourg et al. ,“Scikit-learn: Machine learning in Python,” Journal of Machine Learn-ing Research , vol. 12, pp. 2825–2830, 2011. [24] O. Ledoit and M. Wolf, “A well-conditioned estimator for large-dimensional covariance matrices,” Journal of Multivariate Analysis ,vol. 88, no. 2, pp. 365–411, 2004. [25] Y. Freund and R. E. Schapire, “A decision-theoretic generalization of on-line learning and an application to boosting,” Journal of Computer and System Sciences , vol. 55, no. 1, pp. 119–139, 1997. [26] A. Krizhevsky, “Learning multiple layers of features from tiny images,” University of Toronto, Tech. Rep., 2009. [27] Y. Le and X. Yang, “Tiny ImageNet visual recognition challenge,” Stanford University, Tech. Rep., 2015. [28] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image recognition,” in IEEE Conference on Computer Vision and Pattern Recognition , 2016, pp. 770–778. [29] A. Howard, M. Sandler, B. Chen, W. Wang, L.-C. Chen, M. Tan, G. Chu, V. Vasudevan, Y. Zhu, R. Pang, H. Adam, and Q. V. Le, “Searching for MobileNetV3,” in IEEE/CVF International Conference on Computer Vision , 2019, pp. 1314–1324. [30] M. Tan and Q. V. Le, “EfficientNet: Rethinking model scaling for convolutional neural networks,” in International Conference on Machine Learning , 2019, pp. 6105–6114. [31] A. Paszke, S. Gross, F. Massa, A. Lerer, J. Bradbury, G. Chanan, T. Killeen, Z. Lin, N. Gimelshein, L. Antiga et al. , “PyTorch: An imperative style, high-performance deep learning library,” in Advances in Neural Information Processing Systems , vol. 32, 2019.

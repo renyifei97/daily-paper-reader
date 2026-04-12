@@ -6,59 +6,64 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-04-11
-- 运行时间：2026-04-11 19:43:35 UTC
+- 最新运行日期：2026-04-12
+- 运行时间：2026-04-12 19:57:02 UTC
 - 运行状态：成功
-- 本次总论文数：12
-- 精读区：0
+- 本次总论文数：14
+- 精读区：2
 - 速读区：12
 
 ### 今日简报（AI）
-今日速览 12 篇前沿成果，深度覆盖时间序列多尺度建模与量子计算赋能的城市交通优化。
-重点推荐 ROMAN 算子在时序卷积中的路由创新，以及利用量子退火识别交通网络关键链路的新方案。
-建议关注量子优化技术在复杂基建领域的落地前景，探索数据驱动的城市治理新思路。
-- 详情：[/202604/11/README](/202604/11/README)
+今日聚焦 14 篇前沿成果，深度拆解受限铁路网络能效优化与城市交通公平管控机制。
+重点推荐铁路电力系统算法综述与分布式周界排队平衡策略，为基建效率与治理公平提供系统性新解。
+建议关注交通系统中的算法公平性，并留意深度状态空间模型在预测任务中的对抗鲁棒性表现。
+- 详情：[/202604/12/README](/202604/12/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [Algorithmic Power Optimisation in Constrained Railway Networks: A Systematic Review](/202604/12/2604.06369v1-algorithmic-power-optimisation-in-constrained-railway-networks-a-systematic-review)  
+   标签：评分：8.0/10、query:urt-c
+   evidence：包含客运服务的铁路网络能量管理与电力优化
+2. [Distributive Perimetral Queue Balancing Mechanisms: Towards Equitable Urban Traffic Gating and Fair Perimeter Control](/202604/12/2604.07840v1-distributive-perimetral-queue-balancing-mechanisms-towards-equitable-urban-traffic-gating-and-fair-perimeter-control)  
+   标签：评分：8.0/10、query:urt-c
+   evidence：用于城市交通管理和流量控制的边界控制与闸门机制。
 
 ### 速读区论文标签
-1. [ROMAN: A Multiscale Routing Operator for Convolutional Time Series Models](/202604/11/2604.02577v1-roman-a-multiscale-routing-operator-for-convolutional-time-series-models)  
-   标签：评分：7.5/10、query:urt-pf
-   evidence：卷积时间序列模型的多尺度路由算子
-2. [Data-driven identification of critical links in transport networks using quantum annealing](/202604/11/2604.02675v1-data-driven-identification-of-critical-links-in-transport-networks-using-quantum-annealing)  
-   标签：评分：7.5/10、query:urt-c
-   evidence：利用真实交通数据识别城市交通网络中的关键路段
-3. [Quantum optimisation in cities: Limitations and prospects of urban transport systems](/202604/11/2604.02671v1-quantum-optimisation-in-cities-limitations-and-prospects-of-urban-transport-systems)  
-   标签：评分：7.0/10、query:urt-c
-   evidence：城市交通规划中优化和强化学习的综述
-4. [STDDN: A Physics-Guided Deep Learning Framework for Crowd Simulation](/202604/11/2604.02756v1-stddn-a-physics-guided-deep-learning-framework-for-crowd-simulation)  
-   标签：评分：7.0/10、query:urt-c
-   evidence：物理引导的深度学习用于人群模拟和智能交通系统
-5. [Adversarial Robustness of Deep State Space Models for Forecasting](/202604/11/2604.03427v1-adversarial-robustness-of-deep-state-space-models-for-forecasting)  
+1. [Adversarial Robustness of Deep State Space Models for Forecasting](/202604/12/2604.03427v1-adversarial-robustness-of-deep-state-space-models-for-forecasting)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：用于时间序列预测的深度状态空间模型
-6. [Regime-Calibrated Demand Priors for Ride-Hailing Fleet Dispatch and Repositioning](/202604/11/2604.03883v1-regime-calibrated-demand-priors-for-ride-hailing-fleet-dispatch-and-repositioning)  
+   evidence：用于时间序列预测的深度状态空间模型的对抗鲁棒性
+2. [ART: Adaptive Relational Transformer for Pedestrian Trajectory Prediction with Temporal-Aware Relations](/202604/12/2604.03649v1-art-adaptive-relational-transformer-for-pedestrian-trajectory-prediction-with-temporal-aware-relations)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：用于轨迹预测的时空Transformer在方法论上与地铁交通预测相似。
+3. [Supervised Dimensionality Reduction Revisited: Why LDA on Frozen CNN Features Deserves a Second Look](/202604/12/2604.03928v1-supervised-dimensionality-reduction-revisited-why-lda-on-frozen-cnn-features-deserves-a-second-look)  
    标签：评分：7.0/10、query:urt-c
-   evidence：预测网约车车队调度和重新定位的需求模式
-7. [Outlier-Robust Nonlinear Moving Horizon Estimation using Adaptive Loss Functions](/202604/11/2604.04862v1-outlier-robust-nonlinear-moving-horizon-estimation-using-adaptive-loss-functions)  
-   标签：评分：6.5/10、query:urt-pf
-   evidence：针对带有异常值测量数据的非线性系统鲁棒估计
-8. [Active Reward Machine Inference From Raw State Trajectories](/202604/11/2604.07480v1-active-reward-machine-inference-from-raw-state-trajectories)  
-   标签：评分：6.5/10、query:urt-c
-   evidence：在强化学习中学习多阶段任务的奖励机
-9. [Rollout-Based Charging Scheduling for Electric Truck Fleets in Large Transportation Networks](/202604/11/2604.02768v1-rollout-based-charging-scheduling-for-electric-truck-fleets-in-large-transportation-networks)  
-   标签：评分：6.0/10、query:urt-c
-   evidence：基于Rollout动态规划的车队调度与运营成本优化
-10. [BEVPredFormer: Spatio-temporal Attention for BEV Instance Prediction in Autonomous Driving](/202604/11/2604.02930v1-bevpredformer-spatio-temporal-attention-for-bev-instance-prediction-in-autonomous-driving)  
+   evidence：预测网约车调度的需求模式和车队重新部署
+4. [Enhancing sample efficiency in reinforcement-learning-based flow control: replacing the critic with an adaptive reduced-order model](/202604/12/2604.04986v1-enhancing-sample-efficiency-in-reinforcement-learning-based-flow-control-replacing-the-critic-with-an-adaptive-reduced-order-model)  
+   标签：评分：7.0/10、query:urt-c
+   evidence：基于强化学习的流量控制与控制器优化
+5. [Dynamic Linear Coregionalization for Realistic Synthetic Multivariate Time Series](/202604/12/2604.05064v1-dynamic-linear-coregionalization-for-realistic-synthetic-multivariate-time-series)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：用于改进预测的合成多元时间序列生成
+6. [EAGLE: Edge-Aware Graph Learning for Proactive Delivery Delay Prediction in Smart Logistics Networks](/202604/12/2604.05254v1-eagle-edge-aware-graph-learning-for-proactive-delivery-delay-prediction-in-smart-logistics-networks)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：结合物流网络时间动态与空间依赖的混合深度学习
+7. [Earth Embeddings Reveal Diverse Urban Signals from Space](/202604/12/2604.03456v1-earth-embeddings-reveal-diverse-urban-signals-from-space)  
    标签：评分：6.0/10、query:urt-pf
-   evidence：动态场景中实例预测和运动估计的时空注意力机制
-11. [Towards Intelligent Energy Security: A Unified Spatio-Temporal and Graph Learning Framework for Scalable Electricity Theft Detection in Smart Grids](/202604/11/2604.03344v1-towards-intelligent-energy-security-a-unified-spatio-temporal-and-graph-learning-framework-for-scalable-electricity-theft-detection-in-smart-grids)  
+   evidence：利用地理空间基础模型预测城市出行行为信号。
+8. [Solar-VLM: Multimodal Vision-Language Models for Augmented Solar Power Forecasting](/202604/12/2604.04145v1-solar-vlm-multimodal-vision-language-models-for-augmented-solar-power-forecasting)  
    标签：评分：6.0/10、query:urt-pf
-   evidence：用于捕捉时空模式的时空和图学习框架
-12. [Improving Feasibility via Fast Autoencoder-Based Projections](/202604/11/2604.03489v1-improving-feasibility-via-fast-autoencoder-based-projections)  
+   evidence：为预测建模复杂的时空依赖关系
+9. [Uncertainty-Aware Test-Time Adaptation for Cross-Region Spatio-Temporal Fusion of Land Surface Temperature](/202604/12/2604.04153v1-uncertainty-aware-test-time-adaptation-for-cross-region-spatio-temporal-fusion-of-land-surface-temperature)  
+   标签：评分：6.0/10、query:urt-pf
+   evidence：回归任务中的时空融合与跨区域自适应
+10. [A Family of Open Time-Series Foundation Models for the Radio Access Network](/202604/12/2604.04271v1-a-family-of-open-time-series-foundation-models-for-the-radio-access-network)  
+   标签：评分：6.0/10、query:urt-pf
+   evidence：用于网络优化和控制的时间序列基础模型
+11. [Optimizing Service Operations via LLM-Powered Multi-Agent Simulation](/202604/12/2604.04383v1-optimizing-service-operations-via-llm-powered-multi-agent-simulation)  
    标签：评分：6.0/10、query:urt-c
-   evidence：在实际控制系统中执行运行约束
+   evidence：优化服务运营并模拟人类行为响应
+12. [Approximation Models for Shared Mobility Rebalancing Under Structured Spatial Imbalance](/202604/12/2604.04412v1-approximation-models-for-shared-mobility-rebalancing-under-structured-spatial-imbalance)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：共享出行重平衡与空间失衡管理的近似模型
 
 
 <div class="dpr-home-promo-card">

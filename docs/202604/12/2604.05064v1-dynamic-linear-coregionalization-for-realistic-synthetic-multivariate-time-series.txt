@@ -1,0 +1,464 @@
+Title: Dynamic Linear Coregionalization for Realistic Synthetic Multivariate Time Series
+
+URL Source: https://arxiv.org/pdf/2604.05064v1
+
+Published Time: Wed, 08 Apr 2026 00:07:50 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+ICLR 2026 Workshop on Time Series in the Age of Large Models (TSALM) 
+
+# DYN LMC: D YNAMIC LINEAR COREGIONALIZATION FOR REALISTIC SYNTHETIC MULTIVARIATE TIME SE-
+
+# RIES 
+
+Annita Vapsi ∗
+
+, Penghang Liu ∗
+
+, Saheed Obitayo, Aakriti, Manoj Cherukumalli, Prathamesh Patil , Amit Varshney , Nicolas Marchesotti , Elizabeth Fons , Vamsi K. Potluru ,
+
+Manuela Veloso †
+
+JPMorganChase 
+
+{penghang.liu, elizabeth.fons, vamsi.k.potluru }@jpmchase.com 
+
+## ABSTRACT 
+
+Synthetic data is essential for training foundation models for time series (FMTS), but most generators assume static correlations, and are typically missing realistic inter-channel dependencies. We introduce DynLMC , a Dyn amic Linear Model of 
+
+Coregionalization, that incorporates time-varying, regime-switching correlations and cross-channel lag structures. Our approach produces synthetic multivariate time series with correlation dynamics that closely resemble real data. Fine-tuning three foundational models on DynLMC-generated data yields consistent zero-shot forecasting improvements across nine benchmarks. Our results demonstrate that modeling dynamic inter-channel correlations enhances FMTS transferability, highlighting the importance of data-centric pretraining. 
+
+Track: Research 
+
+## 1 INTRODUCTION 
+
+Foundation models for time series (FMTS) aim for broad forecasting generalization across domains by learning transferable time-series priors. Their goal is to support forecasting, probabilistic predic-tion, imputation, anomaly detection, and classification with minimal adaptation. Time series vary widely across domains like healthcare, finance, and weather, ranging from univariate to multivariate signals with nonstationarity and dynamic cross-series correlations, which complicates transfer. Be-cause real, large-scale multivariate data with realistic dependencies are hard to obtain, synthetic data pretraining offers a scalable path to coverage. Recent models such as Chronos (Ansari et al., 2024) and TimePFN (Schlagenhauf et al., 2024) demonstrate that synthetic priors yield strong zero-shot and few-shot performance, and that the diversity and fidelity of the generator drive transferability. However, current synthetic generators rely on static correlation assumptions. Chronos uses uni-variate Gaussian process (GP) sampling, while TimePFN employs the Linear Model of Coregion-alization (LMC) for multivariate data, assuming fixed, instantaneous correlations. This produces diverse samples but fails to capture evolving correlations, lagged dependencies, and regime shifts seen in real systems. Our analyses reveal that real datasets exhibit greater temporal variability in cross-channel relationships than LMC-generated data (Figure 1). Pretraining on static-correlation data can lead to rigid relational priors, limiting adaptability to real-world signals. To address this, we introduce DynLMC, which generalizes TimePFN’s generator. DynLMC extends LMC by: (1) modeling smooth correlation drift via autoregressive updates, (2) introducing regime-switching correlations with a Hidden Markov Model, and (3) incorporating lagged cross-channel dependencies. These mechanisms generate realistic, nonstationary multivariate time series, better reflecting real-world domains like energy, finance, and climate. An illustration of DynLMC has been included in Figure 2 in the Appendix. Our main contributions are: 
+
+> ∗
+
+These authors contributed equally 
+
+> †
+
+Work done while at JPMorganChase AI Research 
+
+1
+
+> arXiv:2604.05064v1 [cs.LG] 6 Apr 2026
+
+ICLR 2026 Workshop on Time Series in the Age of Large Models (TSALM) 
+
+Figure 1: Left: Correlation drift comparison across real and synthetic datasets. Right: Argmax-lag distribution comparison across real-world and synthetic datasets. • We present DynLMC, a synthetic dataset generator for multivariate time series that captures evolving and lagged inter-channel dependencies, enabling realistic, nonstationary correla-tion structures. • We empirically show that fine-tuning pretrained forecasting models on DynLMC improves robustness and generalization, yielding consistent gains on real-world test datasets. 
+
+## 2 BACKGROUND 
+
+Notation and Preliminaries. Let D := {t, X t}Tt=1 denote an N -channel multivariate time series of length T , where each observation at time t is given by 
+
+Xt = [ xt, 1, x t, 2, . . . , x t,N ]⊤ ∈ RN ,
+
+representing the values of all N channels at that time step. Each channel xt,i can depend on its own past values as well as those of other channels, so the entire sequence X1: T ∈ RT ×N jointly encodes both temporal and inter-channel relationships. 
+
+Static LMC for Synthetic Data. In the LMC model used by Schlagenhauf et al. (2024), an N -variate series C(t) ∈ RN is generated as: 
+
+Ci(t) = 
+
+> L
+
+X
+
+> j=1
+
+αi,j lj (t), (1) where lj (t) are independent latent Gaussian processes (GPs) drawn from a diverse kernel bank, and 
+
+αi,j are fixed coregionalization weights. This induces a constant cross-channel covariance: Cov (Ci, C k) = X
+
+> j
+
+αi,j αk,j Cov (lj , l j ),
+
+yielding stationary, instantaneous correlations. While this framework captures realistic intra-channel variation (trend, seasonality), it cannot model evolving or lagged inter-channel dependencies. In the next section, we extend LMC to dynamically incorporate these structures. 
+
+## 3 DYN LMC: D YNAMIC LINEAR MODEL OF COREGIONALIZATION 
+
+To generate synthetic multivariate time series with evolving and lagged inter-channel dependencies, we introduce the DynLMC process, which extends the static LMC framework by allowing dynamic mixing weights and random lags between latent and observed channels. This produces datasets with realistic, non-stationary correlation structures, such as correlation drift, regime shifts, and lead-lag effects. The full procedure is detailed in Algorithm 1 in the Appendix. 2ICLR 2026 Workshop on Time Series in the Age of Large Models (TSALM) 3.1 GENERATIVE PROCESS 
+
+Given L latent GP functions {lj (t)}Lj=1 sampled via KernelSynth, the DynLMC process generates each observed channel as: 
+
+Ci(t) = 
+
+> L
+
+X
+
+> j=1
+
+αi,j (t) lj (t − τi,j ), (2) where, αi,j (t) are time-varying mixing weights , modeled either as smooth autoregressive drifts or discrete regime changes, and τi,j are integer lags sampled from [−τmax , τ max ], inducing causal offsets between latent and observed channels. 3.2 DYNAMIC CORRELATION MECHANISMS 
+
+(a) Smooth Drift. Weights evolve as an autoregressive process: 
+
+˜αi,j (t) = ρ ˜αi,j (t − 1) + ϵi,j (t), ϵi,j (t) ∼ N (0 , σ 2), (3) with ρ ∈ (0 .9, 0.99) controlling correlation persistence and are normalized by a softmax at each t:
+
+αi,j (t) = exp(˜ αi,j (t)) 
+
+P 
+
+> k
+
+exp(˜ αi,k (t)) .
+
+Larger ρ yields slower, smoother drift (stronger temporal persistence), while smaller ρ produces faster-changing weights. 
+
+(b) Regime Switching (HMM). We define K latent regimes {st} with transition probabilities 
+
+p(st|st−1). Each regime k has a fixed mean matrix ¯α(k). At each time step: 
+
+αi,j (t) = (1 − η)¯ α(st) 
+
+> i,j
+
++ ηϵ i,j (t),
+
+where η controls intra-regime variability, introducing structured, interpretable correlation regimes. 
+
+(c) Lagged Dependencies. To simulate lead–lag effects, we sample delays τi,j ∼ U [−τmax , τ max ].Positive τi,j means latent j leads observed i. A larger τmax gives a larger temporal offset between the leading and lagging signals. 
+
+## 4 EXPERIMENTS 
+
+We assess the effectiveness of the synthetic data by fine-tuning a pretrained multivariate time series forecasting model on DynLMC-generated data and evaluating robustness and generalization on real data. Details of the fine-tuning strategy are provided in section A.5 of the Appendix. 
+
+Models. We evaluate three multivariate time series architectures, TimePFN (Schlagenhauf et al., 2024), iTransformer (Liu et al., 2024), and Chronos-2 (Ansari et al., 2025), representing distinct modeling paradigms to assess the impact of our generated data. 
+
+Datasets. Our dataset suite comprises three primary datasets (Section 3.2): (i) DynLMC - Drift 
+
+(ρ varies from 0.92 to 0.99), (ii) DynLMC - Lag (τmax varies from 0 to 8), and (iii) DynLMC -Regime Shift (K varies from 2 to 6). We also include two combined variants: (iv) DynLMC -Combined , which mixes equal weights of each primary dataset, and (v) DynLMC - Combined BO ,which uses Bayesian optimization to determine optimal mixing weights (see Section A.4). Each synthetic dataset contains 1,500 samples, 160 channels, and 1,024 time steps. For the Bayesian optimized variant, the mixing algorithm determines each primary dataset contribution. 
+
+Training protocol. For TimePFN and iTransformer, we pretrain each model using the original LMCSynth synthetic data, dataset from TimePFN, then fine-tune the pretrained checkpoints on each of the four DynLMC datasets. For Chronos-2, we use the official pretrained checkpoint due to unavailable pretraining data and similarly fine-tune on each synthetic dataset. Further details on fine-tuning and training infrastructure are in section A.5 of the Appendix. 3ICLR 2026 Workshop on Time Series in the Age of Large Models (TSALM) 
+
+Testing protocol. We evaluate both pretrained and fine-tuned models on nine real benchmark datasets: ECL, ETTh1/2, ETTm1/2, Exchange, Solar, Traffic, and Weather. Dataset descriptions are in Appendix section A.7. Table 1: Mean Absolute Error (MAE) performance and number of wins over pretrained baseline, across benchmarks (averaged over 5 seeds). KS = KernelSynth, LMC = static LMCSynth generator, and DynLMC = our dynamic extension with time-varying correlations and lag-structures. The best result is highlighted in bold and the second-best is underlined.                                                                                                                                                                                               
+
+> Model ECL ETTh1 ETTh2 ETTm1 ETTm2 Exchange Solar Traffic Weather Wins TimePFN Backbone
+> Baseline pretrained on KS + LMC 0.369 0.440 0.369 0.483 0.298 0.226 1.063 0.596 0.297 –Fine-tuned (KS + LMC + DynLMC - Drift) 0.371 0.436 0.374 0.496 0.299 0.225 1.077 0.596 0.297 2Fine-tuned (KS + LMC + DynLMC - Lag) 0.456 0.459 0.382 0.529 0.321 0.229 0.967 0.666 0.300 1Fine-tuned (KS + LMC + DynLMC - Regime Shift) 0.360 0.438 0.369 0.492 0.301 0.229 1.009 0.593 0.301 4Fine-tuned (KS + LMC + DynLMC - Combined) 0.356 0.437 0.367 0.476 0.297 0.228 1.021 0.596 0.294 7
+> iTransformer Backbone
+> Baseline pretrained on KS + LMC 0.472 0.462 0.367 0.563 0.307 0.226 0.844 0.676 0.279 –Fine-tuned (KS + LMC + DynLMC - Drift) 0.456 0.468 0.369 0.518 0.295 0.233 0.763 0.638 0.278 7Fine-tuned (KS + LMC + DynLMC - Lag) 0.436 0.458 0.368 0.524 0.303 0.232 0.735 0.672 0.279 7Fine-tuned (KS + LMC + DynLMC - Regime Shift) 0.376 0.448 0.358 0.513 0.294 0.226 0.781 0.610 0.278 9Fine-tuned (KS + LMC + DynLMC - Combined) 0.368 0.447 0.364 0.458 0.288 0.225 0.762 0.603 0.286 8
+> Chronos-2 Backbone
+> Baseline (pretrained checkpoint) 0.273 0.397 0.344 0.452 0.273 0.209 0.343 0.309 0.230 –Fine-tuned (KS + LMC + DynLMC - Drift) 0.286 0.399 0.345 0.400 0.264 0.217 0.370 0.337 0.250 2Fine-tuned (KS + LMC + DynLMC - Lag) 0.290 0.401 0.348 0.406 0.267 0.216 0.348 0.333 0.243 2Fine-tuned (KS + LMC + DynLMC - Regime Shift) 0.286 0.406 0.336 0.418 0.268 0.228 0.368 0.330 0.251 3Fine-tuned (KS + LMC + DynLMC - Combined) 0.285 0.406 0.343 0.422 0.274 0.231 0.417 0.354 0.248 2
+> Na¨ ıve Predictions
+> Na¨ ıve Mean 0.794 0.558 0.387 0.548 0.307 0.269 0.734 0.805 0.271 –Na¨ ıve Last 0.996 0.713 0.422 0.665 0.328 0.196 0.815 1.077 0.254 –Seasonal Na¨ ıve 1.017 0.727 0.431 0.674 0.334 0.205 0.844 1.098 0.263 –
+
+4.1 ZERO -S HOT FORECASTING RESULTS 
+
+Table 1 shows the mean absolute error (MAE) for pretrained TimePFN, iTransformer, and Chronos-2 models, as well as their performance after fine-tuning on each DynLMC variant. Results for the DynLMC - Combined BO variant (TimePFN only) are in Table 2 in the Appendix. TimePFN and iTransformer are pretrained solely on synthetic data, while the public Chronos-2 model was also pretrained on real data. 
+
+Performance on TimePFN and iTransformer. Fine-tuning on DynLMC consistently improves TimePFN and iTransformer performance, especially on highly multivariate datasets like ECL, Traf-fic, and Weather. For TimePFN, the Regime Shift and Combined variants achieve 4 and 7 wins, respectively, over the baseline. For iTransformer, Regime Shift and Combined yield 9 and 8 wins, showing that modeling regime shifts and mixed dependencies during synthetic pretraining signifi-cantly enhances generalization and robustness. 
+
+Performance on Chronos-2. For Chronos-2, improvements are more modest. The Regime Shift variant achieves 3 wins over the official checkpoint, while other variants have smaller or mixed effects. This aligns with the Chronos-2 training, which already includes synthetic data with evolving inter-channel dependencies, reducing the marginal benefit of additional synthetic fine-tuning with DynLMC. Additionally, the Chronos-2 pretraining on both synthetic and real data likely contributes to its stronger baseline and limits further gains from synthetic fine-tuning. 
+
+## 5 CONCLUSION 
+
+We presented DynLMC , a dynamic extension of the Linear Model of Coregionalization for re-alistic synthetic multivariate time series. By incorporating smooth drift, regime-switching, and lagged dependencies, DynLMC bridges the realism gap between synthetic and real data. Fine-tuning TimePFN with DynLMC improves zero-shot forecasting without modifying architecture or training objective. This work highlights the role of realistic inter-channel dynamics as a key ingredient in synthetic pretraining for time-series foundation models. 4ICLR 2026 Workshop on Time Series in the Age of Large Models (TSALM) 
+
+## 6 DISCLAIMER 
+
+This paper was prepared for informational purposes by the Artificial Intelligence Research group of JPMorgan Chase & Co. and its affiliates (”JP Morgan”) and is not a product of the Research Department of JP Morgan. JP Morgan makes no representation and warranty whatsoever and dis-claims all liability, for the completeness, accuracy or reliability of the information contained herein. This document is not intended as investment research or investment advice, or a recommendation, offer or solicitation for the purchase or sale of any security, financial instrument, financial product or service, or to be used in any way for evaluating the merits of participating in any transaction, and shall not constitute a solicitation under any jurisdiction or to any person, if such solicitation under such jurisdiction or to such person would be unlawful. 
+
+## REFERENCES 
+
+Abdul Fatir Ansari, Lorenzo Stella, Ali Caner Turkmen, Xiyuan Zhang, Pedro Mercado, Huibin Shen, Oleksandr Shchur, Syama Sundar Rangapuram, Sebastian Pineda Arango, Shubham Kapoor, Jasper Zschiegner, Danielle C. Maddix, Hao Wang, Michael W. Mahoney, Kari Torkkola, Andrew Gordon Wilson, Michael Bohlke-Schneider, and Bernie Wang. Chronos: Learning the language of time series. Transactions on Machine Learning Research , 2024. ISSN 2835-8856. URL https://openreview.net/forum?id=gerNCVqqtR . Expert Certification. Abdul Fatir Ansari, Oleksandr Shchur, Jaris K¨ uken, Andreas Auer, Boran Han, Pedro Mercado, Syama Sundar Rangapuram, Huibin Shen, Lorenzo Stella, Xiyuan Zhang, Mononito Goswami, Shubham Kapoor, Danielle C. Maddix, Pablo Guerron, Tony Hu, Junming Yin, Nick Erick-son, Prateek Mutalik Desai, Hao Wang, Huzefa Rangwala, George Karypis, Yuyang Wang, and Michael Bohlke-Schneider. Chronos-2: From univariate to universal forecasting, 2025. URL 
+
+https://arxiv.org/abs/2510.15821 .James Bergstra, R´ emi Bardenet, Yoshua Bengio, and Bal´ azs K´ egl. Algorithms for hyper-parameter optimization. Advances in neural information processing systems , 24, 2011. Ben Cohen, Emaad Khwaja, Kan Wang, Charles Masson, Elise Ram´ e, Youssef Doubli, and Othmane Abou-Amal. Toto: Time series optimized transformer for observability, 2024. URL https: //arxiv.org/abs/2407.07874 .Abhimanyu Das, Weihao Kong, Rajat Sen, and Yichen Zhou. A decoder-only foundation model for time-series forecasting, 2024. URL https://arxiv.org/abs/2310.10688 .Liang Du, Ruobin Gao, Ponnuthurai Nagaratnam Suganthan, and David ZW Wang. Bayesian op-timization based dynamic ensemble for time series forecasting. Information Sciences , 591:155– 175, 2022. Vijay Ekambaram, Arindam Jati, Pankaj Dayama, Sumanta Mukherjee, Nam H. Nguyen, Wesley M. Gifford, Chandra Reddy, and Jayant Kalagnanam. Tiny time mixers (ttms): Fast pre-trained models for enhanced zero/few-shot forecasting of multivari-ate time series. In A. Globerson, L. Mackey, D. Belgrave, A. Fan, U. Paquet, J. Tomczak, and C. Zhang (eds.), Advances in Neural Information Processing Sys-tems , volume 37, pp. 74147–74181. Curran Associates, Inc., 2024. doi: 10.52202/ 079017-2359. URL https://proceedings.neurips.cc/paper_files/paper/ 2024/file/874a4d89f2d04b4bcf9a2c19545cf040-Paper-Conference.pdf .Fadi Hamad, Shinpei Nakamura-Sakai, Saheed Obitayo, and Vamsi Potluru. A supervised gener-ative optimization approach for tabular data. In Proceedings of the Fourth ACM International Conference on AI in Finance , pp. 10–18, 2023. Guokun Lai, Wei-Cheng Chang, Yiming Yang, and Hanxiao Liu. Modeling long- and short-term temporal patterns with deep neural networks. The 41st International ACM SIGIR Con-ference on Research & Development in Information Retrieval , 2017. URL https://api. semanticscholar.org/CorpusID:4922476 .5ICLR 2026 Workshop on Time Series in the Age of Large Models (TSALM) Chenghao Liu, Taha Aksu, Juncheng Liu, Xu Liu, Hanshu Yan, Quang Pham, Silvio Savarese, Doyen Sahoo, Caiming Xiong, and Junnan Li. Moirai 2.0: When less is more for time series forecasting, 2026. URL https://arxiv.org/abs/2511.11698 .Yong Liu, Tengge Hu, Haoran Zhang, Haixu Wu, Shiyu Wang, Lintao Ma, and Ming-sheng Long. itransformer: Inverted transformers are effective for time series forecast-ing. In B. Kim, Y. Yue, S. Chaudhuri, K. Fragkiadaki, M. Khan, and Y. Sun (eds.), 
+
+International Conference on Learning Representations , volume 2024, pp. 11116–11140, 2024. URL https://proceedings.iclr.cc/paper_files/paper/2024/file/ 2ea18fdc667e0ef2ad82b2b4d65147ad-Paper-Conference.pdf .Nikolas Schlagenhauf, Theo Galy-Fajou, Matej Balog, Vitus Musil, Johannes von Oswald, Vincent Fortuin, et al. Timepfn: Effective multivariate time series forecasting with synthetic data. arXiv preprint arXiv:2502.16294 , 2024. Accepted at AAAI 2025. Artur Trindade. ElectricityLoadDiagrams20112014. UCI Machine Learning Repository, 2015. DOI: https://doi.org/10.24432/C58C86. Gerald Woo, Chenghao Liu, Akshat Kumar, Caiming Xiong, Silvio Savarese, and Doyen Sahoo. Unified training of universal time series forecasting transformers. In International Conference on Machine Learning , 2024. URL https://api.semanticscholar.org/CorpusID: 267411817 .Haixu Wu, Jiehui Xu, Jianmin Wang, and Mingsheng Long. Autoformer: Decomposition trans-formers with auto-correlation for long-term series forecasting, 2022. URL https://arxiv. org/abs/2106.13008 .Haoyi Zhou, Shanghang Zhang, Jieqi Peng, Shuai Zhang, Jianxin Li, Hui Xiong, and Wancai Zhang. Informer: Beyond efficient transformer for long sequence time-series forecasting, 2021. URL 
+
+https://arxiv.org/abs/2012.07436 .Muhammad Zulfiqar, Kelum AA Gamage, Muhammad Kamran, and Muhammad Babar Rasheed. Hyperparameter optimization of bayesian neural network using bayesian optimization and intel-ligent feature engineering for load forecasting. Sensors , 22(12):4446, 2022. 
+
+## A APPENDIX 
+
+A.1 RELATED WORK 
+
+Time Series Foundation Models. Recent work has investigated foundation models for time se-ries, aiming to pretrain large neural architectures on diverse temporal data and transfer them across tasks and domains. TimesFM Das et al. (2024) and Chronos Ansari et al. (2024) pioneered this di-rection by framing forecasting as a sequence modeling problem and training transformers on large-scale synthetic univariate time series. The Chronos Ansari et al. (2024) synthetic generation pipeline, KernelSynth, captures common temporal structures such as trends, seasonality, and stochastic noise, enabling strong zero-shot and few-shot performance across heterogeneous benchmarks without re-liance on curated real-world datasets. These approaches predominantly focus on univariate series or treat multiple variables independently, limiting their capacity to model cross-variable dependencies inherent in multivariate data. 
+
+Multivariate Time Series Modeling. Modeling dependencies across variables is central to mul-tivariate time series forecasting. Classical approaches rely on vector autoregressive or state-space models, while modern deep learning methods employ attention mechanisms and graph-based induc-tive biases. iTransformer Liu et al. (2024) introduced an inverted attention mechanism that attends across variables rather than time steps, explicitly targeting multivariate dependency modeling and achieving strong empirical performance. In parallel, models such as Toto Cohen et al. (2024), a general-purpose time series forecasting model specifically tuned for observability metrics, and TTMs Ekambaram et al. (2024), a compact model based on the TSMixer architecture, explored alternative pretraining objectives, tokenization strate-gies, and transformer architectures for time series foundation models. 6ICLR 2026 Workshop on Time Series in the Age of Large Models (TSALM) Models such as Moirai Woo et al. (2024) and Moirai-2 Liu et al. (2026) extend foundation-model-style training to multivariate settings, emphasizing scalability and robustness across datasets with varying dimensionality. However, these methods primarily rely on real-world multivariate datasets or implicit modeling of inter-variable structure, offering limited control over the statistical properties of cross-series relationships during pretraining. More recent work in Chronos-2 Ansari et al. (2025) refined architectural choices and scaling be-havior, including support for univariate, multivariate, and covariate-informed forecasting and intro-ducing a new group attention mechanism sharing information across multiple time series within a group. 
+
+Synthetic Data for Multivariate Pretraining. Synthetic data generation has proven critical for scaling time series foundation models. Chronos Ansari et al. (2024) demonstrated that synthetic pretraining can induce useful inductive biases and broad generalization. However, its generation pipeline assumes independent univariate series and does not model interactions between variables. TimePFN bridges this gap by extending the Chronos synthetic generation framework to multivariate time series through correlated covariates, enabling the model to learn cross-variable dependencies during pretraining. This approach shows improved performance on multivariate downstream tasks, particularly in data-scarce regimes. Nevertheless, the generated dependencies are largely static, assuming fixed correlation structures across time, and often across all variates. In contrast, real-world multivariate time series frequently exhibit non-stationary dependency patterns, including correlation drift, lagged interactions, and regime-dependent relationships between variables. Such dynamics are common in financial, envi-ronmental, and sensor data but remain underrepresented in existing synthetic pretraining pipelines. Concurrent work to ours in Chronos-2 Ansari et al. (2025) introduced the concept of multivaria-tizers, sampling multiple time series from base univariate generators and introducing correlations between variates in a series and dependencies across time. Our work extends synthetic multivariate pretraining by explicitly modeling dynamic inter-variable structure. Building on Chronos Ansari et al. (2024) and TimePFN Schlagenhauf et al. (2024), we introduce synthetic generators that incorporate correlation drift, variable-specific lags, and regime shifts between covariates. By enriching the synthetic training distribution with these realistic depen-dency dynamics, we enable multivariate foundation models to better generalize to non-stationary and structurally complex real-world datasets. While our contributions in introducing inter-dependencies between variates overlap with Chronos-2 Ansari et al. (2025), we are making our multivariate time series generation pipeline available upon request and show that fine-tuning the open-source Chronos-2 Ansari et al. (2025) model with the DynLMC data improves its performance in several real datasets. 7ICLR 2026 Workshop on Time Series in the Age of Large Models (TSALM) A.2 DYN LMC I LLUSTRATION 
+
+Figure 2: An illustration of DynLMC with evolving inter-channel structures (drift). 8ICLR 2026 Workshop on Time Series in the Age of Large Models (TSALM) A.3 DYN LMC D ATASET GENERATION ALGORITHM 
+
+Algorithm 1 DynLMC Generation Algorithm 
+
+Input: Number of variates N , time-series length T , Weibull shape β, Weibull scale λ, minimum number of latent functions m, maximum number of kernel compositions in KernelSynth J, drift parameters (ρ, σ ), regime type r ∈ { none , hmm }, number of HMM regimes K, HMM stickiness κ,lag bound τmax 
+
+Output: Synthetic MTS C with N variates and length T
+
+1: L ∼ max(min(Weibull( β, λ ), N ), m )
+
+2: for j ∈ { 1 . . . L } do 
+
+3: lj (t) ← KernelSynth( J, T )
+
+4: end for 
+
+5: τi,j ∼ Unif {− τmax , . . . , τ max } for all (i, j )
+
+6: if r = none then 
+
+7: For all (i, j ): define logits Ai,j (t) ← AR1Path( T ; ρ, σ )
+
+8: else 
+
+9: Sample HMM states s1: T with stickiness κ and regime means ¯α(k)
+
+10: For all (i, j ): Ai,j (t) ← ¯α(st) 
+
+> i,j
+
++ AR1Path( T ; ρ, σ )
+
+11: end if 
+
+12: For each t: αi, 1(t), . . . , α i,L (t) ← softmax  Ai, 1: L(t) for all i
+
+13: for i ∈ { 1 . . . N } do 
+
+14: Ci(t) ← PLj=1 αi,j (t) lj
+
+ t − τi,j 
+
+ for t = 1 . . . T 
+
+15: end for 
+
+16: return {Ci(t)}Ni=1 
+
+9ICLR 2026 Workshop on Time Series in the Age of Large Models (TSALM) A.4 BAYESIAN OPTIMIZATION FOR SYNTHETIC DATASET MIXING 
+
+Our dataset generation model DynLMC provides methods for generating the three distinct types of multivariate time series data, as described in Section 3.2: (i) DynLMC Drift, where inter-variable correlations evolve smoothly over time; (ii) DynLMC Lag, where dependencies manifest with tem-poral offsets between variates; and (iii) DynLMC Regime Shift, characterized by abrupt changes in the underlying correlation structure. Finally, we combine the three datasets with equal weights to create a fourth variant (iv) DynLMC - Combined, allowing us to assess whether incorporating all three datasets into the training process yields any additional performance improvements. Beyond this naive mixing we also investigate the potential of a data centric generative optimization procedure, (v) DynLMC - Combined BO, that learns an optimal mixture over multiple synthetic time series sources with the objective to optimize the training data distribution for downstream forecasting accuracy. This is a time series extension of the optimization framework introduced for tabular data Hamad et al. (2023). Let M denote the index set of all available synthetic time series sources where each source corresponds to a distinct temporal generative process (e.g drift/lag, regime shift generators) and let {Sm} denote the dataset corresponding to the source m ∈ M . At each iteration, we construct a synthetic training mixture by sampling sliding window sequences (X, Y ) where X ∈ RT ×N and Y ∈ RTpred ×N from each source according to mixture weights γ(0) ∈
+
+∆|M |. In some occasions where synthetic sources could have different channel dimensionalities, we can align these windows to a common channel dimensionality N ⋆ which can be used to train a forecasting model fϕ(in our implementation, a chronos/TimePFN-style transformer encoder. The trained model is then evaluated on a real validation dataset Dval using a downstream forecasting metric such as mean absolute error (MAE). The resulting validation loss define a black-box objective over a mixture of weights. Concretely, a single evaluation of this objective consist of training the forecasting model on a candidate synthetic mixture and computing its MAE on the validation set: 
+
+ℓ(γ) = L(fϕ(Dsyn (γ)) , D val ). (4) where Dsyn denotes the synthetic dataset sampled from the mixture defined by γ. We optimize this objective using sequential based optimization via the Tree-structured Parzen Estimator (TPE) Bergstra et al. (2011), which iteratively proposes mixture weights, retrains the forecasting model on the resulting synthetic dataset, and updates its surrogate model based on observed validation loss. After K trials, we select γ⋆ = arg min k ℓ(k) and get the mixture dataset ( X, Y ) sampled according to γ⋆. Unlike prior work that applies Bayesian optimization primarily for hyperparameter tuning of time series models Zulfiqar et al. (2022) or ensemble weighting Du et al. (2022), our approach treats the training data as the optimization variable. This yields a data centric optimization framework in which the optimal synthetic mixture is defined by its downstream predictive utility on real time series forecasting tasks. Algorithm 2, details this method. 
+
+Bayesian Optimization Mixing - Results. Table 2 compares the mean absolute error (MAE) of the fine-tuned model on the naively combined dataset variant and the fine-tuned model on the mixed dataset variant generated using the Bayesian optimization algorithm from Section A.4. Table 2: Mean Absolute Error (MAE) performance across datasets combining drift, lag and regime shift characteristics, naively and using a Bayesian mixing method. Results averaged over 5 seeds. The best result is highlighted in bold.                               
+
+> Model ECL ETTh1 ETTh2 ETTm1 ETTm2 Exchange Solar Traffic Weather Wins TimePFN Backbone
+> Fine-tuned (KernelSynth + LMCSynth + DynLMC - Combined) 0.356 0.437 0.367 0.476 0.297 0.228 1.021 0.596 0.294 -Fine-tuned (KernelSynth + LMCSynth + DynLMC - Combined BO) 0.378 0.440 0.363 0.502 0.294 0.226 0.882 0.592 0.270 6
+
+10 ICLR 2026 Workshop on Time Series in the Age of Large Models (TSALM) 
+
+Algorithm 2 Bayesian Optimization for Time Series Dataset Mixing 
+
+Input: Time-series source generators {Sm}m∈M ; validation dataset Dval ; Forecasting model fϕ;Window parameters ( Lseq , L label , L pred ); time split (holdout f rac , holdout tail ); Number of variates N ;Bayesian optimizer B
+
+Output: Optimal mixture weights γ⋆; Mixture dataset (X⋆, Y ⋆)
+
+1: Initialize mixture weights γ(0) ∈ ∆M
+
+2: Set channel target C⋆ = max m Cm
+
+3: for k ∈ { 1 . . . K } do 
+
+4: Compute allocation n(k) 
+
+> m
+
+= ⌊γ(k) 
+
+> m
+
+N ⌋ with P 
+
+> m
+
+n(k) 
+
+> m
+
+= N
+
+5: for m ∈ { 1 . . . M } do 
+
+6: Sample windows (X(k) 
+
+> m
+
+, Y (k) 
+
+> m
+
+) ← SAMPLE WINDOWS (Sm, n (k) 
+
+> m
+
+, L seq , L pred )
+
+7: Apply channel alignment X(k) 
+
+> m
+
+← ALIGN (X(k) 
+
+> m
+
+, C ⋆) and Y (k) 
+
+> m
+
+← ALIGN (Y (k) 
+
+> m
+
+, C ⋆)
+
+8: end for 
+
+9: Compose mixture dataset (X(k), Y (k)) = S 
+
+> m∈M
+
+(X(k) 
+
+> m
+
+, Y (k) 
+
+> m
+
+)
+
+10: Train model with AMP + early stopping: 
+
+11: 
+
+ϕ(k) ← Train (fϕ, (X(k), Y (k)), ϕ 0)
+
+12: Subsample validation windows (Xval , Y val ) ← SUBSAMPLE (Dval , N val ) and align channels 
+
+13: Predict ˆY (k) 
+
+> val
+
+= fϕ(k) (Xval )
+
+14: Compute loss ℓ(k) = L( ˆY (k) 
+
+> val
+
+, Y val )
+
+15: Update mixture using BO: 
+
+16: 
+
+γ(k+1) ← B  {(γ(i), ℓ (i))}ki=1 
+
+
+
+17: end for 
+
+18: Select k⋆ = arg min k ℓ(k) and set γ⋆ = γ(k⋆)
+
+19: return γ⋆, (X⋆, Y ⋆)
+
+A.5 FINE -T UNING STRATEGY 
+
+Our objective is to enrich the pretrained model with additional temporal dependency patterns, while avoiding overfitting to any single synthetic distribution. The original T IME PFN work adopted a curriculum learning paradigm for multivariate adaptation. Concretely, they warm-started training by fully fine-tuning on KernelSynth, a dataset derived from the Chronos Ansari et al. (2024) univariate generation pipeline and adapted to the multivariate setting by concatenating independent time series into tensors of shape (N × T ), where N denotes the number of channels and T the sequence length. Subsequently, they introduced LMCSynth, a dataset of dependent multivariate time series generated via a linear model of coregionalization (LMC), thereby switching from a regime of no inter-variable dependencies to one including them. In our setting, however, curriculum training did not yield optimal results. Instead, we observed improved generalization by jointly mixing the data used during pretraining with newly generated synthetic data. Specifically, we interleave samples from KernelSynth, LMCSynth, and our proposed dataset DynLMC, which explicitly models dynamic correlation structures. Importantly, the contri-bution of DynLMC increases over the course of training. This progressive reweighting encourages the model to first stabilize on simpler or previously seen distributions before gradually incorporating more complex and dynamically evolving dependency patterns. 
+
+Progressive Dataset Mixing. Let D1, D2, and D3 denote KernelSynth, LMCSynth, and DynLMC, respectively. At training index i, we define a mixing probability 
+
+pmix (i) = log 
+
+
+
+1 + 2iM
+
+
+
+, (5) where M is the total dataset size (minimum length across datasets). Since pmix (i) is monotonically increasing in i, the probability of constructing mixed samples grows over time. Mixed samples are formed by concatenating variable subsets from each dataset along the channel dimension and 11 ICLR 2026 Workshop on Time Series in the Age of Large Models (TSALM) 
+
+Algorithm 3 Progressive Interleaved Mixing of Three Datasets 
+
+Require: Datasets D1 (KernelSynth), D2 (LMCSynth), D3 (DynLMC)  
+
+> 1:
+
+N ← min( |D 1|, |D 2|, |D 3|) 
+
+> 2:
+
+for index i = 0 , . . . , N − 1 do  
+
+> 3:
+
+pmix ← log  1 + 2iM
+
+ 
+
+> 4:
+
+Sample u ∼ Uniform (0 , 1)  
+
+> 5:
+
+if u < p mix then  
+
+> 6:
+
+Sample (x1, y 1) ∼ D 1[i] 
+
+> 7:
+
+Sample (x2, y 2) ∼ D 2[i] 
+
+> 8:
+
+Sample (x3, y 3) ∼ D 3[i] 
+
+> 9:
+
+Randomly choose channel split sizes  
+
+> 10:
+
+Concatenate channel subsets: 
+
+x ← concat (x1, x 2, x 3), y ← concat (y1, y 2, y 3) 
+
+> 11:
+
+Randomly permute channel order  
+
+> 12:
+
+else  
+
+> 13:
+
+Randomly choose k ∈ { 1, 2, 3} 
+
+> 14:
+
+Sample (x, y ) ∼ D k[i] 
+
+> 15:
+
+end if  
+
+> 16:
+
+return (x, y ) 
+
+> 17:
+
+end for 
+
+randomly permuting channels to prevent positional bias. Otherwise, with probability 1 − pmix (i), a single dataset is sampled uniformly at random. This design ensures that dynamically correlated sam-ples from DynLMC are incorporated more frequently in later training iterations, effectively imple-menting a soft curriculum through probabilistic mixing rather than staged fine-tuning. Algorithm 3, which details this method, is included in the appendix. 
+
+Retention–Adaptation Tradeoff in Chronos-2. Unlike TimePFN and iTransformer, where we control the full synthetic pretraining pipeline, we do not have access to the original Chronos-2 train-ing corpus. Consequently, during DynLMC fine-tuning we cannot explicitly preserve the data dis-tribution learned during pretraining. To mitigate potential overfitting to DynLMC, we freeze all but the final three layers and adopt a reduced learning rate. Nevertheless, the absence of the original pretraining distribution may limit our ability to balance knowledge retention and adaptation. This could explain why DynLMC fine-tuning occasionally degrades performance on certain real-world datasets for Chronos-2, despite producing gains elsewhere. Importantly, because we compare the official pretrained checkpoint to our DynLMC fine-tuned version under identical evaluation condi-tions, the reported differences isolate the contribution of DynLMC fine-tuning itself. 12 ICLR 2026 Workshop on Time Series in the Age of Large Models (TSALM) A.6 TRAINING INFRASTRUCTURE 
+
+All experiments were run on an AWS g6e.2xlarge instance with a single NVIDIA L40S GPU (48GB VRAM), 8 vCPUs, and 64GB RAM for both training and evaluation. Fine-tuning samples were created by slicing synthetic data with a 96-step context window and 96-step forecasting horizon. Early stopping with a patience of 200 iterations was used and results are averaged over five random seeds for both pretraining and fine-tuning. 13 ICLR 2026 Workshop on Time Series in the Age of Large Models (TSALM) A.7 TESTING DATASETS 
+
+We evaluated all pretrained and fine-tuned models on nine real-world datasets: ECL , ETTh1 , ETTh2 ,
+
+ETTm1 , ETTm2 , Exchange , Solar , Traffic , and Weather . These datasets encompass diverse real-world distributions and capture a range of temporal patterns. Brief descriptions of each dataset are provided below: • ECL: The ECL (Electricity Load Diagrams; Trindade (2015)) contains hourly electric-ity consumption data for 321 clients. The dataset includes 18317/2633/5261 samples for train/validation/test splits. • ETTh Family: The ETTH (Electricity Transformer Temperature; Zhou et al. (2021)) datasets each contain seven variates. ETTh1 and ETTh2 are sampled hourly, while ETTm1 and ETTm2 are sampled every 15 minutes. ETTh datasets include 8545/2881/2881 samples for train/validation/test splits, and ETTm datasets contain 34465/11521/11521 samples, re-spectively. • Exchange: The Exchange Wu et al. (2022) dataset offers daily exchange rates for eight countries, with eight variables in total. The dataset includes 5120/665/1422 samples for train/validation/test splits. • Solar: The Solar Lai et al. (2017) dataset contains power production data from 137 solar power plants, sampled every 10 minutes, yielding 137 variables. The dataset includes 36601/5161/10417 samples for train/validation/test splits. • Traffic: The Traffic Wu et al. (2022) dataset comprises hourly road occupancy rates from 862 locations, yielding 862 variables. The dataset includes 12185/1757/3509 samples for train/validation/test splits. • Weather: The Weather Wu et al. (2022) dataset consists of 21 meteorological variables collected every 10 minutes and contains 36792/5271/10540 samples for train/validation/test splits. 14
