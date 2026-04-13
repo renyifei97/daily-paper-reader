@@ -1,0 +1,2226 @@
+Title: SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objective
+
+URL Source: https://arxiv.org/pdf/2604.07383v1
+
+Published Time: Fri, 10 Apr 2026 00:03:24 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+# SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+## Yuyao Wang 1, Min Yang 2, Meng Chen 2, Weiming Huang 3, Yongshun Gong †2
+
+> 1
+
+Department of Mathematics and Statistics, Boston University, Boston, MA, USA 
+
+> 2
+
+School of Software, Shandong University, Jinan, China 
+
+> 3
+
+School of Geography, University of Leeds, Leeds, UK 
+
+> †
+
+Correspondence: ysgong@sdu.edu.cn 
+
+Abstract 
+
+Cross-city transfer improves prediction in label-scarce cities by leveraging labeled data from other cities, but it becomes challenging when cities adopt incompatible partitions and no ground-truth region correspondences exist. Existing approaches either rely on heuristic region matching, which is often sensitive to anchor choices, or perform distribution-level alignment that leaves correspondences implicit and can be unstable under strong heterogeneity. We propose SCOT , a cross-city representation learning framework that learns explicit soft correspondences between unequal region sets via Sinkhorn-based entropic optimal transport. SCOT further sharpens transferable structure with an OT-weighted contrastive objective and stabilizes optimization through a cycle-style reconstruction regularizer. For multi-source transfer, SCOT aligns each source and the target to a shared prototype hub using balanced entropic transport guided by a target-induced prototype prior. Across real-world cities and tasks, SCOT consistently improves transfer accuracy and robustness, while the learned transport couplings and hub assignments provide interpretable diagnostics of alignment quality. 
+
+# 1 Introduction 
+
+Many urban computing tasks, which build city-scale pre-dictors from heterogeneous data such as human mobility, POIs, and remote sensing, rely on high-quality region rep-resentations for downstream outcomes including regional GDP, population, and carbon estimation (An et al., 2025; Yang et al., 2025a; Li et al., 2024a). In practice, reli-able labels are available only for a few well-instrumented cities, so cross-city transfer aims to learn transferable region embeddings that let a model trained on labeled source cities generalize to a label-scarce target (Li et al., 2025; Jin et al., 2022; Yang et al., 2023; Lu et al., 2022; Wang et al., 2019; Jin et al., 2023; Fang et al., 2022; Yao et al., 2019; Li et al., 2022). This problem is harder than standard domain adaptation because city pairs rarely share a natural region correspondence and often have unequal region counts (Fig. 1a), regions are not i.i.d. samples but nodes in a mobility graph whose relational structure matters, and only part of the semantics is trans-ferable (e.g., commuting corridors may generalize while tourist districts can be city-specific), so alignment must be local and selective (Saito et al., 2018; Chen et al., 2024, 2025; Zhang et al., 2023; Chen et al.). Critically, 
+
+Figure 1: Illustration of motivation. 
+
+this makes alignment the central technical bottleneck: modern GNN encoders already produce expressive region embeddings, but without a principled correspondence mechanism, those embeddings cannot be reliably trans-ferred across incompatible partitions. To cope with these challenges, prior work typically aligns cities by matching embedding distributions or by constructing heuristic cross-city correspondences (Wei et al., 2021; Liu et al., 2024; Yang et al., 2025c; Zhang et al., 2025b; Yang et al., 2025b; Yuan et al., 2025b; Zhang et al., 2025a). Global discrepancy objectives such as MMD (Gretton et al., 2012) shrink distribution gaps in ag-gregate but leave correspondences unspecified, which can 1
+
+> arXiv:2604.07383v1 [cs.LG] 8 Apr 2026 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives
+
+Figure 2: t-SNE visualization for XA →BJ transfer. 
+
+over-mix embedding clouds under heterogeneity (Fig. 1b). Conversely, anchor/nearest-neighbor matches can be brit-tle and prone to hubness, producing many-to-one cor-respondences (Lei et al., 2022; Tang et al., 2022; Zhao et al., 2023; Bao et al., 2022; Wang et al., 2021; Chen et al.). This is visible in Fig. 2 (XA →BJ): CoRE (Chen et al.) (right) yields more globally mixed embeddings, obscuring multi-component functional patterns. Both limitations reflect the same root cause: the absence of explicit, mass-controlled soft correspondences between unequal region sets. What is needed is an alignment mechanism that (1) establishes region-level correspon-dences without requiring ground-truth matching, and (2) scales to multiple sources without source domination or conflicting gradients. These are alignment design prob-lems, not encoder problems — and they motivate every technical component of SCOT. To address these degeneracies, we propose SCOT 
+
+(Semantic Correspondence via Optimal Transport), which learns an explicit soft correspondence for cross-city alignment (Fig. 3). SCOT builds on optimal transport (OT), which compares two distributions by solving for a minimum-cost transport plan (coupling) that moves mass between point sets (Villani, 2021; Villani et al., 2008). We adopt entropic OT (Cuturi, 2013): its marginal (ca-pacity) constraints control how much matching mass each region can send and receive, discouraging many-to-one shortcuts and yielding a structured many-to-many correspondence, while fast Sinkhorn iterations make it practical at urban scale (Cuturi, 2013; Peyré et al., 2019). This has motivated OT as a general alignment tool in cross-city transfer, domain adaptation, and representa-tion learning (Chen et al., 2020; Alqahtani et al., 2021; Wang et al., 2024; Li et al., 2024b; Courty et al., 2016), with transferability analyses further clarifying when OT-based alignment is most effective (Tan et al., 2024, 2021). Moreover, because transport is largely geometry-driven, we design a decision-relevant OT-weighted contrastive objective: the coupling defines soft positives by weighting target candidates with transported mass, concentrating similarity on transport-supported pairs without brittle nearest-neighbor matches (Genevay et al., 2018). This coupling-aware contrastive loss sharpens semantic sepa-ration while preserving OT’s capacity control, producing locally aligned yet non-collapsed embeddings that trans-fer better to downstream prediction (Fig. 2, left). 
+
+Contributions. Our main contributions are as follows: 
+
+• We identify explicit soft correspondence under un-equal partitions as the central alignment challenge in cross-city transfer, and address it with a Sinkhorn-based entropic OT framework coupled with an OT-weighted contrastive objective and cycle reconstruc-tion — jointly controlling correspondence capacity, semantic discriminability, and training stability. 
+
+• We extend SCOT to multi-source transfer via a shared hub of learnable prototypes, aligning each city to the hub with balanced entropic OT guided by a target-induced prior to prevent source domination and conflicting gradients across sources. 
+
+• Experiments on cross-city transfer for GDP, popula-tion, and CO 2 (single- and multi-source) show con-sistent gains over strong baselines and improved ro-bustness under heterogeneity and scarce labels. Ro-bustness experiments across alternative backbones and regressors confirm that gains stem from the alignment design rather than encoder capacity. 
+
+# 2 Problem Setup 
+
+We study cross-city transfer between a labeled source city Cs and a label-scarce target city Ct, partitioned into regions Vs = {1, . . . , n s} and Vt = {1, . . . , n t}. For each city, we construct (i) an undirected spatial adjacency graph with adjacency matrix As (resp. At), and (ii) a di-rected mobility graph given by a row-stochastic transition matrix Ms (resp. Mt) from OD trips: 
+
+Mij = count( i → j)
+
+∑ 
+
+> k
+
+count( i → k) , (1) so Mi· defines the destination distribution from region i.
+
+Latent representations. We learn region embeddings 
+
+zs ∈ Rns×d and zt ∈ Rnt×d that preserve intra-city mobility while being comparable across cities, despite 
+
+ns̸ = nt and heterogeneous patterns. Our framework jointly optimizes intra-city consistency and cross-city alignment without node correspondence (Section 3). 
+
+# 3 Method 
+
+We propose SCOT (Alg. 1), a one-stage framework that jointly learns mobility-preserving embeddings and cross-2SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Figure 3: The pipeline of SCOT. city semantic alignment between unequal region sets, without requiring node correspondence. 
+
+Backbone and intra-city objective. Following Chen et al., for each c ∈ { s, t } we initialize learnable em-beddings H(0)  
+
+> c
+
+∈ Rnc×d and apply L Graph Attention Network (GAT) Veličković et al. (2017) layers over the spatial adjacency graph Ac — which defines the neigh-borhood structure for attention aggregation — to obtain 
+
+zc = H(L) 
+
+> c
+
+. We model the destination distribution from origin i by a softmax over inner products: 
+
+ˆP (c) 
+
+> ij
+
+= exp( z⊤
+
+> c,i
+
+zc,j )
+
+∑nc 
+
+> k=1
+
+exp( z⊤
+
+> c,i
+
+zc,k ) , c ∈ { s, t }, (2) and minimize the mobility-weighted negative log-likelihood against Mc:
+
+Lintra = − ∑
+
+> c∈{ s,t }
+> nc
+
+∑
+
+> i=1
+> nc
+
+∑
+
+> j=1
+
+(Mc)ij log ˆP (c) 
+
+> ij
+
+. (3) 
+
+## 3.1 Alignment via Soft Transport-Guided Matching 
+
+Cross-city transfer needs a soft region-to-region corre-spondence without node matching. We model it with a nonnegative coupling P ∈ Rns×nt +, where P ij measures the association between source region i and target region 
+
+j. We obtain P via Sinkhorn-based entropic OT on a cost matrix C, which yields a smooth, capacity-controlled coupling that avoids mass collapse. P is then used for alignment and to weight our OT-guided contrastive loss. 
+
+3.1.1 Sinkhorn-Based Soft Correspondence 
+
+We first compute ℓ2-normalized region embeddings to stabilize cross-city similarities: 
+
+˜zsi = zsi
+
+∥zsi ∥2
+
+, ˜ztj = ztj
+
+∥ztj ∥2
+
+. (4) We then form a cross-city cost matrix using Euclidean distance on the unit sphere: 
+
+Cij = ∥∥˜zsi − ˜ztj
+
+∥∥2, C ∈ Rns×nt . (5) This normalization prevents the transport cost from being dominated by cross-city magnitude differences aris-ing from city-specific factors such as POI density or graph scale, rather than functional dissimilarity, ensuring that OT measures directional structural similarity instead of scale proximity. To obtain a differentiable soft correspondence, we con-struct the Gibbs kernel Gibbs (1998) 
+
+K = exp( −C/ε ) , Kij = exp( −Cij /ε ) , (6) where ε > 0 controls the sharpness of the coupling. We then apply T steps of Sinkhorn–Knopp Cuturi (2013) scaling to K. Initializing u(0) = 1 ∈ Rns and v(0) = 1 ∈
+
+Rnt , we iterate 
+
+u(k+1) = 1 ⊘ (Kv (k)),
+
+v(k+1) = 1 ⊘ (K⊤u(k+1) ), k = 0 , 1, . . . , T − 1, (7) where ⊘ denotes elementwise division. The resulting soft matching matrix is 
+
+P = diag (u(T )) K diag (v(T )) ∈ Rns×nt 
+
+> +
+
+. (8) The alternating normalizations in (7) encourage a well-spread, non-degenerate coupling P while remaining fully 3SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+differentiable. The entropic temperature ε controls match-ing sharpness: smaller values yield peaked but less stable couplings, whereas larger values produce diffuse align-ments. Since costs are computed on ℓ2-normalized em-beddings, we use a moderate ε = 0 .15 .Given P, we define the OT alignment loss as the (soft) expected transport cost: 
+
+LOT = 1min( ns, n t)
+
+> ns
+
+∑
+
+> i=1
+> nt
+
+∑
+
+> j=1
+
+Pij Cij . (9) 
+
+3.1.2 Sinkhorn-guided Contrastive Semantic Alignment 
+
+Minimizing LOT enforces geometric closeness but does not guarantee semantically discriminative embeddings. We therefore couple the Sinkhorn correspondence P with a contrastive objective, using Pij as a soft positive weight between source region i and target region j. Cross-city similarities are computed with temperature τ :
+
+Sij = ˜zs⊤ 
+
+> i
+
+˜ztj
+
+τ . (10) For each source region i, we treat the Sinkhorn weights 
+
+{Pij }nt 
+
+> j=1
+
+as a soft positive distribution over target regions, and define the Sinkhorn-weighted contrastive loss 
+
+LCon = − 1
+
+nsns∑
+
+> i=1
+
+log 
+
+∑nt 
+
+> j=1
+
+Pij exp( Sij )
+
+∑nt 
+
+> j=1
+
+exp( Sij ) . (11) This objective pulls each source region towards its highly-weighted target matches under P, while pushing it away from unmatched targets. Theorem 3.1 shows that the target MAE is upper bounded by the source MAE plus a transfer gap that is explicitly controlled by our OT-weighted contrastive alignment: as Lcon decreases, the bound becomes tighter. 
+
+Theorem 3.1. Let {ui}ns
+
+> i=1
+
+, {vj }nt 
+
+> j=1
+
+⊂ Sd−1 be unit embeddings, and let a ∈ ∆ns , b ∈ ∆nt be probabil-ity vectors. Let P ∈ Rns×nt 
+
+> +
+
+be a coupling satisfying 
+
+P 1 = a, P ⊤1 = b. Let τ > 0, and let g, h : Sd−1 → R
+
+be Lg - and Lh-Lipschitz, respectively. Define the weighted empirical MAE risks 
+
+Ras (h) := 
+
+> ns
+
+∑
+
+> i=1
+
+ai |h(ui) − g(ui)|Rbt (h) := 
+
+> nt
+
+∑
+
+> j=1
+
+bj |h(vj ) − g(vj )|.
+
+Define the OT-weighted contrastive loss 
+
+LCon (P ) := 
+
+> ns
+
+∑
+
+> i=1
+
+ai
+
+[
+
+− log 
+
+∑nt 
+
+> j=1
+
+Pij exp( ⟨ui, v j ⟩/τ )
+
+ai
+
+∑nt 
+
+> k=1
+
+exp( ⟨ui, v k⟩/τ )
+
+]
+
+.
+
+Then 
+
+Rbt (h) ≤ R as (h) + ( Lh + Lg )√ 2 − 2 m , 
+
+where 
+
+m := max 
+
+{
+
+−1, τ log nt + τ H (a) − τ LCon (P ) − 1 − 12τ
+
+}
+
+,
+
+and 
+
+H(a) := −
+
+> ns
+
+∑
+
+> i=1
+
+ai log ai
+
+is the Shannon entropy of a.Proof. See Appendix C. 
+
+3.1.3 Alignment Loss 
+
+We combine the two core alignment terms as 
+
+LAlign = LOT + η LCon , (12) where η controls the weight of semantic discriminability. 
+
+## 3.2 Cycle Reconstruction Regularization 
+
+To further enforce semantic consistency in the learned correspondences, we introduce a one-sided cycle recon-struction regularizer: a source region mapped to the target should be recoverable from its matched target counterpart, penalizing correspondences that are geomet-rically plausible but semantically incoherent. 
+
+Cross-attention. Given Zs ∈ Rns×d and Zt ∈ Rnt×d,define Qs = ZsW⊤ 
+
+> q
+
+, Ks = ZsW⊤ 
+
+> k
+
+, Qt = ZtW⊤ 
+
+> q
+
+, Kt =
+
+ZtW⊤ 
+
+> k
+
+, with learnable Wq , Wk ∈ Rd×d. The cross-attention maps are 
+
+As→t = softmax 
+
+( QsK⊤
+
+> t
+
+√d
+
+)
+
+∈ Rns×nt , (13) 
+
+At→s = softmax 
+
+( QtK⊤
+
+> s
+
+√d
+
+)
+
+∈ Rnt×ns . (14) 
+
+One-sided cycle + entropy penalty. We enforce approximate recovery of source identities: 
+
+Lcyc = ∥As→tAt→s − Ins ∥2 
+
+> F
+
+, (15) which stabilizes source →target transfer without over-constraining the rectangular case ns̸ = nt. To avoid overly diffuse attention, we add an entropy penalty on 
+
+As→t:
+
+Rent = − 1
+
+nsns∑
+
+> i=1
+> nt
+
+∑
+
+> j=1
+
+As→t(i, j ) log (As→t(i, j ) + δ). (16) where δ = 10 −8 is a numerical constant for stability. The reconstruction regularizer is 
+
+Lrec = Lcyc + β Rent . (17) 4SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Algorithm 1 Single-source SCOT training 
+
+Input: Gs, Gt, Ms, Mt, τ, ε , T , λalign , λ rec , η, β, step size α.
+
+Output: Θ. 
+
+> 1:
+
+for epoch = 1 , 2, . . . do  
+
+> 2:
+
+zs ← GAT s(Gs; Θ) , zt ← GAT t(Gt; Θ)  
+
+> 3:
+
+Ls 
+
+> intra
+
+← L intra (zs; Ms)
+
+Lt 
+
+> intra
+
+← L intra (zt; Mt) 
+
+> 4:
+
+˜zs ← RowNorm( zs), ˜zt ← RowNorm( zt) 
+
+> 5:
+
+Cij ← ∥∥˜z si − ˜z tj
+
+∥∥2 
+
+> 6:
+
+K ← exp( −C/ε ); u ← 1, v ← 1 
+
+> 7:
+
+for k = 1 , . . . , T do  
+
+> 8:
+
+u ← 1 ⊘ (Kv ), v ← 1 ⊘ (K⊤u) 
+
+> 9:
+
+end for  
+
+> 10:
+
+P ← diag( u) K diag( v) 
+
+> 11:
+
+LOT ← ⟨ P, C⟩/ min( ns, n t) 
+
+> 12:
+
+LCon ← − 1
+
+> ns
+
+∑ 
+
+> i
+
+log 
+
+( ∑     
+
+> jPij exp(˜ zs⊤
+> i˜ztj/τ )
+
+∑    
+
+> jexp(˜ zs⊤
+> i˜ztj/τ )
+
+) 
+
+> 13:
+
+Lalign ← L OT + η LCon  
+
+> 14:
+
+Lrec ← L cycle (zs, zt) + β Ent( As→t) 
+
+> 15:
+
+L ← L s 
+
+> intra
+
++ Lt 
+
+> intra
+
++ λalign Lalign + λrec Lrec  
+
+> 16:
+
+Θ ← Θ − α∇ΘL 
+
+> 17:
+
+end for 
+
+## 3.3 Model Training 
+
+Our training objective jointly enforces intra-city mobil-ity consistency and cross-city alignment in a one-stage manner: 
+
+LTotal = L(s)intra + L(t)intra 
+
+︸ ︷︷ ︸
+
+> intra-city
+
++λalign LAlign 
+
+︸ ︷︷ ︸ 
+
+> cross-city
+
++λrec LRec 
+
+︸ ︷︷ ︸ 
+
+> stabilization
+
+.
+
+(18) Here, L(s)intra and L(t)intra are intra-city mobility losses for the source and target, LAlign is the cross-city alignment loss, and LRec is the cycle reconstruction regularizer. All coefficients are hyperparameters tuned on validation data, and the model is trained end-to-end by stochastic gradient optimization. 
+
+# 4 Multi-Source Hub Alignment 
+
+Multi-source transfer is harder than the single-source case because different sources can induce conflicting cor-respondences to the same target, and independent source to target alignments can be unstable or dominated by one source. We introduce a shared semantic hub, a set of K
+
+learnable prototypes that provides a common alignment space (Alg. 2). Instead of aligning each source to the tar-get separately, we align all cities, both sources and target, to the hub via balanced entropic OT, yielding a coordi-nated many to hub matching. A shared, target-induced 
+
+Figure 4: Illustration of multi-source hub align-ment. 
+
+prototype marginal controls prototype capacity and em-phasizes target-relevant semantics, improving stability and preventing source domination. Figure 4 illustrates the multi-source hub alignment mechanism. Given embeddings from multiple source cities {Z(1) , . . . , Z (M )} and target Z(T ), we introduce shared prototype hubs as intermediate anchors. Each city is softly assigned to the hubs, producing hub-level representations that summarize transferable structure. These are then aligned to the target via balanced en-tropic OT, yielding transport plans {Π(m)} that jointly supervise Lm 
+
+> OT
+
+and Lm
+
+> Con
+
+, enabling scalable many-to-many alignment without brittle pairwise correspondences. 
+
+Balanced entropic OT to the hub. Let S =
+
+{s1, . . . , s M } denote the set of source cities, and let t
+
+be the target city. We introduce a shared hub of K
+
+learnable prototypes (anchors) {ak}Kk=1 . For each city 
+
+m ∈ S ∪ { t}, we ℓ2-normalize region embeddings and prototypes: 
+
+˜zmi = zmi
+
+∥zmi ∥2
+
+, ˜ak = ak
+
+∥ak∥2
+
+,
+
+and define the hub cost 
+
+Cmik = ∥∥˜zmi − ˜ak
+
+∥∥2, Cm ∈ Rnm×K .
+
+Target-induced shared prototype marginal. We construct a shared prototype marginal b ∈ ∆K−1 from the target city: 
+
+¯sk = 1
+
+ntnt∑
+
+> j=1
+
+˜zt⊤ 
+
+> j
+
+˜ak,bk ∝ max 
+
+{
+
+exp (¯sk/τ b
+
+), ϵ b
+
+}
+
+, k = 1 , . . . , K, 
+
+(19) followed by normalization so that ∑Kk=1 bk = 1 . Here 
+
+τb > 0 is a temperature and ϵb > 0 is a small floor to prevent dead prototypes. The motivation and detailed 5SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+interpretation are provided in Appendix H.2. We use uniform node marginals am = 1 
+
+> nm
+
+1 for each city m.
+
+Balanced entropic coupling. For each city m ∈S ∪ { t}, we solve the balanced entropic OT problem 
+
+Πm ∈ arg min  
+
+> P≥0
+
+⟨P, Cm⟩ + ε
+
+> nm
+
+∑
+
+> i=1
+> K
+
+∑
+
+> k=1
+
+Pik (log Pik − 1) 
+
+s.t. P1 = am, P⊤1 = b,
+
+(20) which we compute via T Sinkhorn iterations. Let Qm be the row-normalized assignment: 
+
+Qmik = Πmik 
+
+∑Kk′=1 Πmik ′
+
+, so that 
+
+> K
+
+∑
+
+> k=1
+
+Qmik = 1 ∀i. (21) 
+
+OT-guided contrastive alignment to the hub. For each city m ∈ S ∪ { t}, we compute region–prototype similarities (temperature τ )
+
+Smik = ˜zm⊤ 
+
+> i
+
+˜ak
+
+τ , (22) and use the OT-induced assignments Qmik as soft positive weights to define 
+
+Lm 
+
+> Con
+
+= − 1
+
+nmnm∑
+
+> i=1
+
+log 
+
+∑Kk=1 Qmik exp( Smik )
+
+∑Kk=1 exp( Smik ) . (23) The OT transport cost is Lm 
+
+> OT
+
+= ⟨Πm, Cm⟩, and we combine them as Lm 
+
+> align
+
+= Lm 
+
+> OT
+
++ λc Lm
+
+> Con
+
+.
+
+Hub-cycle stabilization and entropy regulariza-tion. For each city m ∈ S ∪ { t}, we compute cross-attention between region embeddings Zm ∈ Rnm×d and hub prototypes A ∈ RK×d using shared Wq , W k ∈ Rd×d:
+
+Am→h = softmax 
+
+( (ZmWq )( AWk)⊤
+
+√d
+
+)
+
+∈ Rnm×K , (24) 
+
+Ah→m = softmax 
+
+( (AWq )( ZmWk)⊤
+
+√d
+
+)
+
+∈ RK×nm . (25) We stabilize many-to-hub alignment with a one-sided cycle loss and an entropy penalty: 
+
+Lm 
+
+> cyc
+
+= 1
+
+n2
+
+> m
+
+∥Am→hAh→m − Inm ∥2 
+
+> F
+
+, (26) 
+
+Rm 
+
+> ent
+
+= − 1
+
+nm
+
+∑
+
+> i,k
+
+Am→h(i, k ) log (Am→h(i, k ) + δ). (27) and define Lm 
+
+> rec
+
+= Lm 
+
+> cyc
+
++ β Rm
+
+> ent
+
+, with δ = 10 −8.
+
+Objective. Our final training objective is 
+
+L = ∑
+
+> m∈S∪{ t}
+
+Lm 
+
+> intra
+
++ λalign · 1
+
+|S| + 1 
+
+∑
+
+> m∈S∪{ t}
+
+Lm
+
+> align
+
+.
+
++ λrec · 1
+
+|S| + 1 
+
+∑
+
+> m∈S∪{ t}
+
+Lm
+
+> rec
+
+. (28) 
+
+Algorithm 2 Multi-source SCOT training (hub entropic OT) 
+
+Input: {G m, Mm}m∈S , Gt, Mt, hub size K, τ, ε , T ,
+
+λalign , λ rec , λc, λhub , β, step size α.
+
+Output: Θ(including learnable prototypes a).  
+
+> 1:
+
+for epoch = 1 , 2, . . . do  
+
+> 2:
+
+zm ← GAT m(Gm; Θ) , ∀m ∈ S ∪ { t} 
+
+> 3:
+
+Lm 
+
+> intra
+
+← L intra (zm; Mm), ∀m ∈ S Lt 
+
+> intra
+
+← L intra (zt; Mt) 
+
+> 4:
+
+˜zm ← RowNorm( zm), ∀m ∈ S ∪ { t};
+
+˜a ← RowNorm( a) 
+
+> 5:
+
+for all m ∈ S ∪ { t} do  
+
+> 6:
+
+Cmik ← ∥ ˜z mi − ˜ak∥2 
+
+> 7:
+
+Πm ← arg min P∈Π( am,b) ⟨P, Cm⟩ − ε H (P) 
+
+> 8:
+
+Qm ← RowNorm( Πm) 
+
+> 9:
+
+Lm 
+
+> OT
+
+← ⟨ Πm, Cm⟩/ min( nm, K ) 
+
+> 10:
+
+Lm 
+
+> Con
+
+← − 1
+
+> nm
+
+∑ 
+
+> i
+
+log 
+
+( ∑      
+
+> kQmik exp(˜ zm⊤
+> i˜ak/τ )
+
+∑    
+
+> kexp(˜ zm⊤
+> i˜ak/τ )
+
+) 
+
+> 11:
+
+Lm 
+
+> align
+
+← L m 
+
+> OT
+
++ λc Lm 
+
+> Con
+> 12:
+
+pm ← (Πm)⊤1; Lm 
+
+> hub
+
+← KL (pm ∥ 1 
+
+> K
+
+1) 
+
+> 13:
+
+end for  
+
+> 14:
+
+Lalign ← 1
+
+> |S| +1
+
+∑ 
+
+> m∈S∪{ t}
+
+Lm 
+
+> align
+> 15:
+
+Lhub ← 1
+
+> |S| +1
+
+∑ 
+
+> m∈S∪{ t}
+
+Lm 
+
+> hub
+> 16:
+
+Lrec ← L cycle ({zm}m∈S , zt) + β Ent( A·→ t) 
+
+> 17:
+
+Lalign ← L align + λhub Lhub  
+
+> 18:
+
+L ← ∑ 
+
+> m∈S
+
+Lm 
+
+> intra
+
++Lt 
+
+> intra
+
++λalign Lalign +λrec Lrec  
+
+> 19:
+
+Θ ← Θ − α∇ΘL 
+
+> 20:
+
+end for 
+
+# 5 Experiments 
+
+We evaluate SCOT on real-world mobility data from three Chinese cities (Beijing, Xi’an, Chengdu). We aggregate anonymized OD trips into region-level mobility graphs and evaluate cross-city transfer on all ordered city pairs in {BJ, XA, CD}, focusing on prediction in label-scarce targets. Details are in Appendix B.1. 
+
+## 5.1 Experimental Settings 
+
+5.1.1 Implementation Details 
+
+We use a two-layer GAT encoder ( d = 128 , H = 8 ) with PReLU after the first layer and a linear output layer, 6SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Table 1: Results on XA and BJ transfer. Lower scores indicate better performance. Red: best, Blue: runner-up.                                                                                                                                           
+
+> Method XA(X)/BJ(Y) BJ(X)/XA(Y)
+> GDP Population CO 2GDP Population CO 2
+> MAE MAPE MAE MAPE MAE MAPE MAE MAPE MAE MAPE MAE MAPE Non-Alignment 264.30 12.08 981.07 8.56 288.41 6.40 252.91 5.84 946.93 8.53 270.42 8.66 RP 189.84 9.07 684.50 6.55 196.05 4.70 181.08 4.58 670.44 6.46 191.85 6.42 HBP 177.69 8.40 665.46 5.95 188.72 4.18 196.20 3.10 627.46 4.37 176.35 4.25 HSA 201.27 6.83 619.33 4.00 176.40 3.20 188.40 2.11 636.33 5.03 182.91 5.02 MMD 183.32 5.71 588.34 3.17 165.70 2.54 180.73 1.99 499.94 1.85 141.57 1.83 Adv 192.59 8.72 702.19 6.78 199.23 4.83 199.21 6.32 805.01 9.16 203.27 7.21 CrossTReS 207.43 7.39 633.25 4.42 179.75 3.50 170.27 4.23 639.44 5.62 182.72 5.55 CoRE 157.83 5.46 611.18 4.05 166.28 2.95 162.19 1.91 547.74 2.17 153.63 2.09
+> Ours 115.33 3.17 528.50 2.13 149.42 1.79 154.92 1.60 452.67 1.58 128.74 1.63
+> Gain vs. best (%) +26 .9% +41 .9% +10 .2% +32 .8% +9 .8% +29 .5% +4 .5% +15 .7% +9 .5% +14 .6% +9 .1% +10 .9%
+
+and train all methods end-to-end with Adam (lr = 10 −3). Hyperparameters are tuned on a validation split and then fixed for all city pairs: λalign = 1 .0, λrec = 0 .5, η = 0 .5,
+
+β = 0 .05 , τ = 0 .1, with Sinkhorn OT using ε = 0 .15 . For multi-source, we use K = 32 prototypes, ε = 0 .15 , and a target-induced hub prior with τb = 0 .5 and probability floor 10 −3.
+
+5.1.2 Baselines 
+
+We compare SCOT against baselines from three paradigms: (i) Non-alignment baseline that perform no cross-city adaptation, training city-specific encoders independently using only intra-city objectives; (ii) Correspondence-based alignment using surrogate matches (RP/HBP/HSA), and (iii) Correspondence-free transfer via distributional or relational alignment (MMD Saito et al. (2018), Adv Ganin et al. (2016), CrossTReS Jin et al. (2022), CoRE Chen et al.). Details are in Appendix B.2. 
+
+Multi-source extension. In the two-source setting, we keep each baseline’s intra-city objective and implement a stronger multi-source variant by adaptively weighting the two transfer directions (s1 → t) and (s2 → t), rather than uniformly summing their losses (weights are softmax-parameterized to be nonnegative and sum to one). For distribution-matching baselines (e.g., MMD/Adv), we also evaluate a joint-mixture variant that matches the target against a weighted mixture of the two sources. At evaluation, we train a single predictor on the union of labeled regions from both sources and test on the target. 
+
+5.1.3 Downstream Tasks and Metrics 
+
+For each ordered city pair X → Y , we learn region em-beddings and then evaluate transfer by fitting a ridge 
+
+Figure 5: Radar-chart matrix for cross-city trans-fer performance. MAE, MAPE, and Avg (min–max normalized within panel; center = lower error). regressor on the source city labels using (ZX , yX ) and directly applying it to target embeddings ZY to predict 
+
+yY . We report MAE and MAPE for GDP, population, and CO 2 emission prediction; lower values indicate better transfer. 
+
+## 5.2 Experiment Results 
+
+5.2.1 Single-source Results 
+
+SCOT achieves the best single-source transfer results (MAE/MAPE) across all target cities and tasks (Table 1, Appendix Tables 4–5), corroborated by consistently small-est radar polygons in Fig. 5. 7SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Table 2: Multi-source cross-city transfer results (two targets shown; the remaining target is reported in Appendix). Lower is better. Red: best, Blue: runner-up.                                                                                                                             
+
+> Target: BJ Method GDP Population CO 2
+> MAE ↓MAPE ↓MAE ↓MAPE ↓MAE ↓MAPE ↓
+> RP 172.76 7.64 679.86 6.98 166.80 2.69 HBP 164.25 7.13 662.60 6.53 165.53 2.57 HSA 156.40 6.62 644.89 5.53 160.05 2.59 MMD 127.45 4.93 605.81 4.11 160.52 1.29 Adv 196.76 9.90 717.96 6.34 189.41 3.19 CrossTReS 151.17 6.41 666.74 5.03 187.59 2.32 CoRE 152.88 5.86 620.34 4.30 152.24 1.99
+> Ours 104.16 2.57 525.10 1.87 143.53 1.16
+> Gain(%) +18 .3% +47 .9% +13 .3% +54 .5% +5 .7% +10 .1%
+> Target: XA Method GDP Population CO 2
+> MAE ↓MAPE ↓MAE ↓MAPE ↓MAE ↓MAPE ↓
+> RP 195.91 2.89 642.01 3.67 181.16 2.88 HBP 200.04 4.24 670.41 3.80 150.16 2.09 HSA 183.55 2.42 648.67 3.79 155.20 2.45 MMD 163.78 2.18 506.22 3.05 144.61 3.18 Adv 221.31 4.84 731.92 5.43 184.73 3.46 CrossTReS 179.01 4.94 625.63 5.52 151.22 3.48 CoRE 173.72 5.48 549.37 3.89 134.19 1.97
+> Ours 156.94 1.71 446.13 1.86 127.66 1.26
+> Gain(%) +4 .2% +21 .6% +11 .9% +39 .0% +4 .9% +36 .0%
+
+Figure 6: Ablation t-SNE of SCOT alignment (XA →BJ). 
+
+5.2.2 Multi-source Results 
+
+Table 2 summarizes the two-source transfer setting (two cities as sources, the remaining city as target) on GDP, Population, and CO 2. SCOT achieves the best perfor-mance across all targets and indicators, benefiting from the shared semantic hub that stabilizes multi-source ag-gregation. 
+
+5.2.3 Single-source vs. Multi-source SCOT 
+
+Multi-source SCOT consistently outperforms the best single-source baseline (Fig. 7, Appendix Table 18), sug-gesting transfer is not driven by a single closest source. We attribute the gains to complementary signals across cities, aggregated via a shared hub that aligns all sources into a common prototype space and avoids conflicting pairwise gradients. 
+
+Figure 7: Best single-source SCOT (orange) vs. multi-source SCOT (red). Labels show relative MAE change 
+
+∆ (green: improvement; red: degradation). 
+
+Figure 8: Diagnostics: (left) entropic OT coupling(XA →BJ, epoch 100), subsample after re-ordering; (right) hub assignment sharpness for K = 32 
+
+(qmax , qent , and qent / log K). 
+
+## 5.3 Ablation Study 
+
+We ablate SCOT by removing one term at a time: (i) w/o Lcon , (ii) w/o LOT , and (iii) w/o Lrec . Fig. 6 shows complementary roles of the components: without Lcon ,embeddings remain largely city-specific with limited mix-ing; without Lrec , training becomes less stable; without 
+
+LOT , target-side branches persist, indicating unresolved mismatches under heterogeneity. Full SCOT achieves the cleanest overlap while preserving coherent geometry. Con-sistently, Fig. 14 shows the full model attains the lowest MAE/MAPE across all tasks and transfer directions. Besides, we ablate multi-source design choices, includ-ing hub alignment vs. pairwise OT with global gating 8SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 0.05 0.1 0.5 1 2 3                 
+
+> Alignment weight λalign
+> 136
+> 144
+> 152
+> 160
+> MAE
+> GDP
+> MAE
+> MAPE
+> 0.05 0.1 0.5 123
+> Alignment weight λalign
+> 525
+> 550
+> 575
+> 600
+> 625
+> Population
+> 0.05 0.1 0.5 123
+> Alignment weight λalign
+> 150
+> 160
+> 170
+> 180
+> CO 2
+> 4
+> 5
+> 6
+> 2
+> 3
+> 4
+> 2
+> 3
+> 4
+> MAPE
+> Sensitivity to λalign (XA →BJ)
+
+Figure 9: Sensitivity to λalign (XA →BJ). 0.05 0.1 0.15 0.2 0.5 1                 
+
+> Sinkhorn regularization ε
+> 120
+> 135
+> 150
+> MAE
+> GDP
+> MAE
+> MAPE
+> 0.05 0.1 0.15 0.2 0.5 1
+> Sinkhorn regularization ε
+> 525
+> 540
+> 555
+> 570
+> Population
+> 0.05 0.1 0.15 0.2 0.5 1
+> Sinkhorn regularization ε
+> 150
+> 155
+> 160
+> 165
+> CO 2
+> 4
+> 5
+> 6
+> 2
+> 3
+> 2
+> 3
+> MAPE
+> Sensitivity to Sinkhorn regularization ε(XA →BJ)
+
+Figure 10: Sensitivity to Sinkhorn regularization ε
+
+(XA →BJ). (Appendix H.3), the target-induced prototype prior (Ap-pendix H.2), and balanced vs. unbalanced OT in hub alignment (Appendix H.4). These results support the sta-bility and selectivity benefits of coordinated many-to-hub matching. 
+
+## 5.4 Diagnostics 
+
+Alignment diagnostics. Figure 8 (left) visualizes the learned OT coupling P for XA →BJ after barycentric reordering. The clear block structure indicates selec-tive many-to-many correspondences with limited hub-ness, consistent with SCOT’s transfer gains. Additional diagnostics are in Appendix G. 
+
+Hub Assignment Sharpness. To check that the hub does not collapse into uniform averaging, we track as-signment selectivity for K = 32 using Q via qmax =
+
+Ei[ max k Qik ] and normalized entropy qent / log K (lower means assignments concentrate on fewer prototypes). In Fig. 8, qent / log K ≈ 0.4, implying exp (qent ) ≈ 4 active prototypes per region, i.e., stable specialization rather than pooling. 
+
+## 5.5 Hyperparameter Sensitivity. 
+
+Sensitivity analysis over λalign , τ , ε, η, K, and τb shows that SCOT remains stable across broad ranges, with performance staying competitive even at extreme values. This confirms that gains stem from the OT-based align-ment framework rather than fine-grained tuning, and that a single globally fixed configuration suffices, which 0.03 0.05 0.1 0.2 0.5 1                 
+
+> Contrastive temperature τ
+> 120
+> 130
+> 140
+> 150
+> MAE
+> GDP
+> MAE
+> MAPE
+> 0.03 0.05 0.1 0.2 0.5 1
+> Contrastive temperature τ
+> 525
+> 540
+> 555
+> 570
+> 585
+> Population
+> 0.03 0.05 0.1 0.2 0.5 1
+> Contrastive temperature τ
+> 150
+> 155
+> 160
+> 165
+> 170
+> CO 2
+> 4
+> 5
+> 6
+> 3
+> 4
+> 2
+> 3
+> MAPE
+> Sensitivity to contrastive temperature τ(XA →BJ)
+
+Figure 11: Sensitivity to temperature τ (XA →BJ). 2 4 816 32 64        
+
+> 128
+> 256
+> 1000
+> hub size K
+> 160
+> 180
+> 200
+> 220
+> MAE
+> GDP
+> MAE
+> MAPE
+> 2 4 816 32 64
+> 128
+> 256
+> 1000
+> hub size K
+> 500
+> 600
+> 700
+> 800
+> Population
+> 2 4 816 32 64
+> 128
+> 256
+> 1000
+> hub size K
+> 140
+> 160
+> 180
+> 200
+> CO 2
+> 2
+> 4
+> 6
+> 8
+> 2
+> 3
+> 4
+> 5
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> 3.5
+> MAPE
+> Sensitivity to hub size K(CD+BJ →XA, multi-source)
+
+Figure 12: Sensitivity to hub size K (CD+BJ →XA). is particularly valuable in label-scarce settings where per-target tuning is infeasible. 
+
+Sensitivity to λalign . We sweep λalign ∈{0.05 , 0.1, 0.5, 1, 2, 3} (Fig. 9). Performance is best and stable for λalign ∈ [0 .1, 1] and degrades when λalign ≥ 2
+
+(over-alignment); we set λalign = 1 by default, and provide a t-SNE visualization in Appendix I.2. 
+
+Sensitivity to Sinkhorn regularization ε. We sweep 
+
+ε ∈ { 0.05 , 0.1, 0.15 , 0.2, 0.5, 1} (Fig. 10). Performance is best and stable for ε ∈ [0 .1, 0.2] ; ε = 0 .05 degrades sharply (overly noisy coupling), while ε ≥ 0.5 slightly worsens error due to diffuse matching. 
+
+Sensitivity to contrastive temperature τ . We sweep τ ∈ { 0.03 , 0.05 , 0.1, 0.2, 0.5, 1} (Fig. 11). Very small τ (0.03–0.05) increases error, performance is best and stable for τ ∈ [0 .1, 0.5] , and degrades at τ = 1 (overly soft weighting). 
+
+Sensitivity to hub size K. In multi-source SCOT, the hub size K controls prototype capacity: too small 
+
+K underfits, while too large K weakens regularization and yields noisier couplings. Figure 12 shows best, stable performance for K ∈ [4 , 32] , with degradation at K = 2 
+
+and K ≥ 64 .
+
+Sensitivity to η and τb. See Appendices I.1 and I.4. 9SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+# 6 Conclusion 
+
+We proposed SCOT , a one-stage framework for cross-city region transfer that learns mobility-preserving em-beddings and aligns heterogeneous cities without requir-ing node correspondences. SCOT combines entropic OT-based soft correspondence with an OT-guided con-trastive objective to achieve stable semantic alignment and mitigate the over-mixing and degeneration often seen in discrepancy-based or heuristic matching methods. We further extend SCOT to multi-source transfer via a shared semantic hub, enabling target-aware integration of complementary supervision from multiple source cities. Experiments on GDP, population, and CO 2 prediction across multiple city pairs and directions show consistent improvements over strong baselines. Future work includes developing uncertainty-aware mechanisms for selectively integrating sources and prototypes under severe cross-city heterogeneity so the model can transfer only what is truly comparable. 
+
+# Impact Statement 
+
+This paper proposes an optimal-transport-based frame-work for multi-source cross-city representation transfer to improve prediction in data-scarce cities. The contribution is methodological and targets urban analytics tasks (e.g., regional economic, population, and environmental esti-mation). Our experiments use aggregated, anonymized region-level data and do not involve individual-level infor-mation. As with other ML methods, downstream impacts depend on deployment; we encourage responsible use in accordance with applicable ethical and legal standards. 
+
+# References 
+
+Alqahtani, S., Lalwani, G., Zhang, Y., Romeo, S., and Mansour, S. Using optimal transport as alignment objective for fine-tuning multilingual contextualized embeddings. arXiv preprint arXiv:2110.02887 , 2021. An, Y., Li, Z., Li, X., Liu, W., Yang, X., Sun, H., Chen, M., Zheng, Y., and Gong, Y. Spatio-temporal mul-tivariate probabilistic modeling for traffic prediction. 
+
+IEEE Transactions on Knowledge and Data Engineer-ing , 2025. Bao, H., Zhou, X., Xie, Y., Li, Y., and Jia, X. Storm-gan: spatio-temporal meta-gan for cross-city estimation of human mobility responses to covid-19. In Proceedings of the 2022 IEEE International Conference on Data Mining, ICDM 2022, Orlando, FL, USA, November 28 - December 1 , pp. 1–10, 2022. Brody, S., Alon, U., and Yahav, E. How atten-tive are graph attention networks? arXiv preprint arXiv:2105.14491 , 2021. Chen, L., Gan, Z., Cheng, Y., Li, L., Carin, L., and Liu, J. Graph optimal transport for cross-domain alignment. In International Conference on Machine Learning , pp. 1542–1553. PMLR, 2020. Chen, M., Jia, H., Li, Z., Jia, W., Zhao, K., Dai, H., and Huang, W. Cross-city latent space alignment for consistency region embedding. In Forty-second International Conference on Machine Learning .Chen, M., Li, Z., Huang, W., Gong, Y., and Yin, Y. Profil-ing urban streets: A semi-supervised prediction model based on street view imagery and spatial topology. In 
+
+Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining , pp. 319–328, 2024. Chen, M., Li, Z., Jia, H., Shao, X., Zhao, J., Gao, Q., Yang, M., and Yin, Y. Mgrl4re: A multi-graph repre-sentation learning approach for urban region embed-ding. ACM Transactions on Intelligent Systems and Technology , 16(2):1–23, 2025. Courty, N., Flamary, R., Tuia, D., and Rakotomamonjy, A. Optimal transport for domain adaptation. IEEE transactions on pattern analysis and machine intelli-gence , 39(9):1853–1865, 2016. Cuturi, M. Sinkhorn distances: Lightspeed computation of optimal transport. Advances in neural information processing systems , 26, 2013. Damodaran, B. B., Kellenberger, B., Flamary, R., Tuia, D., and Courty, N. Deepjdot: Deep joint distribution optimal transport for unsupervised domain adaptation. In Proceedings of the European conference on computer vision (ECCV) , pp. 447–463, 2018. Fang, Z., Wu, D., Pan, L., Chen, L., and Gao, Y. When transfer learning meets cross-city urban flow prediction: Spatio-temporal adaptation matters. In Proceedings of the 2022 IEEE International Conference on Acoustics, Speech and Signal Processing, ICASSP 2022, Sands Expo & Convention Centre, Singapore, May 22-27 ,volume 22, pp. 2030–2036, 2022. Fatras, K., Séjourné, T., Flamary, R., and Courty, N. Unbalanced minibatch optimal transport; applications to domain adaptation. In International conference on machine learning , pp. 3186–3197. PMLR, 2021. Feydy, J., Séjourné, T., Vialard, F.-X., Amari, S.-i., Trouvé, A., and Peyré, G. Interpolating between op-timal transport and mmd using sinkhorn divergences. 10 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+In The 22nd international conference on artificial in-telligence and statistics , pp. 2681–2690. PMLR, 2019. Frogner, C., Zhang, C., Mobahi, H., Araya, M., and Pog-gio, T. A. Learning with a wasserstein loss. Advances in neural information processing systems , 28, 2015. Ganin, Y., Ustinova, E., Ajakan, H., Germain, P., Larochelle, H., Laviolette, F., March, M., and Lem-pitsky, V. Domain-adversarial training of neural net-works. Journal of machine learning research , 17(59): 1–35, 2016. Genevay, A., Peyré, G., and Cuturi, M. Learning genera-tive models with sinkhorn divergences. In International Conference on Artificial Intelligence and Statistics , pp. 1608–1617. PMLR, 2018. Gibbs, M. N. Bayesian Gaussian processes for regression and classification . PhD thesis, University of Cambridge Doctoral Disertation, 1998. Gong, Y., He, T., Chen, M., Wang, B., Nie, L., and Yin, Y. Spatio-temporal enhanced contrastive and contextual learning for weather forecasting. IEEE Transactions on Knowledge and Data Engineering , 36 (8):4260–4274, 2024. Gretton, A., Borgwardt, K. M., Rasch, M. J., Schölkopf, B., and Smola, A. A kernel two-sample test. The journal of machine learning research , 13(1):723–773, 2012. Ji, J., Wang, J., Huang, C., Wu, J., Xu, B., Wu, Z., Zhang, J., and Zheng, Y. Spatio-temporal self-supervised learning for traffic flow prediction. In Pro-ceedings of the AAAI conference on artificial intelli-gence , volume 37, pp. 4356–4364, 2023. Jin, Y., Chen, K., and Yang, Q. Selective cross-city transfer learning for traffic prediction via source city region re-weighting. In Proceedings of the 28th ACM SIGKDD conference on knowledge discovery and data mining , pp. 731–741, 2022. Jin, Y., Chen, K., and Yang, Q. Transferable graph structure learning for graph-based traffic forecasting across cities. In Proceedings of the Twenty-Ninth ACM SIGKDD Conference on Knowledge Discovery and Data Mining, KDD 2023, Long Beach, CA, USA, Au-gust 6-10 , pp. 1032–1043, 2023. Kim, D. and Oh, A. How to find your friendly neigh-borhood: Graph attention design with self-supervision. 
+
+arXiv preprint arXiv:2204.04879 , 2022. Lei, X., Mei, H., Shi, B., and Wei, H. Modeling network-level traffic flow transitions on sparse data. In Proceed-ings of the Twenty-Eighth ACM SIGKDD Conference on Knowledge Discovery and Data Mining, KDD 2022, Washington DC Convention Center, USA, August 14-18 , pp. 835–845, 2022. Li, M., Tang, Y., and Ma, W. Few-sample traffic pre-diction with graph networks using locale as relational inductive biases. IEEE Transactions on Intelligent Transportation Systems , 24(2):1894–1908, 2022. Li, X., Gong, Y., Liu, W., Yin, Y., Zheng, Y., and Nie, L. Dual-track spatio-temporal learning for urban flow prediction with adaptive normalization. Artificial Intelligence , 328:104065, 2024a. Li, X., Zhao, X., Wang, Z., Duan, Y., Zhang, Y., and Xing, C. Optimal transport enhanced cross-city site rec-ommendation. In Proceedings of the 47th International ACM SIGIR Conference on Research and Development in Information Retrieval , pp. 1441–1451, 2024b. Li, X., Zhang, Y., Long, G., Hu, Y., Lu, W., Chen, M., Zhang, C., and Gong, Y. Adaptive traffic forecasting on daily basis: A spatio-temporal context learning approach. IEEE Transactions on Knowledge and Data Engineering , 2025. Li, Y., Yu, R., Shahabi, C., and Liu, Y. Diffusion convo-lutional recurrent neural network: Data-driven traffic forecasting. arXiv preprint arXiv:1707.01926 , 2017. Liang, Y., Ouyang, K., Jing, L., Ruan, S., Liu, Y., Zhang, J., Rosenblum, D. S., and Zheng, Y. Urbanfm: Infer-ring fine-grained urban flows. In Proceedings of the 25th ACM SIGKDD international conference on knowledge discovery & data mining , pp. 3132–3142, 2019. Lin, Z., Feng, J., Lu, Z., Li, Y., and Jin, D. Deep-stn+: Context-aware spatial-temporal neural network for crowd flow prediction in metropolis. In Proceed-ings of the AAAI conference on artificial intelligence ,volume 33, pp. 1020–1027, 2019. Liu, X., Liang, Y., Huang, C., Zheng, Y., Hooi, B., and Zimmermann, R. When do contrastive learning signals help spatio-temporal graph forecasting? In Proceedings of the 30th international conference on advances in geographic information systems , pp. 1–12, 2022. Liu, Z., Ding, J., and Zheng, G. Frequency enhanced pre-training for cross-city few-shot traffic forecasting. 
+
+arXiv preprint arXiv:2406.02614 , 2024. 11 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Lu, B., Gan, X., Zhang, W., Yao, H., Fu, L., and Wang, X. Spatio-temporal graph few-shot learning with cross-city knowledge transfer. In Proceedings of the Twenty-Eighth ACM SIGKDD Conference on Knowledge Dis-covery and Data Mining, KDD 2022, Washington DC Convention Center, USA, August 14-18 , pp. 1162–1172, 2022. Mansour, Y., Mohri, M., and Rostamizadeh, A. Domain adaptation with multiple sources. Advances in neural information processing systems , 21, 2008. Mu, W., Liu, J., Gong, Y., Zhong, J., Liu, W., Sun, H., Nie, X., Yin, Y., and Zheng, Y. Gem: Gaussian embeddings with multi-hop graph transfer for next poi recommendation. Neural Networks , 186:107290, 2025. Pan, S. J. and Yang, Q. A survey on transfer learning. 
+
+IEEE Transactions on knowledge and data engineering ,22(10):1345–1359, 2009. Peyré, G., Cuturi, M., et al. Computational optimal transport: With applications to data science. Foun-dations and Trends ® in Machine Learning , 11(5-6): 355–607, 2019. Saito, K., Watanabe, K., Ushiku, Y., and Harada, T. Maximum classifier discrepancy for unsupervised do-main adaptation. In Proceedings of the IEEE confer-ence on computer vision and pattern recognition , pp. 3723–3732, 2018. Schönemann, P. H. A generalized solution of the orthog-onal procrustes problem. Psychometrika , 31(1):1–10, 1966. Sun, S., Shi, H., and Wu, Y. A survey of multi-source domain adaptation. Information Fusion , 24:84–92, 2015. Tan, Y., Li, Y., and Huang, S.-L. Otce: A transferability metric for cross-domain cross-task representations. In 
+
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 15779–15788, 2021. Tan, Y., Zhang, E., Li, Y., Huang, S.-L., and Zhang, X.-P. Transferability-guided cross-domain cross-task transfer learning. IEEE Transactions on Neural Networks and Learning Systems , 2024. Tang, Y., Qu, A., Chow, A. H., Lam, W. H., Wong, S. C., and Ma, W. Domain adversarial spatial-temporal net-work: A transferable framework for short-term traffic forecasting across cities. In Proceedings of the Thirty-First ACM International Conference on Information and Knowledge Management, CIKM 2022, Atlanta, GA, USA, October 17-21 , pp. 1905–1915, 2022. Veličković, P., Cucurull, G., Casanova, A., Romero, A., Lio, P., and Bengio, Y. Graph attention networks. 
+
+arXiv preprint arXiv:1710.10903 , 2017. Villani, C. Topics in optimal transportation , volume 58. American Mathematical Soc., 2021. Villani, C. et al. Optimal transport: old and new , volume 338. Springer, 2008. Wang, L., Geng, X., Ma, X., Liu, F., and Yang, Q. Cross-city transfer learning for deep spatio-temporal predic-tion. Proceedings of the Twenty-Eighth International Joint Conference on Artificial Intelligence, IJCAI 2019, Macao, China, August 10-16 , pp. 1893–1899, 2019. Wang, S., Miao, H., Li, J., and Cao, J. Spatio-temporal knowledge transfer for urban crowd flow prediction via deep attentive adaptation networks. IEEE Trans-actions on Intelligent Transportation Systems , 23(5): 4695–4705, 2021. Wang, Y., Wang, S., Luo, H., Dong, J., Wang, F., Han, M., Wang, X., and Wang, M. Dual-view curricular op-timal transport for cross-lingual cross-modal retrieval. 
+
+IEEE Transactions on Image Processing , 33:1522–1533, 2024. Wei, X., Guo, T., Yu, H., Li, Z., Guo, H., and Li, X. Areatransfer: A cross-city crowd flow prediction frame-work based on transfer learning. In Proceedings of the International Conference on Smart Computing and Communications, ICSCC 2021, New York, USA, De-cember 29 , pp. 238–253. Springer, 2021. Wei, Y., Zheng, Y., and Yang, Q. Transfer knowledge between cities. In Proceedings of the Twenty-Second ACM SIGKDD International Conference on Knowledge Discovery and Data Mining, KDD 2016, San Francisco, California, USA, August 13-17 , pp. 1905–1914, 2016. Wu, Z., Pan, S., Long, G., Jiang, J., and Zhang, C. Graph wavenet for deep spatial-temporal graph model-ing. arXiv preprint arXiv:1906.00121 , 2019. Yabe, T., Tsubouchi, K., Shimizu, T., Sekimoto, Y., and Ukkusuri, S. V. City2city: Translating place represen-tations across cities. In Proceedings of the 27th ACM SIGSPATIAL International Conference on Advances in Geographic Information Systems , pp. 412–415, 2019. Yabe, T., Tsubouchi, K., Shimizu, T., Sekimoto, Y., and Ukkusuri, S. V. Unsupervised translation via hierarchical anchoring: functional mapping of places across cities. In Proceedings of the 26th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining , pp. 2841–2851, 2020. 12 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Yang, G., Zhang, Y., Hang, J., Feng, X., Xie, Z., Zhang, D., and Yang, Y. Carpg: Cross-city knowledge transfer for traffic accident prediction via attentive region-level parameter generation. In Proceedings of the 32nd ACM International Conference on Information and Knowl-edge Management , pp. 2939–2948, 2023. Yang, M., An, Y., Deng, J., Li, X., Xu, B., Zhong, J., Lu, X., and Gong, Y. Can-st: Clustering adaptive normalization for spatio-temporal ood learning. In 
+
+Proceedings of the Thirty-Fourth International Joint Conference on Artificial Intelligence , pp. 3543–3551, 2025a. Yang, M., Li, X., Xu, B., Nie, X., Zhao, M., Zhang, C., Zheng, Y., and Gong, Y. Stda: Spatio-temporal deviation alignment learning for cross-city fine-grained urban flow inference. IEEE Transactions on Knowledge and Data Engineering , 2025b. Yang, Y., Zhan, J., Liu, Y., and Wang, Q. Cross-city transfer learning: Applications and challenges for smart cities and sustainable transportation. Communications in Transportation Research , 5:100206, 2025c. Yao, H., Liu, Y., Wei, Y., Tang, X., and Li, Z. Learn-ing from multiple cities: A meta-learning approach for spatial-temporal prediction. In Proceedings of The World Wide Web Conference, WWW 2019, San Fran-cisco, CA, USA, May 13-17 , pp. 2181–2191, 2019. Yu, B., Yin, H., and Zhu, Z. Spatio-temporal graph convolutional networks: A deep learning framework for traffic forecasting. arXiv preprint arXiv:1709.04875 ,2017. Yuan, S., Li, X., Mu, W., Zhong, J., Chen, M., Sun, H., and Gong, Y. Spatio-temporal prototype-based hierarchical learning for od demand prediction. In 
+
+Proceedings of the Thirty-Fourth International Joint Conference on Artificial Intelligence , pp. 3597–3605, 2025a. Yuan, X., Luo, Z., Zhang, N., Guo, G., Wang, L., Li, C., and Niyato, D. Federated transfer learning for privacy-preserved cross-city traffic flow prediction. IEEE Trans-actions on Intelligent Transportation Systems , 2025b. Zhang, J., Zheng, Y., and Qi, D. Deep spatio-temporal residual networks for citywide crowd flows prediction. In Proceedings of the AAAI conference on artificial intelligence , volume 31, 2017. Zhang, Q., Huang, C., Xia, L., Wang, Z., Yiu, S. M., and Han, R. Spatial-temporal graph learning with adversarial contrastive adaptation. In International Conference on Machine Learning , pp. 41151–41163. PMLR, 2023. Zhang, X., Wan, G., and Zhang, H. Transfer learning for cross-city traffic prediction to solve data scarcity. Transportation Research Record , pp. 03611981241283013, 2025a. Zhang, Y., Wang, X., Yu, X., Sun, Z., Wang, K., and Wang, Y. Drawing informative gradients from sources: A one-stage transfer learning framework for cross-city spatiotemporal forecasting. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pp. 1147–1155, 2025b. Zhao, Y., Zhang, T., Li, J., and Tian, Y. Dual adaptive representation alignment for cross-domain few-shot learning. IEEE Transactions on Pattern Analysis and Machine Intelligence , 45(10):11720–11732, 2023. Zheng, C., Fan, X., Wang, C., and Qi, J. Gman: Agraph multi-attention network for traffic prediction. In Proceedings of the AAAI conference on artificial intelligence , volume 34, pp. 1234–1241, 2020. 13 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+# A Related Work 
+
+## A.1 Cross-city transfer. 
+
+Cross-city transfer learning tackles data scarcity and high labeling costs in urban computing by transferring knowledge from well-instrumented source cities to label-scarce targets. FLORAL demonstrates early cross-city multimodal transfer for urban environment inference (e.g., air quality) (Wei et al., 2016), while RegionTrans adopts a match-then-transfer paradigm by learning cross-city region correspondences and transferring region representations for spatio-temporal forecasting (Wang et al., 2019). MetaST further leverages meta-learning over multiple cities to learn transferable meta-knowledge for fast adaptation (Yao et al., 2019). More recent work explicitly mitigates inter-city heterogeneity and negative transfer; for example, CrossTReS reweights source regions to selectively transfer beneficial knowledge (Jin et al., 2022). Despite these advances, graph-based regional regression remains challenging: many methods assume comparable spatial units (often grids), which breaks when regions are nodes in mobility/interaction graphs and targets are continuous outcomes (e.g., GDP, population, carbon); moreover, heterogeneous partitions yield unequal region counts and no natural one-to-one correspondence, making explicit matching brittle. Structure-aware transfer begins to address this via spatio-temporal graph few-shot learning (ST-GFSL) (Lu et al., 2022) and transferable graph structure learning (TransGTR) (Jin et al., 2023), alongside region-level transfer with connectivity/parameter generation (CARPG) (Yang et al., 2023) and one-stage embedding-plus-alignment frameworks (CoRE) (Chen et al.). Overall, the key challenge is local and selective alignment across unequal, non-corresponding region sets while preserving city-internal structure and task-relevant semantics, motivating our approach. 
+
+## A.2 Spatio-temporal representation learning. 
+
+Spatio-temporal representation learning extracts embeddings that capture spatial dependence and temporal dynamics in urban data for tasks such as traffic forecasting, crowd flow/OD estimation (Mu et al., 2025; Yuan et al., 2025a), Weather prediction (Gong et al., 2024), and regional attribute regression. In grid or region settings with regular partitions, ST-ResNet models citywide inflow/outflow by decomposing temporal patterns into closeness, period, and trend and using residual learning (Zhang et al., 2017); DeepSTN+ strengthens this line with richer context and spatial interactions (Lin et al., 2019); UrbanFM addresses resolution mismatch and sparsity via coarse-to-fine flow inference (Liang et al., 2019). For graph-structured spatio-temporal data, STGNNs model regions/sensors as nodes and combine spatial message passing (graph/diffusion convolution) with temporal modules (RNN/TCN/attention). Representative models include DCRNN (Li et al., 2017), STGCN (Yu et al., 2017), Graph WaveNet (Wu et al., 2019), and GMAN (Zheng et al., 2020); recent work also explores pretraining and self-supervision, e.g., contrastive learning on spatio-temporal graphs (Liu et al., 2022) and task-specific self-supervised objectives for traffic forecasting (Ji et al., 2023). However, these methods are mainly developed for single-city or homogeneous node sets and often assume aligned node identities or comparable graph structures; in cross-city settings with heterogeneous partitions, unequal region counts, and no natural correspondence, stronger encoders alone do not ensure transferability, motivating integration with alignment or soft correspondence mechanisms. 
+
+## A.3 Optimal transport in deep learning. 
+
+Optimal Transport (OT) compares and aligns probability measures by learning a cost-minimizing coupling. Entropic regularization enables the Sinkhorn algorithm, making OT scalable, numerically stable, and differentiable for end-to-end learning (Cuturi, 2013; Peyré et al., 2019). OT is widely used as a geometry-aware loss, e.g., Wasserstein objectives for structured prediction (Frogner et al., 2015) and Sinkhorn-type objectives/divergences that are GPU-friendly and balance geometric sensitivity with statistical stability (Genevay et al., 2018; Feydy et al., 2019). OT is also a core tool for distribution alignment in domain adaptation and transfer: OT-based DA aligns source and target by optimizing a coupling with optional structure-preserving regularizers (Courty et al., 2016), while deep variants integrate OT into representation learning, e.g., joint OT over features and labels (DeepJDOT) (Damodaran et al., 2018). Extensions such as partial or unbalanced OT handle support mismatch and unequal sample sizes (Fatras et al., 2021). Together, these works motivate OT as a differentiable mechanism for soft correspondences, but cross-city transfer further requires unequal region sets, missing one-to-one matches, and selective sharing of transferable semantics, calling for OT coupled with structure-preserving objectives. 14 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+# B Experimental Details 
+
+## B.1 Data 
+
+We use datasets from Xi’an (XA), Chengdu (CD), and Beijing (BJ). Each city is partitioned into irregular road-network-based regions, with one month of anonymized taxi OD trips mapped to regions to form a directed mobility graph. We evaluate three region-level targets (GDP, population, and carbon emissions) aggregated from public gridded/raster products by assigning grid cells to polygons and summing within each region. Table 3: Dataset summary.             
+
+> City # Regions # Trips Targets
+> XA 1306 559,729 GDP / Pop / CO 2
+> CD 1056 384,618 GDP / Pop / CO 2
+> BJ 1311 78,945 GDP / Pop / CO 2
+
+## B.2 Baselines. 
+
+Baselines. We compare SCOT with baselines below. 
+
+• Non-Alignment : trains on the labeled source city and directly applies the model to the target city, without any cross-city alignment or adaptation. 
+
+• RP (Rank-based Anchoring + Procrustes) (Yabe et al., 2019): forms one-to-one anchors by rank-matching regions across cities, then learns an orthogonal map via Procrustes (Schönemann, 1966). 
+
+• HBP (Hierarchical Prototype Anchoring + Procrustes) (Yabe et al., 2020): uses level-wise prototype (mean) vectors as anchors under a hierarchical partition, aligned by Procrustes (Schönemann, 1966). 
+
+• HSA (Hierarchical Stochastic Anchoring + Affine) (Yabe et al., 2020): samples anchors within each hierarchical level and fits an unconstrained affine map for more flexible alignment. 
+
+• MMD (Gretton et al., 2012): an RKHS-based integral probability metric; we use it as a correspondence-free loss to match source and target embedding distributions. 
+
+• Adv (DANN) (Ganin et al., 2016): earns domain-invariant embeddings by training a feature encoder to confuse a domain discriminator via gradient reversal. 
+
+• CrossTReS (Jin et al., 2022): a selective fine-tuning framework for cross-city traffic prediction that adapts spatial features across domains and meta-learns region weights to prioritize source regions most helpful for the target. 
+
+• CoRE (Chen et al.): a representation learning method that jointly learns region embeddings and aligns the two latent spaces (both globally and at the region level) to enable cross-city transfer. 
+
+# C Proof of Theorem 3.1 
+
+Theorem 3.1. Let {ui}ns
+
+> i=1
+
+, {vj }nt 
+
+> j=1
+
+⊂ Sd−1 be unit embeddings, and let a ∈ ∆ns , b ∈ ∆nt be probability vectors. Let P ∈ Rns×nt 
+
+> +
+
+be a coupling satisfying P 1 = a, P ⊤1 = b. Let τ > 0, and let g, h : Sd−1 → R be Lg - and 
+
+Lh-Lipschitz, respectively. Define the weighted empirical MAE risks 
+
+Ras (h) := 
+
+> ns
+
+∑
+
+> i=1
+
+ai |h(ui) − g(ui)|Rbt (h) := 
+
+> nt
+
+∑
+
+> j=1
+
+bj |h(vj ) − g(vj )|.
+
+15 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Define the OT-weighted contrastive loss 
+
+LCon (P ) := 
+
+> ns
+
+∑
+
+> i=1
+
+ai
+
+[
+
+− log 
+
+∑nt 
+
+> j=1
+
+Pij exp( ⟨ui, v j ⟩/τ )
+
+ai
+
+∑nt 
+
+> k=1
+
+exp( ⟨ui, v k⟩/τ )
+
+]
+
+.
+
+Then 
+
+Rbt (h) ≤ R as (h) + ( Lh + Lg )√ 2 − 2 m , 
+
+where 
+
+m := max 
+
+{
+
+−1, τ log nt + τ H (a) − τ LCon (P ) − 1 − 12τ
+
+}
+
+,
+
+and 
+
+H(a) := −
+
+> ns
+
+∑
+
+> i=1
+
+ai log ai
+
+is the Shannon entropy of a.Proof. Define 
+
+ϕ(x) := |h(x) − g(x)|, x ∈ Sd−1.
+
+For any x, x ′ ∈ Sd−1, by the reverse triangle inequality and the Lipschitzness of h and g,
+
+|ϕ(x) − ϕ(x′)| ≤ | h(x) − h(x′)| + |g(x) − g(x′)| ≤ (Lh + Lg )∥x − x′∥2. (29) Let (I, J ) ∼ P . Since P 1 = a and P ⊤1 = b, we have I ∼ a and J ∼ b. Therefore, 
+
+Rbt (h) − R as (h) = E ϕ(vJ ) − E ϕ(uI ) = E[ϕ(vJ ) − ϕ(uI )] 
+
+≤ E|ϕ(vJ ) − ϕ(uI )| (29) 
+
+≤ (Lh + Lg ) E∥vJ − uI ∥2. (30) Now define the transport cost matrix 
+
+Cij := ∥ui − vj ∥2.
+
+Then 
+
+E∥vJ − uI ∥2 =
+
+> ns
+
+∑
+
+> i=1
+> nt
+
+∑
+
+> j=1
+
+Pij ∥ui − vj ∥2 = ⟨C, P ⟩.
+
+Hence (30) becomes 
+
+Rbt (h) − R as (h) ≤ (Lh + Lg ) ⟨C, P ⟩. (31) Since ∥ui∥2 = ∥vj ∥2 = 1 for all i, j ,
+
+∥ui − vj ∥22 = ∥ui∥22 + ∥vj ∥22 − 2⟨ui, v j ⟩ = 2 − 2⟨ui, v j ⟩.
+
+Therefore, 
+
+⟨C, P ⟩ = E∥uI − vJ ∥2 ≤
+
+√
+
+E∥uI − vJ ∥22 (Jensen, since √· is concave) 
+
+= √ 2 − 2 E⟨uI , v J ⟩ . (32) It remains to lower-bound E⟨uI , v J ⟩ in terms of LCon (P ).For each i ∈ [ns], define 
+
+Zi := 
+
+> nt
+
+∑
+
+> k=1
+
+exp( ⟨ui, v k⟩/τ ), qi(j) := exp( ⟨ui, v j ⟩/τ )
+
+Zi
+
+, pi(j) := Pij 
+
+ai
+
+,
+
+for those i with ai > 0. (If ai = 0 , the corresponding row contributes zero throughout and may be ignored.) Also define 
+
+ℓi := − log 
+
+> nt
+
+∑
+
+> j=1
+
+pi(j)qi(j).
+
+16 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Since Pij = aipi(j), we can rewrite LCon (P ) as 
+
+LCon (P ) = 
+
+> ns
+
+∑
+
+> i=1
+
+ai
+
+[
+
+− log 
+
+∑nt 
+
+> j=1
+
+aipi(j) exp( ⟨ui, v j ⟩/τ )
+
+aiZi
+
+]
+
+=
+
+> ns
+
+∑
+
+> i=1
+
+ai
+
+− log 
+
+> nt
+
+∑
+
+> j=1
+
+pi(j) exp( ⟨ui, v j ⟩/τ )
+
+Zi
+
+
+
+=
+
+> ns
+
+∑
+
+> i=1
+
+aiℓi. (33) Next, for each i with ai > 0,
+
+EJ∼pi exp( ⟨ui, v J ⟩/τ ) = 
+
+> nt
+
+∑
+
+> j=1
+
+pi(j) exp( ⟨ui, v j ⟩/τ )= Zint∑
+
+> j=1
+
+pi(j)qi(j) = Zie−ℓi . (34) Because ⟨ui, v k⟩ ≥ − 1 for all i, k ,
+
+Zi =
+
+> nt
+
+∑
+
+> k=1
+
+exp( ⟨ui, v k⟩/τ ) ≥ nte−1/τ .
+
+Combining this with (34) yields 
+
+EJ∼pi exp( ⟨ui, v J ⟩/τ ) ≥ nte−1/τ e−ℓi . (35) Now let 
+
+X := ⟨ui, v J ⟩, J ∼ pi.
+
+Since ui, v J ∈ Sd−1, we have X ∈ [−1, 1] . By Hoeffding’s lemma, for any λ > 0,
+
+log EeλX ≤ λ EX + λ2
+
+2 .
+
+Equivalently, 
+
+EX ≥ 1
+
+λ log EeλX − λ
+
+2 .
+
+Setting λ = 1 /τ and using (35), we obtain 
+
+EJ∼pi ⟨ui, v J ⟩ ≥ τ log EJ∼pi exp( ⟨ui, v J ⟩/τ ) − 12τ
+
+≥ τ log (nte−1/τ e−ℓi ) − 12τ
+
+= τ log nt − 1 − τ ℓ i − 12τ . (36) Averaging over I ∼ a and using (33), 
+
+E(I,J )∼P ⟨uI , v J ⟩ =
+
+> ns
+
+∑
+
+> i=1
+
+ai EJ∼pi ⟨ui, v J ⟩≥
+
+> ns
+
+∑
+
+> i=1
+
+ai
+
+(
+
+τ log nt − 1 − τ ℓ i − 12τ
+
+)
+
+= τ log nt − 1 − τ
+
+> ns
+
+∑
+
+> i=1
+
+aiℓi − 12τ
+
+= τ log nt − 1 − τ LCon (P ) − 12τ . (37) 17 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+To expose the dependence on the source marginal entropy, it is convenient to use the equivalent form 
+
+LCon (P ) = 
+
+> ns
+
+∑
+
+> i=1
+
+ai ˜ℓi − H(a),
+
+where 
+
+˜ℓi := − log 
+
+
+
+> nt
+
+∑
+
+> j=1
+
+Pij 
+
+ai
+
+qi(j)
+
+ , H(a) := −
+
+> ns
+
+∑
+
+> i=1
+
+ai log ai.
+
+Substituting this identity into (37) gives 
+
+E(I,J )∼P ⟨uI , v J ⟩ ≥ τ log nt + τ H (a) − τ LCon (P ) − 1 − 12τ . (38) Define 
+
+m := max 
+
+{
+
+−1, τ log nt + τ H (a) − τ LCon (P ) − 1 − 12τ
+
+}
+
+.
+
+Since ⟨uI , v J ⟩ ≥ − 1, this truncation is always valid, and (38) implies 
+
+E(I,J )∼P ⟨uI , v J ⟩ ≥ m. 
+
+Combining (31) and (32), we conclude that 
+
+Rbt (h) − R as (h) ≤ (Lh + Lg )√ 2 − 2 E⟨uI , v J ⟩ ≤ (Lh + Lg )√ 2 − 2 m , 
+
+which proves the claim. 
+
+# D Additional Experiment Details 
+
+## D.1 Additional Single-Source Results. 
+
+Table 5 and Table 4 reports additional single-source transfer results between Xi’an (XA) and Beijing (BJ) across all three tasks (GDP, population, and carbon) and both transfer directions. SCOT consistently achieves the best performance under both MAE and MAPE, outperforming all baselines. Notably, SCOT remains robust across both directions (XA →BJ and BJ →XA), whereas several baselines exhibit large asymmetry or unstable performance, especially under distribution mismatch. These results further corroborate that SCOT provides reliable and direction-consistent improvements in single-source cross-city transfer. 
+
+## D.2 Additional Results on XA →BJ and BJ →XA (4 Random Seeds) 
+
+We further report single-source transfer performance for both directions, Xi’an (XA) →Beijing (BJ) and Beijing (BJ) →Xi’an (XA), under four random seeds . For each method, we run the full training pipeline with different seeds and report the mean ± standard deviation of MAE and MAPE for GDP, Population, and CO 2 (lower is better). Both tables follow the same formatting convention as in the main paper: Red and Blue denote the best and runner-up performance among baselines, and the final row reports the relative gain of our method over the best baseline for each metric (Tables 6 and 7). 18 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Table 4: Results on XA and CD transfer. Lower scores indicate better performance. Red: best, Blue: runner-up. 
+
+Method XA(X)/CD(Y) CD(X)/XA(Y) 
+
+GDP Population CO 2 GDP Population CO 2
+
+MAE MAPE MAE MAPE MAE MAPE MAE MAPE MAE MAPE MAE MAPE Non-Alignment 323.90 11.49 908.18 4.73 237.73 12.91 232.86 3.74 748.16 5.22 179.25 1.67 RP 191.11 11.64 644.22 3.32 144.87 9.18 194.67 6.57 671.30 6.41 145.51 2.30 HBP 188.61 13.42 660.01 4.26 135.14 11.59 199.79 7.06 697.44 6.93 146.76 2.47 HSA 184.81 11.95 619.72 3.57 137.29 9.92 202.01 7.27 708.80 7.14 147.27 2.54 Adv 194.71 13.68 645.59 3.98 124.98 10.01 215.47 8.54 785.78 8.50 150.10 2.99 MMD 201.60 10.49 645.42 3.15 162.21 8.83 176.00 5.26 608.58 5.15 139.15 1.83 CrossTReS 183.22 12.82 712.74 4.55 159.86 9.26 180.31 5.09 630.66 5.37 143.58 1.92 CoRE 174.28 10.55 615.97 2.96 128.77 8.82 174.52 5.22 600.45 4.98 138.12 1.78 
+
+Ours 165.88 7.67 575.43 2.35 114.68 7.83 158.95 3.12 538.23 3.37 130.04 1.24 
+
+Gain vs. best (%) +4 .8% +26 .9% +6 .6% +20 .6% +8 .2% +11 .2% +8 .9% +16 .6% +10 .4% +32 .3% +5 .8% +25 .7% 
+
+Table 5: Results on BJ and CD transfer. Lower scores indicate better performance. Red: best, Blue: runner-up. 
+
+Method BJ(X)/CD(Y) CD(X)/BJ(Y) 
+
+GDP Population CO 2 GDP Population CO 2
+
+MAE MAPE MAE MAPE MAE MAPE MAE MAPE MAE MAPE MAE MAPE Non-Alignment 191.36 5.31 889.37 3.97 192.64 15.77 163.93 7.04 805.78 5.07 192.96 1.98 RP 158.57 8.71 726.42 5.39 175.21 14.49 150.56 6.63 697.53 6.64 156.97 2.03 HBP 155.05 8.30 698.75 4.80 172.65 13.22 166.30 7.29 715.27 6.84 154.77 1.79 HSA 147.74 6.87 667.95 4.20 160.10 11.55 148.87 6.59 648.28 5.75 166.55 2.64 MMD 154.96 8.29 706.31 4.98 170.85 12.15 130.41 4.94 632.71 5.08 151.57 1.75 Adv 178.84 11.91 861.43 7.44 226.49 19.88 162.20 7.42 701.22 6.18 184.74 3.20 CrossTReS 159.73 6.86 654.14 3.45 137.63 9.83 140.37 5.58 686.19 5.66 198.34 2.39 CoRE 150.51 7.57 680.81 4.34 126.66 9.66 159.00 6.81 673.17 5.96 163.39 2.51 
+
+Ours 135.63 3.55 597.80 2.38 121.21 8.94 118.48 3.41 580.95 2.74 148.50 1.54 
+
+Gain vs. best (%) +8 .2% +48 .3% +8 .6% +31 .0% +4 .3% +7 .5% +9 .1% +31 .0% +8 .2% +46 .1% +2 .0% +12 .0% 
+
+Table 7: BJ →XA results averaged over 4 random seeds (mean ± std). Lower is better. Red: best, Blue: runner-up. 
+
+Method GDP Population CO 2
+
+MAE ↓ MAPE ↓ MAE ↓ MAPE ↓ MAE ↓ MAPE ↓
+
+Non-Alignment 220.31 ± 22.10 7.91 ± 1.43 975.83 ± 65.55 9.63 ± 1.27 276.84 ± 18.56 9.70 ± 1.14 RP 175.21 ± 4.15 4.60 ± 0.53 671.08 ± 11.95 6.37 ± 0.22 191.56 ± 3.33 6.30 ± 0.24 HBP 180.60 ± 13.16 2.97 ± 0.82 629.09 ± 5.07 4.95 ± 0.39 179.17 ± 2.76 4.91 ± 0.45 HSA 176.42 ± 10.52 3.66 ± 1.35 649.08 ± 16.82 5.66 ± 0.62 185.72 ± 4.29 5.62 ± 0.57 MMD 180.71 ± 5.39 2.25 ± 0.22 500.12 ± 27.35 1.93 ± 0.09 141.24 ± 4.96 1.91 ± 0.08 Adv 192.06 ± 6.28 6.15 ± 0.34 778.54 ± 30.34 8.53 ± 0.62 212.72 ± 9.74 7.84 ± 0.62 CrossTReS 165.18 ± 3.45 3.98 ± 0.22 627.96 ± 8.88 5.18 ± 0.32 179.42 ± 2.30 5.16 ± 0.29 CoRE 162.64 ± 5.07 2.80 ± 0.80 576.95 ± 25.66 3.43 ± 1.15 164.26 ± 8.68 3.44 ± 1.18 
+
+Ours 160.21 ± 3.53 1.87 ± 0.18 450.14 ± 2.81 1.73 ± 0.12 127.79 ± 1.08 1.78 ± 0.10 
+
+Gain vs. best (%) +1 .8% +16 .9% +10 .0% +10 .4% +9 .5% +6 .8% 
+
+19 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Table 6: XA →BJ results averaged over 4 random seeds (mean ± std). Lower is better. Red: best, Blue: runner-up. 
+
+Method GDP Population CO 2
+
+MAE ↓ MAPE ↓ MAE ↓ MAPE ↓ MAE ↓ MAPE ↓
+
+Non-Alignment 276.33 ± 10.63 9.46 ± 1.98 958.52 ± 31.66 5.99 ± 1.82 278.25 ± 9.95 5.39 ± 0.75 RP 192.05 ± 26.62 6.65 ± 1.48 676.21 ± 28.24 4.00 ± 0.66 194.70 ± 11.88 3.71 ± 0.22 HBP 186.21 ± 10.14 8.17 ± 0.88 664.15 ± 24.83 4.68 ± 0.89 188.14 ± 5.39 3.99 ± 0.20 HSA 179.96 ± 17.62 7.30 ± 1.00 631.69 ± 27.93 4.64 ± 1.19 180.21 ± 8.29 3.57 ± 0.64 MMD 162.63 ± 16.27 5.93 ± 0.90 596.60 ± 21.41 3.63 ± 0.66 169.99 ± 7.14 2.91 ± 0.46 Adv 200.33 ± 13.90 8.98 ± 0.60 694.64 ± 9.39 6.15 ± 1.04 199.99 ± 2.61 4.63 ± 0.37 CrossTReS 194.87 ± 28.96 7.28 ± 0.90 629.37 ± 22.46 4.29 ± 0.18 182.88 ± 9.74 3.59 ± 0.28 CoRE 159.53 ± 14.64 6.19 ± 1.65 607.79 ± 39.24 4.19 ± 1.13 170.55 ± 11.99 3.12 ± 0.67 
+
+Ours 120.25 ± 7.30 3.59 ± 0.48 527.04 ± 6.38 2.17 ± 0.23 149.20 ± 1.58 1.80 ± 0.17 
+
+Gain vs. best (%) +24 .6% +39 .5% +11 .7% +40 .2% +12 .2% +38 .1% 
+
+## D.3 Additional Multi-Source Results (Target: CD). 
+
+Table 8 reports additional multi-source transfer results when Chengdu (CD) is the target city. SCOT achieves the best performance across all three tasks (GDP, population, and CO 2) under both MAE and MAPE, outperforming all baselines by a clear margin. In contrast, the baselines show limited improvements and remain substantially worse than SCOT, especially on population and CO 2. These results highlight that simply extending existing single-source alignment or distribution-matching strategies to multiple sources is insufficient, whereas SCOT can effectively integrate complementary information from multiple cities to yield robust and consistently superior transfer. Table 8: Additional multi-source transfer results (Target: CD). Lower is better. Red: best, Blue: runner-up. 
+
+Method GDP Population CO 2
+
+MAE ↓ MAPE ↓ MAE ↓ MAPE ↓ MAE ↓ MAPE ↓
+
+RP 187.13 13.31 630.44 3.62 167.76 14.05 HBP 176.35 11.11 631.26 3.69 125.97 9.96 HSA 180.71 8.18 651.06 3.41 159.86 11.79 MMD 163.82 5.07 639.32 3.93 145.74 10.83 Adv 183.26 12.43 687.72 4.73 156.37 12.92 CrossTReS 167.53 10.26 668.00 4.37 139.22 11.84 CoRE 156.10 4.40 621.11 3.44 121.33 9.57 
+
+Ours 133.94 3.82 546.82 2.43 98.43 5.10 
+
+Gain vs. best (%) +14 .1% +13 .1% +11 .9% +28 .7% +18 .8% +46 .7% 
+
+## D.4 Empirical Check of the Theoretical Mechanism 
+
+To complement Theorem 3.1, we test its qualitative mechanism by relating target error y to both alignment terms in a joint regression, 
+
+y = β0 + β1LCon + β2LOT + ε. 
+
+Thus, the reported OLS coefficient for LCon is estimated while accounting for LOT . As shown in Table 9, the standardized coefficient on LCon is 0.77, and its partial Pearson/Spearman correlations remain high after controlling for LOT (0.95/0.93). This supports the theorem’s intended qualitative message that stronger contrastive semantic alignment is closely associated with lower target error. 20 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Table 9: Joint OLS and partial-correlation results for target error y, where OLS regresses y on both LCon and LOT .
+
+Joint OLS on y ∼ LCon + LOT Partial correlation with LCon controlling LOT 
+
+Std. coef. on LCon Adj. R2 Pearson r Spearman ρ p-value 0.77 0.94 0.95 0.93 0.0004 / 0.0009 
+
+# E Robustness to Backbone and Downstream Readout 
+
+To attribute SCOT’s empirical gains specifically to the alignment design — entropic OT soft correspondence, OT-weighted contrastive sharpening, and hub-based multi-source aggregation — rather than to incidental choices in the encoder or evaluator, we conduct controlled substitution experiments on BJ →XA, varying each peripheral component while holding the alignment module fixed. 
+
+Backbone. We replace the GAT encoder with GATv2 (Brody et al., 2021) and SuperGAT (Kim & Oh, 2022), keeping all alignment objectives and training hyperparameters unchanged. Table 10 shows only marginal variation across encoders, indicating that the representational capacity of the backbone is not the performance bottleneck and that the alignment module is the primary driver of cross-city transfer quality. 
+
+Downstream readout. We fix the learned region embeddings produced by SCOT and substitute the downstream regressor with Lasso, Linear SVR, and Elastic Net. Table 11 shows that performance remains stable across all regressors, confirming that the transferable structure is encoded in the representations themselves rather than induced by the evaluator. These controlled experiments collectively establish that SCOT’s improvements are robustly attributable to its alignment design, and are not sensitive to the choice of graph encoder or downstream prediction head. Table 10: Backbone ablation on BJ →XA (4 random seeds, mean ± std). Lower is better. 
+
+Backbone GDP Population CO 2
+
+MAE ↓ MAPE ↓ MAE ↓ MAPE ↓ MAE ↓ MAPE ↓
+
+GAT 160.21 ± 3.53 1.87 ± 0.18 450.14 ± 2.81 1.73 ± 0.12 127.79 ± 1.08 1.78 ± 0.10 
+
+GATv2 162.60 ± 2.27 1.74 ± 0.22 455.36 ± 4.56 1.74 ± 0.13 128.83 ± 1.29 1.82 ± 0.11 SuperGAT 164.42 ± 5.29 1.49 ± 0.13 461.45 ± 8.37 1.95 ± 0.21 132.31 ± 3.05 1.86 ± 0.21 
+
+Table 11: Downstream readout ablation on BJ →XA (4 random seeds, mean ± std). Lower is better. 
+
+Readout GDP Population CO 2
+
+MAE ↓ MAPE ↓ MAE ↓ MAPE ↓ MAE ↓ MAPE ↓
+
+Ridge 160.21 ± 3.53 1.87 ± 0.18 450.14 ± 2.81 1.73 ± 0.12 127.79 ± 1.08 1.78 ± 0.10 
+
+Lasso 158.66 ± 4.07 2.03 ± 0.12 455.68 ± 5.66 1.96 ± 0.02 131.40 ± 3.26 1.99 ± 0.05 Linear SVR 162.23 ± 2.00 1.61 ± 0.09 456.35 ± 3.62 1.94 ± 0.19 128.62 ± 0.78 1.86 ± 0.18 Elastic Net 164.60 ± 2.80 1.57 ± 0.19 459.46 ± 3.93 1.89 ± 0.34 129.90 ± 1.83 1.82 ± 0.31 
+
+# F Intra-city Prediction with and without Alignment 
+
+Cross-city alignment is designed to transfer structural knowledge across cities, but a well-designed alignment should not come at the cost of within-city predictive quality. If alignment distorts local representations, any cross-city gains would simply reflect a trade-off rather than a genuine improvement. We therefore verify that Full SCOT preserves 21 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+intra-city performance by comparing it against a variant without the alignment module on XA →XA and BJ →BJ. Table 12 confirms that the two variants are nearly indistinguishable across all metrics and both cities, with no systematic degradation attributable to alignment. The marginal differences fall well within standard deviation ranges, and no consistent winner emerges in either direction. This rules out the possibility that SCOT’s cross-city gains come at the expense of local representation quality. Instead, the alignment module operates compatibly with within-city structure, transferring external knowledge without overwriting intrinsic city-specific patterns. Table 12: Intra-city prediction with and without alignment (4 random seeds, mean ± std). Lower is better. 
+
+Direction / Variant GDP Population CO 2
+
+MAE ↓ MAPE ↓ MAE ↓ MAPE ↓ MAE ↓ MAPE ↓
+
+XA →XA (w/o Alignment) 155.31 ± 1.92 3.63 ± 0.06 467.03 ± 4.45 2.50 ± 0.04 130.35 ± 0.97 2.60 ± 0.05 XA →XA (Full SCOT) 156.44 ± 2.29 3.67 ± 0.11 467.96 ± 8.19 2.51 ± 0.05 130.55 ± 1.93 2.59 ± 0.06 
+
+BJ →BJ (w/o Alignment) 95.41 ± 1.19 2.48 ± 0.06 531.27 ± 10.10 2.85 ± 0.06 154.57 ± 2.24 2.35 ± 0.28 
+
+BJ →BJ (Full SCOT) 96.05 ± 1.65 2.45 ± 0.07 534.79 ± 13.17 2.93 ± 0.07 155.58 ± 1.71 2.55 ± 0.06 
+
+# G Diagnostics: OT Couplings and Hub Assignments 
+
+## G.1 Marginal and entropy diagnostics for OT couplings (XA →BJ, epoch 100) 
+
+Let P ∈ Rns×nt 
+
+> +
+
+be the entropic OT coupling. To assess hubness versus overly diffuse matching, we monitor the marginals ri = ∑ 
+
+> j
+
+Pij and cj = ∑ 
+
+> i
+
+Pij , and the normalized row/column entropies H(Pi, :) = − ∑ 
+
+> j
+
+˜Pij log ˜Pij 
+
+and H(P:,j ) = − ∑ 
+
+> i
+
+ˆPij log ˆPij , where ˜Pi, : and ˆP:,j are row/column-normalized. Low entropy indicates sharp correspondences, while high entropy reflects diffuse, uncertain matching. Figure 13 shows no severe hubness: cj is broadly spread without extreme spikes. The entropy histograms are multi-modal, mixing sharp and diffuse matches, consistent with selective alignment—confidently aligning transferable regions while keeping ambiguous or city-specific regions conservative. 
+
+Figure 13: OT coupling diagnostics. Histograms of column entropy H(P:,j ), row entropy H(Pi, :), and column marginals cj = ∑ 
+
+> i
+
+Pij (here shown for a representative epoch). 
+
+# H Ablation Study 
+
+## H.1 Ablation Study for Single Source SCOT 
+
+We conduct an ablation study on the three components of SCOT: the OT alignment loss LOT , the OT-weighted contrastive loss Lcon , and the reconstruction regularizer Lrec . Figure 14 reports MAE and MAPE on GDP, population, and CO 2 across six transfer directions for the full model and variants with each component removed. Removing LOT 
+
+causes the largest performance drop, confirming that OT-based soft correspondence is critical for effective alignment. Excluding Lcon consistently degrades results, indicating its importance for sharpening correspondences and improving discriminability. Removing Lrec also harms performance, though more mildly, supporting its role as a stabilizing regularizer. Overall, the three components are complementary, and their combination yields the most robust transfer performance. 22 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Figure 14: Ablation study on cross-city transfer performance. We report MAE (top row) and MAPE (bottom row) for GDP, population, and CO 2 prediction across six transfer directions (BJ →XA, XA →BJ, XA →CD, CD →XA, BJ →CD, CD →BJ). 
+
+## H.2 Ablation: Effect of Target-Induced Prototype Prior 
+
+Equation (19) constructs a target-induced hub marginal b ∈ ∆K−1 by aggregating target–prototype cosine similarity: 
+
+¯sk = 1
+
+ntnt∑
+
+> j=1
+
+˜zt⊤ 
+
+> j
+
+˜ak, bk = max {exp(¯ sk/τ b), ϵ b}
+
+∑Kℓ=1 max {exp(¯ sℓ/τ b), ϵ b} .
+
+A uniform b forces every city to allocate equal mass to all prototypes, which can push transport mass onto target-irrelevant prototypes under strong cross-city heterogeneity, causing semantic dilution. We compare three variants: (i) Uniform prior — equal mass 1/K to all prototypes; (ii) Frozen prior — initialized from early target representations and fixed throughout training; (iii) Adaptive prior (Ours) — updated online as the target encoder improves. Table 13 shows that the adaptive prior consistently achieves the best performance across all tasks, while both uniform and frozen variants degrade substantially, especially on Population and CO 2. Figure 15 further confirms this: the uniform prior maintains constant entropy log K throughout, whereas the adaptive prior steadily decreases in entropy, providing direct evidence of progressive prototype specialization guided by target semantics. Table 13: Ablation on target-induced prototype marginal (XA as target, 4 random seeds, mean ± std). Lower is better. 
+
+Prior Variant GDP Population CO 2
+
+MAE ↓ MAPE ↓ MAE ↓ MAPE ↓ MAE ↓ MAPE ↓
+
+Uniform prior 186.33 ± 3.93 3.42 ± 0.14 575.81 ± 17.09 3.27 ± 0.33 156.56 ± 10.13 1.85 ± 0.18 Frozen prior 181.47 ± 3.16 4.79 ± 0.19 553.05 ± 8.68 3.81 ± 0.10 148.89 ± 0.67 2.83 ± 0.02 
+
+Adaptive prior (Ours) 154.49 ± 2.10 2.12 ± 0.31 467.54 ± 17.42 2.23 ± 0.25 133.58 ± 4.64 1.51 ± 0.18 Gain vs. uniform (%) 17.1 38.0 18.8 31.8 14.7 18.4 
+
+23 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Figure 15: Entropy of prototype marginal bt over training. The uniform prior stays at log K; the adaptive prior decreases steadily, indicating progressive prototype specialization guided by target semantics. 
+
+## H.3 Ablation: Hub vs. Pairwise OT with Global Gating (Multi-source) 
+
+To isolate the contribution of the shared-prototype hub in our multi-source setting, we compare (i) Ours (Hub) :aligning both sources and the target to a shared set of K prototypes (shared semantic hub), versus (ii) No Hub (Pairwise) : aligning each source to the target using pairwise entropic OT and combining the two transfer objectives with a global learnable gate. The goal of this ablation is to test whether introducing a shared latent semantic space improves stability and effectivenes of multi-source transfer, beyond simply averaging (or gating) two independent source →target alignments. We report downstream prediction performance on three targets (XA, CD, BJ), each averaged over 4 random seeds (mean ± standard deviation). Lower is better. Table 14: Multi-source ablation results: Hub vs. No Hub (Pairwise) on three targets (mean ± std over 4 seeds). Lower is better. Target / Method GDP Population CO 2                                                                                                                    
+
+> MAE ↓MAPE ↓MAE ↓MAPE ↓MAE ↓MAPE ↓
+> XA (target) / Ours (Hub) 154.49 ±2.10 2.12 ±0.31 467.54 ±17.42 2.23 ±0.25 133.58 ±4.64 1.51 ±0.18
+> XA (target) / No Hub (Pairwise) 157.45 ±3.31 2.52 ±0.48 511.37 ±23.34 2.98 ±0.64 135.56 ±6.90 1.71 ±0.35 CD (target) / Ours (Hub) 143.91 ±6.84 4.54 ±0.49 565.65 ±14.55 2.38 ±0.09 102.20 ±11.20 5.92 ±0.67 CD (target) / No Hub (Pairwise) 146.72 ±7.48 6.00 ±1.03 585.49 ±15.77 2.17 ±0.20 105.96 ±2.38 5.87 ±0.47
+> BJ (target) / Ours (Hub) 110.40 ±5.34 3.30 ±0.50 533.11 ±10.52 2.98 ±0.74 145.72 ±3.58 1.46 ±0.21
+> BJ (target) / No Hub (Pairwise) 140.86 ±15.09 5.15 ±1.18 580.37 ±20.59 4.20 ±0.55 152.83 ±4.38 1.92 ±0.27
+
+## H.4 Ablation: Balanced vs. Unbalanced OT 
+
+In hub-based alignment, balanced OT enforces exact mass conservation ( ∑ 
+
+> k
+
+Πik = ai, ∑ 
+
+> i
+
+Πik = bk), while unbalanced OT relaxes marginal constraints via a KL penalty ρ. Fig. 16 shows that small ρ produces sharper early assignments (higher qmax ), but this is driven by mass inflation ( ∑ 
+
+> i,k
+
+Πik ≫ 1) — non-physical duplication rather than improved semantic matching. Balanced OT maintains unit transport mass throughout while achieving stable, gradually sharpening assignments. Table 15 confirms this quantitatively. Balanced OT achieves the lowest MAE on all three tasks and the lowest variance across seeds. Unbalanced OT is sensitive to ρ: small values cause under-alignment and large errors, while larger values partially recover accuracy but remain unstable. Since hub prototypes already provide a flexible intermediate support, enforcing full mass preservation avoids discarding hard-to-match regions and yields more reliable transfer. 24 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 0 40 80 120 160 200 
+
+> Epoch
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> i[max
+> k Qik  ]
+
+Assignment sharpness ( qmax ) vs epoch (xa), τb = 0.5 
+
+> balanced
+> unbalanced ρ=0.3
+> unbalanced ρ=1
+> unbalanced ρ=3
+
+(a) Assignment sharpness qmax 0 40 80 120 160 200 
+
+> Epoch
+> 1.2
+> 1.6
+> 2.0
+> 2.4
+> ∑
+> i, k
+> Πik
+
+Transport mass vs epoch (xa), τb = 0.5  
+
+> balanced
+> unbalanced ρ=0.3
+> unbalanced ρ=1
+> unbalanced ρ=3
+
+(b) Transport mass ∑ 
+
+> i,k
+
+Πik 
+
+Figure 16: Comparison of balanced and unbalanced OT in the hub-based alignment (CD,BJ →XA, τb = 0 .5). Table 15: Balanced vs. unbalanced OT on BJ →XA (4 random seeds, mean ± std). Lower is better. 
+
+OT Variant GDP Population CO 2
+
+MAE ↓ MAPE ↓ MAE ↓ MAPE ↓ MAE ↓ MAPE ↓
+
+Unbalanced OT ( ρ = 0 .3) 212.96 ± 27.46 7.22 ± 1.16 721.83 ± 95.63 4.80 ± 0.69 174.77 ± 41.48 3.17 ± 1.29 Unbalanced OT ( ρ = 1 ) 173.59 ± 13.68 4.16 ± 1.54 563.30 ± 33.74 3.49 ± 1.09 149.69 ± 9.89 1.90 ± 0.48 Unbalanced OT ( ρ = 3 ) 165.98 ± 11.66 2.06 ± 0.90 530.68 ± 13.40 2.27 ± 0.47 147.91 ± 8.99 1.81 ± 0.14 
+
+Balanced OT (Ours) 154.49 ± 2.10 2.12 ± 0.31 467.54 ± 17.42 2.23 ± 0.25 133.58 ± 4.64 1.51 ± 0.18 
+
+## H.5 Ablation: One-sided vs. Two-sided Cycle Reconstruction 
+
+We compare the default one-sided cycle reconstruction with a two-sided variant. The one-sided design enforces only the source →target →source cycle, while the two-sided design additionally enforces the reverse target →source →target cycle. This tests whether the extra reverse constraint improves transfer or instead over-constrains the OT-based soft correspondence. Tables 16–17 show a consistent pattern: the one-sided design is better across all transfer directions overall, often by a large margin. The degradation of the two-sided variant is especially clear on Population and CO 2,suggesting that enforcing both directions is too restrictive under asymmetric cross-city transfer. We therefore use the one-sided cycle as the default design. Table 16: One-sided vs. two-sided cycle reconstruction on BJ ↔XA (4 random seeds, mean ± std). Lower is better. 
+
+Direction / Variant GDP Population CO 2
+
+MAE ↓ MAPE ↓ MAE ↓ MAPE ↓ MAE ↓ MAPE ↓
+
+BJ →XA (one-sided) 160.21 ± 3.53 1.87 ± 0.18 450.14 ± 2.81 1.73 ± 0.12 127.79 ± 1.08 1.78 ± 0.10 
+
+BJ →XA (two-sided) 160.92 ± 2.94 1.65 ± 0.20 503.85 ± 14.49 2.51 ± 0.35 143.18 ± 2.82 2.47 ± 0.30 XA →BJ (one-sided) 120.25 ± 7.30 3.59 ± 0.48 527.04 ± 6.38 2.17 ± 0.23 149.20 ± 1.58 1.80 ± 0.17 
+
+XA →BJ (two-sided) 164.88 ± 12.64 6.38 ± 0.44 583.17 ± 18.17 3.92 ± 0.13 167.51 ± 5.62 2.98 ± 0.15 25 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Table 17: One-sided vs. two-sided cycle reconstruction on XA ↔CD (4 random seeds, mean ± std). Lower is better. 
+
+Direction / Variant GDP Population CO 2
+
+MAE ↓ MAPE ↓ MAE ↓ MAPE ↓ MAE ↓ MAPE ↓
+
+XA →CD (one-sided) 154.60 ± 2.33 4.88 ± 0.57 558.56 ± 11.01 2.19 ± 0.21 114.71 ± 4.22 6.48 ± 0.78 
+
+XA →CD (two-sided) 172.93 ± 8.88 7.66 ± 1.58 582.95 ± 7.16 2.48 ± 0.08 130.86 ± 6.30 7.11 ± 0.35 CD →XA (one-sided) 159.61 ± 0.71 3.17 ± 0.29 531.00 ± 12.57 3.29 ± 0.10 131.10 ± 2.00 1.24 ± 0.02 
+
+CD →XA (two-sided) 172.65 ± 5.98 4.38 ± 0.15 572.33 ± 13.30 4.10 ± 0.31 135.88 ± 1.98 1.49 ± 0.13 
+
+# I Hyperparameter Sensitivity 
+
+## I.1 Sensitivity to η (balance between OT and contrastive alignment) 
+
+We study sensitivity to the contrastive weight η, which balances smooth OT-based geometric correspondence against contrastive discriminative sharpening. Figures 17–18 show results on XA →BJ: moderate η ∈ [0 .1, 0.5] consistently yields the best or near-best performance across all three tasks, while too-small η under-uses contrastive sharpening and too-large η (≥ 2) causes sharp error increases and near-complete feature mixing in t-SNE. Overall, OT and contrastive alignment act complementarily, and SCOT is robust over a practical mid-range of η.0 0.1 0.2 0.5 1 2 5 10                  
+
+> Contrastive weight η
+> 120
+> 140
+> 160
+> 180
+> MAE
+> GDP
+> MAE
+> MAPE
+> 00.1 0.2 0.5 12510
+> Contrastive weight η
+> 560
+> 600
+> 640
+> 680
+> Population
+> 00.1 0.2 0.5 12510
+> Contrastive weight η
+> 150
+> 160
+> 170
+> 180
+> 190
+> CO 2
+> 2
+> 4
+> 6
+> 8
+> 2
+> 3
+> 4
+> 5
+> 6
+> 2
+> 3
+> 4
+> MAPE
+
+Sensitivity to contrastive weight η (XA → BJ) 
+
+Figure 17: Sensitivity of SCOT to the contrastive weight η on XA →BJ. We report MAE and MAPE for GDP, population, and CO 2.
+
+Figure 18: Effect of contrastive weight η on embedding alignment (XA →BJ). t-SNE visualizations of region embeddings under three values: η = 0 (left), η = 0 .5 (middle), and η = 5 (right). Small η leads to weak alignment, moderate 
+
+η yields well-interleaved yet structured embeddings, while overly large η results in excessive mixing and degraded structure. 26 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+## I.2 Sensitivity to λalign .
+
+Figure 19 visualizes how λalign affects cross-city alignment on XA →BJ. Smaller λalign yields under-alignment, moderate values produce coherent interleaving while preserving cluster structure, and overly large λalign leads to near-complete mixing, consistent with the performance drop in Fig. 9. 
+
+Figure 19: t-SNE visualization of region embeddings under different alignment weights λalign (XA →BJ). Blue circles denote source regions and orange triangles denote target regions. 
+
+## I.3 Sensitivity to τ .
+
+Figure 20 visualizes how the contrastive temperature τ shapes alignment. With small τ (0.03 ), the two cities are less interleaved, suggesting weaker correspondence propagation. A moderate τ (0.1) produces clear interleaving while maintaining cluster structure. When τ is large ( 1), embeddings become overly smoothed and heavily overlapped, consistent with degraded transfer. 
+
+Figure 20: Effect of contrastive temperature τ on embedding alignment (XA →BJ). t-SNE visualizations of region embeddings under three values: τ = 0 .03 (left), τ = 0 .1 (middle), and τ = 1 (right). 
+
+## I.4 Sensitivity to target-prior temperature τb
+
+We vary the target-prior temperature τb, which controls the sharpness of the target-induced prototype marginal bt
+
+(smaller τb makes bt more peaked). If τb is too small, the prior concentrates on a few prototypes and can over-constrain hub alignment, increasing the risk of prototype “collapse” and hurting transfer. If τb is too large, bt becomes nearly uniform, weakening target guidance and reducing the benefit of target-induced alignment. Fig. 21 matches this intuition: performance is worst at very small τb (0.1–0.2) and degrades again when τb is large (≥ 1.0), while an intermediate range is most reliable. In particular, τb = 0 .5 yields the lowest MAE/MAPE across GDP, population, and CO 2, suggesting a good balance between selectivity and coverage. 27 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 0.1 0.2 0.3 0.5 0.8 1 1.2 1.5 2 
+
+> Target-prior temperature τb
+> 160
+> 168
+> 176
+> 184
+> MAE
+
+GDP     
+
+> MAE
+> MAPE
+> 0.1 0.2 0.3 0.5 0.8 11.2 1.5 2
+> Target-prior temperature τb
+> 480
+> 560
+> 640
+> 720
+> 800
+
+Population     
+
+> 0.1 0.2 0.3 0.5 0.8 11.2 1.5 2
+> Target-prior temperature τb
+> 120
+> 160
+> 200
+> 240
+> 280
+
+CO 2
+
+> 1.6
+> 2.4
+> 3.2
+> 4.0
+> 4.8
+> 1.8
+> 2.4
+> 3.0
+> 3.6
+> 4.2
+> 2
+> 3
+> 4
+> 5
+> MAPE
+
+Sensitivity to target-prior temperature τb (cd,bj → xa) 
+
+Figure 21: Sensitivity to target-prior temperature τb for multi-source transfer CD,BJ →XA. Solid: MAE. Dashed: MAPE. Lower is better. 
+
+Hub-usage diagnostics. We quantify how the target city uses the hub prototypes by the OT column marginal 
+
+pk = ∑ 
+
+> i
+
+Πik and report its normalized entropy H(p)/ log K and effective prototype count exp (H(p)) . As shown in Fig. 22, small τb yields a sharp target prior and triggers prototype collapse (low entropy and small exp (H(p)) ), while very large τb makes the prior nearly uniform and weakens target guidance (entropy ≈ 1 and exp (H(p)) ≈ K). An intermediate τb (e.g., 0.3–0.5) maintains stable, selective hub usage, matching the best transfer performance. 0 25 50 75 100 125 150 175 200 
+
+> epoch
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> col_effK = exp(H(p))
+> Target hub usage: effective K vs epoch (xa)
+> tau_b (temp_b)
+> 0.1
+> 0.2
+> 0.3
+> 0.5
+> 0.8
+> 1
+
+Figure 22: Target hub usage diagnostics (XA) under varying τb (CD,BJ →XA): normalized entropy H(p)/ log K and effective prototype count exp( H(p)) .
+
+# J Multi-Source Integration: Source Quality and Conflict Analysis 
+
+We investigate what determines whether multi-source transfer helps or hurts, and whether such outcomes can be anticipated without labels. To this end, we analyze two complementary families of unsupervised diagnostics and validate them against single-source vs. multi-source performance comparisons across three target cities. 
+
+Single-source vs. multi-source performance. Table 18 compares the best single-source SCOT with multi-source SCOT across three targets and three tasks, with the single-source baseline set to the best result among all sources to ensure a conservative comparison. Multi-source SCOT improves on most target–task pairs, with the clearest gains on Beijing and Chengdu, and only a slight drop on Xi’an GDP. We do not claim that adding more sources must always help; rather, our goal is integration without explicit source selection , which is difficult in label-scarce settings Mansour et al. (2008); Sun et al. (2015); Pan & Yang (2009). The shared hub with target-induced prior is designed precisely for this, and the mild Xi’an GDP drop reflects a task-specific trade-off discussed mechanistically below. 28 SCOT: Multi-Source Cross-City Transfer with Optimal-Transport Soft-Correspondence Objectives 
+
+Table 18: Single-source vs. multi-source transfer performance of SCOT. For each target city, the single-source baseline is the best-performing single-source SCOT result among all source cities. Lower scores indicate better performance. Red: best.                                                                   
+
+> Target City Single-source SCOT (best) Multi-source SCOT (ours)
+> GDP Population CO 2GDP Population CO 2
+> MAE ↓MAPE ↓MAE ↓MAPE ↓MAE ↓MAPE ↓MAE ↓MAPE ↓MAE ↓MAPE ↓MAE ↓MAPE ↓
+> Beijing (BJ) 118.48 3.41 580.95 2.74 148.50 1.54 104.16 2.57 525.10 1.87 143.53 1.46 Xi’an (XA) 154.92 1.60 452.67 1.58 128.74 1.63 156.94 1.91 446.13 1.56 127.66 1.76 Chengdu (CD) 135.63 3.55 575.43 2.35 114.68 7.83 133.94 3.32 546.82 2.23 98.43 5.10
+
+Mechanistic analysis: why does Xi’an GDP show a slight drop? To understand this, we examine hub alignment statistics near convergence for each source–target pair. For each source, we extract OT loss Lot , contrastive loss Lcon , and effective transport mass; a well-aligned source exhibits lower losses, higher mass, sharper hub assignments (qmax ), and lower assignment entropy H(Q). Table 19 reveals a clear gradient in source conflict severity across targets. For Beijing and Chengdu, the two sources are balanced or only mildly imbalanced, allowing the hub to integrate complementary signals. For Xi’an, the imbalance is most pronounced: the weaker source exhibits substantially higher losses, lower transport mass ( 0.48 vs. 0.58 ), lower qmax (0.58 vs. 0.72 ), and higher assignment entropy ( H(Q) ≈ 1.64 
+
+vs. 1.28 ), indicating weak alignment with the XA-induced hub and a partially conflicting signal. This is the direct mechanistic cause of the mild GDP drop: the hub cannot fully suppress the weaker source’s diffuse contribution, leading to marginal negative transfer on this specific task. This pattern is fully consistent with performance outcomes in Table 18, and motivates future work on adaptive source weighting within the hub framework. Table 19: Near-convergence hub alignment diagnostics for each source–target pair. ∆ denotes the absolute difference between the two sources. Larger ∆ values indicate more severe source compatibility imbalance. 
+
+Target Lot Lcon mass S1 S2 ∆ S1 S2 ∆ S1 S2 ∆
+
+Beijing (BJ) 0.558 0.557 0.001 0.999 0.987 0.012 0.431 0.447 0.016 Chengdu (CD) 0.435 0.403 0.032 1.075 0.839 0.237 0.489 0.515 0.026 Xi’an (XA) 0.470 0.420 0.050 1.080 0.660 0.420 0.480 0.580 0.100 
+
+# K Complexity Analysis 
+
+The main extra cost of SCOT, beyond the shared graph encoder and intra-city objective, comes from Sinkhorn OT. 
+
+Single-source SCOT. For source and target cities with ns and nt regions, respectively, SCOT builds a dense 
+
+ns × nt cost matrix and runs T Sinkhorn iterations. The resulting alignment cost is O(T n snt), with memory O(nsnt).The OT-weighted contrastive term uses the same pairwise structure, so it does not change the asymptotic order. 
+
+Multi-source SCOT with shared hub. With hub size K and city sizes {nm}m, the hub formulation replaces direct city-to-target OT by city-to-hub OT of size nm × K. Its total cost is O(T K ∑ 
+
+> m
+
+nm), with memory O(K ∑ 
+
+> m
+
+nm).
+
+# L Limitations. 
+
+Although SCOT provides interpretable couplings and hub assignments, these diagnostics are not guarantees of causal correctness and should be used with domain knowledge in practical deployments. Besides, our experiments focus on mobility-derived region graphs and aggregated socioeconomic targets; extending the framework to finer-grained spatial resolutions or highly non-comparable urban modalities may require additional modeling assumptions. 29

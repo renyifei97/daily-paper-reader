@@ -1,0 +1,3309 @@
+Title: ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller
+
+URL Source: https://arxiv.org/pdf/2604.04401v1
+
+Published Time: Tue, 07 Apr 2026 01:23:52 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# REIN VBC: A M ODEL -BASED REINFORCEMENT LEARNING 
+
+# APPROACH TO VEHICLE BRAKING CONTROLLER 
+
+Haoxin Lin 1,2,3 , Junjie Zhou 3 ∗, Daheng Xu 3∗
+
+, Yang Yu 1,2,3 †
+
+> 1
+
+National Key Laboratory for Novel Software Technology, Nanjing University, Nanjing, China 
+
+> 2
+
+School of Artificial Intelligence, Nanjing University, Nanjing, China 
+
+> 3
+
+Polixir Technologies, Nanjing, China linhx@lamda.nju.edu.cn, yuy@nju.edu.cn 
+
+ABSTRACT 
+
+Braking system, the key module to ensure the safety and steer-ability of current vehicles, relies on extensive manual calibration during production. Reducing labor and time consumption while maintaining the Vehicle Braking Controller (VBC) performance greatly benefits the vehicle industry. Model-based methods in offline reinforcement learning, which facilitate policy exploration within a data-driven dynamics model, offer a promising solution for addressing real-world control tasks. This work proposes ReinVBC, which applies an offline model-based reinforcement learning approach to deal with the vehicle braking control problem. We introduce useful engineering designs into the paradigm of model learning and utilization to obtain a reliable vehicle dynamics model and a capable braking policy. Several results demonstrate the capability of our method in real-world vehicle braking and its potential to replace the production-grade anti-lock braking system. 
+
+1 Introduction 
+
+The braking system [3] is a critical module for vehicle chassis motion control. When a vehicle performs emergency braking under extreme road conditions, the braking system can control the cylinder pressure of all four wheels to prevent wheel lock-up, ensuring the vehicle’s safety and steer-ability. Currently, most production-grade vehicles apply the Anti-lock Braking System (ABS) [11, 12, 17, 30] designed by Bosch, which performs well in terms of braking distance and braking deviation in most scenarios. However, ABS is implemented based on traditional controllers, and its parameters rely on extensive manual calibration in various scenarios. Moreover, the manually tuned parameters may not result in an optimal control. Searching for a nearly optimal policy that can adapt to most braking scenarios automatically without depending on manual experience is expected. Reinforcement Learning (RL) [13, 25, 34] is a promising way to find optimal control in sequential decision problems. Unfortunately, the success of RL has been primarily limited to simulators. The reason is that RL requires a lot of trial and error in the environment, which is unacceptable in the real world. Trial-and-error exploration not only consumes a considerable quantity of time and hardware resources but can also lead to dangerous accidents, especially in scenarios of robotic control [22, 35]. Several works [1, 9, 24, 26, 28, 29, 32] applying RL to vehicle braking remain in physical simulators or hardware-in-loop simulations rather than real-world environments. Model-based Reinforcement Learning (MBRL) [16,23,33,36,37] in the offline setting appears to be a reliable solution for addressing real-world control tasks. The offline setting only requires collecting some samples in the real environ-ment, where data collection can be performed using existing policies that may have low performance but ensure safety. The offline dataset can supervise the learning of the dynamics model, in which many explorations and evaluations of the agent can happen, thereby reducing the reliance on real-world samples. This paradigm has already achieved a great performance on D4RL [8] and NeoRL [27] benchmarks. The capability of offline MBRL in real-world applications deserves further study. 
+
+> ∗
+
+Work performed while Junjie Zhou and Daheng Xu were at Polixir Technologies 
+
+> †
+
+Corresponding Author 
+
+> arXiv:2604.04401v1 [cs.RO] 6 Apr 2026
+
+ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller Table 1: Important vehicle variables.                                                     
+
+> Type Name Notation Unit Description
+> dynamic variable vehicle speed vkm /hspeed in the vehicle direction wheel speed w= ( w1, w 2, w 3, w 4)km /hlinear speed of the four wheels rotating acceleration a= ( ax, a y, a z)m/s2acceleration in the x,y,zdirections attitude rate ˙ω= ( ˙θ, ˙ϕ, ˙ψ)rad /schange rates of pitch, roll, and yaw angles wheel cylinder pressure p= ( p1, p 2, p 3, p 4)MPa hydraulic pressure within the wheel cylinders control variable wheel action u= ( u1, u 2, u 3, u 4)N/A discrete instruction to control the wheel cylinder pressure operational variable brake pedal force fbrake Nforce applied to the vehicle’s brake pedal accelerator pedal force facc Nforce applied to the vehicle’s accelerator pedal steering wheel angle δrad rotation angle of the steering wheel static parameter wheelbase Lveh mwheelbase of the vehicle steering ratio NsN/A ratio of the steering wheel angle to the steering angle
+
+This paper applies offline MBRL to vehicle braking control. During data collection, the braking controller can use an easily designed rule-based policy in simple scenarios to ensure safety. Since the causal relationships in vehicle dynamics are relatively clear, a reliable vehicle dynamics model can be learned from the dataset after manually defining the causal graph. Then, any classical RL algorithm can find a nearly optimal braking policy within this dynamics model. In general, our contributions are summarized as follows. • We set up several basic braking scenarios and design a simple control rule to collect data at low vehicle speeds, ensuring safety and testing the generalization capability of the learned policy in more complex braking tasks with riskier road surfaces and higher braking speeds. • We design the state space, action space, and reward function for the decision-making process during vehicle braking. Then we propose an effective approach called ReinVBC (Model-based Rein forcement Learning to 
+
+Vehicle Braking Control), which learns a vehicle dynamics model according to the predefined causal graph and optimizes the policy in the model. The results demonstrate the long-term predictive ability of the learned dynamics model and the learning progress of the policy. • In-distribution test shows that the braking controller by offline MBRL, i.e. , ReinVBC, can outperform the original-equipment ABS controller, the simple rule-based policy used for data collection, and the direct brak-ing without any control in the real-world scenarios covered by the data. • Out-of-distribution test shows that the learned policy can achieve a small braking deviation and avoid the wheel lock-up during braking in both the hardware-in-loop simulation of complicated conditions and the real-world complex scenarios of the professional automotive testing ground, ensuring the safety and steer-ability. Although the braking controller by offline MBRL cannot outperform the production-grade ABS thoroughly at present, this paper has demonstrated the potential of offline MBRL in real-world vehicle braking. We expect to replace the manual calibration of the traditional controller with a reliable data-driven learning paradigm, reducing the cost of production. 
+
+2 Preliminaries 
+
+2.1 Vehicle Variables 
+
+We list the vehicle variables involved in this paper and their corresponding descriptions in Table 1. Static parameters are inherent to vehicle manufacturing and are considered constants. Operational variables are determined by the driver’s operations, while control variables come from the controller’s decisions. Together, operational variables and control variables determine the dynamic variables during the vehicle’s movement. 
+
+2.2 Braking System 
+
+Emergency braking is unavoidable for drivers in hazardous situations. When the driver presses the brake pedal heavily, the four wheels will tend to lock up if there is no additional pressure control. The locking condition of the i-th wheel is quantified by its slip ratio defined as ηi = 1 − wi 
+
+> v
+
+. A slip ratio of one indicates zero wheel speed, signifying wheel lock-up. Wheel lock-up can make the vehicle out of control, especially on extreme surfaces like icy roads. 2ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller Therefore, the braking system [3] is designed to control the wheel cylinder pressure to maintain steer-ability and safety of the vehicle during heavy braking. The most widely used system for this purpose is the Anti-lock Braking System (ABS) [11, 12, 17, 30], which aims to control the wheel slip ratio within a safe range. 
+
+2.3 Markov Decision Process 
+
+We consider a standard Markov decision process (MDP) specified by a tuple M = ⟨S , U, T, r, ρ 0, γ ⟩, where S is the state space, U is the action space, T (st+1 |st, u t) is the dynamics function that calculates the conditioned distribution of st+1 ∈ S given the state-action pair (st, u t), r(st, u t) is the reward function, ρ0 is the initial state distribution, and 
+
+γ is the discount factor. Practical decision-making scenarios are generally not fully observable, as is the case with the brake control task discussed in this paper. Due to factors such as changing road conditions and sensor errors, the dynamic variables listed in Table 1 cannot fully reflect the vehicle’s state. Their value at step t can only be considered as part of the state, denoted as the observation ot. Typically, ot is stacked over a certain number of steps to approximate st:
+
+st ≈ (ot−h+1 , · · · , o t), (1) where h is the number of stacked steps. 
+
+2.4 Offline Model-based Reinforcement Learning 
+
+We use ρπ to denote the on-policy distribution over states induced by the dynamics function T and the policy π.The optimization goal of reinforcement learning [34] is to search a policy π that maximized the expected discounted cumulative reward Eρπ [P∞ 
+
+> t=0
+
+γtrt]. Such a policy can be derived from the estimation of the state-action value function 
+
+Qπ (st, u t) = E(st+1 ,r t+1 )∼T (·| st,u t) [rt+1 + γV π (st+1 )] , where V π (st+1 ) = Eut+1 ∼π(·| st+1 ) [Qπ (st+1 , u t+1 )] is the state value function. In the offline setting [2, 10, 18, 19], environmental samples are confined to a given static dataset Denv since online exploration is inaccessible to the agent. Offline MBRL [16, 33, 36, 37] aims to optimize the policy using the model augmented data beyond the dataset. The dynamics model ˆT is typically trained to maximize the expected likelihood 
+
+J( ˆT ) = E(st,u t,s t+1 )∼D env [log ˆT (st+1 |st, u t)] . (2) The estimated dynamics model defines a surrogate MDP ˆM = ( S, U, ˆT , r, ρ 0, γ ).The limited dataset causes ˆT to cover only a part of the state-action space. Once the policy lead the trajectory to extend into out-of-distribution areas during roll-out in ˆM, the learning process can collapse. Thus, MOPO [37] and some of its subsequent offline MBRL algorithms [16, 33] incorporate a penalty term measuring the model uncertainty in the reward function, allowing the agent to sample within safe regions of ˆT . Then any RL algorithm can be used to recover the optimal policy using the penalized reward function with the augmented dataset Denv ∪ D model , where Dmodel is the synthetic data rolled out in ˆM.Nevertheless, this paper does not intend to introduce a penalty based on the model uncertainty into the learning of policy in the dynamics model. We aim to learn a realistic dynamics model, treating it as a data-driven simulator. Then extensive explorations and evaluations of the agent can occur in ˆT , thereby reducing the reliance on real-world samples. 
+
+3 Method 
+
+In this section, we propose ReinVBC, which applies an offline model-based reinforcement learning approach to deal with the vehicle braking control task. The overall scheme of ReinVBC can be divided into five parts: RL environment setup, data collection, vehicle dynamics model learning, policy optimization, and functional test, as illustrated in Figure 1. 
+
+3.1 RL Environment Setup 3.1.1 Environment Setting 
+
+We consider several real-world scenarios, including emergency braking on high-adhesion, low-adhesion, and split-friction straight roads. We take a section of concrete road as a high-adhesion surface for our experiments. Certain 3ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller Real -world Scenario Offline Dataset   
+
+> Pressure Prediction
+> Wheel Speed Prediction
+> IMU Prediction
+> Vehicle Speed Prediction
+> [𝐩 ]!"#
+> !"$
+> [𝐮 ]!"#
+> !"$
+> [𝐰 ]!"#
+> !"$
+> [𝐚 ]!"#
+> !"$
+> [̇𝜔 ]!"#
+> !"$
+> [𝑓 %&'() ,𝑓 '** ,𝛿 ]!"#
+> !"$
+> [𝑣 ]!"#
+> !"$
+> -𝐩 !
+> -𝐰 !
+> .̇𝜔 !
+> /𝐚 !
+> /𝑣 !
+
+Vehicle Dynamics Model 
+
+Policy Onboard Computer  
+
+> collection learning
+> RL deploying
+> test
+
+Figure 1: Illustration of ReinVBC: vehicle braking controller by offline model-based reinforcement learning Table 2: Parameters of our experimental vehicle 
+
+Body 
+
+class SUV length 4462mm width 1857mm height 1638mm wheelbase 2680mm clearance 170mm curb weight 1630kg doors / seats 5 / 5 fuel tank 55L 
+
+Engine 
+
+class 2.0T 227 hp L4 engine model E20CB displacement 1499cc engine power 227hp maximum torque 387Nm maximum speed 190km/h 
+
+Drivetrain 
+
+class DCT gears 7drivetrain type FWD 
+
+Wheel tires 225 / 60 R18 wheel material aluminum alloy areas of this concrete road are paved with oil-coated plastic sheets to serve as low-adhesion surfaces. We can simulate a split-friction road condition by having one side of the vehicle’s wheels travel on the high-adhesion surface and the other on the low-adhesion surface. We use an SUV (Sport Utility Vehicle) named WEY VV5 as the experimental vehicle. Its detailed parameters are listed in Table 2. The vehicle is equipped with a series of sensors capable of acquiring the values of dynamic variables during driving. 
+
+3.1.2 State Space 
+
+The important vehicle dynamics variables listed in Table 1 are observable to the agent. We define the observation as 
+
+ot := ( vt, wt, at, ˙ωt, pt, f brake ,t , f acc ,t , δ t), where t indicates the index of time step. However, these observable vari-ables do not fully describe the vehicle’s state. To make the scenario as Markovian as possible, we stack observations from several previous steps to form the state as 
+
+st := ([ v]tt−h+1 , [w]tt−h+1 , [a]tt−h+1 , [ ˙ ω]tt−h+1 , [p]tt−h+1 , [fbrake ]tt−h+1 , [facc ]tt−h+1 , [δ]tt−h+1 ), (3) where h is the number of stacked steps. 4ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller Table 3: Discrete action choices for each wheel. 
+
+action description operation 
+
+c0 pressure maintenance set the switching valve to braking mode, close the inlet valve and the outlet valve 
+
+c1 pressure increase set the switching valve to braking mode, open the inlet valve, close the outlet valve 
+
+c2 pressure decrease set the switching valve to braking mode, close the inlet valve, open the outlet valve 
+
+c3 no pressure control set the switching valve to normal mode It is worth mentioning that due to the varying conditions of the road surface during emergency braking of the vehicle, 
+
+st actually lacks information. Considering the difficulty in standardizing the quantitative assessment of various road surfaces and the impracticality of obtaining the road condition in real applications, it is reasonable that st does not include road-related information. The trend of changes in dynamic variables contained in the stacking of h steps indi-rectly reflects the road surface information to some extent, which also tests the model’s ability to extract information. 
+
+3.1.3 Action Space 
+
+We denote the action as ut = ( u1 
+
+> t
+
+, u 2 
+
+> t
+
+, u 3 
+
+> t
+
+, u 4 
+
+> t
+
+), where uit is the action of the i-th wheel. We design four discrete action choices for each wheel. The total number of action choices is 256 at each step. The meaning of each action is specified in Table 3. These actions switch switching valves, inlet valves, and outlet valves of the hydraulic control unit [38] to control the wheel cylinder pressure. Due to the limitations of the sensor frequency, the feedback cycle of st is at least 20ms. Therefore, we set the control frequency to 50Hz as well. Considering factors such as sensor delay and drastic state transitions during vehicle braking, our control model lacks sufficient granularity at a low control frequency of 50Hz, posing a significant challenge for RL. 
+
+3.2 Data Collection 
+
+We use a rule-based policy and a random policy to collect data. The rule-based policy, determining pressure control based on the slip ratio, chooses the action for the i-th wheel by 
+
+ui = c3 · I(ηi < 0.03) + c1 · I(0 .03 ≤ ηi < 0.1) + c0 · I(0 .1 ≤ ηi < 0.2) + c2 · I(ηi ≥ 0.2) . (4) The random policy uniformly samples an action from the action space to execute. Each policy collects six trajectories (five for training, one for validation) on high-adhesion, low-adhesion, and split-friction straight roads, resulting in 36 trajectories in total. The sampling frequency and control frequency are both set to 50Hz. The braking speed during data collection is 40km/h to ensure safety. Besides, the dataset only includes data at lower braking speeds than the test phase, which helps evaluate the method’s generalization. 
+
+3.3 Vehicle Dynamics Model Learning 
+
+The vehicle dynamics model is designed to predict dynamic variables, including wheel cylinder pressure, wheel speed, acceleration, attitude rate, and vehicle speed. The right part of Figure 1 illustrates the causal graph of the entire dynamics model, indicating that the dynamics model can be decomposed into four modules. Each module only takes the attribution of the dynamic variable it aims to predict as input. To process the input sequence of h steps, the network architecture of each module consists of an RNN [6] layer with a GRU [4] cell and three fully connected layers. The output of each module is a differentiable Gaussian distribution of the predicted dynamic variable. We denote the whole vehicle dynamics model as ˆTξ (dt+1 |st, u t), where dt+1 is used to denote the dynamic variables 
+
+(pt+1 , wt+1 , ˙ωt+1 , at+1 , v t+1 ) and ξ represents the neural parameters. During the roll-out process in the dynamics model, the dynamic ˆdt+1 is from the model prediction, while the static variables (fbrake ,t +1 , f acc ,t +1 , δ t+1 ) are from the dataset, collectively used to form the next state ˆst+1 . ˆTξ is trained to maximize the expected likelihood: 
+
+J ˆT (ξ) = EDenv 
+
+ log ˆTξ (dt+1 |st, u t) + 
+
+> m
+
+X
+
+> k=2
+
+log ˆTξ (dt+k|ˆst+k−1, u t+k−1), (5) where m is the maximum roll-out length. The first term log ˆTξ (dt+1 |st, u t) aims to reduce the single-step prediction error, while the purpose of the second term Pmk=2 log ˆTξ (dt+k|ˆst+k−1, u t+k−1) is to reduce the roll-out error. The hyper-parameters for vehicle dynamics model learning are listed in Appendix A.1. 5ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller 
+
+Algorithm 1 ReinVBC: MBRL approach to vehicle braking control 
+
+Input : Pre-collected real-world dataset Denv , initial vehicle dynamics model ˆTξ , critic Qζ and policy πχ, observa-tion stacking steps h, model data buffer Dmodel , speed augmentation range [laug , h aug ], terminated vehicle speed vϵ,interaction epochs N , episodes per epoch E, maximum time steps per episode Hmax 
+
+1: Train the vehicle dynamics model ˆTξ on Denv by maximizing Equation (5) to convergence 
+
+2: for N epochs do 
+
+3: for E episodes do 
+
+4: Sample ([ v]t0
+
+> t0−h+1
+
+, [w]t0
+
+> t0−h+1
+
+, [a]t0
+
+> t0−h+1
+
+, [ ˙ ω]t0
+
+> t0−h+1
+
+, [p]t0
+
+> t0−h+1
+
+, [fbrake ]t0
+
+> t0−h+1
+
+, [facc ]t0
+
+> t0−h+1
+
+, [δ]t0
+
+> t0−h+1
+
+),
+
+i.e. , h-step observations prior to step t0, from Denv to initial the state 
+
+5: Sample a speed augmentation term vaug uniformly from [laug , h aug ]
+
+6: for t = t0 to Hmax if vt > v ϵ do 
+
+7: Sample action at according to πχ(·| st)
+
+8: Perform at in the vehicle dynamics model ˆTξ to predict the state st+1 at next step 
+
+9: Compute the reward rt according to Equation (6) 
+
+10: Augment the data by regarding the state as 
+
+saug  
+
+> t
+
+= ([ v]tt−h+1 +vaug , [w]tt−h+1 +vaug , [a]tt−h+1 , [ ˙ ω]tt−h+1 , [p]tt−h+1 , [fbrake ]tt−h+1 , [facc ]tt−h+1 , [δ]tt−h+1 )
+
+11: Add the augmented imaginary sample (saug  
+
+> t
+
+, a t, r t, s aug 
+
+> t+1
+
+) to Dmodel 
+
+12: Update current critic Qζ using samples from Dmodel by minimizing Equation (7) 
+
+13: Update current policy πχ using samples from Dmodel by maximizing Equation (9) 
+
+14: end for 
+
+15: end for 
+
+16: end for 3.4 Policy Optimization 
+
+The policy optimization process happens in the learned vehicle dynamics model. We expect the vehicle to avoid body deviation and keep the slip ratio within a specific range during braking while achieving a short braking distance. Thus, the reward function is designed as 
+
+rt = −β1 · ˆvt+1 − β2 · ˆ˙ψt+1 − ˙ψexp ,t +1 − β3 ·
+
+> 4
+
+X
+
+> i=1
+
+I(ηit+1 < 0.1) + I(ηit+1 > 0.2)  , (6) where β1, β2 and β3 are the coefficients, ˙ψexp ,t +1 is the expected yaw rate which can be estimated by v·tan( δ/N s) 
+
+> Lveh
+
+at low speeds and small steering angles. The first term is the vehicle speed penalty, and its integral corresponds exactly to the braking distance objective. The second term represents the difference between the yaw rate response and the expected yaw rate corresponding to the driver’s operation, aimed at avoiding body deviation from the expected trajectory. The third term represents the slip ratio constraint, limiting the action range of the policy. The policy extensively explores in the learned dynamics model and stores the collected model imaginary samples in 
+
+Dmodel . Meanwhile, we utilize the off-policy algorithm SAC [13] to update the policy using the samples from the buffer Dmodel . Sample exploration and policy optimization iterate alternately. We denote the critic and the actor as 
+
+Qζ (st, u t) and πχ(ut|st) respectively, where ζ and χ are the neural parameters. The critic is trained to minimize the soft Bellman residual: 
+
+JQ(ζ) = EDmodel 
+
+ 12
+
+ Qζ (st, u t) − y¯ζ,χ (rt, s t+1 )2
+
+
+
+, (7) where 
+
+y¯ζ,χ (rt, s t+1 ) = rt + γEa′∼πχ(·| st+1 )
+
+Q¯ζ (st+1 , a ′) − α log πχ(a′|st+1 ) (8) is the soft Bellman target with ¯ζ representing the neural parameters of the target network and α denoting the coefficient of the entropy. The actor is trained to maximize 
+
+Jπ (χ) = Est∼D model 
+
+Ea′∼πχ(·| st) [qζ,χ (st, a ′)]  , (9) where 
+
+qζ,χ (st, a ′) = Qζ (st, a ′) − α log πχ(a′|st) (10) is the Q value with entropy. The hyper-parameters for policy optimization are listed in Appendix A.2. 6ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller 0 50 100 150                               
+
+> time step
+> 0
+> 5
+> 10
+> 15
+> 20
+> FL wheel pressure (MPa)
+> real-world
+> model roll-out
+> 050 100 150
+> time step
+> 0
+> 5
+> 10
+> 15
+> 20
+> FR wheel pressure (MPa)
+> real-world
+> model roll-out
+> 050 100 150
+> time step
+> 0
+> 5
+> 10
+> 15
+> 20
+> RL wheel pressure (MPa)
+> real-world
+> model roll-out
+> 050 100 150
+> time step
+> 0
+> 5
+> 10
+> 15
+> 20
+> RR wheel pressure (MPa)
+> real-world
+> model roll-out
+> 050 100 150
+> time step
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> FL wheel speed (km/h)
+> real-world
+> model roll-out
+> 050 100 150
+> time step
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> FR wheel speed (km/h)
+> real-world
+> model roll-out
+> 050 100 150
+> time step
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> RL wheel speed (km/h)
+> real-world
+> model roll-out
+> 050 100 150
+> time step
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> RR wheel speed (km/h)
+> real-world
+> model roll-out
+> 050 100 150
+> time step
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> vehicle speed (km/h)
+> real-world
+> model roll-out
+> 050 100 150
+> time step
+> 15
+> 10
+> 5
+> 0
+> 5
+> 10
+> acceleration (m/ s2) real-world
+> model roll-out
+> 050 100 150
+> time step
+> 10
+> 5
+> 0
+> 5
+> 10
+> yaw rate (rad/s)
+> real-world
+> model roll-out
+
+Figure 2: Comparison between the model roll-out (in orange) and the real-world sequence (in blue). Under the influence of the entropy term, the policy considers not only the cumulative discounted reward but also the diversity of actions during the learning process. This encourages the policy to explore more regions while balanc-ing multiple optimal paths, making the learned policy more robust. This is also why most model-based algorithms currently choose SAC [13] to optimize the policy. It’s worth noting that since the dataset only includes low-speed braking data, the roll-out in the dynamics model would also generate low-speed trajectories. To enable the policy to make decisions at high speeds, we conduct data augmentation. Specifically, for an episode generated by the dynamics model, we add a uniformly random number within a certain range to the speed sequence. This specific data augmentation is actually a distinct advantage of data-driven control methods when dealing with out-of-distribution sensor data. Overall, after collecting the real-world data, the training process of ReinVBC is as shown in Algorithm 1. 
+
+3.5 Onboard Deployment and Test 
+
+The trained policy is deployed onto the onboard computer, which receives sensor signals and sends control signals via the CAN (Controller Area Network) port. During testing, data is recorded to estimate the braking distance and vehicle deviation for policy evaluation. The newly collected data from the policy is added to the dataset for the next iteration, continuing until the policy’s test performance meets the expectations. 
+
+4 Results 
+
+This section presents the results from the following three aspects: (1) the learning results of the vehicle dynamics model and the braking policy; (2) the performance of the learned policy when tested in scenarios consistent with data collection; (3) the performance of the learned policy when tested in scenarios with higher vehicle speeds and greater difficulty. 7ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller 0 500000 1000000 1500000 2000000         
+
+> Step
+> 2
+> 3
+> 4
+> 5
+> 6
+> critic loss
+> 0500000 1000000 1500000 2000000
+> Step
+> 0
+> 20
+> 40
+> 60
+> actor loss
+> 0500000 1000000 1500000 2000000
+> Step
+> 400
+> 300
+> 200
+> 100
+> 0
+> cumulative reward
+> vehicle speed term
+> vehicle deviation term
+> vehicle slip ratio term
+> total reward
+
+Figure 3: Learning curves of SAC in the learned vehicle dynamics model. The solid lines indicate the mean while the shaded areas indicate the standard error over five different seeds. 
+
+4.1 Learning Results 
+
+First, we demonstrate the differences between the learned vehicle dynamics model and the real world. To ensure that the changing trend of the stacked h-step observations can adequately reflect the unknown environmental information, we set h to 20, a relatively large number. We select a trajectory from the validation dataset, start from the initial state, sequentially execute the action sequence in the dynamics model, and record the sequence of dynamic variables generated during the roll-out process. Information related to the steering wheel and pedals controlled by the driver is directly taken from the dataset. The generated sequence from the dynamics model is then compared with the real-world sequence. Figure 2 illustrates the comparison results for the wheel cylinder pressure, wheel speed, vehicle speed, acceleration, and yaw rate of the trajectory from the validation dataset. In the figure, FL (front left), FR (front right), RL (rear left), and RR (rear right) indicate the position of the wheel. More additional results can be found in Appendix B.1. It can be observed that the learned vehicle dynamics model has an outstanding ability to predict future states. Firstly, across all dynamic variables, the two curves closely align and do not exhibit significant gaps as the roll-out length increases, suggesting that the learned model has negligible roll-out error. Secondly, from the roll-out curves of different scenarios included in Figure 2 and Appendix B.1, it can be seen that the model consistently performs well in prediction across various scenarios, demonstrating strong coverage capability. Furthermore, the model tends to ignore some minor changes, resulting in smoother prediction results compared to the actual data. Learning a policy for braking control is promising in such a dynamics model. Next, we present the learning curves of policy optimization in the learned vehicle dynamics model. Figure 3 shows the critic loss curve, the actor loss curve, and the reward curves during the learning process. It can be observed that the loss curves tend to decrease, and each term in the reward function tends to increase. The learning process proceeds successfully without abnormal phenomena like Q-value explosion, even though we do not apply a model-uncertainty penalty [16, 21, 33, 37] to the samples collected from the dynamics model. This is because the slip ratio term included in the reward function restricts the policy to explore only within the regions where the slip ratio constraints are met. These exploration regions align with those of the rule-based policy used during data collection. In other words, the policy’s exploration area largely corresponds to the certain regions of the dynamics model. Additionally, the learning quality of the dynamics model itself is reliable enough to support some out-of-distribution explorations by the policy. 
+
+4.2 In-distribution Test in Real-world 
+
+In the scenarios identical to data collection, keeping the initial vehicle speed at 40km/h for braking, we compare the braking distance and braking deviation of the controller learned by offline MBRL, i.e. , ReinVBC, the original-equipment Bosch ABS controller, the rule-based policy used for data collection, and direct braking without any pres-sure control. Figure 4 shows the in-distribution test results. The height of the bars represents the mean, and the error bars indicate the standard deviation, over five experiments. Due to the significant differences in values for braking deviation across different methods, the y-axis of the corresponding chart uses a logarithmic scale. First of all, ReinVBC demonstrates noticeable improvement over direct braking without any controller in both braking distance and braking deviation. It is worth noting that when braking without a controller on a split-friction road surface, wheel lock-up causes uneven force distribution on the vehicle, resulting in significant deviation. ReinVBC, on the other hand, has the ability to avoid vehicle deviation. This indicates that the RL-learned controller can effectively control the wheel cylinder pressure during intense braking, ensuring the car’s safety and steer-ability. Next, it is worth focusing on the comparison between ReinVBC and the simple rule-based policy used for data col-lection. The data collection policy shows almost no improvement compared to direct braking without any control, 8ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller high-adhesion straight split-friction straight  
+
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> 14
+> meter
+> 7.1
+> 11.8
+> 7.2
+> 12.5
+> 7.5
+> 12.7
+> 8.4
+> 12.5
+> Braking Distance
+> ReinVBC (ours)
+> ABS
+> Data Collection Policy
+> No Controller
+> high-adhesion straight split-friction straight
+> 10 0
+> 10 1
+> 10 2
+> degree
+> 0.8
+> 3.1
+> 0.8
+> 3.3
+> 1.0
+> 64.8
+> 1.0
+> 134.8
+> Braking Deviation
+> ReinVBC (ours)
+> ABS
+> Data Collection Policy
+> No Controller
+
+Figure 4: In-distribution test results in real-world (with 40km/h as braking speed), in terms of braking distance (in meter) and braking deviation (in degree). The height of the bars represents the mean, and the error bars indicate the standard deviation, over five experiments. Due to the significant differences in values for braking deviation across different methods, the y-axis of the corresponding chart uses a logarithmic scale. suggesting its limited control to the wheel cylinder pressure. However, data collected with such a low-performance policy can still be used to learn the effective controller ReinVBC. The fundamental reason is that although the col-lected sequences are far from the optimal trajectory, the dynamic characteristics reflected in the data can support the learning of the environmental model. Then, using an RL algorithm, it is easy to find better control policy within the environmental model. Although the improvement of the RL-learned policy compared to the behavior policy used for data collection cannot yet be precisely quantified based on specific theory, the performance enhancement is sufficient to support the application of offline MBRL. What’s more, with only 36 trajectories of braking data, ReinVBC can achieve production-level ABS control perfor-mance in terms of braking distance and braking deviation. Although the out-performance is slight, ReinVBC requires less than an hour of data collection and a few days of training and hyper-parameter tuning, which is significantly more efficient than the extensive time required for manual calibration to meet production-level ABS standards. This result already suggests the feasibility and potential of offline MBRL in real-world applications. Given additional data collection in more complex scenarios, offline MBRL is likely to demonstrate even more pronounced advantages. 
+
+4.3 Out-of-distribution Test 
+
+The out-of-distribution test is used to assess the generalization ability of the learned policy in challenging scenarios. To ensure the safety, we divide the test into two stages. At the first stage, the test is conducted in a hardware-in-loop simulation, posing no risk. At the second stage, the learned policy is deployed in the real-world, where extremely serious accidents will occur once the policy generates anomalous control signals. Therefore, only when the policy’s decisions in the simulation are sufficiently reasonable and can achieve satisfactory performance will it proceed to the second stage. 
+
+4.3.1 hardware-in-loop Out-of-distribution Test 
+
+At this stage, the control signals generated by the policy are applied to a physical hydraulic control unit to produce wheel cylinder pressure signals, which are then transmitted via a CAN port to the CarSim 3 software on the com-puter. CarSim simulates the vehicle’s motion, and upon receiving the pressure signals, the vehicle’s dynamic variables transition to new values, which are then fed back to the policy as observations. We set up seven challenging braking scenarios in CarSim to test the performance of the learned policy and compare it with the ABS controller and direct braking without any pressure control. Table 4 shows the results. In scenarios other than the high-adhesion straight, direct braking without any pressure control causes the vehicle to deviate significantly from the desired trajectory. The braking deviation caused by wheel lock-up poses a significant threat to driver safety. Although the braking distance may have an advantage in some scenarios without applying control, this shorter braking distance is meaningless when it comes at the cost of steer-ability and safety. In contrast, both ReinVBC and ABS result in negligible braking deviation across all scenarios. It is reasonable to believe that ReinVBC has the capability to ensure risk-free vehicle motion during braking. Moreover, in terms of braking distance, ReinVBC is competitive with ABS in scenarios other than the high-adhesion straight path. Many of these scenarios involve sudden changes in wheel speed, and the observation stacking design of ReinVBC allows it to capture these abrupt changes and make appropriate decisions. However, this capability 
+
+> 3
+
+www.carsim.com 
+
+9ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller Table 4: hardware-in-loop Out-of-distribution Test Results                                                                                                                                            
+
+> Scenario Braking Speed Braking Distance (m) Braking Deviation (degree) (km/h) ReinVBC ABS No Controller ReinVBC ABS No Controller high-adhesion straight 100 34 .9±0.527 .6±0.663 .3±0.3<0.1<0.1<0.1
+> low-adhesion straight 55 65 .0±0.770 .7±0.556 .8±0.40.3±0.10.3±0.1439 .3±7.2
+> high-to-low straight 45 30 .5±0.632 .3±0.546 .8±0.50.2±0.00.2±0.068 .4±5.1
+> low-to-high straight 45 25 .7±0.425 .6±0.541 .6±0.40.2±0.00.2±0.066 .3±7.2
+> split-friction straight 60 53 .9±3.254 .7±2.357 .5±1.40.6±0.10.5±0.1473 .7±9.1
+> high-adhesion curve 30 10 .2±0.526 .4±0.510 .0±0.70.3±0.00.3±0.010 .9±3.7
+> split-friction curve 30 15 .8±1.628 .5±1.711 .8±1.40.6±0.10.7±0.161 .9±5.4
+
+Table 5: Real-world Out-of-distribution Test Results 
+
+Scenario Braking Speed Braking Distance Braking Deviation Wheel Lock-up (km/h) (m) (deg) (Yes/No) 
+
+high-adhesion straight 100 47 .7 ± 1.9 1.7 ± 0.8 No low-adhesion straight 55 57 .9 ± 2.0 0.9 ± 0.2 No high-to-low straight 45 26 .0 ± 2.9 0.7 ± 0.2 No low-to-high straight 45 21 .9 ± 0.8 1.2 ± 0.2 No split-friction straight 60 33 .8 ± 1.0 8.9 ± 0.4 No high-adhesion curve 30 5.8 ± 0.5 0.9 ± 0.2 No split-friction curve 30 9.7 ± 0.9 2.7 ± 0.3 No also makes the policy more cautious, leading to slightly longer braking distances in low-risk scenarios like the high-adhesion straight due to insufficient braking pressure. Nonetheless, this minor flaw is insignificant compared to the stable control it provides in hazardous scenarios. Based on ReinVBC’s excellent performance in hardware-in-loop simulations, it is entirely feasible to further test the learned policy’s performance in the real world. 
+
+4.3.2 Real-world Out-of-distribution Test 
+
+We test ReinVBC in a series of complex scenarios at a professional automotive testing ground. The braking mode is emergency braking with a master cylinder pressure above 16MPa. These scenarios are outside the coverage of the dataset, testing the policy’s generalization ability in the real world. Table 5 shows the real-world out-of-distribution test results. The curves of the dynamic variables during braking are shown in Appendix B.2. It can be observed that in all seven braking test scenarios, the vehicle with our controller exhibits small braking deviation, indicating the vehicle does not skid and safety is ensured. Additionally, there is no significant wheel lock-up, ensuring steer-ability. These phenomena demonstrate that the policy obtained through offline MBRL is capable of handling emergency braking in common braking scenarios. The reason for not comparing with the original-equipment ABS controller is that the ABS controller on the experi-mental vehicle has already been replaced with our controller during the experiments at the professional automotive testing ground. Of course, given the limited training data, it is likely that our controller is not able to compete with the production-grade ABS in out-of-distribution scenarios. The focus of these experiments is to demonstrate the potential of offline MBRL in real-world braking control applications. 
+
+4.4 Reality Gap Analysis 
+
+As previously mentioned, to ensure safety, we first validate the performance of the learned policy in a hardware-in-loop simulation before testing it in the real world. Although integrating the physical hydraulic control unit into the simulation loop helps, a reality gap still exists. The span of this reality gap directly determines the feasibility of this validation approach. Therefore, we will proceed with an appropriate analysis of the reality gap. We select a typical scenario presented in the previous test results, the split-adhesion straight. During the testing of the learned policy in both hardware-in-loop simulations and real-world environments, we record the time-series data of the braking process. We separately present the wheel speed and vehicle speed curves on different testing platforms, as shown in Figure 5 and Figure 6. It can be observed that the braking duration in the hardware-in-loop simulation is longer, and wheel lock-up is more pronounced. The reason is that the low-adhesion surface used at the automotive testing ground is made of basalt, while 10 ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller 0 100 200 300          
+
+> time step
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> speed (km/h)
+> FL wheel speed vs. vehicle speed
+> FL wheel speed
+> vehicle speed
+> 0100 200 300
+> time step
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> speed (km/h)
+> FR wheel speed vs. vehicle speed
+> FR wheel speed
+> vehicle speed
+> 0100 200 300
+> time step
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> speed (km/h)
+> RL wheel speed vs. vehicle speed
+> RL wheel speed
+> vehicle speed
+> 0100 200 300
+> time step
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> speed (km/h)
+> RR wheel speed vs. vehicle speed
+> RR wheel speed
+> vehicle speed
+
+Figure 5: Speed curves during braking on the split-friction straight in the hardware-in-loop simulation. We separately compare the vehicle speed sequence with each wheel’s speed sequence. The solid lines indicate the wheel speed curves of each wheel, while the dashed line indicates the vehicle speed for reference. 0 100 200       
+
+> time step
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> speed (km/h)
+> FL wheel speed vs. vehicle speed
+> FL wheel speed
+> vehicle speed
+> 0100 200
+> time step
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> speed (km/h)
+> FR wheel speed vs. vehicle speed
+> FR wheel speed
+> vehicle speed
+> 0100 200
+> time step
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> speed (km/h)
+> RL wheel speed vs. vehicle speed
+> RL wheel speed
+> vehicle speed
+> 0100 200
+> time step
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> speed (km/h)
+> RR wheel speed vs. vehicle speed
+> RR wheel speed
+> vehicle speed
+
+Figure 6: Speed curves during braking on the split-friction straight in the real world. We separately compare the vehicle speed sequence with each wheel’s speed sequence. The solid lines indicate the wheel speed curves of each wheel, while the dashed line indicates the vehicle speed for reference. Table 6: Performance Comparison of Testing in Simulation and Real World 
+
+Scenario Braking Speed Braking Distance (m) Braking Deviation (degree) (km/h) Simulation Real World Gap Simulation Real World Gap high-adhesion straight 100 34 .9 47 .7 +12 .8 < 0.1 1.7 +1 .6
+
+low-adhesion straight 55 65 .0 57 .9 −7.1 0.3 0.9 +0 .6
+
+high-to-low straight 45 30 .5 26 .0 −4.5 0.2 0.7 +0 .5
+
+low-to-high straight 45 25 .7 21 .9 −3.8 0.2 1.2 +1 .0
+
+split-friction straight 60 53 .9 33 .8 −20 .1 0.6 8.9 +8 .3
+
+high-adhesion curve 30 10 .2 5.8 −4.4 0.3 0.9 +0 .6
+
+split-friction curve 30 15 .8 9.7 −6.1 0.6 2.7 +2 .1
+
+the CarSim simulation uses an ideal, smoother ice surface. In fact, the ideal low-adhesion surface in the simulation is more rigorous for testing braking controllers. The challenges posed by the braking scenarios in the simulation are no less demanding than those presented in the real-world scenarios set up at the professional automotive testing ground. More importantly, the wheel speed curves reflect the control logic of the braking controller. Whether in the simulation or the real world, the wheel speed tends to rebound as it approaches zero. This is because when a wheel is about to lock up, the controller reduces the corresponding wheel cylinder pressure to prevent dangerous skidding and vehicle deviation. The relationship between pressure and wheel speed can be seen in the curves in Appendix B.2. Of course, the rebound tendency of the wheel speed is weaker in the simulation, as the smoother low-adhesion surface provides greater resistance to wheel speed rebound. On the other hand, we list the performance comparison of the learned policy tested in simulation and the real world in Table 6. In terms of braking distance, the gap between simulation and the real world is relatively small in scenarios other than high-adhesion straight and split-adhesion straight. Sources of deviation include vehicle parameters, road conditions, weather conditions, and air resistance. In practice, deviations in braking distance are not a significant issue. Even if braking distances in the real world are longer than in CarSim, it does not pose a direct safety threat. More important is the consistency of braking deviation, as this metric directly reveals the steer-ability of the braking process. It can be observed that the differences in braking deviation between simulation and the real world are not 11 ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller significant. Based on our experimental results, if the policy does not cause noticeable vehicle deviation during braking in simulation, it will not do so in the real world either. In summary, when conducting risky out-of-distribution testing of a learned policy, if the control logic of the learned policy in simulation is reasonable and key metrics pass, it can proceed to further testing in the real world. Our experimental process can serve as a reference for applying reinforcement learning in other control domains. 
+
+5 Limitations 
+
+In general, our work’s limitations are summarized as follows. • This work lacks an all-round comparison between ReinVBC and the production-grade ABS in the real-world testing ground since we only have one experimental vehicle and the original-equipment ABS has been re-placed with our controller during test. • The performance of our controller at extremely high vehicle speeds above 100km/h is unclear since it is hard to ensure safety. • This work deploys the learned policy on the onboard computer. The braking policy should be deployed on the micro chip of the vehicle during production. How to utilize the learned neural parameters with limited computing resources should be considered. 
+
+6 Related Work 
+
+This work is related to vehicle braking control and offline MBRL. 
+
+6.1 Vehicle Braking Control 
+
+ABS [11, 12, 17, 30] is widely used to control the wheel cylinder pressure to maintain steer-ability and safety of the vehicle during heavy braking. Several works make efforts to apply RL to vehicle braking control. Mantripragada and Kumar [24] improve the ABS by proposing a model-free RL control algorithm which can adapt to changing tire characteristics and thereby effectively utilizing the available grip at tire-road interface. Radac and Precup [28, 29] apply a model-free Q-Learning for a fast and highly nonlinear ABS. Abreu et al. [1] utilize a double deep Q-network to deal with the rough terrain. Sardarmehni and Heydari [32] select a value iteration algorithm to offline learn the infinite horizon solution for optimal control of ABS in ground vehicles. But these works still remain in physical simulators or hardware-in-loop simulations. In contrast, our work focuses on the real-world vehicle braking scenario. 
+
+6.2 Offline MBRL 
+
+The core issue of offline MBRL lies in how to effectively learn and leverage the model. To let the model-generated sample be more reliable, several works try to enhance the paradigm of dynamics model learning. For instance, ADMPO [20, 21] proposes an any-step dynamics model, and MOREC [23] designs a reward-consistent dynamics model using an adversarial discriminator. The mainstream works [15, 16, 31, 33, 36, 37] focus on the ensemble dynamics model [5, 14] and leverage the learned model conservatively. Concretely, MOPO [37] and MOReL [16] add the uncertainty of the model prediction as a penalization term to the original reward function with the purpose of achieving a pessimistic value estimation. MOBILE [33] improves the uncertainty quantification by introducing Model-Bellman inconsistency into the offline model-based framework. COMBO [36] applies CQL [19] to force the estimated state-action value to be small on model-generated out-of-distribution samples. RAMBO [31] achieves conservatism by adversarial model learning for value minimization while keeping fitting the transition function. CBOP [15] introduces adaptive weighting of short-horizon roll-out into MVE [7] technique and adopts the variance of values under an ensemble of dynamics models to estimate the Q value conservatively. Our work also applies the framework of offline MBRL but views the learned vehicle dynamics model as a data-driven simulator and makes full-length roll-outs. 
+
+7 Conclusion 
+
+In this paper, we focus on reducing the consumption of labor and time while maintaining the controller performance during the production of vehicular braking system. We apply the framework of offline MBRL, which is a promising 12 ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller solution for addressing real-world control tasks. After modeling the braking task as a Markov decision process, we learn a vehicle dynamics model using the collected offline dataset. Then, we regard the learned dynamics model as a data-driven simulator and optimize the braking policy in it. By deploying the learned policy on the experimental vehicle to control the wheel cylinder pressure during braking, several results show that our method can achieve a small braking deviation and avoid the wheel lock-up in emergency-braking scenarios, ensuring safety and steer-ability of the vehicle, even in scenarios outside the coverage of the dataset. Although the braking controller by offline MBRL is not able to outperform the production-grade ABS absolutely at present, this paper has demonstrated the potential of offline MBRL in real-world vehicle braking. We expect to replace the manual calibration of the traditional controller with a reliable data-driven learning paradigm, reducing the cost of production. 
+
+References 
+
+[1] R. Abreu, T. R. Botha, and H. A. Hamersma. Model-free intelligent control for antilock braking systems on rough roads. SAE International journal of vehicle dynamics, stability, and NVH , 7(10-07-03-0017):269–285, 2023. [2] G. An, S. Moon, J. Kim, and H. O. Song. Uncertainty-based offline reinforcement learning with diversified q-ensemble. In Advances in Neural Information Processing Systems 34 (NeurIPS’21) , Virtual Event, 2021. [3] B. Breuer, K. H. Bill, et al. Brake technology handbook . SAE International, 2008. [4] K. Cho, B. van Merrienboer, C ¸ . G¨ ulc ¸ehre, D. Bahdanau, F. Bougares, H. Schwenk, and Y. Bengio. Learning phrase representations using RNN encoder-decoder for statistical machine translation. In Proceedings of the 2014 Conference on Empirical Methods in Natural Language Processing (EMNLP’14) , Doha, Qatar, 2014. [5] K. Chua, R. Calandra, R. McAllister, and S. Levine. Deep reinforcement learning in a handful of trials us-ing probabilistic dynamics models. In Advances in Neural Information Processing Systems 31 (NeurIPS’18) ,Montr´ eal, Canada, 2018. [6] J. L. Elman. Finding structure in time. Cognitive Science , 14(2):179–211, 1990. [7] V. Feinberg, A. Wan, I. Stoica, M. I. Jordan, J. E. Gonzalez, and S. Levine. Model-based value estimation for efficient model-free reinforcement learning. CoRR , abs/1803.00101, 2018. [8] J. Fu, A. Kumar, O. Nachum, G. Tucker, and S. Levine. D4RL: Datasets for deep data-driven reinforcement learning. CoRR , abs/2004.07219, 2020. [9] Y. Fu, C. Li, F. R. Yu, T. H. Luan, and Y. Zhang. A decision-making strategy for vehicle autonomous braking in emergency via deep reinforcement learning. IEEE transactions on vehicular technology , 69(6):5876–5888, 2020. [10] S. Fujimoto, D. Meger, and D. Precup. Off-policy deep reinforcement learning without exploration. In Proceed-ings of the 36th International Conference on Machine Learning (ICML’19) , Long Beach, California, 2019. [11] J. C. Gerdes and J. K. Hedrick. Brake system modeling for simulation and control. Journal of dynamic systems, measurement, and control , 121(3):496–503, 1999. [12] V. D. Gowda, A. Ramachandra, M. Thippeswamy, C. Pandurangappa, and P. R. Naidu. Modelling and perfor-mance evaluation of anti-lock braking system. Journal of Engineering Science and Technology , 14(5):3028– 3045, 2019. [13] T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine. Soft actor-critic: Off-policy maximum entropy deep reinforce-ment learning with a stochastic actor. In Proceedings of the 35th International Conference on Machine Learning (ICML’18) , Stockholm, Sweden, 2018. [14] M. Janner, J. Fu, M. Zhang, and S. Levine. When to trust your model: Model-based policy optimization. In 
+
+Advances in Neural Information Processing Systems 32 (NeurIPS’19) , Vancouver, Canada, 2019. [15] J. Jeong, X. Wang, M. Gimelfarb, H. Kim, B. Abdulhai, and S. Sanner. Conservative bayesian model-based value expansion for offline policy optimization. In The 11th International Conference on Learning Representations (ICLR’23) , Kigali, Rwanda, 2023. [16] R. Kidambi, A. Rajeswaran, P. Netrapalli, and T. Joachims. Morel: Model-based offline reinforcement learning. In Advances in Neural Information Processing Systems 33 (NeurIPS’20) , Virtual Event, 2020. [17] P. Kulkarni and K. Youcef-Toumi. Modeling, experimentation and simulation of a brake apply system. Journal of Dynamic Systems, Measurement, and Control , 116:111, 1994. [18] A. Kumar, J. Fu, M. Soh, G. Tucker, and S. Levine. Stabilizing off-policy Q-learning via bootstrapping error reduction. In Advances in Neural Information Processing Systems 32 (NeurIPS’19) , Vancouver, BC, 2019. 13 ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller [19] A. Kumar, A. Zhou, G. Tucker, and S. Levine. Conservative Q-learning for offline reinforcement learning. In 
+
+Advances in Neural Information Processing Systems 33 (NeurIPS’20) , Virtual Event, 2020. [20] H. Lin, S. Xiao, Y.-C. Li, Z. Zhang, Y. Sun, C. Jia, and Y. Yu. Adm-v2: Pursuing full-horizon roll-out in dynamics models for offline policy learning and evaluation. In The 14th International Conference on Learning Representations (ICLR’26) , Rio de Janeiro, Brazil, 2026. [21] H. Lin, Y. Xu, Y. Sun, Z. Zhang, Y. Li, C. Jia, J. Ye, J. Zhang, and Y. Yu. Any-step dynamics model improves fu-ture predictions for online and offline reinforcement learning. In The 13th International Conference on Learning Representations (ICLR’25) , Singapore, 2025. [22] X. Liu, G. Wang, Z. Liu, Y. Liu, Z. Liu, and P. Huang. Hierarchical reinforcement learning integrating with human knowledge for practical robot skill learning in complex multi-stage manipulation. IEEE Transactions on Automation Science and Engineering , 21(3):3852–3862, 2024. [23] F. Luo, T. Xu, X. Cao, and Y. Yu. Reward-consistent dynamics models are strongly generalizable for offline reinforcement learning. In The 12th International Conference on Learning Representations (ICLR’24) , Vienna, Austria, 2024. [24] V. K. T. Mantripragada and R. K. Kumar. Deep reinforcement learning-based antilock braking algorithm. Vehicle system dynamics , 61(5):1410–1431, 2023. [25] V. Mnih, K. Kavukcuoglu, D. Silver, A. A. Rusu, J. Veness, M. G. Bellemare, A. Graves, M. A. Riedmiller, A. Fidjeland, G. Ostrovski, S. Petersen, C. Beattie, A. Sadik, I. Antonoglou, H. King, D. Kumaran, D. Wierstra, S. Legg, and D. Hassabis. Human-level control through deep reinforcement learning. Nature , 518(7540):529– 533, 2015. [26] J. P´ erez, M. Alc´ azar, I. S´ anchez, J. A. Cabrera, M. Nybacka, and J. J. Castillo. On-line learning applied to spiking neural network for antilock braking systems. Neurocomputing , 559:126784, 2023. [27] R. Qin, X. Zhang, S. Gao, X. Chen, Z. Li, W. Zhang, and Y. Yu. Neorl: A near real-world benchmark for offline reinforcement learning. In Advances in Neural Information Processing Systems 35 (NeurIPS’22) , New Orleans, LA, 2022. [28] M.-B. Radac and R.-E. Precup. Data-driven model-free slip control of anti-lock braking systems using reinforce-ment q-learning. Neurocomputing , 275:317–329, 2018. [29] M.-B. Radac, R.-E. Precup, and R.-C. Roman. Anti-lock braking systems data-driven control using q-learning. In Proceedings of the International Symposium on Industrial Electronics (ISIE’17) , Edinburgh, UK, 2017. [30] H. Raza, Z. Xu, B. Yang, and P. A. Ioannou. Modeling and control design for a computer-controlled brake system. IEEE transactions on control systems technology , 5(3):279–296, 1997. [31] M. Rigter, B. Lacerda, and N. Hawes. RAMBO-RL: Robust adversarial model-based offline reinforcement learning. In Advances in Neural Information Processing Systems 35 (NeurIPS’22) , New Orleans, LA, 2022. [32] T. Sardarmehni and A. Heydari. Optimal switching in anti-lock brake systems of ground vehicles based on ap-proximate dynamic programming. In Proceedings of the ASME 2015 Dynamic Systems and Control Conference ,Columbus, Ohio, 2015. [33] Y. Sun, J. Zhang, C. Jia, H. Lin, J. Ye, and Y. Yu. Model-bellman inconsistency for model-based offline re-inforcement learning. In Proceedings of the 40th International Conference on Machine Learning (ICML’23) ,Honolulu, Hawaii, 2023. [34] R. S. Sutton and A. G. Barto. Reinforcement learning: An introduction . MIT Press, 2018. [35] J. Yang, J. Ni, M. Xi, J. Wen, and Y. Li. Intelligent path planning of underwater robot based on reinforcement learning. IEEE Transactions on Automation Science and Engineering , 20(3):1983–1996, 2023. [36] T. Yu, A. Kumar, R. Rafailov, A. Rajeswaran, S. Levine, and C. Finn. COMBO: Conservative offline model-based policy optimization. In Advances in Neural Information Processing Systems 34 (NeurIPS’21) , Virtual Event, 2021. [37] T. Yu, G. Thomas, L. Yu, S. Ermon, J. Y. Zou, S. Levine, C. Finn, and T. Ma. MOPO: Model-based offline policy optimization. In Advances in Neural Information Processing Systems 33 (NeurIPS’20) , Virtual Event, 2020. [38] X. Zhao, L. Li, J. Song, C. Li, and X. Gao. Linear control of switching valve in vehicle hydraulic control unit based on sensorless solenoid position estimation. IEEE Transactions on Industrial Electronics , 63(7):4073–4085, 2016. 14 ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller 
+
+A Experimental Details 
+
+A.1 Hyper-parameters for Vehicle Dynamics Model Learning 
+
+Table 7: Hyper-parameters used to train our vehicle dynamics model 
+
+Hyper-parameter Value Description 
+
+network GRU(128)+FC(128,128) a GRU layer followed by fully connected layers 
+
+h 20 the number of steps for observation stacking 
+
+pdropout 0.1 dropout rate 
+
+lr model 1 × 10 −4 learning rate 
+
+m 500 maximum roll-out length optimizer Adam optimizer of the dynamics model 
+
+N 1000 number of training epochs batch size 128 batch size for each update 
+
+A.2 Hyper-parameters for Policy Optimization 
+
+Table 8: Hyper-parameters used to optimize the policy 
+
+Hyper-parameter Value Description 
+
+NQ 2 the number of Q networks actor network FC(256,256) fully connected (FC) layers critic network FC(256,256) fully connected (FC) layers 
+
+τ 5 × 10 −3 target network smoothing coefficient 
+
+γ 0.99 discount factor 
+
+lr policy 3 × 10 −4 learning rate of the actor and the critic optimizer Adam optimizer of the actor and the critic batch size 256 batch size for each update 
+
+(β1, β 2, β 3) (0.025, 0.5, 0.2) coefficients of each term in the reward function 
+
+15 ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller 
+
+B Additional Results 
+
+B.1 Roll-out Demonstration of the Vehicle Dynamics Model 0 50 100 150 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FL wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FR wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RL wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RR wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> FL wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> FR wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> RL wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> RR wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> vehicle speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> acceleration (m/ s2)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 
+
+time step 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> yaw rate (rad/s)
+
+real-world 
+
+model roll-out 
+
+Figure 7: Comparison between the model roll-out and the real-world sequence. This sequence is sampled on a split-friction straight road. 0 100 200 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FL wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 100 200 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FR wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 100 200 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RL wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 100 200 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RR wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 100 200 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> FL wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 100 200 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> FR wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 100 200 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> RL wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 100 200 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> RR wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 100 200 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> vehicle speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 100 200 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> acceleration (m/ s2)
+
+real-world 
+
+model roll-out 
+
+0 100 200 
+
+time step 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> yaw rate (rad/s)
+
+real-world 
+
+model roll-out 
+
+Figure 8: Comparison between the model roll-out and the real-world sequence. This sequence is sampled on a split-friction straight road. 16 ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller 0 50 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FL wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FR wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RL wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RR wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> FL wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> FR wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> RL wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> RR wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> vehicle speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> acceleration (m/ s2)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+15 
+
+> yaw rate (rad/s)
+
+real-world 
+
+model roll-out 
+
+Figure 9: Comparison between the model roll-out and the real-world sequence. This sequence is sampled on a split-friction straight road. 0 50 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FL wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FR wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RL wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RR wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> FL wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> FR wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> RL wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> RR wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> vehicle speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> acceleration (m/ s2)
+
+real-world 
+
+model roll-out 
+
+0 50 100 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+15 
+
+> yaw rate (rad/s)
+
+real-world 
+
+model roll-out 
+
+Figure 10: Comparison between the model roll-out and the real-world sequence. This sequence is sampled on a split-friction straight road. 17 ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller 0 25 50 75 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FL wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 25 50 75 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FR wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 25 50 75 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RL wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 25 50 75 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RR wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 25 50 75 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> FL wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 25 50 75 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> FR wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 25 50 75 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> RL wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 25 50 75 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> RR wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 25 50 75 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> vehicle speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 25 50 75 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> acceleration (m/ s2)
+
+real-world 
+
+model roll-out 
+
+0 25 50 75 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+15 
+
+> yaw rate (rad/s)
+
+real-world 
+
+model roll-out 
+
+Figure 11: Comparison between the model roll-out and the real-world sequence. This sequence is sampled on a high-adhesion straight road. 0 50 100 150 200 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FL wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FR wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RL wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RR wheel pressure (MPa)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> FL wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> FR wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> RL wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> RR wheel speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> vehicle speed (km/h)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 200 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> acceleration (m/ s2)
+
+real-world 
+
+model roll-out 
+
+0 50 100 150 200 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+15 
+
+> yaw rate (rad/s)
+
+real-world 
+
+model roll-out 
+
+Figure 12: Comparison between the model roll-out and the real-world sequence. This sequence is sampled on a low-adhesion straight road. 18 ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller 
+
+B.2 Test Sequence of the Vehicle Braking Controller 0 50 100 150 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FL wheel pressure (MPa)
+
+0 50 100 150 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FR wheel pressure (MPa)
+
+0 50 100 150 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RL wheel pressure (MPa)
+
+0 50 100 150 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RR wheel pressure (MPa)
+
+0 50 100 150 
+
+time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+> FL wheel speed (km/h)
+
+0 50 100 150 
+
+time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+> FR wheel speed (km/h)
+
+0 50 100 150 
+
+time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+> RL wheel speed (km/h)
+
+0 50 100 150 
+
+time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+> RR wheel speed (km/h)
+
+0 50 100 150 
+
+time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+> vehicle speed (km/h)
+
+0 50 100 150 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> acceleration (m/ s2)
+
+0 50 100 150 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+15 
+
+> yaw rate (rad/s)
+
+Figure 13: The braking process of the vehicle with our controller on a high-adhesion straight. 0 100 200 300 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FL wheel pressure (MPa)
+
+0 100 200 300 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FR wheel pressure (MPa)
+
+0 100 200 300 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RL wheel pressure (MPa)
+
+0 100 200 300 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RR wheel pressure (MPa)
+
+0 100 200 300 
+
+time step 
+
+0
+
+20 
+
+40 
+
+> FL wheel speed (km/h)
+
+0 100 200 300 
+
+time step 
+
+0
+
+20 
+
+40 
+
+> FR wheel speed (km/h)
+
+0 100 200 300 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+> RL wheel speed (km/h)
+
+0 100 200 300 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+> RR wheel speed (km/h)
+
+0 100 200 300 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+> vehicle speed (km/h)
+
+0 100 200 300 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> acceleration (m/ s2)
+
+0 100 200 300 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+15 
+
+> yaw rate (rad/s)
+
+Figure 14: The braking process of the vehicle with our controller on a low-adhesion straight. 19 ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller 0 50 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FL wheel pressure (MPa)
+
+0 50 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FR wheel pressure (MPa)
+
+0 50 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RL wheel pressure (MPa)
+
+0 50 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RR wheel pressure (MPa)
+
+0 50 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+> FL wheel speed (km/h)
+
+0 50 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+> FR wheel speed (km/h)
+
+0 50 100 
+
+time step 
+
+10 
+
+20 
+
+30 
+
+40 
+
+> RL wheel speed (km/h)
+
+0 50 100 
+
+time step 
+
+10 
+
+20 
+
+30 
+
+40 
+
+> RR wheel speed (km/h)
+
+0 50 100 
+
+time step 
+
+10 
+
+20 
+
+30 
+
+40 
+
+> vehicle speed (km/h)
+
+0 50 100 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> acceleration (m/ s2)
+
+0 50 100 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+15 
+
+> yaw rate (rad/s)
+
+Figure 15: The braking process of the vehicle with our controller on a high-to-low straight. 0 50 100 150 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FL wheel pressure (MPa)
+
+0 50 100 150 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FR wheel pressure (MPa)
+
+0 50 100 150 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RL wheel pressure (MPa)
+
+0 50 100 150 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RR wheel pressure (MPa)
+
+0 50 100 150 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+> FL wheel speed (km/h)
+
+0 50 100 150 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+> FR wheel speed (km/h)
+
+0 50 100 150 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+> RL wheel speed (km/h)
+
+0 50 100 150 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+> RR wheel speed (km/h)
+
+0 50 100 150 
+
+time step 
+
+10 
+
+20 
+
+30 
+
+40 
+
+> vehicle speed (km/h)
+
+0 50 100 150 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> acceleration (m/ s2)
+
+0 50 100 150 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+15 
+
+> yaw rate (rad/s)
+
+Figure 16: The braking process of the vehicle with our controller on a low-to-high straight. 20 ReinVBC: A Model-based Reinforcement Learning Approach to Vehicle Braking Controller 0 50 100 150 200 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FL wheel pressure (MPa)
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FR wheel pressure (MPa)
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RL wheel pressure (MPa)
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RR wheel pressure (MPa)
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+> FL wheel speed (km/h)
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+> FR wheel speed (km/h)
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+> RL wheel speed (km/h)
+
+0 50 100 150 200 
+
+time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+> RR wheel speed (km/h)
+
+0 50 100 150 200 
+
+time step 
+
+20 
+
+40 
+
+60 
+
+> vehicle speed (km/h)
+
+0 50 100 150 200 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> acceleration (m/ s2)
+
+0 50 100 150 200 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+15 
+
+> yaw rate (rad/s)
+
+Figure 17: The braking process of the vehicle with our controller on a split-friction straight. 0 25 50 75 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FL wheel pressure (MPa)
+
+0 25 50 75 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> FR wheel pressure (MPa)
+
+0 25 50 75 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RL wheel pressure (MPa)
+
+0 25 50 75 100 
+
+time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> RR wheel pressure (MPa)
+
+0 25 50 75 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+> FL wheel speed (km/h)
+
+0 25 50 75 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+> FR wheel speed (km/h)
+
+0 25 50 75 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+> RL wheel speed (km/h)
+
+0 25 50 75 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+> RR wheel speed (km/h)
+
+0 25 50 75 100 
+
+time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+> vehicle speed (km/h)
+
+0 25 50 75 100 
+
+time step 
+
+15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> acceleration (m/ s2)
+
+0 25 50 75 100 
+
+time step 
+
+30 
+
+20 
+
+10 
+
+0
+
+10 
+
+> yaw rate (rad/s)
+
+Figure 18: The braking process of the vehicle with our controller on a split-friction curve. 21
