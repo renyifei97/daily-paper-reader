@@ -1,0 +1,953 @@
+Title: SAIL: Scene-aware Adaptive Iterative Learning for Long-Tail Trajectory Prediction in Autonomous Vehicles
+
+URL Source: https://arxiv.org/pdf/2604.04573v1
+
+Published Time: Tue, 07 Apr 2026 01:56:42 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# SAIL: Scene-aware Adaptive Iterative Learning for Long-Tail Trajectory Prediction in Autonomous Vehicles 
+
+## Bin Rao a, Haicheng Liao b, Chengyue Wang a, Keqiang Li c, Zhenning Li d,∗ and Hai Yang e
+
+> a
+
+State Key Laboratory of Internet of Things for Smart City and Department of Civil and Environmental Engineering, University of Macau, Macau SAR, China 
+
+> b
+
+State Key Laboratory of Internet of Things for Smart City and Department of Computer and Information Science, University of Macau, Macau SAR, China 
+
+> c
+
+Department of Automotive Engineering, Tsinghua University, Beijing, China 
+
+> d
+
+State Key Laboratory of Internet of Things for Smart City and Departments of Civil and Environmental Engineering and Computer and Information Science, University of Macau, Macau SAR, China 
+
+> e
+
+Department of Civil and Environmental Engineering, The Hong Kong University of Science and Technology, Hong Kong, China 
+
+A R T I C L E I N F O 
+
+Keywords :Long-tail trajectory prediction Attribute-guided learning Adaptive contrastive learning Dynamic clustering 
+
+A B S T R A C T 
+
+Autonomous vehicles (AVs) rely on accurate trajectory prediction for safe navigation in diverse traffic environments, yet existing models struggle with long-tail scenarios—rare but safety-critical events characterized by abrupt maneuvers, high collision risks, and complex interactions. These challenges stem from data imbalance, inadequate definitions of long-tail trajectories, and suboptimal learning strategies that prioritize common behaviors over infrequent ones. To address this, we propose SAIL, a novel framework that systematically tackles the long-tail problem by first defining and modeling trajectories across three key attribute dimensions: prediction error, collision risk, and state complexity. Our approach then synergizes an attribute-guided augmentation and feature extraction process with a highly adaptive contrastive learning strategy. This strategy employs a continuous cosine momentum schedule, similarity-weighted hard-negative mining, and a dynamic pseudo-labeling mechanism based on evolving feature clustering. Furthermore, it incorporates a focusing mechanism to intensify learning on hard-positive samples within each identified class. This comprehensive design enables SAIL to excel at identifying and forecasting diverse and challenging long-tail events. Extensive evaluations on the nuScenes and ETH/UCY datasets demonstrate SAIL’s superior performance, achieving up to 28.8% reduction in prediction error on the hardest 1% of long-tail samples compared to state-of-the-art baselines, while maintaining competitive accuracy across all scenarios. This framework advances reliable AV trajectory prediction in real-world, mixed-autonomy settings. 
+
+## 1. Introduction 
+
+The safe navigation of autonomous vehicles (AVs) in mixed-autonomy traffic environments hinges on accurately predicting the intentions and movements of dynamic traffic agents—vehicles, pedestrians, and cyclists [1, 2]. Recent advances in emerging deep learning technologies have driven a transition in autonomous driving (AD) research from traditional rule-based methods toward data-driven prediction models. Although these data-driven approaches have significantly improved prediction accuracy under common conditions, their performance suffers significant degradation in rare but safety-critical scenarios—a limitation rooted in the long-tail distribution of real-world trajectory data. In real-world traffic datasets, the majority of samples (the “head”) reflect common, predictable behaviors, such as smooth lane-following or gradual deceleration, which are straightforward for prediction models to learn. In contrast, a small fraction of data (the “tail”) represents complex, hazardous, and irregular situations involving abrupt lane changes, unpredictable pedestrian actions, or sudden obstacles, posing considerable challenges to existing models. These infrequent scenarios often involve high-risk interactions, posing significant safety threats. Current approaches, designed to minimize average-case errors, exhibit a natural bias towards common, simpler scenarios, often at the expense of marginalizing rarer and more complex cases. This misalignment originates from a core limitation: the scarcity of tail-class trajectories inherently restricts their influence during representation learning. 
+
+> ∗
+
+Corresponding author 
+
+zhenningli@um.edu.mo (Z. Li) 
+
+> ORCID
+
+(s): 
+
+Rao et al.: Preprint submitted to Elsevier Page 1 of 28  
+
+> arXiv:2604.04573v1 [cs.ET] 6 Apr 2026 Figure 1: Analyzing vehicle trajectories from the perspectives of Prediction Error, Risk (inverse time-to-collision, 1/TTC), and Vehicle State reveals their intrinsic long-tail nature. The top 5% of data in each distribution corresponds to distinct real-world scenarios, which are often critical to ensuring the safe operation of autonomous vehicles.
+
+Addressing this limitation requires a principled framework to define , identify , and adapt to long-tail scenarios in alignment with real-world safety needs. However, existing literature still lacks a clear and consistent definition of “long-tail trajectories”. Most studies tend to equate long-tail scenarios solely with data scarcity or prediction difficulty [3, 4], while neglecting other crucial domain-specific factors, such as collision risk severity, maneuver complexity, and the dynamics of agent interactions. As complex traffic systems illustrate, these concepts, although correlated, are not identical: a scenario may be statistically rare yet dynamically trivial to predict, or highly common yet extremely hazardous. Consequently, relying on a single perspective, such as statistical frequency alone or prediction loss alone, inevitably overlooks critical edge cases and hampers the proper prioritization of truly important long-tail scenarios. Second, the identification of tail samples tends to be highly model-dependent [5, 6], often relying on ad hoc prediction thresholds that vary across architectures. This approach overlooks the intrinsic characteristics of trajectories and compromises generalizability, as a scenario considered challenging by one model may be treated as trivial by another, thereby limiting robustness across diverse driving contexts. Furthermore, a critical limitation arises from the inability of learning strategies to effectively address the imbalance between common head samples and rare tail samples. Existing works [3, 7] to mitigate long-tail effects often employ conventional contrastive learning or augmentation strategies, which fail to adequately decouple the optimization objectives for head and tail classes, causing efforts to improve tail performance to degrade accuracy on common scenarios. Thus, there is a pressing need for learning frameworks capable of effectively modeling the diversity of tail-class scenarios while simultaneously maintaining robust performance across all trajectories, ultimately enhancing the safety and adaptability of autonomous driving systems. As a recognized challenge in this field, long-tail prediction remains insufficiently explored in our community. Therefore, we focus on the imbalance inherent in trajectory prediction for autonomous vehicles and conduct an extended investigation. We first establish a rigorous definition of “long-tail trajectories” through a large-scale analysis of real-world driving data. Our analysis shows that long-tail phenomena arise not only from conventional class imbalance but also from dynamic operational constraints, such as low time-to-collision, abrupt lane changes, contextual complexity induced by occluded agents, and multimodal interactions. This multifaceted nature calls for a shift from simplistic frequency-based definitions to a criteria-driven framework. As illustrated in Figure 1, instead of relying on heuristic metrics, we propose a strictly data-driven three-way taxonomy that comprehensively captures the full spectrum of long-tail scenarios across three complementary information spaces: (1) Prediction Error in the model space, which serves as a post hoc metric to capture contextual unpredictability and identify scenarios challenging for base predictive models; (2) Collision Risk in the relational space, which is quantified through TTC-based metrics to capture spatiotemporal conflicts among multiple agents and highlight hazardous situations; and (3) State Complexity in the kinematic space, which functions as a single-agent metric to capture maneuver nonlinearity and identify cases characterized by complex   
+
+> Rao et al.: Preprint submitted to Elsevier Page 2 of 28
+
+behaviors or partially observable environments. Together, this multidimensional and complementary formulation precisely isolates semantically rare and safety-critical events that may be overlooked by any single metric. Building on this multidimensional taxonomy, we introduce the Scene-aware Adaptive Iterative Learning framework, namely SAIL. SAIL is designed to reconcile strong performance in long-tail scenarios with robust overall accuracy. It begins with an attribute-guided data augmentation and feature extraction process that provides a rich and context-aware foundation for learning. The core of SAIL is a highly adaptive contrastive learning strategy that integrates unsupervised and supervised learning paradigms. Specifically, it employs a continuous cosine momentum schedule and similarity-weighted hard-negative mining to support robust initial representation learning. This process is followed by a dynamic pseudo-labeling mechanism based on evolving feature clustering, which provides high-quality supervision for a subsequent focused contrastive learning stage that strengthens learning on hard-positive samples. This comprehensive design ensures that SAIL is well equipped to address the diverse and challenging nature of long-tail trajectories. Overall, our contributions are threefold: 
+
+• We take a step to systematically establish a comprehensive, data-driven methodology for identifying long-tail trajectory distributions based on three complementary dimensions: prediction error, collision risk, and state complexity. By bridging abstract mathematical metrics with concrete physical driving semantics, this multi-criteria approach provides a more robust and generalizable foundation for identifying rare, difficult, and safety-critical scenarios in real-world datasets. 
+
+• We propose SAIL, a novel learning framework that introduces a highly adaptive, multi-stage contrastive learning strategy. This strategy synergizes attribute-guided learning with advanced techniques such as cosine momentum scheduling, weighted hard-negative mining, and a focusing mechanism for hard-positive samples, ensuring robust representation learning for imbalanced data. 
+
+• Extensive evaluations on the nuScenes and ETH/UCY datasets demonstrate that SAIL delivers state-of-the-art (SOTA) performance in long-tail trajectory prediction. Our framework significantly enhances accuracy in rare and safety-critical scenes while maintaining leading overall prediction performance, confirming its adaptability and reliability for practical autonomous driving systems. The structure of this paper is as follows: Section 2 reviews the relevant literature. Section 3 details our model. Section 4 presents its performance on various datasets. Finally, Section 5 concludes with a summary of the research. 
+
+## 2. Related Work 
+
+Trajectory Prediction in Autonomous Driving. Recent years have seen a rapid and transformative revolution in deep learning, with deep learning-based paradigms emerging as the primary solution to challenges in trajectory prediction tasks [1, 8, 9]. Early studies employed computationally efficient methods based on classical kinematic and statistical models [10, 11], but these approaches face challenges in accurately modeling complex interactions and environmental uncertainties. The advent of deep learning has transformed the trajectory prediction landscape significantly. Data-centric methods, exemplified by VectorNet [12], leverage rich contextual data to better capture spatial relationships. Architectures like Recurrent Neural Networks (RNNs) [13–15] further enabled effective mod-eling of temporal dependencies. Additionally, convolutional neural network-based approaches utilizing rasterized environmental maps [16, 17] and social tensor representations [18–20] have successfully advanced spatial relationship extraction. More recently, transformer-based models, including Trajectron++ [3], HPP [21], BAT [7], HLTP [22], DEMO [2], and MFTraj [23], have excelled in simultaneously modeling complex spatial-temporal dependencies, particularly effective in dense and highly interactive scenarios. Moreover, cutting-edge research has begun integrating large language models (LLMs) and generative world models to enhance prediction models’ comprehension, zero-shot reasoning capabilities, and physical dynamics simulation in complex traffic scenarios [24–27]. 
+
+Long-Tail Problem in Trajectory Prediction. A significant challenge in data-driven trajectory prediction is the long-tail distribution of driving behaviors [5]. To address this bottleneck, we summarize existing research and categorize current approaches into three distinct perspectives: (1) Prediction difficulty and representation learning .Works in this paradigm define tail scenarios through training dynamics or high prediction errors [28–30]. To mitigate overfitting on majority classes and extract robust representations for these “hard” minority samples, contrastive learning has emerged as a dominant technique [31, 32]. Both unsupervised [33] and supervised [34, 35] contrastive frameworks enhance feature separation; however, many studies fail to adequately decouple optimization objectives, inadvertently    
+
+> Rao et al.: Preprint submitted to Elsevier Page 3 of 28 Figure 2: The overall architecture of our proposed SAIL framework. The framework takes historical trajectories and HD map data as input and processes them through a multi-stage pipeline, including the Scene Representation Learning module and the Attribute-aware Trajectory Generator, to output multiple future trajectories. Panels (b), (c), and (d) provide detailed views of our key components: the Multi-dimensional Long-Tail Attributes definition, the Attribute Disentanglement and Prediction module, and the Attribute-aware Trajectory Generator, respectively.
+
+reducing accuracy on common patterns while improving tail performance. (2) Kinematic feature distribution frequency .This perspective focuses on the statistical imbalance in the data count of underlying vehicle kinematics. Datasets are predominantly populated with common "head" maneuvers, such as stable lane-keeping, while rare "tail" events involving highly non-linear dynamics, such as abrupt lane changes, hard braking, or extreme yaw rates, remain exceedingly sparse [36, 37]. Beyond traditional data resampling [38] or loss re-weighting [39], recent research has employed generative active learning via controllable diffusion models [40] and LLM-driven frameworks like AGENTS-LLM [41] and Trajectory-LLM [42] to synthesize realistic, challenging traffic scenarios, thereby augmenting the training distribution to mitigate data scarcity. (3) Safety aspect and uncertainty . This dimension targets worst-case scenarios, high-risk multi-agent interactions, and extreme corner cases regardless of their statistical occurrence [4, 43]. For instance, ensemble networks are frequently utilized to estimate predictive uncertainty from insufficient data to facilitate worst-case planning [5]. To better understand these complex edge cases, recent works have tokenized driving scenes to address long-tail events [44] and integrated Large Foundation Models with world models to perform common-sense reasoning for safety-critical corner cases [25, 45]. Despite the individual merits of these three perspectives, existing methods primarily treat them in isolation, resulting in a fragmented understanding of the long-tail distribution. Such single-dimensional criteria fail to capture the full spectrum of edge cases, as they cannot account for complex scenarios where prediction difficulty, spatial-temporal risk, and kinematic rarity intersect unexpectedly. To bridge this gap, our work distinguishes itself by unifying all three dimensions into a comprehensive, multi-criteria taxonomy. Furthermore, to address the representation entanglement seen in prior works, we propose a highly adaptive, dual-layer contrastive framework designed to decouple and prioritize underrepresented trajectory patterns across these complementary dimensions, improving safety-critical prediction accuracy without sacrificing overall performance.   
+
+> Rao et al.: Preprint submitted to Elsevier Page 4 of 28
+
+Table 1 
+
+Summary of main notations used throughout this paper. 
+
+Symbol Description Symbol Description 
+
+𝐴 Total number of agents 𝑎 Index of the target agent 
+
+𝑡 𝑜 Observation horizon 𝑡 𝑝 Prediction horizon 
+
+𝐻 𝑎 = { 𝑠 𝑡 𝑎 } Full observed historical state sequence 𝑠 𝑡 𝑎 Kinematic state of agent 𝑎 at time 𝑡 𝑀 = { 𝑚 𝑛 } Set of map vectors 𝑁 𝑚 Number of map elements 
+
+𝑇 = { 𝑐 𝑡 ∣ 𝑡 ∈ ( 𝑡 𝑜 , 𝑡 𝑜 + 𝑡 𝑝 ]} Ground-truth future trajectory 𝑐 𝑡 = ( 𝑥 𝑡 , 𝑦 𝑡 ) Ground-truth coordinate at time 𝑡̂ 𝑇 = { ̂𝑇 (𝑘 )}𝐾 𝑘 =1 Set of predicted future trajectories 𝐾 Number of predicted modes 
+
+𝑦 𝑒 Prediction Error attribute 𝑦 𝑟 Collision Risk attribute 
+
+𝑦 𝑠 State Complexity attribute ̂ 𝑐 (𝑘 ) 
+
+> 𝑡 𝑝
+
+Final predicted position of mode 𝑘 𝑐 𝑗 (𝑡 ), 𝑣 𝑗 (𝑡 ) Position and velocity of agent 𝑗 𝑐 target (𝑡 ), 𝑣 target (𝑡 ) Position and velocity of the target agent 
+
+𝑗 (𝑡 ) Jerk at time 𝑡̇ 𝜓 (𝑡 ) Yaw rate at time 𝑡 𝛼, 𝛽 Weights in the state complexity metric 
+
+𝑆 Augmentation strategy vector 𝜙 aug Dynamic strategy generator 
+
+𝑇 𝑜 = { 𝑐 1, … , 𝑐 𝑡 𝑜 } Observed trajectory coordinates for augmentation 𝑇 ′ 
+
+> 𝑜
+
+Augmented trajectory sequence 
+
+𝜖 𝑟𝑑𝑝 RDP simplification threshold Δ = ( 𝛿 𝑥 , 𝛿 𝑦 ) Spatial shift vector 
+
+𝜖 𝑠ℎ𝑖𝑓 𝑡 Shift magnitude 𝜖 max Maximum allowed shift magnitude 
+
+𝑏 𝑖 Binary mask variable 𝜌 Retention probability in Mask augmentation 
+
+𝛾 Subset ratio in Subset augmentation 
+
+𝐹 𝑎 = { 𝐹 target , 𝐹 neighbors } Agent features 𝐹 𝑚 Map feature representation 
+
+𝐴 𝑀 Adjacency matrix of the map graph 𝐻 mode ∈ ℝ𝐾 ×𝐷 Modal queries 
+
+𝐹 𝑝 Positional encoding 𝐹 context ∈ ℝ𝐾 ×𝐷 Multimodal context feature 
+
+𝐹 scene ∈ ℝ𝐷 Aggregated scene-level feature 𝐹 𝑒 , 𝐹 𝑟 , 𝐹 𝑠 Disentangled attribute features ̂𝑦 𝑒 ,̂𝑦 𝑟 ,̂𝑦 𝑠 Predicted attribute values 𝜙 MHA Multi-head attention module 
+
+𝜙 MLP 𝑒 , 𝜙 MLP 𝑟 , 𝜙 MLP 𝑠 Attribute prediction heads 
+
+𝑚 𝑏 , 𝑚 𝑓 Initial and final momentum coefficients 𝐸 max Total training epochs 
+
+𝜃 𝑞 , 𝜃 𝑘 Parameters of query and momentum encoders 𝑄 Negative sample queue in AMCL 
+
+𝑁 𝑛𝑒𝑔 Number of selected hard negatives 𝑠 +, 𝑠 − 
+
+> 𝑖
+
+Positive and hard-negative similarities 
+
+𝑤 𝑖 Weight of the 𝑖 -th hard negative 𝜏 𝑎 , 𝜏 𝑤 Temperature parameters in AMCL 
+
+𝐿 𝑎𝑚𝑐𝑙 AMCL loss 
+
+ = { 𝑓 𝑖 }𝑁 𝑖 =1 Feature memory bank 𝐶 Number of clusters in EFC 
+
+𝜇 𝑗 Cluster centroid 𝑃 𝐿 (𝑒 ) 
+
+> 𝑖
+
+Pseudo-label of feature 𝑓 𝑖 at epoch 𝑒 
+
+𝑖 Positive set sharing the same pseudo-label 𝑖 Negative set from other pseudo-label classes 
+
+𝑤 𝑟 Class-aware weight in FDCL 𝑤 𝑓 Focusing weight in FDCL 
+
+𝑤 𝑓 𝑑𝑐𝑙 Final positive-pair weight in FDCL 𝜂 Focusing hyperparameter in FDCL 
+
+𝜏 𝑓 Temperature parameter in FDCL 𝐿 𝑓 𝑑𝑐𝑙 FDCL loss 
+
+𝑔 Attribute gating weights 𝑔 𝑒 , 𝑔 𝑟 , 𝑔 𝑠 Gates for three attribute features 
+
+𝐹 gated Gated attribute-aware feature 𝐹 fused Final fused feature 
+
+ℎ𝑡 Hidden state of the GRU decoder ℎ0 Initial decoder hidden state 
+
+𝑧 𝑡 Learnable decoder query at time step 𝑡 𝑐 𝑘 𝑡 , 𝑠 𝑘 𝑡 , 𝜋 𝑘 Predicted coordinate, scale, and mode probability 
+
+𝐿 𝑡𝑎𝑠𝑘 Main trajectory prediction loss 𝐿 𝑡𝑎𝑟𝑔𝑒𝑡 , 𝐿 𝑟𝑒𝑔 , 𝐿 𝑐𝑙𝑠 Task-loss components 
+
+𝐿 𝑎𝑡𝑡𝑟 Auxiliary attribute supervision loss 𝜆 1, 𝜆 2, 𝜆 3 Loss weights 
+
+𝐿 Overall training objective 
+
+## 3. Methodology 
+
+3.1. Problem Formulation 
+
+We define the task of trajectory prediction as a sequence-to-sequence problem. For clarity, the main notations used throughout this paper are summarized in Table 1. Consider a traffic scene with 𝐴 total agents (vehicles and pedestrians). For any target agent 𝑎 ∈ {1 , ..., 𝐴 }, its observed historical state over a past time horizon 𝑡 𝑜 is denoted by 𝐻 𝑎 = { 𝑠 𝑡 𝑎 ∣ 𝑡 ∈ [0 , 𝑡 𝑜 ]} , where each state 𝑠 𝑡 𝑎 encapsulates kinematic information such as the agent’s position, velocity, and heading. The static environment, including road lanes and crosswalks, is represented as a set of map vectors 𝑀 = { 𝑚 𝑛 ∣ 𝑛 = 1 , ..., 𝑁 𝑚 }, where 𝑁 𝑚 is the total number of map elements. The objective is to predict the target agent’s future trajectory over a future prediction horizon 𝑡 𝑝 . This ground-truth path is a sequence of future positions: 𝑇 = { 𝑐 𝑡 ∣ 𝑡 ∈ ( 𝑡 𝑜 , 𝑡 𝑜 + 𝑡 𝑝 ]} , where 𝑐 𝑡 = ( 𝑥 𝑡 , 𝑦 𝑡 ) represents the target agent’s spatial coordinates at a future time 𝑡 . Therefore, the core task is to learn a predictive model that maps the observed history 𝐻 𝑎 and the map context 
+
+𝑀 to a set of 𝐾 potential future trajectories ̂ 𝑇 = { ̂ 𝑇 (1) , … ,̂ 𝑇 (𝐾 )}, where each ̂ 𝑇 (𝑘 ) = { ̂𝑐 (𝑘 )
+
+𝑡 ∣ 𝑡 ∈ ( 𝑡 𝑜 , 𝑡 𝑜 + 𝑡 𝑝 ]} , so that the most likely predicted mode closely approximates the ground-truth 𝑇 .
+
+Rao et al.: Preprint submitted to Elsevier Page 5 of 28 3.2. Overall Framework 
+
+The overall framework of SAIL, illustrated in Figure 2, systematically addresses long-tail trajectory prediction through a multi-stage pipeline. The process initiates by extracting long-tail attributes from three dimensions. Guided by these attributes, our Attribute-Guided Trajectory Augmentation (AGTA) module employs an augmentation strategy generator to create targeted policies, producing a diverse set of augmented trajectory data. Both original and augmented trajectories are then processed via Scene Representation Learning and Attribute Disentanglement, yielding rich, attribute-aware feature representations. These features first enter the Adaptive Momentum Contrastive Learning (AMCL) module for robust unsupervised representation learning. Subsequently, our Evolving Feature Clustering (EFC) strategy generates dynamic pseudo-labels from these features, which in turn provide supervision for the Focused Decoupled Contrastive Learning (FDCL) module to further refine the feature space. Finally, the resulting discriminative features are passed to an Attribute-aware Trajectory Generator to predict a set of diverse future trajectories. 
+
+3.3. Multi-dimensional Long-Tail Attributes 
+
+Existing research often characterizes long-tail trajectories from a singular perspective, such as prediction difficulty, leading to a one-dimensional and incomplete understanding of the problem. To address this limitation, we propose a Multi-dimensional Attribute Framework that provides a comprehensive and fine-grained representation of long-tail scenarios. We identify three distinct yet complementary attributes: Prediction Error, Collision Risk, and State Complexity. These three dimensions systematically cover complementary information spaces. Specifically, Prediction Error serves as a post-hoc, model-level metric that captures the contextual unpredictability of a scenario. In parallel, Collision Risk and State Complexity serve as objective, model-agnostic physical metrics derived directly from ground-truth kinematics. The former quantifies multi-agent spatial-temporal conflicts, while the latter measures the intrinsic non-linearity of single-agent maneuvers. By integrating these model-dependent and physical perspectives, we provide a comprehensive and unbiased formulation of the long-tail distribution. 
+
+Prediction Error ( 𝑦 𝑒 ). This attribute quantifies the intrinsic predictability of a trajectory, identifying samples that deviate from common motion patterns. We define it as the Final Displacement Error (FDE) between the ground-truth future trajectory 𝑇 and predictions ̂ 𝑇 from a pre-trained baseline model, for which we use the well-established Trajectron++ [3]. To ensure robustness, we select the minimum FDE over 𝐾 predicted modalities. 
+
+𝑦 𝑒 = min  
+
+> 𝑘 ∈1 ,…,𝐾
+
+‖̂𝑐 (𝑘 ) 
+
+> 𝑡 𝑝
+
+− 𝑐 𝑡 𝑝 ‖2 (1) where ̂𝑐 (𝑘 ) 
+
+> 𝑡 𝑝
+
+and 𝑐 𝑡 𝑝 are the final position of ground-truth and the 𝑘 -th predicted trajectory, ‖ ⋅ ‖2 denotes the 𝐿 2 norm. 
+
+Collision Risk ( 𝑦 𝑟 ). The distribution of risk in autonomous driving scenarios is inherently long-tailed, forming a "risk pyramid." The wide base of this pyramid consists of frequent, low-risk scenarios, while the narrow apex is composed of rare, high-risk, safety-critical events such as near-collisions. These high-risk, low-frequency events are a critical component of the long-tail problem, as they represent the most challenging and consequential situations for an autonomous system. We use the Inverse Time-to-Collision (InvTTC) to quantify this risk dimension, which is the reciprocal of the time remaining before two agents collide assuming they maintain their current velocities. The risk is defined as the maximum InvTTC observed between the target agent and any other agent 𝑗 over the entire trajectory. 
+
+𝑦 𝑟 = max 
+
+> 𝑡,𝑗
+
+( [−( 𝑐 𝑗 (𝑡 ) − 𝑐 target (𝑡 )) ⋅ (𝑣 𝑗 (𝑡 ) − 𝑣 target (𝑡 ))] +
+
+‖𝑐 𝑗 (𝑡 ) − 𝑐 target (𝑡 )‖22
+
+)
+
+(2) where [𝑥 ]+ = max(0 , 𝑥 ), 𝑐 (𝑡 ) and 𝑣 (𝑡 ) are the time-dependent position and velocity vectors, respectively. A high 𝑦 𝑟 value thus signifies a significant and immediate collision risk, identifying a key sample from the tail of the risk distribution. 
+
+State Complexity ( 𝑦 𝑠 ). This attribute captures the kinematic complexity and non-linearity of an agent’s motion. We formulate it as a weighted combination of the maximum jerk (rate of change of acceleration, 𝑗 ) and the maximum yaw rate ( ̇𝜓 ), which together describe both translational and rotational irregularities. 
+
+𝑦 𝑠 = 𝛼 ⋅ max  
+
+> 𝑡
+
+|𝑗 (𝑡 )|2 + 𝛽 ⋅ max  
+
+> 𝑡
+
+|̇𝜓 (𝑡 )| (3) where 𝑗 (𝑡 ) = 𝑑𝑎 (𝑡 ) 
+
+> 𝑑𝑡
+
+and ̇ 𝜓 (𝑡 ), weighted by 𝛼 and 𝛽 respectively, are computed over the entire trajectory. This metric effectively identifies erratic or highly dynamic maneuvers characteristic of long-tail scenarios.   
+
+> Rao et al.: Preprint submitted to Elsevier Page 6 of 28
+
+3.4. Attribute-Guided Trajectory Augmentation 
+
+Data augmentation is a cornerstone for improving model generalization, especially for imbalanced long-tail distributions. However, conventional augmentation methods apply transformations uniformly and stochastically, a strategy that is suboptimal for the structured nature of trajectory data. Such attribute-agnostic approaches risk applying irrelevant or even detrimental augmentations, for instance, over-simplifying an already simple trajectory or applying minor shifts to a scenario where collision risk is the dominant challenge. To address this challenge, we introduce a novel Attribute-Guided Augmentation module. Instead of random selection, our approach learns to generate a tailored augmentation strategy for each trajectory based on its attribute vector (𝑦 𝑒 , 𝑦 𝑟 , 𝑦 𝑠 ). This ensures that the augmentation is not only relevant but also maximally informative for improving the model’s robustness against specific long-tail challenges. Our framework consists of two core components: a learnable Dynamic Strategy Generator and a set of Attribute-Specific Augmentation Functions. 
+
+3.4.1. Dynamic Strategy Generator 
+
+We propose a Dynamic Strategy Generator designed to learn a sophisticated mapping from the problem space, defined by trajectory attributes, to the solution space of data augmentation strategies. Rather than relying on handcrafted rules, this module automatically discovers the most effective augmentation method by analyzing the specific long-tail characteristics of a given trajectory. The underlying principle is that different types of long-tail scenarios necessitate different forms of data augmentation to be maximally effective. For instance, scenarios with high State Complexity may benefit most from the Simplify strategy to isolate the core motion pattern, whereas high Collision Risk scenarios are better addressed by the Shift strategy to create challenging, safety-critical variants. This generator is implemented as a lightweight Multi-Layer Perceptron ( 𝜙 𝑎𝑢𝑔 ) that takes the 3-dimensional attribute vector as input. It outputs a policy vector containing the selection probabilities and intensity parameters for the augmentation functions. 
+
+𝑆 = 𝜙 𝑎𝑢𝑔 (𝑦 𝑒 , 𝑦 𝑟 , 𝑦 𝑠 ) (4) where 𝑆 contains the probability scores for applying Simplify, Shift, Mask, and Subset, respectively, and the normalized intensity parameters. For each sample, we select the single augmentation corresponding to the highest probability. This attribute-guided selection ensures a stable and targeted transformation. 
+
+3.4.2. Augmentation Functions 
+
+We design four augmentation functions to generate diverse yet semantically meaningful trajectory views under attribute-guided control. These augmented trajectories serve as additional contrastive views for representation learning, while the main forecasting backbone continues to operate on the original trajectory stream. Each function perturbs a different aspect of motion patterns, and the probability of applying each augmentation is dynamically determined by the strategy generator. Let the input sequence be the observed historical trajectory 𝑇 𝑜 = { 𝑐 1, 𝑐 2, … , 𝑐 𝑡 𝑜 }, where 𝑡 𝑜 is the observation length. 
+
+(a) Simplify. Long-tail trajectories, such as sharp turns or evasive maneuvers, are often defined by a few critical shape-defining points rather than a dense sequence. To help the model focus on these essential geometric features, we employ the Ramer-Douglas-Peucker (RDP) algorithm. The primary goal of this algorithm is to simplify the trajectory by filtering out minor positional jitters while preserving significant inflection points. This targeted simplification distills the core motion pattern of a rare maneuver, ensuring the model focuses on the key geometric characteristics rather than being distracted by trivial fluctuations. The algorithm produces a simplified trajectory 𝑇 ′ 
+
+> 𝑜
+
+:
+
+𝑇 ′ 
+
+> 𝑜
+
+= { 𝑐 1, … , 𝑐 𝑘 , … , 𝑐 𝑡 𝑜 } s.t. dist (𝑐 𝑖 , line (𝑐 𝑠 , 𝑐 𝑒 )) ≤ 𝜖 𝑟𝑑𝑝 (5) where 𝑐 𝑠 and 𝑐 𝑒 are the start and end points of the current line segment being considered, and 𝑐 𝑖 represents any intermediate point between them. The point 𝑐 𝑘 is retained if its distance to the segment (𝑐 𝑠 , 𝑐 𝑒 ) exceeds 𝜖 𝑟𝑑𝑝 , and the algorithm is recursively applied. 
+
+(b) Shift. The scarcity of long-tail data means that a specific rare event may appear only once in the training set. To mitigate overfitting to this single instance and increase the diversity of rare samples, we apply a spatial shift. This method adds a uniform random displacement to the entire trajectory, creating synthetic yet plausible variations of the same rare maneuver. This approach teaches the model to recognize the intrinsic pattern of the maneuver, decoupling it from its absolute spatial coordinates and enhancing its ability to generalize to similar unseen long-tail scenarios. 
+
+𝑇 ′ 
+
+> 𝑜
+
+= { 𝑐 1 + Δ , 𝑐 2 + Δ , … , 𝑐 𝑡 𝑜 + Δ} (6)    
+
+> Rao et al.: Preprint submitted to Elsevier Page 7 of 28 Figure 3: Visualization of our Attribute-Guided Trajectory Augmentation strategies. Based on the identified long-tail attributes of a trajectory, AGTA applies a combination of targeted augmentations (Simplify, Shift, Mask, Subset) to create a diverse set of challenging positive samples for the subsequent contrastive learning stage.
+
+where Δ = ( 𝛿 𝑥 , 𝛿 𝑦 ) is a displacement vector, and 𝛿 𝑥 , 𝛿 𝑦 ∼  (− 𝜖 𝑠ℎ𝑖𝑓 𝑡 , 𝜖 𝑠ℎ𝑖𝑓 𝑡 ). Here, 𝜖 𝑠ℎ𝑖𝑓 𝑡 represents the dynamic shift magnitude provided by our strategy generator, which is strictly bounded by a predefined maximum threshold 𝜖 max (i.e., 
+
+𝜖 𝑠ℎ𝑖𝑓 𝑡 ≤ 𝜖 max ) to ensure the physical validity of the trajectory. 
+
+(c) Mask. Long-tail scenarios are often complex and may involve occlusions or sensor failures, resulting in incomplete observations. To ensure our model is robust in these high-stakes situations, we implement a masking augmentation. By randomly dropping points from the trajectory, we simulate partial data loss. This forces the model to infer the underlying intent of a rare maneuver even with imperfect information. 
+
+𝑇 ′ 
+
+> 𝑜
+
+=
+
+{
+
+𝑐 𝑖 , if 𝑏 𝑖 = 1 0, if 𝑏 𝑖 = 0 (7) where the binary mask 𝑏 𝑖 follows a Bernoulli distribution (𝜌 ), with 𝜌 representing the probability of retaining each point in the observed agent trajectory sequence. 
+
+(d) Subset. A rare event might unfold rapidly, or an agent might only enter the field of view midway through a critical maneuver. To train our model to recognize these developing long-tail events from limited temporal evidence, we employ subset selection. This method extracts a continuous sub-sequence from the trajectory, simulating scenarios of partial temporal observation. It enhances the model’s ability to identify the onset of a rare behavior from short temporal cues, enabling earlier and more reliable predictions in dynamic, safety-critical situations. 
+
+𝑇 ′ 
+
+> 𝑜
+
+= { 𝑐 𝑖 , … , 𝑐 𝑖 +𝛾 ∗𝑛 } (8) where 𝛾 is the subset ratio, representing the proportion of the trajectory retained in the subset. 
+
+3.5. Scene Representation Learning 
+
+3.5.1. Context Encoding and Interaction 
+
+The Motion and Context Encoder transforms raw observations into high-dimensional feature vectors. We employ a shared hierarchical architecture: historical agent states 𝐻 𝑎 are processed through an embedding layer, a Transformer encoder for temporal dependencies, and a GRU to produce agent features 𝐹 𝑎 = { 𝐹 target , 𝐹 neighbors }. Simultaneously, the map vectors 𝑀 and their adjacency matrix 𝐴 𝑀 are processed using a Graph Attention Network (GAT) to model the road topology, generating map features 𝐹 𝑚 .To capture the inherent ambiguity of future scenarios, we introduce a Scene Interactor equipped with a latent variable mechanism to generate 𝐾 distinct interaction hypotheses. The target agent’s feature 𝐹 target is refined and projected to produce 𝐾 distinct modal queries 𝐻 mode ∈ ℝ𝐾 ×𝐷 . These queries then selectively integrate information from the global environment through Multi-Head Attention ( 𝜙 MHA ), augmented with positional encoding 𝐹 𝑝 :
+
+𝐹 context = 𝜙 MHA 
+
+(𝐻 mode , [𝐹 𝑎 , 𝐹 𝑚 ] + 𝐹 𝑝 , [𝐹 𝑎 , 𝐹 𝑚 ] + 𝐹 𝑝 
+
+) (9)   
+
+> Rao et al.: Preprint submitted to Elsevier Page 8 of 28
+
+This interaction process generates a rich, multimodal context feature set 𝐹 context ∈ ℝ𝐾 ×𝐷 for the target agent, representing 𝐾 plausible interactive intents ready for subsequent decoding. 
+
+3.5.2. Attribute Disentanglement and Prediction 
+
+We first aggregate the multimodal context features 𝐹 context into a unified scene-level representation 𝐹 scene ∈ ℝ𝐷 
+
+using average pooling over the 𝐾 modes. This 𝐹 scene serves as the foundation for subsequent attribute disentanglement. Inspired by advances in disentangled representation learning, our Attribute Feature Extractor separates the features associated with each long-tail attribute, moving beyond a simple, holistic scene understanding to a fine-grained, attribute-aware interpretation. The extractor employs three independent self-attention mechanisms, each focusing on a specific attribute: Prediction Error, Collision Risk, and State Complexity. This enables each attention head to selectively emphasize the dimensions of 𝐹 scene that are most relevant to its assigned attribute: 
+
+𝐹 𝑒 = 𝜙 MHA 𝑒 (𝐹 scene ), 𝐹 𝑟 = 𝜙 MHA 𝑟 (𝐹 scene ), 𝐹 𝑠 = 𝜙 MHA 𝑠 (𝐹 scene ) (10) To explicitly define the semantic meaning of these latent spaces, each feature is passed through a dedicated lightweight MLP head to predict its corresponding ground-truth attribute value (̂𝑦 𝑒 ,̂𝑦 𝑟 ,̂𝑦 𝑠 ):̂𝑦 𝑒 = 𝜙 MLP 𝑒 (𝐹 𝑒 ),̂ 𝑦 𝑟 = 𝜙 MLP 𝑟 (𝐹 𝑟 ),̂ 𝑦 𝑠 = 𝜙 MLP 𝑠 (𝐹 𝑠 ) (11) These predictions are dynamically optimized via an auxiliary loss ( 𝐿 𝑎𝑡𝑡𝑟 ) during training. This explicit supervision provides attribute-level guidance for each latent sub-space to align with its corresponding physical or model-level target. Such a structural constraint encourages the model to learn more disentangled and semantically meaningful representations, mitigating the feature entanglement commonly observed in unconstrained self-attention mechanisms. As a result, 𝐹 𝑒 , 𝐹 𝑟 , and 𝐹 𝑠 are encouraged to encode different, yet not strictly independent, contextual information related to prediction difficulty, collision risk, and state complexity, respectively. 
+
+3.6. Adaptive Contrastive Representation Learning 
+
+In long-tail trajectory prediction, standard contrastive learning frameworks like MoCo [33] face limitations. Their static momentum updates and reliance on random negative sampling can lead to suboptimal performance on rare patterns, as the learning signal is often dominated by easy negatives from the head of the distribution. To overcome these limitations, we propose Adaptive Momentum Contrastive Learning (AMCL). Our approach enhances representation learning through a continuous cosine momentum schedule for smoother training dynamics and a novel Similarity-Weighted Hard-Negative Mining strategy to intelligently focus on the most challenging samples. The operational details are outlined in Algorithm 1. We replace fixed momentum schedules with a continuous cosine update mechanism. This allows the momentum coefficient 𝑚 to evolve smoothly throughout training, balancing feature plasticity and stability more effectively than a static approach. The momentum 𝑚 at training epoch 𝑒 is defined as: 
+
+𝑚 (𝑒 ) = 𝑚 𝑓 − ( 𝑚 𝑓 − 𝑚 𝑏 )
+
+( 1 + cos( 𝜋𝑒 ∕𝐸 max )2
+
+)
+
+(12) where 𝑚 𝑏 and 𝑚 𝑓 are the initial and final momentum values, and 𝐸 max is the total training duration. This ensures a gradual and stable transition of the momentum encoder’s parameters 𝜃 𝑘 :
+
+𝜃 𝑘 ← 𝜃 𝑘 − (1 − 𝑚 (𝑒 )) ⋅ (𝜃 𝑘 − 𝜃 𝑞 ) (13) To refine the hard-negative mining process, we introduce a more nuanced mechanism. Recognizing that some hard negatives are more confusable than others, our approach assigns higher penalties to negatives that are more similar to the query, rather than treating them with equal importance. After identifying the top-𝑁 𝑛𝑒𝑔 hard negatives {𝑘 −1 , … , 𝑘 − 
+
+> 𝑁 𝑛𝑒𝑔
+
+}
+
+and their similarities {𝑠 −1 , … , 𝑠 − 
+
+> 𝑁 𝑛𝑒𝑔
+
+} to the query 𝑞 , we compute a weight 𝑤 𝑖 for each negative using a softmax function: 
+
+𝑤 𝑖 = exp( 𝑠 − 
+
+> 𝑖
+
+∕𝜏 𝑤 )
+
+∑𝑁 𝑛𝑒𝑔  
+
+> 𝑗 =1
+
+exp( 𝑠 − 
+
+> 𝑗
+
+∕𝜏 𝑤 )
+
+(14)   
+
+> Rao et al.: Preprint submitted to Elsevier Page 9 of 28
+
+where 𝜏 𝑤 is a temperature hyperparameter controlling the weight distribution. These weights are then incorporated into our final contrastive loss, which focuses the learning signal on the most challenging distinctions: 
+
+𝐿 𝑎𝑚𝑐𝑙 = − log exp( 𝑠 +∕𝜏 𝑎 )exp( 𝑠 +∕𝜏 𝑎 ) + ∑𝐾 𝑖 =1 𝑤 𝑖 ⋅ exp( 𝑠 − 
+
+> 𝑖
+
+∕𝜏 𝑎 ) (15) where 𝑠 + is the similarity of the positive pair and 𝜏 𝑎 is the standard temperature parameter. This design forces the model to learn a more discriminative feature space for challenging long-tail patterns. 
+
+Algorithm 1: Adaptive Momentum Contrastive Learning (AMCL) 
+
+Input: Query encoder 𝜃 𝑞 , momentum encoder 𝜃 𝑘 , momentum params 𝑚 𝑏 , 𝑚 𝑓 , total duration 𝐸 max , num hard negatives 𝑁 𝑛𝑒𝑔 , temperatures 𝜏 𝑎 , 𝜏 𝑤 
+
+Output: AMCL loss 𝐿 𝑎𝑚𝑐𝑙  
+
+> 1
+
+Initialize negative sample queue 𝑄  
+
+> 2
+
+for 𝑒 ← 1 to 𝐸 max do  
+
+> 3
+
+Update momentum coefficient: 𝑚 ← 𝑚 𝑓 − ( 𝑚 𝑓 − 𝑚 𝑏 )
+
+( 1+cos( 𝜋𝑒 ∕𝐸 max )2
+
+) 
+
+> 4
+
+Sample original sequence 𝑥 𝑞 and positive 𝑥 𝑘 ← Augment (𝑥 𝑞 ) 
+
+> 5
+
+Encode query 𝑞 ← Encoder 𝜃 𝑞 (𝑥 𝑞 ) and positive 𝑘 + ← Encoder 𝜃 𝑘 (𝑥 𝑘 ) 
+
+> 6
+
+Update momentum encoder: 𝜃 𝑘 ← 𝑚 ⋅ 𝜃 𝑘 + (1 − 𝑚 ) ⋅ 𝜃 𝑞  
+
+> 7
+
+Compute positive similarity: 𝑠 + ← Similarity (𝑞, 𝑘 +) 
+
+> 8
+
+Select top-𝑁 𝑛𝑒𝑔 hard negatives {𝑘 − 
+
+> 𝑖
+
+}𝑁 𝑛𝑒𝑔  
+
+> 𝑖 =1
+
+and similarities {𝑠 − 
+
+> 𝑖
+
+}𝑁 𝑛𝑒𝑔  
+
+> 𝑖 =1
+
+from 𝑄  
+
+> 9
+
+Compute weights for hard negatives: 𝑤 𝑖 ← exp( 𝑠 −   
+
+> 𝑖 ∕𝜏 𝑤 )
+> ∑𝑁𝑛𝑒𝑔 𝑗 =1 exp( 𝑠 −
+> 𝑗 ∕𝜏 𝑤 )
+
+for 𝑖 = 1 ...𝑁 𝑛𝑒𝑔  
+
+> 10
+
+Compute weighted denominator: 𝐷 𝑛𝑒𝑔 ← ∑𝑁 𝑛𝑒𝑔  
+
+> 𝑖 =1
+
+𝑤 𝑖 ⋅ exp( 𝑠 − 
+
+> 𝑖
+
+∕𝜏 𝑎 ) 
+
+> 11
+
+Compute AMCL loss: 𝐿 𝑎𝑚𝑐𝑙 ← − log exp( 𝑠 +∕𝜏 𝑎 )exp( 𝑠 +∕𝜏 𝑎 )+ 𝐷 𝑛𝑒𝑔  
+
+> 12
+
+Optimize query encoder: Optimize 𝜃 𝑞 (𝐿 𝑎𝑚𝑐𝑙 ) and append 𝑘 + to 𝑄  
+
+> 13
+
+if |𝑄 | > 𝑄 max then  
+
+> 14
+
+Remove oldest sample: 𝑄 ← 𝑄 ⧵ 𝑞 oldest  
+
+> 15
+
+end  
+
+> 16
+
+end  
+
+> 17
+
+return 𝐿 𝑎𝑚𝑐𝑙 
+
+3.7. Progressive Pseudo-Label Supervision 
+
+To identify long-tail trajectory patterns within the feature space, many studies employ clustering to generate feature labels. However, these should be regarded as pseudo-labels, as their validity is not static. A critical oversight in many approaches is treating them as fixed ground truth throughout training. This approach fails to account for the non-stationary nature of the feature space, where representations for rare patterns evolve significantly and only become separable after extensive training. To address this, we propose the Evolving Feature Clustering (EFC) strategy, which synchronizes the pseudo-labels with the model’s evolving feature manifold. The EFC strategy operates by first accumulating the encoded feature representations into a comprehensive memory bank  = { 𝑓 𝑖 }𝑁 𝑖 =1 . Instead of a one-time clustering, EFC is periodically activated at predefined intervals. At each activation epoch 𝑒 , the K-means algorithm [46] is applied to the entire memory bank  to find 𝐶 new cluster centroids 
+
+(𝑒 ) = { 𝜇 𝑗 }𝐶 𝑗 =1 by minimizing the intra-cluster variance: 
+
+min 
+
+> (𝑒 )
+> 𝐶
+
+∑
+
+> 𝑗 =1
+
+∑
+
+> 𝑓 𝑖 ∈𝑗
+
+‖𝑓 𝑖 − 𝜇 𝑗 ‖2 (16) 
+
+Rao et al.: Preprint submitted to Elsevier Page 10 of 28 where 𝑗 denotes the 𝑗 -th cluster. Once the optimal centroids are found, each feature 𝑓 𝑖 in the memory bank is assigned a new pseudo-label 𝑃 𝐿 (𝑒 ) 
+
+> 𝑖
+
+based on its nearest centroid: 
+
+𝑃 𝐿 (𝑒 ) 
+
+> 𝑖
+
+= argmin 𝑗 ∈{1 ,...,𝐶 }‖𝑓 𝑖 − 𝜇 𝑗 ‖2 (17) These dynamically updated pseudo-labels 𝑃 𝐿 (𝑒 ) = {𝑃 𝐿 (𝑒 ) 
+
+> 𝑖
+
+}𝑁 𝑖 =1 are then used as the supervisory signal for subsequent Decoupled Contrastive Learning. To ensure the stability and quality of the generated pseudo-labels, the EFC process is introduced progressively. In particular, explicit clustering is bypassed during an initial warm-up phase. During this early training stage, feature representations are optimized by the unsupervised AMCL module. This approach allows the feature manifold to reach a preliminary level of discriminability before hard cluster assignments are enforced, mitigating the risk of generating fluctuating or noisy pseudo-labels from a premature feature space. By synchronizing the pseudo-labeling with the model’s learning state, EFC provides increasingly accurate supervision. 
+
+3.8. Focused Decoupled Contrastive Learning 
+
+With the dynamic pseudo-labels from our EFC strategy, we need a supervised contrastive loss that can handle the severe class imbalance inherent in long-tail data. While Decoupled Contrastive Learning [35] effectively addresses inter-class imbalance by re-weighting based on class size, it treats all intra-class positive pairs with equal importance. This can be suboptimal for long-tail classes, which often exhibit high intra-class variance. To address this, we propose Focused Decoupled Contrastive Learning (FDCL), an enhanced method that dynamically focuses on hard-positive samples. FDCL introduces a focusing weight 𝑤 𝑓 , inspired by Focal Loss, which modulates the attractive force between positive pairs based on their similarity. This is combined with Decoupled Contrastive Learning’s original class-aware weight 𝑤 𝑟 , which is defined as: 
+
+𝑤 𝑟 (𝑞 𝑡 ) = 
+
+{
+
+𝛼 (|𝑖 | + 1) , if 𝑞 𝑡 = 𝑞 +
+
+> 𝑖
+
+(1 − 𝛼 )( |𝑖 | + 1)∕ |𝑖 |, if 𝑞 𝑡 ∈ 𝑖 
+
+(18) where 𝑖 is the set of other positive features sharing the same pseudo-label as the query 𝑞 𝑖 , and 𝑞 + 
+
+> 𝑖
+
+is the differently augmented view of the query. We formulate the final combined weight 𝑤 𝑓 𝑑𝑐𝑙 for any target positive sample 𝑞 𝑡 as: 
+
+𝑤 𝑓 𝑑𝑐𝑙 (𝑞 𝑡 ) = 𝑤 𝑟 (𝑞 𝑡 ) ⋅ 𝑤 𝑓 (𝑞 𝑡 ) = 𝑤 𝑟 (𝑞 𝑡 ) ⋅ (1 − ⟨𝑞 𝑖 , 𝑞 𝑡 ⟩)𝜂 (19) where ⟨⋅, ⋅⟩ denotes cosine similarity, and 𝜂 is a focusing hyperparameter. By penalizing easy positives (high similarity) and amplifying hard positives (low similarity), the final FDCL loss is computed as: 
+
+𝐿 𝑓 𝑑𝑐𝑙 = −1 
+
+|𝑖 | + 1 
+
+∑ 
+
+> 𝑞 𝑡 ∈{ 𝑞 +
+> 𝑖 }∪ 𝑖
+
+log exp( 𝑤 𝑓 𝑑𝑐𝑙 (𝑞 𝑡 ) ⋅ ⟨𝑞 𝑖 , 𝑞 𝑡 ⟩∕𝜏 𝑓 )
+
+∑𝑞 𝑚 ∈{ 𝑞 𝑡 }∪ 𝑖 exp( ⟨𝑞 𝑖 , 𝑞 𝑚 ⟩∕𝜏 𝑓 ) (20) where 𝑖 is the set of negative samples from other pseudo-label classes, and 𝜏 𝑓 is the temperature hyperparameter. By mathematically encouraging the model to focus more on dissimilar positives, FDCL encourages the formation of more compact and well-separated clusters, which is particularly beneficial for the diverse and fragmented patterns found in tail-end classes. The detailed procedure is outlined in Algorithm 2. 
+
+3.9. Attribute-aware Trajectory Generator 
+
+The final stage of our framework is the Attribute-aware Trajectory Generator, which is responsible for synthesizing multiple plausible future paths based on the rich, fused representations from the upstream modules. This generator is explicitly designed to leverage the disentangled attribute features, enabling it to produce more informed and context-aware predictions, especially in complex long-tail scenarios. Central to this module is an attribute-gating mechanism that dynamically weights the influence of different long-tail attributes. First, a set of dynamic gating weights 𝑔 is generated from the unified scene representation 𝐹 scene :
+
+𝑔 = [ 𝑔 𝑒 , 𝑔 𝑟 , 𝑔 𝑠 ]⊤ = 𝜎 (𝜙 𝑔 (𝐹 scene )) (21) where 𝜙 𝑔 is an MLP and 𝜎 is the sigmoid function. These gates then modulate the contribution of each disentangled attribute feature ( 𝐹 𝑒 , 𝐹 𝑟 , 𝐹 𝑠 ) to form a weighted, attribute-aware feature 𝐹 gated :
+
+𝐹 gated = 𝑔 𝑒 ⋅ 𝐹 𝑒 + 𝑔 𝑟 ⋅ 𝐹 𝑟 + 𝑔 𝑠 ⋅ 𝐹 𝑠 (22)   
+
+> Rao et al.: Preprint submitted to Elsevier Page 11 of 28
+
+Algorithm 2: Focused Decoupled Contrastive Learning (FDCL) 
+
+Input: Query 𝑞 𝑖 , augmented positive 𝑞 + 
+
+> 𝑖
+
+, positive set 𝑖 , negative set 𝑖 , temperature 𝜏 𝑓 , parameters 𝛼, 𝜂 
+
+Output: FDCL Loss 𝐿 𝑓 𝑑𝑐𝑙  
+
+> 1
+
+Initialize batch loss: 𝐿 𝑓 𝑑𝑐𝑙 ← 0 
+
+> 2
+
+for each query feature 𝑞 𝑖 in batch do  
+
+> 3
+
+L2-Normalize all features: 𝑞 𝑖 , 𝑞 + 
+
+> 𝑖
+
+, 𝑖 , 𝑖  
+
+> 4
+
+Construct full positive set: 𝑖 ← {𝑞 + 
+
+> 𝑖
+
+} ∪ 𝑖  
+
+> 5
+
+Initialize sample loss: 𝐿 𝑖 ← 0 
+
+> 6
+
+for each positive feature 𝑞 𝑡 ∈ 𝑖 do  
+
+> 7
+
+Compute class-aware weight: 𝑤 𝑟 ← 𝛼 (|𝑖 | + 1) if 𝑞 𝑡 = 𝑞 + 
+
+> 𝑖
+
+else (1 − 𝛼 )( |𝑖 | + 1)∕ |𝑖 | 
+
+> 8
+
+Compute final focusing weight: 𝑤 𝑓 𝑑𝑐𝑙 ← 𝑤 𝑟 ⋅ (1 − ⟨𝑞 𝑖 , 𝑞 𝑡 ⟩)𝜂  
+
+> 9
+
+Compute weighted numerator: 𝑁 𝑖,𝑡 ← exp( 𝑤 𝑓 𝑑𝑐𝑙 ⋅ ⟨𝑞 𝑖 , 𝑞 𝑡 ⟩∕𝜏 𝑓 ) 
+
+> 10
+
+Compute decoupled denominator: 𝐷 𝑖,𝑡 ← ∑𝑞 𝑚 ∈{ 𝑞 𝑡 }∪ 𝑖 exp( ⟨𝑞 𝑖 , 𝑞 𝑚 ⟩∕𝜏 𝑓 ) 
+
+> 11
+
+Update sample loss: 𝐿 𝑖 ← 𝐿 𝑖 − log( 𝑁 𝑖,𝑡 ∕𝐷 𝑖,𝑡 ) 
+
+> 12
+
+end  
+
+> 13
+
+Accumulate batch loss: 𝐿 𝑓 𝑑𝑐𝑙 ← 𝐿 𝑓 𝑑𝑐𝑙 + 𝐿 𝑖  
+
+> |𝑖 |+1
+> 14
+
+end  
+
+> 15
+
+return 𝐿 𝑓 𝑑𝑐𝑙 
+
+Subsequently, this attribute-aware feature 𝐹 gated is fused with the multimodal context features 𝐹 context produced by the Scene Interactor via element-wise addition, yielding the enhanced representation 𝐹 fused :
+
+𝐹 fused = 𝐹 context + 𝐹 gated (23) The generator then processes this final fused representation 𝐹 fused to produce the trajectories. A GRU acts as the decoder, taking 𝐹 fused as its initial hidden state ℎ0 and sequentially generating the parameters for the future trajectory distribution at each time step 𝑡 ∈ ( 𝑡 𝑜 , 𝑡 𝑜 + 𝑡 𝑝 ]:
+
+ℎ𝑡 = 𝜙 GRU (ℎ𝑡 −1 , 𝑧 𝑡 ) (24) where 𝑧 𝑡 is a learnable input query for each time step. The output of the GRU at each step is then passed to a MLP layer 
+
+𝜙 MLP to predict the parameters of a Laplace Mixture Density Network (MDN). For each of the 𝐾 modes, the network outputs the spatial coordinate estimate 𝑐 𝑘 𝑡 , scale parameter 𝑠 𝑘 𝑡 , and the probability 𝜋 𝑘 for the trajectory mode: 
+
+(𝑐 𝑘 𝑡 , 𝑠 𝑘 𝑡 ), 𝜋 𝑘 = 𝜙 MLP (ℎ𝑡 , ℎ 0) (25) 
+
+3.10. Loss Function 
+
+The training of our model is guided by a comprehensive, multi-component objective function designed to address prediction accuracy, attribute disentanglement, and robust feature representation simultaneously. The primary prediction objective 𝐿 𝑡𝑎𝑠𝑘 is a composite loss that handles the multimodal nature of the task. It integrates three key terms: a Laplace negative log-likelihood 𝐿 𝑟𝑒𝑔 for the regression of trajectory coordinates, a cross-entropy loss 𝐿 𝑐𝑙𝑠 for classifying the most likely prediction mode, and a target loss 𝐿 𝑡𝑎𝑟𝑔𝑒𝑡 defined by the minimum Average Displacement Error (minADE) over the 𝐾 modes. These are combined as: 
+
+𝐿 𝑡𝑎𝑠𝑘 = 𝐿 𝑡𝑎𝑟𝑔𝑒𝑡 + 𝐿 𝑟𝑒𝑔 + 𝐿 𝑐𝑙𝑠 (26) To ensure our model effectively disentangles the specified long-tail attributes, we introduce an auxiliary supervision signal 𝐿 𝑎𝑡𝑡𝑟 . This loss penalizes the discrepancy between the predicted attributes and their corresponding ground-truth. We employ a Mean Squared Error (MSE) loss for this purpose: 
+
+𝐿 𝑎𝑡𝑡𝑟 = ‖[̂𝑦 𝑒 ,̂𝑦 𝑟 ,̂𝑦 𝑠 ] − [ 𝑦 𝑒 , 𝑦 𝑟 , 𝑦 𝑠 ]‖22 (27) 
+
+Rao et al.: Preprint submitted to Elsevier Page 12 of 28 Additionally, to enforce the learning of discriminative features, we incorporate the two contrastive losses central to our framework: the adaptive momentum contrastive loss 𝐿 𝑎𝑚𝑐𝑙 and the focused decoupled contrastive loss 𝐿 𝑓 𝑑𝑐𝑙 . The overall training objective 𝐿 is a weighted sum of all these components: 
+
+𝐿 = 𝐿 𝑡𝑎𝑠𝑘 + 𝜆 1𝐿 𝑎𝑡𝑡𝑟 + 𝜆 2𝐿 𝑎𝑚𝑐𝑙 + 𝜆 3𝐿 𝑓 𝑑𝑐𝑙 (28) where 𝜆 1, 𝜆 2, and 𝜆 3 are hyperparameters that balance the contribution of each loss term. 
+
+## 4. Experiments 
+
+4.1. Experimental Setups 
+
+4.1.1. Datasets 
+
+To validate the effectiveness and robustness of our method, we conduct experiments on two widely recognized benchmarks: nuScenes [47] for autonomous driving and ETH/UCY [48, 49] for pedestrian trajectory prediction. These datasets provide a diverse range of real-world traffic scenarios. 
+
+nuScenes : This comprehensive autonomous driving benchmark features 1000 distinct scenes, capturing complex real-world driving conditions supported by detailed HD maps. The dataset provides 2 s of historical trajectory data and 6 s of future trajectory data for target agent, making it suitable for evaluating various prediction horizons. 
+
+ETH/UCY : Focusing on pedestrian dynamics, this benchmark serves as a standard for crowd behavior analysis. We specifically include this dataset to validate the cross-agent robustness of our model, recognizing that safe autonomous driving necessitates accurate prediction of both vehicle and pedestrian trajectories in complex, interactive environments. It aggregates five unique environments: ETH and HOTEL (from the ETH dataset), along with UNIV, ZARA1, and ZARA2 (from the UCY dataset). The data is recorded at 2.5 Hz. In our experiments, we observe 8 timesteps (equivalent to 3.2 s) to forecast the subsequent 12 timesteps (equivalent to 4.8 s). 
+
+4.1.2. Long-tail Evaluation Subsets 
+
+To validate our model’s performance on long-tail data, we construct dedicated long-tail evaluation subsets based on the three distinct attributes. This multi-dimensional approach to subset creation allows for a more fine-grained assessment of our model’s ability to handle specific long-tail challenges, which differs significantly from previous studies that often rely on single-dimensional or heuristic-based definitions of long-tail scenarios. The dataset is systematically divided into distinct subsets for each attribute: 
+
+• Prediction Error : We sort all samples by their 𝑦 𝑒 values in descending order. The long-tail subset consists of the Top 1%-5% of samples exhibiting the highest prediction errors. This represents scenarios that are intrinsically difficult to predict by a baseline model. 
+
+• Collision Risk : We sort all samples by their 𝑦 𝑟 values in descending order. The long-tail subset comprises the Top 1%-5% of samples with the highest InvTTC values, indicating the most safety-critical scenarios. 
+
+• State Complexity : For enhanced interpretability, we discretize the continuous 𝑦 𝑠 metric into several distinct behavior categories: Abrupt Acceleration, Abrupt Deceleration, Abrupt Lane Changes, and High-Curvature Turns. Samples not falling into these categories are considered Normal behaviors. 
+
+4.1.3. Evaluation Metrics 
+
+To assess the predictive fidelity and robustness of our framework, we adopt standard trajectory prediction metrics following the evaluation protocol of each benchmark. For ETH/UCY and the long-tail comparison on nuScenes, we report minADE and minFDE for consistency with existing methods. For the full-sample comparison on nuScenes, we follow the official benchmark protocol and prior literature, and report minADE 5∕10 , minFDE 1∕5∕10 , and MR 5. Below, we provide the detailed definitions and formulas for these metrics. 
+
+• Minimum Average Displacement Error (minADE): Given 𝐾 predicted trajectories {̂𝑇 (𝑘 )}𝐾 𝑘 =1 and the ground-truth trajectory 𝑇 = { 𝑐 𝑡 ∣ 𝑡 ∈ ( 𝑡 𝑜 , 𝑡 𝑜 +𝑡 𝑝 ]} , minADE is defined as the minimum average displacement error among all predicted modes: minADE 𝐾 = min 
+
+> 𝑘 =1 ,…,𝐾
+
+⎡⎢⎢⎣
+
+1
+
+𝑡 𝑝 𝑡 𝑝 
+
+∑
+
+> 𝑡 =1
+
+‖̂𝑐 (𝑘 ) 
+
+> 𝑡
+
+− 𝑐 𝑡 ‖2
+
+⎤⎥⎥⎦
+
+(29)   
+
+> Rao et al.: Preprint submitted to Elsevier Page 13 of 28
+
+Table 2 
+
+Prediction results (minADE/minFDE) on nuScenes (2 s prediction) and ETH/UCY (4.8 s prediction) datasets. Samples are stratified based on their prediction error (FDE) to evaluate robustness, with the Top 1%-5% representing the highest error instances. Bold and underlined text indicate the best and second-best results, respectively. Cases marked with (’-’) indicate missing values. Improvement row shows the percentage improvement of our model over the second-best result. Model Top 1% Top 2% Top 3% Top 4% Top 5% Rest All                                                                                                                 
+
+> nuScenes Dataset
+> Traj++ EWTA [28] 1.73/4.43 1.36/3.54 1.17/3.03 1.04/2.68 0.95/2.41 0.16/0.26 0.22/0.39 Traj++ EWTA+contrastive [28] 1.28/2.85 0.97/2.15 0.83/1.83 0.76/1.64 0.70/1.48 0.15/0.24 0.18/0.30 FEND [29] 1.21/2.50 0.92/1.88 0.79/1.61 0.72/1.43 0.66/1.31 0.14 /0.20 0.17/0.26 TrACT [30] 1.23/2.65 0.98/2.11 0.85/1.82 0.78/1.64 0.72/1.49 -0.19/0.31 CSD [50] 1.06/2.22 0.82/1.69 0.70/1.44 0.64/1.30 0.59/1.18 -0.18/0.30 SAIL (Ours) 1.02 /1.58 0.81 /1.30 0.65 /1.12 0.60 /1.05 0.56 /0.98 0.16/ 0.19 0.17 /0.23
+> Improvement +3.8%/+28.8% +1.2%/+23.1% +7.1%/+22.2% +6.3%/+19.2% +5.1%/+16.9% -14.3%/+5.0% 0.0%/+11.5%
+> ETH/UCY Dataset
+> Traj++ EWTA [28] 0.98/2.54 0.79/2.07 0.71/1.81 0.65/1.63 0.60/1.50 0.14 /0.26 0.17/0.32 Traj++ EWTA+resample [51] 0.90/2.17 0.77/1.90 0.73/1.78 0.66/1.60 0.64/1.52 0.20/0.41 0.23/0.47 Traj++ EWTA+reweighting [52] 0.97/2.47 0.78/2.03 0.68/1.73 0.62/1.55 0.56/1.40 0.15/0.26 0.18/0.32 Traj++ EWTA+contrastive [28] 0.92/2.33 0.74/1.91 0.67/1.71 0.60/1.48 0.55/1.32 0.15/0.27 0.17/0.32 LDAM [53] 0.92/2.35 0.76/1.96 0.68/1.71 0.62/1.53 0.57/1.37 0.15/0.27 0.17/0.33 FEND [29] 0.84/2.13 0.68/1.68 0.61/1.46 0.56/1.30 0.52/1.19 0.15/0.27 0.17/0.32 TrACT [30] 0.80/2.00 0.65 /1.63 0.61/1.46 0.56/1.31 0.52/1.18 -0.17/0.32 SAIL (Ours) 0.73 /1.69 0.66/ 1.58 0.59 /1.38 0.55 /1.27 0.51 /1.17 0.17/ 0.25 0.17 /0.27
+> Improvement +8.8%/+15.5% -1.5%/+3.1% +3.3%/+5.5% +1.8%/+2.3% +1.9%/+0.8% -13.3%/+3.8% 0.0%/+15.6%
+
+• Minimum Final Displacement Error (minFDE): minFDE is defined as the minimum final displacement error among all predicted modes: minFDE 𝐾 = min 
+
+𝑘 =1 ,…,𝐾 ‖̂𝑐 (𝑘 )
+
+𝑡 𝑝 − 𝑐 𝑡 𝑝 ‖2 (30) 
+
+• Miss Rate (MR): MR measures the fraction of samples for which none of the predicted trajectories falls within a threshold 𝛿 (typically set to 2 m) of the ground-truth endpoint: MR 𝐾 = 1
+
+𝑁 
+
+𝑁 ∑
+
+𝑖 =1 
+
+𝐼 
+
+(
+
+min 
+
+𝑘 =1 ,…,𝐾 ‖̂𝑐 𝑖, (𝑘 )
+
+𝑡 𝑝 − 𝑐 𝑖 𝑡 𝑝 ‖2 > 𝛿 
+
+)
+
+(31) where 𝐼 (⋅) is the indicator function. 
+
+4.1.4. Implementation Details 
+
+All experiments are implemented in PyTorch and conducted on a single NVIDIA RTX 3090 GPU. The encoder embedding dimension is set to 32, with three Transformer encoder layers, two GAT layers, and four attention heads in the scene interaction module. The number of predicted trajectories is set to 𝐾 = 25 . In AMCL, the momentum coefficients 𝑚 𝑏 and 𝑚 𝑓 are set to 0.95 and 0.999, respectively. The model is trained using the Adam optimizer with a learning rate of 0.0005 and a batch size of 32. The loss weights 𝜆 1, 𝜆 2, and 𝜆 3 are set to 1, 1, and 0.1, respectively. The total training process lasts for 120 epochs, including a 10-epoch warm-up stage before clustering is enabled. K-means clustering is performed every 5 epochs to update pseudo-labels based on the evolving feature distribution, and the number of clusters is set to 5. 
+
+4.2. Quantitative Analysis 
+
+4.2.1. Quantitative Results on Prediction Error 
+
+As presented in Table 2, we compare SAIL with several representative baseline methods specifically designed for long-tail trajectory prediction. The results show that SAIL achieves clear advantages on the most challenging subsets and establishes new state-of-the-art performance on severe long-tail cases. This is particularly evident on the nuScenes dataset, where for the hardest 1% of cases, SAIL achieves a minFDE of 1.58 m. This constitutes a remarkable 28.8% reduction in error compared to the next-best baseline CSD. Similarly, on the ETH/UCY dataset, our model reduces the minFDE by 15.5% over the strongest competitor in this category. These substantial gains on the most extreme and 
+
+Rao et al.: Preprint submitted to Elsevier Page 14 of 28 Table 3  
+
+> Prediction results (minADE/minFDE) at different prediction horizons on the nuScenes dataset, based on Collision Risk. We compare our model with the baseline Q-EANet [54]. The Top 1%-5% intervals denote the most critical risk categories.
+> Bold marks the best metric, while light gray background highlights cases where both metrics are simultaneously the best.
+
+Horizon (s) Model Top 1% Top 2% Top 3% Top 4% Top 5% Rest All 1 Q-EANet 0.18 /0.22 0.22/0.25 0.17 /0.21 0.15 /0.19 0.13 /0.17 0.08 /0.10 0.13 /0.12 SAIL 0.19/ 0.21 0.20 /0.23 0.18/ 0.20 0.16/ 0.18 0.14/ 0.16 0.13/0.11 0.14/ 0.12 
+
+2 Q-EANet 0.35/0.45 0.45/0.52 0.37/0.48 0.35/0.43 0.30/0.39 0.18/0.20 0.22/0.23 SAIL 0.32 /0.40 0.42 /0.48 0.36 /0.45 0.33 /0.40 0.28 /0.37 0.16 /0.19 0.18 /0.23 
+
+3 Q-EANet 0.55/0.75 0.67/0.82 0.58/0.78 0.56/0.71 0.49/0.65 0.29 /0.33 0.34/0.38 SAIL 0.50 /0.70 0.63 /0.78 0.57 /0.73 0.53 /0.68 0.47 /0.63 0.30/ 0.33 0.32 /0.34 
+
+4 Q-EANet 0.75/1.05 0.88/1.15 0.80/1.09 0.73/0.98 0.66 /0.90 0.33/0.46 0.46/0.57 SAIL 0.70 /0.98 0.81 /1.10 0.78 /1.05 0.71 /0.95 0.68/ 0.88 0.30 /0.41 0.42 /0.48 
+
+5 Q-EANet 0.95/1.35 1.05 /1.50 1.03/1.42 0.95/1.28 0.83 /1.18 0.52/0.62 0.59/0.78 SAIL 0.88 /1.25 1.08/ 1.45 1.00 /1.38 0.90 /1.25 0.88/ 1.15 0.48 /0.55 0.54 /0.65 
+
+6 Q-EANet 1.24/1.65 1.25 /1.80 1.21/1.72 1.14/1.58 1.07/1.45 0.65/0.86 0.70/0.99 SAIL 1.14 /1.50 1.28/ 1.70 1.21 /1.65 1.13 /1.52 1.05 /1.40 0.62 /0.79 0.69 /0.88  
+
+> Figure 4: Heatmaps illustrating the performance improvements of the SAIL model relative to Q-EANet on the nuScenes dataset, categorized by collision risk levels and prediction horizons. Negative values indicate superior performance by SAIL. (a) Differences in minADE. (b) Differences in minFDE.
+
+unpredictable trajectories underscore the effectiveness of SAIL’s adaptive learning mechanisms in capturing sparse, high-information patterns. At the same time, the results also reveal a characteristic trade-off. While SAIL shows the largest gains on the severe long-tail subsets (Top 1%–5%), its improvements on normal scenarios are less pronounced, and minADE on the “Rest” subset may show a slight decrease. This behavior is consistent with the design objective of the framework, which explicitly allocates more representational and optimization focus to rare, difficult, and high-risk cases. As a result, the model places less emphasis on further optimizing easy majority samples that are already well represented in the data distribution. Nevertheless, SAIL maintains strong overall performance, achieving the best overall minFDE of 0.23 m on nuScenes and 0.27 m on ETH/UCY. These results suggest that SAIL improves robustness on the most difficult cases without sacrificing competitive performance on the full dataset. 
+
+4.2.2. Quantitative Results on Collision Risk 
+
+To further validate our model’s effectiveness from a safety-critical perspective, we conduct a quantitative analysis based on a collision risk metric based on InverTTC. As shown in Table 3, the trajectories are categorized into risk   
+
+> Rao et al.: Preprint submitted to Elsevier Page 15 of 28
+
+Table 4 
+
+Prediction results (minADE/minFDE) at different prediction horizons on the nuScenes dataset, based on vehicle state. We compare our model with the baseline Q-EANet [54]. Bold indicates the best result for each metric. Light gray background highlights cases where both metrics are simultaneously the best. Horizon (s) Model Abrupt Acceleration Abrupt Deceleration Abrupt Lane Changes High-Curvature Turns Normal All 1 Q-EANet 0.19 /0.17 0.22 /0.19 0.28/0.26 0.22/0.21 0.11 /0.09 0.15/0.13 SAIL 0.20/ 0.16 0.23/ 0.18 0.26 /0.24 0.21 /0.19 0.12/0.10 0.14 /0.12                                                                  
+
+> 2Q-EANet 0.30 /0.29 0.36/0.34 0.42/0.44 0.34/0.37 0.18 /0.18 0.23/0.23 SAIL 0.31/ 0.27 0.34 /0.31 0.39 /0.40 0.32 /0.34 0.19/0.19 0.21 /0.21
+> 3Q-EANet 0.42/0.45 0.49/0.50 0.56/0.62 0.47/0.56 0.29/0.32 0.35/0.38 SAIL 0.39 /0.40 0.46 /0.46 0.52 /0.56 0.44 /0.51 0.27 /0.29 0.32 /0.34
+> 4Q-EANet 0.55/0.63 0.61/0.69 0.74/0.82 0.63/0.78 0.39/0.46 0.46/0.54 SAIL 0.51 /0.57 0.57 /0.63 0.68 /0.74 0.58 /0.71 0.36 /0.42 0.42 /0.49
+> 5Q-EANet 0.70/0.83 0.78/0.89 0.95/1.08 0.81/1.04 0.53/0.64 0.59/0.72 SAIL 0.64 /0.75 0.72 /0.81 0.87 /0.97 0.74 /0.94 0.48 /0.58 0.54 /0.65
+> 6Q-EANet 0.86/1.14 0.96/1.15 1.13/1.64 0.97/1.37 0.61/0.89 0.70/0.99 SAIL 0.80 /1.01 0.90 /1.08 1.10 /1.41 0.94 /1.28 0.61 /0.78 0.69 /0.88
+
+levels, with the Top 1-5% representing the most dangerous samples. Within SAIL’s predictions, we observe that higher collision risk generally correlates with greater prediction error, as these scenarios often involve complex interactions and non-linear behaviors that are challenging to forecast. However, this relationship is not perfectly linear. For instance, at the 1 s and 2 s horizons, the prediction error for the Top 2% risk category is slightly higher than for the Top 1%. This suggests that while the Top 1% scenarios are flagged as the most dangerous, they may include some predictably hazardous behaviors such as consistent close-proximity following in traffic, whereas slightly lower risk tiers could encompass more erratic maneuvers like abrupt speed variations that pose unique modeling difficulties. Building on this internal analysis, a comparative evaluation against the Q-EANet [54] baseline reveals how predictive performance diverges as the forecast horizon increases. At the short 1 s horizon, where future motion is highly constrained and uncertainty is minimal, both models exhibit competitive performance with only marginal differences. This suggests the task at this range is not challenging enough to distinguish the capabilities of advanced models clearly. However, a clear and consistent trend emerges from the 2 s horizon onwards: SAIL begins to establish a distinct advantage, particularly in the safety-critical minFDE metric across the high-risk categories. This performance gap widens substantially as the horizon extends, a trend visually confirmed by the heatmaps in Figure 4. The increasingly negative values in the heatmap at longer horizons underscore our model’s superior ability to handle compounding uncertainty. The advantage is most pronounced in high-risk, long-range scenarios; for example, at the 6 s horizon for Top 1% trajectories, SAIL’s minFDE of 1.50 represents a substantial 9.1% error reduction over the baseline. These results demonstrate that SAIL not only excels in standard short-term prediction but also maintains its robustness in longer, more uncertain forecasting horizons. This capability is essential for real-world autonomous systems, where reliable long-term planning is paramount for ensuring safety. 
+
+4.2.3. Quantitative Results on State Complexity 
+
+To further dissect our model’s ability to handle diverse long-tail scenarios, we evaluate its performance on trajectories categorized by the complexity of their motion state. As detailed in Table 4, these states represent common yet challenging real-world driving behaviors. The results in Table 4 demonstrate SAIL’s robust performance across this spectrum of complexity. Our model consistently achieves the best overall prediction accuracy, leading in the “All” category across all prediction horizons. More importantly, SAIL shows a pronounced advantage in the most challenging motion states. For Abrupt Lane Changes and High-Curvature Turns scenarios, our model significantly outperforms the baseline, especially in the safety-critical minFDE metric. For instance, at the 6 s horizon, SAIL achieves a substantial 14.0% reduction in minFDE for Abrupt Lane Changes. This highlights that SAIL is specifically optimized to excel at modeling the high-complexity, high-uncertainty dynamics of the most challenging long-tail events, making it a more reliable choice for navigating the diverse complexities of real-world traffic. 
+
+4.2.4. Quantitative Results on Worst-Case Samples 
+
+To reduce the bias that may arise from defining hard cases using a single fixed baseline, we further adopt a model-agnostic worst-case evaluation protocol. Specifically, for each model, we rank all test samples according to its own 
+
+Rao et al.: Preprint submitted to Elsevier Page 16 of 28 Table 5                                                                                                                         
+
+> Model-agnostic worst-case performance comparison on the nuScenes dataset, reported in minADE 5/ minFDE 5. The Top 1% to 5% subsets are dynamically defined for each model based on its own worst-performing samples, ranking by minFDE 5.The best results are in bold, and the second best are underlined. Model Venue Top 1% Top 2% Top 3% Top 4% Top 5% All PGP [55] CoRL 2021 8.86/21.92 7.21/17.90 6.24/15.68 5.52/13.77 5.02/12.44 1.28/2.52 Q-EANet [54] ITS 2024 7.55/18.78 6.15/15.58 5.44/13.76 4.94/12.49 4.55/11.49 1.20/2.45 LAformer [56] CVPR 2024 8.19/19.03 6.73/15.81 5.89/13.90 5.33/12.60 4.90/11.61 1.19/2.42 UniTraj (MTR) [57] ECCV 2024 7.84/21.69 6.44/18.06 5.69/15.95 5.18/14.49 4.78/13.37 1.15 /2.61
+> SAIL -6.84 /17.21 5.80 /14.57 5.05 /12.88 4.58 /11.68 4.22 /10.72 1.18/ 2.42 Table 6
+> Quantitative evaluation of trajectory prediction performance on the full nuScenes dataset, with a prediction horizon of 6 s. Light gray background indicates the performance of our model. Model Venue minADE 5minADE 10 minFDE 1minFDE 5minFDE 10 MR 5
+> Trajectron++ [3] ECCV 2020 1.88 1.51 9.52 5.63 -0.70 LaPred [58] CVPR 2021 1.47 1.12 8.12 3.37 2.39 0.53 MHA-JAM [59] IV 2021 -1.18 9.62 3.72 2.21 0.64 GoHome [60] ICRA 2022 1.42 1.15 6.99 --0.57 ContextVAE [61] RAL 2023 1.59 -8.24 3.28 --AFormer-FLN [62] CVPR 2024 1.83 1.32 -3.78 2.86 -EMSIN [63] TFS 2024 1.77 1.28 9.06 3.56 -0.54 WAKE [24] TPAMI 2025 1.24 1.09 7.02 2.96 2.37 0.55 SeFlow [64] ECCV 2025 1.38 0.98 7.89 --0.60 SAIL -1.18 1.03 6.45 2.42 1.99 0.50
+
+minFDE 5 values and construct the Top 1% to Top 5% hardest subsets accordingly. This protocol focuses on the upper tail of each model’s error distribution and therefore provides a more reliable assessment of robustness under highly challenging scenarios. As shown in Table 5, SAIL consistently achieves the best performance across all worst-case subsets in both minADE 5 and minFDE 5. On the Top 1% hardest samples, SAIL attains 6.84/17.21, outperforming the strongest competing method, by 9.4% in minADE 5 and 8.4% in minFDE 5. More importantly, this advantage remains stable as the subset size expands from Top 2% to Top 5%, where SAIL continues to rank first with clear margins over all baselines. These results indicate that the proposed method not only improves average prediction quality, but also more effectively suppresses extreme failures in the most difficult and safety-critical cases. 
+
+4.2.5. Quantitative Results on the Full Dataset 
+
+This section presents the overall quantitative comparison of SAIL with leading baselines on the nuScenes and ETH/UCY benchmarks. On the large-scale and complex nuScenes dataset, the results on the full dataset, as shown in Table 6, demonstrate strong performance across multiple key metrics. SAIL achieves the best minFDE 1 of 6.45, representing a 7.7% improvement over the second-best approach. Furthermore, it attains a leading minADE 5 of 1.18 and the lowest MR 5 of 0.50. This comprehensive success indicates that our model not only predicts the overall trajectory shape more accurately but is also more reliable in forecasting the final crucial endpoint and avoiding significant prediction failures, which are vital capabilities for real-world driving scenarios. This strong performance is further corroborated on the ETH/UCY datasets, which feature diverse pedestrian dynamics. As shown in Table 7, SAIL achieves the best average error across all five scenes. This corresponds to a significant reduction of 5.5% in average minADE compared to the strongest competing method. This consistent superiority demonstrates that our model performs well not only in vehicle-centric scenarios like nuScenes but is also highly effective in pedestrian-focused environments. This validates the robust generalization and strong predictive capability of our SAIL model.   
+
+> Rao et al.: Preprint submitted to Elsevier Page 17 of 28
+
+Table 7 
+
+Quantitative evaluation of trajectory prediction performance on the ETH/UCY dataset across all samples. Light gray background indicates the performance of our model. Model Venue ETH HOTEL UNIV ZARA1 ZARA2 AVG PECNet [65] ECCV 2020 0.54/0.87 0.18/0.24 0.22/0.39 0.17/0.30 0.35/0.60 0.29/0.48 AgentFormer [66] ICCV 2021 0.45/0.75 0.14/0.22 0.25/0.45 0.18/0.30 0.14/0.24 0.23/0.39 Trajectron++ [3] ECCV 2020 0.39/0.83 0.12/0.21 0.20/0.44 0.15/0.33 0.11 /0.25 0.19/0.41 NPSN [67] CVPR 2022 0.36/0.59 0.16/0.25 0.23/0.39 0.18/0.32 0.14/0.25 0.21/0.36 MID [68] CVPR 2022 0.39/0.66 0.13/0.22 0.22/0.45 0.17/0.30 0.13/0.27 0.21/0.38 TUTR [69] ICCV 2023 0.40/0.61 0.11/0.18 0.23/0.42 0.18/0.34 0.13/0.25 0.21/0.36 PPT [70] ECCV 2024 0.36/0.51 0.11/0.15 0.22/0.40 0.17/0.30 0.12/0.21 0.20/0.31 UniEdge [71] TCSVT 2025 0.36/0.46 0.11/0.17 0.19/ 0.28 0.14 /0.27 0.12/ 0.16 0.18/0.27 SAIL - 0.30 /0.43 0.09 /0.12 0.18 /0.35 0.16/ 0.25 0.12/0.19 0.17 /0.27 Table 8 
+
+Ablation analysis of key components within our method on the nuScenes benchmark. Each row from A to E represents a variant of our full model with one key component removed. AGTA: Attribute-Guided Trajectory Augmentation, ADP: Attribute Disentanglement and Prediction, AMCL: Adaptive Momentum Contrastive Learning, EFC: Evolving Feature Clustering, FDCL: Focused Decoupled Contrastive Learning. Bold text represents the best results. Model Components Performance (minADE/minFDE) AGTA ADP AMCL EFC FDCL Top 1% Top 2% Top 3% Top 4% Top 5% Rest All A × ✓ ✓ ✓ ✓ 1.30/1.88 1.05/1.55 0.88/1.35 0.79/1.24 0.73/1.16 0.19/0.23 0.22/0.27 B ✓ × ✓ ✓ ✓ 1.48/2.10 1.15/1.70 0.95/1.48 0.85/1.35 0.79/1.26 0.21/0.24 0.24/0.28 C ✓ ✓ × ✓ ✓ 1.25/1.83 1.01/1.51 0.84/1.31 0.76/1.21 0.70/1.13 0.18/0.22 0.21/0.26 D ✓ ✓ ✓ × ✓ 1.15/1.72 0.92/1.41 0.75/1.22 0.68/1.13 0.63/1.06 0.18/0.21 0.20/0.25 E ✓ ✓ ✓ ✓ × 1.22/1.80 0.98/1.49 0.81/1.29 0.73/1.19 0.68/1.11 0.19/0.22 0.21/0.26 F ✓ ✓ ✓ ✓ ✓ 1.02 /1.58 0.81 /1.30 0.65 /1.12 0.60 /1.05 0.56 /0.98 0.16 /0.19 0.18 /0.23 
+
+4.3. Ablation Analysis 
+
+Table 8 presents a systematic ablation study to evaluate the contribution of each component in our framework. Due to dependencies between certain modules, the ablation settings are designed with minimal fallback implementations to preserve the functionality of the remaining components while removing the target module under study. Specifically, for Model A (w/o AGTA), the attribute-guided augmentation is replaced by random augmentation from the same augmentation pool, where one augmentation strategy is randomly selected for each sample without using attribute guidance. For Model B (w/o ADP), the attribute-supervised auxiliary loss is removed. For Model C (w/o AMCL), the adaptive momentum contrastive loss is removed. For Model D (w/o EFC), the evolving clustering process is replaced by static clustering, where pseudo-labels are generated once after the warm-up stage and then kept fixed during the remaining training. This fallback is used to preserve the pseudo-label source required by FDCL after removing the dynamic update mechanism. For Model E (w/o FDCL), the focused decoupled contrastive loss is removed. Under these settings, the results confirm that the complete framework (Model F) attains the best results across all evaluation metrics, demonstrating a powerful synergy between its modules. Each subsequent model A-E represents a variant of the full model with one key component removed. The results show that the attribute-guided modules, Model A (w/o AGTA) and Model B (w/o ADP), are particularly important to the success of the framework. Removing either of these modules leads to the most significant performance degradation. For instance, Model B (w/o ADP) sees its minFDE on the Top 1% of samples increase by a substantial 32.9% compared to the full model. This suggests that explicitly modeling and supervising trajectory attributes is crucial for capturing complex long-tail behaviors. The contrastive learning modules also prove to be vital. Model C (w/o AMCL), which lacks the core unsupervised representation learning stage, exhibits a sharp decline in performance, highlighting the importance of learning a discriminative feature space. Furthermore, Model E (w/o FDCL) and Model D (w/o EFC) show noticeable performance drops, confirming that FDCL’s ability to focus on hard-positive samples and EFC’s dynamic pseudo-labeling are crucial for refining class boundaries and providing high-quality supervision. Overall, the ablation results show that each 
+
+Rao et al.: Preprint submitted to Elsevier Page 18 of 28 Table 9 
+
+> Jaccard similarity between attribute-specific long-tail subsets on the nuScenes validation set. The overlap between subsets identified by Prediction Error, Collision Risk, and State Complexity is measured under different tail thresholds, from the Top 20% to the Top 5% subsets.
+
+Attribute Pair Jaccard Similarity Top 20% Top 15% Top 10% Top 5% Prediction Error vs. Collision Risk 10.7% 8.3% 5.2% 1.4% Prediction Error vs. State Complexity 13.0% 10.3% 6.8% 4.8% Collision Risk vs. State Complexity 17.0% 14.1% 11.4% 5.7%  
+
+> Figure 5: UpSet visualization of intersections among attribute-specific long-tail subsets on the nuScenes validation set. Subfigures (a) to (d) correspond to the Top 20%, Top 15%, Top 10%, and Top 5% tail thresholds, respectively. In each subfigure, the bars indicate the number of samples in each subset intersection, while the connected dots denote the corresponding combination of Prediction Error, Collision Risk, and State Complexity. The percentages above the bars represent the proportion of each intersection among all samples selected under the given threshold.
+
+component contributes positively to the final framework, while the best performance is achieved when all modules are used together. This demonstrates that the advantage of SAIL is the result of a coordinated design, in which attribute-guided learning improves long-tail awareness, contrastive objectives enhance representation quality, and dynamic pseudo-label refinement further strengthens class discrimination in challenging scenarios. 
+
+4.4. Validation of the Long-Tail Attributes 
+
+To further examine the properties of the evaluated long-tail scenarios and validate the proposed three-dimensional taxonomy consisting of Prediction Error, Collision Risk, and State Complexity, we analyze the overlap among their corresponding sample subsets on the validation set. Table 9 reports the Jaccard similarity between attribute-specific long-tail subsets under progressively stricter tail thresholds. A clear decreasing trend can be observed: as the analysis moves from the Top 20% to the Top 5% subsets, the overlap between different attributes steadily decreases. This result indicates that the samples identified by the three attributes become increasingly distinct as the focus shifts toward more extreme tail cases. The complementary nature of these attributes is further illustrated by the visualization in Figure 5, where most of the most challenging samples are associated with a single attribute rather than their intersections.                              
+
+> Rao et al.: Preprint submitted to Elsevier Page 19 of 28 Table 10
+> Comparative analysis of computational efficiency and predictive accuracy on the nuScenes dataset. We compare SAIL against SOTA baselines to demonstrate the trade-off between speed and performance. Bold and underlined text represent the best and second-best results, respectively. Model Inference Time (ms) minADE 5minFDE 1MR 5
+> MultiPath [72] 87 1.44 7.69 0.74 AgentFormer [66] 107 1.97 9.12 0.69 LAformer [56] 115 1.19 6.89 0.54 VisionTrap [73] 53 1.36 8.72 0.61
+> SAIL 18 1.18 6.45 0.50
+> Figure 6: Visualization of comparison results for inference time and error metrics on the nuScenes dataset. Panel (a) shows inference time, panel (b) depicts minADE 5, panel (c) illustrates minFDE 1, and panel (d) presents MR 5.
+
+Notably, the overlap among all three attribute pairs shows a consistent downward trend as the tail threshold becomes stricter, indicating that different attribute-specific scenarios become increasingly differentiated in the more extreme tail regions. Overall, these results show that Prediction Error, Collision Risk, and State Complexity are not strictly independent, but they are not redundant either. Instead, they capture complementary aspects of long-tail trajectory prediction, and together provide a more comprehensive characterization of challenging scenarios in the dataset. 
+
+4.5. Inference Efficiency Analysis 
+
+To evaluate the trade-off between computational efficiency and predictive accuracy, we compare the end-to-end inference time and performance of SAIL against several state-of-the-art baselines on the nuScenes dataset. For consistency with prior work, we report the average inference time for predicting 12 agents across the nuScenes test set. To ensure a fair hardware comparison, all latency measurements are conducted on a single NVIDIA RTX 3090 GPU. As shown in Table 10, SAIL achieves an end-to-end inference latency of only 18 ms, which is 66.0% lower than that of the fastest competing baseline. This high efficiency mainly comes from our asymmetric design: computationally intensive components, including the attribute prediction supervision branch, trajectory augmentation, and contrastive learning modules, are used only during training and introduce no additional overhead at test time. During inference, these auxiliary branches are removed, leaving a streamlined pipeline for attribute disentanglement and trajectory prediction. Importantly, this efficiency is achieved together with strong predictive performance. SAIL attains the best results across all evaluated metrics, improving upon the second-best method by 6.4% in the safety-critical minFDE 1 metric while also achieving the best minADE 5 and MR 5. Figure 6 further illustrates the balance between inference time and prediction accuracy. These results show that SAIL achieves both low runtime latency and strong long-tail prediction capability, making it well-suited for real-world autonomous driving systems with strict efficiency requirements. 
+
+4.6. Analysis of the Clustering Strategy 
+
+4.6.1. Sensitivity to the Number of Clusters 
+
+The number of clusters 𝐶 is a critical hyperparameter that determines the granularity of the pseudo-labels. A small 
+
+𝐶 may merge distinct long-tail patterns, while a large 𝐶 could fragment similar patterns into separate clusters, leading to noisy supervision. To find the optimal balance, we perform a sensitivity analysis on the nuScenes dataset, with results shown in Table 11. The performance improves as 𝐶 increases from 2 to 5, peaking at 𝐶 = 5 . Beyond this point, increasing 𝐶 leads to a slight degradation in performance, likely due to overfitting on finer-grained but less                                                     
+
+> Rao et al.: Preprint submitted to Elsevier Page 20 of 28 Table 11
+> Performance (minADE/minFDE) on nuScenes for varying numbers of clusters ( 𝐶 ) in our EFC module.
+> 𝐶 Top 1% Top 2% Top 3% Top 4% Top 5% Rest All 21.35/1.95 1.08/1.60 0.90/1.40 0.82/1.30 0.76/1.22 0.20/0.24 0.23/0.27 31.21/1.80 0.98/1.49 0.82/1.29 0.74/1.20 0.68/1.12 0.18/0.22 0.21/0.25 41.10/1.70 0.88/1.38 0.76/1.20 0.67/1.12 0.62/1.05 0.17/0.20 0.19/0.24
+> 51.02 /1.58 0.81 /1.30 0.65 /1.12 0.60 /1.05 0.56 /0.98 0.16 /0.19 0.18 /0.23
+> 61.05/1.62 0.84/1.34 0.69/1.16 0.62/1.08 0.58/1.01 0.16/0.20 0.18/0.23 71.12/1.73 0.90/1.42 0.75/1.24 0.68/1.15 0.63/1.08 0.17/0.21 0.20/0.25
+> Figure 7: Stability analysis of the Evolving Feature Clustering (EFC) process. The Adjusted Rand Index (ARI) between consecutive clustering updates is plotted against training epochs on the nuScenes dataset.
+
+generalizable sub-patterns. Therefore, we set 𝐶 = 5 as the optimal number of clusters in all our experiments, as it provides the best balance between capturing diverse trajectory behaviors and maintaining robust generalization. 
+
+4.6.2. Stability of the Clustering Process 
+
+To validate the stability of our EFC strategy throughout the training process, we analyze the consistency of the pseudo-label assignments over time. We measure the stability of our clustering process using the Adjusted Rand Index (ARI). The ARI quantifies the similarity between two data clusterings; a higher ARI indicates greater consistency. We compute the ARI between the pseudo-label assignments of consecutive clustering updates. As shown in Figure 7, the ARI is initially low during the early stages of training, as the feature space is still rapidly evolving. However, after a warm-up period, the ARI value quickly rises and stabilizes at a high level, indicating that the cluster assignments become highly consistent. This result confirms that our EFC strategy produces a stable and reliable supervisory signal, successfully avoiding the potential pitfalls of noisy, fluctuating pseudo-labels. 
+
+4.7. Qualitative Results 
+
+4.7.1. Visualization of Disentangled Feature Space 
+
+To further examine the structural relationship among the three-dimensional attributes of long-tail samples, we project the learned representations into a two-dimensional space using t-SNE, as shown in Figure 8. Each point corresponds to a sample drawn from the Top 5% subset under prediction error, collision risk, or state complexity. A notable observation is that the three groups do not collapse into a single mixed distribution, but instead exhibit relatively distinct manifold organizations. This indicates that the proposed three-dimensional attribute space is not merely assigning different names to the same set of difficult samples. Rather, each attribute emphasizes a different structural aspect of long-tail scenarios, suggesting that prediction error, collision risk, and state complexity correspond to meaningfully different forms of rarity and challenge in real-world driving data. Furthermore, the separation is not absolute, and partial overlap remains among the three groups. This observation is important, because it implies that the three attributes are not independent in a strict sense, but are linked through shared underlying difficulty. In practice, genuinely critical driving samples often simultaneously exhibit elevated uncertainty, increased safety risk, and greater behavioral complexity, even though one attribute may be more dominant than the others in a given case. Therefore, the t-SNE visualization supports a more nuanced conclusion: the proposed three-dimensional attributes are neither redundant nor fully separable, but complementary dimensions that jointly    
+
+> Rao et al.: Preprint submitted to Elsevier Page 21 of 28 Figure 8: t-SNE visualization of samples drawn from the Top 5% subsets under the three-dimensional long-tail attributes of prediction error, collision risk, and state complexity. The three groups exhibit relatively distinct yet partially overlapping manifold structures, indicating that they capture different but correlated aspects of long-tail driving scenarios.
+
+characterize the heterogeneity of long-tail scenarios. This qualitative evidence further justifies the use of a multi-attribute framework, rather than any single-dimensional definition, for identifying rare and critical driving samples. 
+
+4.7.2. Trajectory Visualization in Long-Tail Scenarios 
+
+To further validate the accuracy of our model in predicting long-tail trajectories, we visualize multimodal prediction results on nuScenes across challenging scenarios, comparing our SAIL model with a baseline model [54] and two of its key ablation variants, Model B (w/o ADP) and Model C (w/o AMCL). 
+
+(1) High-curvature Turning Scenarios. Figure 9 illustrates high-curvature turns, a classic long-tail scenario where an agent’s future path deviates significantly from its historical heading. The compared models exhibit distinct failure modes. The baseline model struggles to fully grasp the complexity of this maneuver, often resulting in inaccurate endpoint predictions even when the general turning direction is captured. This indicates a rudimentary understanding of the required trajectory geometry. The ablation variants reveal more specific weaknesses. Model B (w/o ADP), deprived of explicit attribute information, demonstrates a more fundamental failure: it seems unable to recognize the latent intent hidden within the subtle cues of this rare maneuver, instead defaulting to a simplistic forward projection. Model C (w/o AMCL), lacking the robust feature representations from our adaptive contrastive learning, suffers from high uncertainty and randomness, generating a scattered and unreliable set of trajectories. In contrast, our full SAIL model excels. Aided by the ADP’s contextual understanding and the discriminative features learned by AMCL, SAIL not only predicts the ground-truth path with pinpoint accuracy but also generates other plausible, high-quality alternatives. 
+
+(2) Abrupt Speed Change Scenarios. Figure 10 shows prediction results in scenarios characterized by abrupt, non-linear speed changes, another typical manifestation of long-tail trajectory behavior. In these cases, the baseline and ablation models commonly exhibit prediction lag, particularly under hard deceleration, where their predicted trajectories overshoot the true stopping position. This indicates that they tend to assume a more common smooth braking profile and thus fail to respond promptly to rare but critical speed transitions. Model B (w/o ADP) is less capable of distinguishing these extreme dynamic patterns from ordinary velocity fluctuations, while Model C (w/o AMCL) shows weaker stability in capturing the timing and magnitude of sudden motion changes. By contrast, SAIL more accurately tracks both acceleration and deceleration trends, especially in cases involving abrupt braking or rapid velocity shifts. This qualitative advantage suggests that modeling multi-dimensional long-tail attributes helps the framework better identify rare dynamic intent, while the contrastive representation learning further improves separability for these hard cases. As a result, SAIL demonstrates stronger robustness in scenarios where non-linear motion change is the key source of prediction difficulty. 
+
+4.8. Discussion of Failure Cases 
+
+Despite the strong overall performance of SAIL across diverse long-tail scenarios, prediction errors may still arise in a few extreme cases where critical contextual cues are unavailable or highly ambiguous. Figure 11 presents two    
+
+> Rao et al.: Preprint submitted to Elsevier Page 22 of 28 Figure 9: Qualitative results of long-tail trajectory prediction across diverse high-curvature driving scenarios on the nuScenes dataset. Panels (a) and (b) depict left-turn maneuvers, while panels (c) and (d) illustrate right-turn maneuvers. The others represent baseline model [54] predictions. Model B and Model C represent the variants of our model. The red line depicts the highest-probability trajectory, whereas the light red lines illustrate the multimodal predictions.
+
+representative types of such failure cases. The first type, illustrated in scenarios (a-1) and (a-2), occurs under severe occlusion. In these cases, the observable motion history provides insufficient evidence of sudden hazards, such as hidden obstacles or abruptly braking vehicles. Consequently, the model tends to extrapolate the recent motion pattern and produces trajectories close to a constant-velocity profile, rather than capturing the emergency braking behavior in the ground truth. The second type, shown in scenarios (b-1) and (b-2), arises at open intersections with sparse surrounding traffic context and without explicit traffic signal information. In scenario (b-1), the ground truth shows the vehicle stopping at the stop line, whereas the model predicts continued forward motion. In scenario (b-2), the target vehicle stops behind another vehicle at the intersection, while the model fails to anticipate the stopping intention of nearby vehicles under the traffic signal. In both cases, the limited availability of informative interactions makes the underlying driving decision difficult to infer from motion history and local map cues alone. These examples indicate that extremely long-tail failures are often associated with missing or weakly observable safety-critical context, rather than ordinary motion variation. Under such conditions, even a strong history-based predictor may still make incorrect forecasts. A natural direction for future work is to incorporate Vehicle-to-Everything (V2X) communication priors. Vehicle-to-Vehicle (V2V) communication may help recover occluded interactions through shared perception, while Vehicle-to-Infrastructure (V2I) communication may provide real-time traffic signal cues for disambiguating behaviors at signal-controlled intersections. Such information could complement onboard observations and improve robustness in extreme cases.    
+
+> Rao et al.: Preprint submitted to Elsevier Page 23 of 28 Figure 10: Qualitative results of long-tail trajectory prediction across various acceleration and deceleration scenarios on the nuScenes dataset. Panels (a) and (b) depict acceleration maneuvers, while panels (c) and (d) illustrate deceleration maneuvers. The others represent baseline model [54] predictions. Model B and Model C represent the variants of our model. The red line depicts the highest-probability trajectory, whereas the light red lines illustrate the multimodal predictions.
+
+## 5. Conclusion 
+
+This paper introduces SAIL, a novel framework designed for robust long-tail trajectory prediction by decon-structing the problem across multiple attribute dimensions. The process begins with an Attribute-Guided Trajectory Augmentation strategy and an Attribute Feature Extractor, which form a foundational module to enrich rare samples and encode rich, multi-dimensional long-tail attributes. Building upon this, an Adaptive Momentum Contrastive Learning module employs a continuous cosine momentum schedule and similarity-weighted hard-negative mining to learn a highly discriminative unsupervised feature space. Subsequently, our Evolving Feature Clustering strategy provides dynamic, high-quality pseudo-labels that adapt to the evolving feature manifold during training. Finally, a Focused Decoupled Contrastive Learning module utilizes these pseudo-labels and a novel focusing mechanism to refine cluster compactness, paying special attention to hard-positive samples within tail-end classes. These components collectively enable SAIL to systematically address the long-tail challenge by modeling trajectories based on their intrinsic geometric, dynamic, and risk-based attributes. Extensive experiments on the nuScenes and ETH/UCY benchmarks demonstrate the effectiveness of SAIL. The proposed method achieves strong performance not only on the full dataset, but also on multiple long-tail subsets and model-agnostic worst-case evaluations. In particular, SAIL consistently outperforms strong baselines on challenging nuScenes scenarios while maintaining favorable inference efficiency, highlighting its practical value for real-world deployment. The consistent gains across both vehicle and pedestrian benchmarks further verify its generalization capability. At the same time, the failure case analysis shows that extreme long-tail errors may still arise when critical safety cues are missing or weakly observable, such as under severe occlusion or at signal-controlled intersections with   
+
+> Rao et al.: Preprint submitted to Elsevier Page 24 of 28
+
+Figure 11: Representative failure cases under extreme long-tail scenarios. (a) Failure cases caused by severe visual occlusion. (b) Failure cases at open intersections without explicit traffic signal information. The red line depicts the highest-probability trajectory, whereas the light red lines illustrate the multimodal predictions. 
+
+limited contextual evidence. This suggests that future work may benefit from incorporating richer external priors, such as Vehicle-to-Everything (V2X) communication, to further improve robustness in such challenging scenarios. 
+
+## CRediT authorship contribution statement 
+
+Bin Rao: Conceptualization, Methodology, Experiment, Writing. Haicheng Liao: Methodology, Experiment, Writing. Chengyue Wang: Methodology, Experiment. Keqiang Li: Conceptualization, Methodology. Zhenning Li: 
+
+Conceptualization, Methodology, Funding. Hai Yang: Conceptualization, Methodology. 
+
+## Acknowledgements 
+
+This work was supported by the Science and Technology Development Fund of Macau [0122/2024/RIB2, 0215/2024/AGJ, 001/2024/SKL], the Research Services and Knowledge Transfer Office, University of Macau [SRG2023-00037-IOTSC, MYRG-GRG2024-00284-IOTSC], the Shenzhen-Hong Kong-Macau Science and Tech-nology Program Category C [SGDX20230821095159012], National Natural Science Foundation of China [Grants 52572354], the State Key Lab of Intelligent Transportation System [2024-B001], and the Jiangsu Provincial Science and Technology Program [BZ2024055]. 
+
+## References 
+
+[1] H. Liao, C. Wang, K. Zhu, Y. Ren, B. Gao, S. E. Li, C. Xu, Z. Li, Minds on the move: Decoding trajectory prediction in autonomous driving with cognitive insights, IEEE Transactions on Intelligent Transportation Systems (2025). [2] C. Wang, H. Liao, K. Zhu, G. Zhang, Z. Li, A dynamics-enhanced learning model for multi-horizon trajectory prediction in autonomous vehicles, Information Fusion (2025) 102924. [3] T. Salzmann, B. Ivanovic, P. Chakravarty, M. Pavone, Trajectron++: Dynamically-feasible trajectory forecasting with heterogeneous data, in: ECCV, Springer, 2020, pp. 683–700. [4] X. Li, J. Liu, J. Li, W. Yu, Z. Cao, S. Qiu, J. Hu, H. Wang, X. Jiao, Graph structure-based implicit risk reasoning for long-tail scenarios of automated driving, in: 2023 4th International Conference on Big Data, Artificial Intelligence and Internet of Things Engineering (ICBAIE), IEEE, 2023, pp. 415–420. [5] W. Zhou, Z. Cao, Y. Xu, N. Deng, X. Liu, K. Jiang, D. Yang, Long-tail prediction uncertainty aware trajectory planning for self-driving vehicles, in: 2022 IEEE 25th International Conference on Intelligent Transportation Systems (ITSC), IEEE, 2022, pp. 1275–1282. [6] Z. Lan, Y. Ren, H. Yu, L. Liu, Z. Li, Y. Wang, Z. Cui, Hi-scl: Fighting long-tailed challenges in trajectory prediction with hierarchical wave-semantic contrastive learning, Transportation Research Part C: Emerging Technologies 165 (2024) 104735. 
+
+Rao et al.: Preprint submitted to Elsevier Page 25 of 28 [7] H. Liao, Z. Li, H. Shen, W. Zeng, D. Liao, G. Li, C. Xu, Bat: Behavior-aware human-like trajectory prediction for autonomous driving, in: AAAI, volume 38, 2024, pp. 10332–10340. [8] R. Girgis, F. Golemo, F. Codevilla, M. Weiss, J. A. D’Souza, S. E. Kahou, F. Heide, C. Pal, Latent variable sequential set transformers for joint multi-agent motion prediction, in: International Conference on Learning Representations, 2022. URL: https://openreview.net/ forum?id=Dup_dDqkZC5 .[9] R. Shi, X. Wang, Y. Zhou, M. Zhu, Rulenet: rule-priority-aware multi-agent trajectory prediction in ambiguous traffic scenarios, Transportation Research Part C: Emerging Technologies 180 (2025) 105339. [10] C.-F. Lin, A. G. Ulsoy, D. J. LeBlanc, Vehicle dynamics and external disturbance estimation for vehicle path prediction, IEEE Transactions on Control Systems Technology 8 (2000) 508–518. [11] C. Wong, B. Xia, Z. Hong, Q. Peng, W. Yuan, Q. Cao, Y. Yang, X. You, View vertically: A hierarchical network for trajectory prediction via fourier spectrums, in: ECCV, Springer, 2022, pp. 682–700. [12] J. Gao, C. Sun, H. Zhao, Y. Shen, D. Anguelov, C. Li, C. Schmid, Vectornet: Encoding hd maps and agent dynamics from vectorized representation, in: CVPR, 2020, pp. 11525–11533. [13] A. Alahi, K. Goel, V. Ramanathan, A. Robicquet, L. Fei-Fei, S. Savarese, Social lstm: Human trajectory prediction in crowded spaces, in: CVPR, 2016, pp. 961–971. [14] M. Huang, M. Zhu, Y. Xiao, Y. Liu, Bayonet-corpus: a trajectory prediction method based on bayonet context and bidirectional gru, Digital Communications and Networks 7 (2021) 72–81. [15] H. Liao, C. Wang, Z. Li, Y. Li, B. Wang, G. Li, C. Xu, Physics-informed trajectory prediction for autonomous driving under missing observation, in: International Joint Conference On Artificial Intelligence (IJCAI 2024), 2024. [16] T. Gilles, S. Sabatini, D. Tsishkou, B. Stanciulescu, F. Moutarde, Home: Heatmap output for future motion estimation, in: 2021 IEEE International Intelligent Transportation Systems Conference (ITSC), IEEE, 2021, pp. 500–507. [17] B. Fan, H. Yuan, Y. Dong, Z. Zhu, H. Liu, Bidirectional agent-map interaction feature learning leveraged by map-related tasks for trajectory prediction in autonomous driving, IEEE Transactions on Automation Science and Engineering (2025). [18] N. Deo, M. M. Trivedi, Convolutional social pooling for vehicle trajectory prediction, in: Proceedings of the IEEE conference on computer vision and pattern recognition workshops, 2018, pp. 1468–1476. [19] F. Marchetti, F. Becattini, L. Seidenari, A. Del Bimbo, Smemo: social memory for trajectory forecasting, IEEE Transactions on Pattern Analysis and Machine Intelligence 46 (2024) 4410–4425. [20] F. Munir, T. P. Kucner, Context-aware multi-task learning for pedestrian intent and trajectory prediction, Transportation Research Part C: Emerging Technologies 178 (2025) 105203. [21] H. Liu, Z. Huang, W. Huang, H. Yang, X. Mo, C. Lv, Hybrid-prediction integrated planning for autonomous driving, IEEE Transactions on Pattern Analysis and Machine Intelligence (2025). [22] H. Liao, Y. Li, Z. Li, C. Wang, Z. Cui, S. E. Li, C. Xu, A cognitive-based trajectory prediction approach for autonomous driving, IEEE Transactions on Intelligent Vehicles (2024). [23] H. Liao, Z. Li, C. Wang, H. Shen, B. Wang, D. Liao, G. Li, C. Xu, Mftraj: Map-free, behavior-driven trajectory prediction for autonomous driving, in: International Joint Conference On Artificial Intelligence (IJCAI 2024), 2024. [24] C. Wang, H. Liao, Z. Li, C. Xu, Wake: Towards robust and physically feasible trajectory prediction for autonomous vehicles with wavelet and kinematics synergy, IEEE Transactions on Pattern Analysis and Machine Intelligence (2025). [25] Z. Lan, L. Liu, B. Fan, Y. Lv, Y. Ren, Z. Cui, Traj-llm: A new exploration for empowering trajectory prediction with pre-trained large language models, IEEE Transactions on Intelligent Vehicles (2024). [26] H. Liao, H. Kong, B. Wang, C. Wang, W. Ye, Z. He, C. Xu, Z. Li, Cot-drive: Efficient motion forecasting for autonomous driving with llms and chain-of-thought prompting, arXiv preprint arXiv:2503.07234 (2025). [27] C. Min, D. Zhao, L. Xiao, J. Zhao, X. Xu, Z. Zhu, L. Jin, J. Li, Y. Guo, J. Xing, et al., Driveworld: 4d pre-trained scene understanding via world models for autonomous driving, in: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, 2024, pp. 15522–15533. [28] O. Makansi, Ö. Cicek, Y. Marrakchi, T. Brox, On exposing the challenging long tail in future prediction of traffic actors, in: ICCV, 2021, pp. 13147–13157. [29] Y. Wang, P. Zhang, L. Bai, J. Xue, Fend: A future enhanced distribution-aware contrastive learning framework for long-tail trajectory prediction, in: CVPR, 2023, pp. 1400–1409. [30] J. Zhang, M. Pourkeshavarz, A. Rasouli, Tract: A training dynamics aware contrastive learning framework for long-tail trajectory prediction, arXiv preprint arXiv:2404.12538 (2024). [31] T. Chen, S. Kornblith, M. Norouzi, G. Hinton, A simple framework for contrastive learning of visual representations, in: International conference on machine learning, PMLR, 2020, pp. 1597–1607. [32] B. Yang, K. Yan, C. Hu, H. Hu, Z. Yu, R. Ni, Dynamic subclass-balancing contrastive learning for long-tail pedestrian trajectory prediction with progressive refinement, IEEE Transactions on Automation Science and Engineering (2024). [33] K. He, H. Fan, Y. Wu, S. Xie, R. Girshick, Momentum contrast for unsupervised visual representation learning, in: CVPR, 2020, pp. 9729–9738. [34] P. Khosla, P. Teterwak, C. Wang, A. Sarna, Y. Tian, P. Isola, A. Maschinot, C. Liu, D. Krishnan, Supervised contrastive learning, Advances in neural information processing systems 33 (2020) 18661–18673. [35] S. Xuan, S. Zhang, Decoupled contrastive learning for long-tailed recognition, in: AAAI, volume 38, 2024, pp. 6396–6403. [36] Q. Shi, H. Zhang, An improved learning-based lstm approach for lane change intention prediction subject to imbalanced data, Transportation research part C: emerging technologies 133 (2021) 103414. [37] L. Wang, F. Y. Jin, Y. L. Cui, M. M. Zhao, W. Yang, Multi-dimensional analysis of long-tail lane changes: Feature coupling and prediction patterns in vehicle trajectories, in: CICTP 2025, ????, pp. 1447–1455. 
+
+Rao et al.: Preprint submitted to Elsevier Page 26 of 28 [38] H. Han, W.-Y. Wang, B.-H. Mao, Borderline-smote: a new over-sampling method in imbalanced data sets learning, in: International conference on intelligent computing, Springer, 2005, pp. 878–887. [39] T.-Y. Ross, G. Dollár, Focal loss for dense object detection, in: CVPR, 2017, pp. 2980–2988. [40] D. Park, M. Surana, P. Desai, A. Mehta, R. John, K.-J. Yoon, Generative active learning for long-tail trajectory prediction via controllable diffusion model, in: Proceedings of the IEEE/CVF International Conference on Computer Vision, 2025, pp. 27839–27850. [41] Y. Yao, S. Bhatnagar, M. Mazzola, V. Belagiannis, I. Gilitschenski, L. Palmieri, S. Razniewski, M. Hallgarten, Agents-llm: Augmentative generation of challenging traffic scenarios with an agentic llm framework, in: 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), IEEE, 2025, pp. 18400–18407. [42] K. Yang, Z. Guo, G. Lin, H. Dong, Z. Huang, Y. Wu, D. Zuo, J. Peng, Z. Zhong, X. Wang, et al., Trajectory-llm: A language-based data generator for trajectory prediction in autonomous driving, in: The Thirteenth International Conference on Learning Representations, 2025. [43] D. Thuremella, L. Ince, L. Kunze, Risk-aware trajectory prediction by incorporating spatio-temporal traffic interaction analysis, in: 2024 IEEE International Conference on Robotics and Automation (ICRA), IEEE, 2024, pp. 14421–14427. [44] R. Tian, B. Li, X. Weng, Y. Chen, E. Schmerling, Y. Wang, B. Ivanovic, M. Pavone, Tokenize the world into object-level knowledge to address long-tail events in autonomous driving, arXiv preprint arXiv:2407.00959 (2024). [45] H. Liao, B. Wang, J. Yang, C. Wang, Z. He, G. Zhang, C. Xu, Z. Li, Addressing corner cases in autonomous driving: A world model-based approach with mixture of experts and llms, Transportation Research Part C: Emerging Technologies 183 (2026) 105456. [46] J. A. Hartigan, M. A. Wong, Algorithm as 136: A k-means clustering algorithm, Journal of the royal statistical society. series c (applied statistics) 28 (1979) 100–108. [47] H. Caesar, V. Bankiti, A. H. Lang, S. Vora, V. E. Liong, Q. Xu, A. Krishnan, Y. Pan, G. Baldan, O. Beijbom, nuscenes: A multimodal dataset for autonomous driving, in: CVPR, 2020, pp. 11621–11631. [48] S. Pellegrini, A. Ess, K. Schindler, L. Van Gool, You’ll never walk alone: Modeling social behavior for multi-target tracking, in: ICCV, IEEE, 2009, pp. 261–268. [49] L. Leal-Taixé, M. Fenzi, A. Kuznetsova, B. Rosenhahn, S. Savarese, Learning an image-based motion context for multiple people tracking, in: CVPR, 2014, pp. 3542–3549. [50] G. Ganeshaaraj, T. Fernando, S. Sridharan, C. Fookes, Enhancing predictive performance on long-tail trajectories via clustering and specialized decoders, Pattern Recognition (2025) 112315. [51] L. Shen, Z. Lin, Q. Huang, Relay backpropagation for effective learning of deep convolutional neural networks, in: ECCV, Springer, 2016, pp. 467–482. [52] Y. Cui, M. Jia, T.-Y. Lin, Y. Song, S. Belongie, Class-balanced loss based on effective number of samples, in: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, 2019, pp. 9268–9277. [53] K. Cao, C. Wei, A. Gaidon, N. Arechiga, T. Ma, Learning imbalanced datasets with label-distribution-aware margin loss, Advances in neural information processing systems 32 (2019). [54] J. Chen, Z. Wang, J. Wang, B. Cai, Q-eanet: Implicit social modeling for trajectory prediction via experience-anchored queries, IET Intelligent Transport Systems 18 (2024) 1004–1015. [55] N. Deo, E. Wolff, O. Beijbom, Multimodal trajectory prediction conditioned on lane-graph traversals, in: Conference on Robot Learning, PMLR, 2022, pp. 203–212. [56] M. Liu, H. Cheng, L. Chen, H. Broszio, J. Li, R. Zhao, M. Sester, M. Y. Yang, Laformer: Trajectory prediction for autonomous driving with lane-aware scene constraints, in: CVPR, 2024, pp. 2039–2049. [57] L. Feng, M. Bahari, K. M. B. Amor, É. Zablocki, M. Cord, A. Alahi, Unitraj: A unified framework for scalable vehicle trajectory prediction, in: European Conference on Computer Vision, Springer, 2024, pp. 106–123. [58] B. Kim, S. H. Park, S. Lee, E. Khoshimjonov, D. Kum, J. Kim, J. S. Kim, J. W. Choi, Lapred: Lane-aware prediction of multi-modal future trajectories of dynamic agents, in: CVPR, 2021, pp. 14636–14645. [59] K. Messaoud, N. Deo, M. M. Trivedi, F. Nashashibi, Trajectory prediction for autonomous driving based on multi-head attention with joint agent-map representation, in: 2021 IEEE intelligent vehicles symposium (IV), IEEE, 2021, pp. 165–170. [60] T. Gilles, S. Sabatini, D. Tsishkou, B. Stanciulescu, F. Moutarde, Gohome: Graph-oriented heatmap output for future motion estimation, in: 2022 international conference on robotics and automation (ICRA), IEEE, 2022, pp. 9107–9114. [61] P. Xu, J.-B. Hayet, I. Karamouzas, Context-aware timewise vaes for real-time vehicle trajectory prediction, IEEE Robotics and Automation Letters (2023). [62] Y. Xu, Y. Fu, Adapting to length shift: Flexilength network for trajectory prediction, in: CVPR, 2024, pp. 15226–15237. [63] Y. Ren, Z. Lan, L. Liu, H. Yu, Emsin: Enhanced multistream interaction network for vehicle trajectory prediction, IEEE Transactions on Fuzzy Systems 33 (2024) 54–68. [64] Q. Zhang, Y. Yang, P. Li, O. Andersson, P. Jensfelt, Seflow: A self-supervised scene flow method in autonomous driving, in: ECCV, Springer, 2025, pp. 353–369. [65] K. Mangalam, H. Girase, S. Agarwal, K.-H. Lee, E. Adeli, J. Malik, A. Gaidon, It is not the journey but the destination: Endpoint conditioned trajectory prediction, in: ECCV, Springer, 2020, pp. 759–776. [66] Y. Yuan, X. Weng, Y. Ou, K. M. Kitani, Agentformer: Agent-aware transformers for socio-temporal multi-agent forecasting, in: Proceedings of the IEEE/CVF international conference on computer vision, 2021, pp. 9813–9823. [67] I. Bae, J.-H. Park, H.-G. Jeon, Non-probability sampling network for stochastic human trajectory prediction, in: CVPR, 2022, pp. 6477–6487. [68] T. Gu, G. Chen, J. Li, C. Lin, Y. Rao, J. Zhou, J. Lu, Stochastic trajectory prediction via motion indeterminacy diffusion, in: CVPR, 2022, pp. 17113–17122. [69] L. Shi, L. Wang, S. Zhou, G. Hua, Trajectory unified transformer for pedestrian trajectory prediction, in: ICCV, 2023, pp. 9675–9684. [70] X. Lin, T. Liang, J. Lai, J.-F. Hu, Progressive pretext task learning for human trajectory prediction, in: ECCV, Springer, 2024, pp. 197–214. 
+
+Rao et al.: Preprint submitted to Elsevier Page 27 of 28 [71] R. Li, T. Qiao, S. Katsigiannis, Z. Zhu, H. P. Shum, Unified spatial–temporal edge-enhanced graph networks for pedestrian trajectory prediction, IEEE Transactions on Circuits and Systems for Video Technology 35 (2025) 7047–7060. [72] Y. Chai, B. Sapp, M. Bansal, D. Anguelov, Multipath: Multiple probabilistic anchor trajectory hypotheses for behavior prediction, arXiv preprint arXiv:1910.05449 (2019). [73] S. Moon, H. Woo, H. Park, H. Jung, R. Mahjourian, H.-g. Chi, H. Lim, S. Kim, J. Kim, Visiontrap: Vision-augmented trajectory prediction guided by textual descriptions, in: ECCV, Springer, 2024, pp. 361–379. 
+
+Rao et al.: Preprint submitted to Elsevier Page 28 of 28

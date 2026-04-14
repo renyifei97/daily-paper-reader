@@ -1,0 +1,853 @@
+Title: PriPG-RL: Privileged Planner-Guided Reinforcement Learning for Partially Observable Systems with Anytime-Feasible MPC
+
+URL Source: https://arxiv.org/pdf/2604.08036v1
+
+Published Time: Fri, 10 Apr 2026 01:04:42 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# PriPG-RL: Privileged Planner-Guided Reinforcement Learning for Partially Observable Systems with Anytime-Feasible MPC 
+
+Mohsen Amiri 1,†, Mohsen Amiri 2,†, Ali Beikmohammadi 1, Sindri Magnu´ sson 1,and Mehdi Hosseinzadeh 2, Senior Member, IEEE 
+
+Abstract — This paper addresses the problem of training a reinforcement learning (RL) policy under partial observabil-ity by exploiting a privileged, anytime-feasible planner agent available exclusively during training. We formalize this as a Partially Observable Markov Decision Process (POMDP) in which a planner agent with access to an approximate dynamical model and privileged state information guides a learning agent that observes only a lossy projection of the true state. To realize this framework, we introduce an anytime-feasible Model Predictive Control (MPC) algorithm that serves as the planner agent. For the learning agent, we propose Planner-to-Policy Soft Actor-Critic (P2P-SAC), a method that distills the planner agent’s privileged knowledge to mitigate partial observability and thereby improve both sample efficiency and final policy performance. We support this framework with rigorous theoretical analysis. Finally, we validate our approach in simulation using NVIDIA Isaac Lab and successfully deploy it on a real-world Unitree Go2 quadruped navigating complex, obstacle-rich environments. 
+
+I. I NTRODUCTION 
+
+Model-free deep Reinforcement Learning (RL) can pro-duce policies that execute with very low latency on resource-constrained platforms [1]–[3]. However, a fundamental chal-lenge arises when the learning agent has only partial access to the true environment state. In this Partially Observable Markov Decision Process (POMDP) setting, observations do not fully determine the latent state, severely destabilizing value functions conditioned solely on observations [4]. Con-sequently, standard RL methods like PPO [5], TD3 [6], and Soft Actor–Critic (SAC) [7] frequently fail. State aliasing yields uninformative early exploration [8], trapping policies in suboptimal local minima [9]–[11] and making conver-gence prohibitively slow [12]–[14]. A line of approaches to this challenge is to optimize reactive (memoryless) policies within a surrogate MDP induced by the observation space, accepting an inherent approximation gap [15]. In a specific class of problems known as SNS-MDPs, where the unob-servable components follow an autonomous Markov chain, 
+
+This work was supported by the United States National Science Foun-dation (awards ECCS-2515358 and CNS-2502856), the Swedish Research Council (grant 2024-04058), and Sweden’s Innovation Agency (Vinnova). Computational resources were provided by the National Academic Infras-tructure for Supercomputing in Sweden (NAISS) at C3SE, partially funded by the Swedish Research Council (grant 2022-06725).  
+
+> †
+
+The authors contributed equally to this work. 
+
+> 1
+
+The authors are with the Department of Computer and Sys-tem Science, Stockholm University, 11419 Stockholm, Sweden, (Email: mohsen.amiri@dsv.su.se). 
+
+> 2
+
+The authors are with the School of Mechanical and Material Engi-neering, Washington State University, Pullman, WA 99164, USA (Email: 
+
+{mohsen.amiri, mehdi.hosseinzadeh }@wsu.edu. 
+
+Fig. 1. Illustration of the proposed PriPG-RL architecture during training. The planner agent provides guidance exclusively during training and is not used at runtime. The hardware image is included for visualization purposes only and does not represent a closed-loop deployment of the training architecture. A video demonstration of the hardware deployment, along with the complete source code, is available at GitHub. 2
+
+fundamental proofs demonstrate that conventional RL algo-rithms can safely converge to an average MDP corresponding to the hidden states’ stationary distribution [16], [17]. How-ever, in general continuous control, the surrogate MDP is highly policy-dependent and riddled with state aliasing. To bridge this optimality gap, a natural remedy is privi-leged learning, where a teacher with full state access guides a student operating under restricted observations [18]–[21]. In parallel, the RL community has developed robust methodolo-gies to incorporate prior knowledge into training. Under the umbrella of RL from demonstrations (RLfD), methods like DQfD [22], DDPGfD [23], and AWAC [24] augment learn-ing with expert data. Alternatively, model-based planning can generate online training targets [25], [26]. Specifically, recent work [8] showed that regularizing an SAC actor toward an approximate policy of a heuristic algorithm via a quadratic pseudo-label loss accelerates learning. However, a critical limitation of these RLfD and regularization frameworks is that they are mathematically formulated for fully observable MDPs. Consequently, they struggle to resolve the POMDP context. For instance, the output-space imitation in [8] as-sumes a one-to-one state-action mapping, which suffers from vanishing gradients at the SAC actor’s boundaries, dispro-portionately paralyzing the network during safety-critical evasive maneuvers in aliased states. Furthermore, it employs a linear decay schedule that eventually eliminates the heuris-tic algorithm’s guidance entirely. Because the underlying 
+
+> 2https://github.com/mohsen1amiri/PriPG-RL_UnitreeGo2.git
+> arXiv:2604.08036v1 [cs.LG] 9 Apr 2026
+
+problem is a POMDP, once this guidance decays to zero, the agent is thrust back into an unmitigated environment with severe state aliasing, causing catastrophic forgetting of the safe approximate policy. Separately, the control community has developed anytime optimization methods that guarantee feasible solutions at any point during computation. The anytime-feasible MPC framework, referred to as REAP [27]–[29], provides such guarantees through a modified barrier function and a pri-mal–dual gradient flow, with solution quality improving monotonically as additional computation is allocated. In contrast, standard MPC offers no feasibility guarantees if terminated before solver convergence, making it unsuitable for online training under varying computational budgets [30]. The anytime-feasibility property of REAP makes it a natural candidate for providing structured guidance to RL agents. This paper proposes a general framework for planner-guided actor–critic RL under partial observability, called Privileged Planner-Guided RL (PriPG-RL); see Figure 1. The framework is defined by two agents with asymmetric information: i) a ‘planner agent’ with access to an approxi-mate dynamical model and privileged information, and ii) a 
+
+‘learning agent’ that observes only a lossy projection of the true state and must function autonomously at deployment. The framework formally characterizes the informational asymmetry and provides mechanisms for the learning agent to extract behavioral priors from the planner agent, per-forming privileged information distillation, while ensuring the learned policy is not bounded by the planner agent’s performance. We make two instantiations. As the planner agent, we develop a REAP-based framework that provides always-feasible guidance at controllable computational cost. As the learning agent, we propose Planner-to-Policy Soft Actor-Critic (P2P-SAC), which leverages the planner agent’s signals and improves sample efficiency through four mech-anisms. The system is validated in NVIDIA Isaac Lab and deployed on a Unitree Go2 quadruped navigating complex, obstacle-rich environments. II. P RELIMINARIES AND PROBLEM STATEMENT 
+
+A. Dynamical System and Observation Model 
+
+Consider the discrete-time dynamical system 
+
+xt+1 = f (xt, u t), t ∈ Z≥0, (1) where xt ∈ X ⊆ Rn is the full state, ut ∈ U ⊆ Rp
+
+is the control input, and f : X × U → X is continuous but unknown dynamic of system. The full state xt may not be directly accessible to all agents. Let H := {h : X →Y | Y ⊆ Rnh , nh ≤ n} denote the set of measurement maps. The learning agent observation map hs : X → S ,
+
+st = hs(xt) ∈ S ⊆ Rns , produces the observable state available to the learning agent; when ns < n , the map is information-lossy, referred to as informational incomplete-ness. The planner agent observation map hz : X → Z ,
+
+zt = hz (xt) ∈ Z ⊆ Rnz , produces the planner agent’s state. In general, hs̸ = hz , reflecting informational requirements. 
+
+B. Partially Observable Markov Decision Process (POMDP) 
+
+The closed-loop interaction of a policy with (1) under the lossy observation map hs induces a POMDP 
+
+P = ( X , U, f, S, h s, r, γ ), (2) where X is the (hidden) state space, f is as in (1), S is the observation space, hs : X → S is the (deterministic) emission map, r : X × U → R is a bounded reward, and 
+
+γ ∈ [0 , 1) is the discount factor. When hs is not injective (ns < n ), the observation st does not determine the latent state xt, and the process {st}t≥0 is not Markov in general. Optimizing P is computationally intractable because it requires history-dependent policies or belief states. However, consider standard RL employs reactive, memoryless policies 
+
+πθ : S → ∆( U). This approach induces a surrogate MDP 
+
+cM = ( S, U, bP , r, γ ), where the transition kernel marginal-izes true dynamics over unobservable latent states x ∈ X via the stationary conditional distribution bπ (x | s):
+
+bP (s′ | s, u ) = 
+
+Z
+
+> X
+
+1hs(f (x, u )) = s′ d b π (x | s). (3) Because bπ is shaped by π, the surrogate kernel bP is policy-dependent. As πθ updates, the resulting non-stationarity in 
+
+cM violates standard Bellman convergence. Furthermore, state aliasing introduces irreducible epistemic variance into temporal difference targets, often leading to instability in critic function estimation and policy gradient collapse in con-tinuous control POMDPs. Convergence is only theoretically guaranteed if latent states evolve independently, reducing the system to a stationary average MDP [16], [17]. That is why, in general, conventional RL algorithms such as SAC, PPO, and TD3 do not work properly in this case. 
+
+C. Linear Approximate Model 
+
+Although f is unknown, a stabilizable LTI approximation is assumed available for planning on zt = hz (xt):
+
+zt+1 = Az t + Bu t, (4) where A ∈ Rnz ×nz , B ∈ Rnz ×p. This model may arise from linearization, system identification, or physics-based model-ing. To robustify feasibility against the modeling residual 
+
+δf (xt, u t) := hz (f (xt, u t)) −(Az t +Bu t), the planner agent operates on tightened convex inner-approximations: 
+
+˜Z = {z ∈ Rnz : a⊤ 
+
+> i
+
+z + bi ≤ 0, i = 1 , . . . , c x} ⊆ X , (5) 
+
+˜U = {u ∈ Rp : c⊤ 
+
+> i
+
+u + di ≤ 0, i = 1 , . . . , c u} ⊆ U . (6) 
+
+D. Model Predictive Control 
+
+Let d ∈ Rm be a desired reference with steady-state configuration (¯ zd, ¯ud) satisfying ¯zd = A¯zd + B ¯ud, ¯zd ∈
+
+Int( ˜Z), ¯ud ∈ Int( ˜U). Given prediction horizon N ∈ Z>0,MPC computes the optimal control sequence u∗ 
+
+> t
+
+∈ RpN as 
+
+u∗ 
+
+> t
+
+:= min  
+
+> u
+> N−1
+
+X
+
+> κ=0
+
+ˆzκ|t − ¯zd
+
+> 2
+> Lx
+
++ uκ|t − ¯ud
+
+> 2
+> Lu
+
++ ˆzN |t − ¯zd
+
+> 2
+> LN
+
+(7a) subject to 
+
+ˆzκ+1 |t = Aˆzκ|t + Bu κ|t, ˆz0|t = zt (7b) 
+
+ˆzκ|t ∈ ˜Z, u κ|t ∈ ˜U, κ ∈ { 0, . . . , N −1} (7c) 
+
+(ˆ zN |t, d ) ∈ Ω, (7d) where Lx ⪰ 0, Lu ≻ 0, LN ≻ 0 are weighting matrices and 
+
+Ω is the terminal constraint set. The computation of LN and 
+
+Ω is addressed in Section 3.6 of [28]. Constraints (7b)–(7d) can be rewritten as constraints on the control sequence u by recursively substituting the system dynamics (4). This results in the compact polyhedral set 
+
+U = u ∈ RpN : η⊤ 
+
+> i
+
+u + gi ≤ 0, i = 1 , . . . , ¯c , (8) where ηi ∈ RpN and gi ∈ R are constants obtained from the state, input, and terminal constraints, and ¯c denotes the total number of resulting constraints. We introduce the set 
+
+U = Proj p(U) where Proj p(·) extracts the first p elements. 
+
+E. Soft Actor–Critic 
+
+SAC [7] is a model-free, off-policy maximum-entropy algorithm originally designed for fully observable MDPs. When applied to the POMDP setting with reactive policies 
+
+πθ : S → ∆( U), the critic functions Qϕj (s, u ) are con-ditioned on observations rather than full states, facing the instabilities described in Section II-B. SAC maximizes 
+
+J(πθ ) = Eτ ∼πθ
+
+hP∞ 
+
+> t=0
+
+γt
+
+
+
+rt + α H(πθ (·| st)) 
+
+i 
+
+, (9) where α ≥ 0 is the entropy temperature. SAC maintains twin critics Qϕi , i ∈ { 1, 2}, minimizing the soft Bellman residual 
+
+LQ(ϕi) = E(s,u,r,s ′)∼D [( Qϕi (s, u ) − y)2] with target y =
+
+r + γ(min j Qϕj, targ (s′, ˜u′) − α log πθ (˜ u′|s′)) , ˜u′ ∼ πθ (·| s′).The actor minimizes 
+
+Lπ (θ) = Es∼D , ˜u∼πθ
+
+
+
+α log πθ (˜ u|s) − min  
+
+> j
+
+Qϕj (s, ˜u)
+
+
+
+.
+
+(10) Despite these limitations in the POMDP setting, SAC pro-vides a principled actor–critic foundation. The P2P-SAC algorithm proposed in Section IV builds on this foundation by incorporating planner agent guidance to overcome the challenges of partial observability. 
+
+F. Problem Formulation 
+
+We now formalize the information structures and state the main problem. 
+
+Definition 1 (Privileged Information) . The privileged infor-mation set It is any task-relevant information available to the planner agent beyond st, such that st is a deterministic function of It. Typical elements include the full state xt,constraint geometry, and environment parameters. 
+
+Definition 2 (Anytime-Feasible Planner Agent) . An anytime-feasible planner agent is a deterministic mapping π(tcpu )P :
+
+Z × I → U , parameterized by computation time tcpu ≥ 0,producing u† 
+
+> t
+
+= π(tcpu )P (zt, It). The policy strictly preserves feasibility, ensuring π(tcpu )P (zt, It) ∈ U regardless of when computation terminates, and is asymptotically optimal, satis-fying π(tcpu )P (zt, It) → u∗ 
+
+> t
+
+as tcpu → ∞ , where u∗ 
+
+> t
+
+is the first element of the sequence u∗ 
+
+> t
+
+defined in (7) . The suboptimality gap is defined as ∆tcpu := ∥π(tcpu )P (zt, It) − u∗ 
+
+> t
+
+∥.
+
+The planner agent π(tcpu )P operates on (zt, It) using (4), while the learned policy πθ operates exclusively on st
+
+with no access to zt, It, or (A, B ) at deployment. This informational asymmetry is formalized below. 
+
+Definition 3 (Informational Asymmetry Gap) . The informa-tional asymmetry gap is defined as 
+
+G := s ∈ S ∃ x, x ′ ∈ h−1 
+
+> s
+
+(s), ∃ I , I′ ∈ I :
+
+πP(hz (x), I)̸ = πP(hz (x′), I′) , (11) 
+
+where h−1 
+
+> s
+
+(s) := {x ∈ X | hs(x) = s}. States in G exhibit 
+
+state aliasing : identical observations s map to distinct latent states and planner agent’s actions. 
+
+Remark 1 (Privileged Information Distillation) . The planner agent’s action ut = πP(zt, It) relies on privileged informa-tion strictly subsuming the learning agent’s observation st.However, the learning agent distills this richer information to partially mitigate the partial observability. 
+
+Problem 1. Given P as in (2) , the privileged information set It, and an anytime-feasible planner agent π(tcpu )P (Defini-tion 2), find a reactive policy πθ∗ : S → ∆( U) satisfying: (1) reactive optimality, such that πθ∗ = arg max θ J(πθ ) among all reactive policies πθ : S → ∆( U); (2) deployment au-tonomy, where πθ∗ utilizes only st at execution time without access to It and π(tcpu )P ; and (3) training efficiency, whereby the sample complexity to achieve J(πθ∗ ) − J(πθ ) ≤ ε is reduced by exploiting π(tcpu )P during training. 
+
+Remark 2. Objective (1) targets the best reactive policy, not the POMDP-optimal history-dependent policy. Since reactive policies cannot resolve state aliasing in G, there is an inherent optimality gap relative to P. Objective (3) motivates using π(tcpu )P as a training signal. A central challenge is that na¨ ıve imitation may prevent the learned policy from surpassing the planner agent when G̸ = ∅, since the planner agent’s actions in G depend on privileged information that no reactive policy on S can replicate. The proposed framework addresses this through the mechanisms in Section IV. 
+
+III. A NYTIME -F EASIBLE MPC (REAP-B ASED PLANNER AGENT )Inspiring from [27], [28], we develop an anytime-feasible MPC-based planner agent π(tcpu )P parameterized by a compu-tation time tcpu ≥ 0 to be used in the PriPG-RL framework, which will be introduced in the next section. To do so, we introduce our method for solving problem (7) in real time. Consider the barrier function: 
+
+B(zt, d, u, λ ) = J(zt, u, d ) (12) 
+
+−
+
+> ¯c
+
+X
+
+> i=1
+
+λi log  −β(η⊤ 
+
+> i
+
+u + gi + 1 
+
+> ω
+
+) + 1  ,where J(·) is the cost function defined in (7a), λ =[λ1, · · · , λ ¯c]⊤ ∈ R¯c is the vector of dual variables, and 
+
+ω ∈ R>0 is a tightening parameter chosen sufficiently large to avoid excessive conservatism, as discussed in [31]. The barrier function in (12) is strongly convex in u, since J(·) is strongly convex in u, and therefore admits a unique global minimizer, denoted by u† 
+
+> t
+
+. Moreover, u† 
+
+> t
+
+→ u∗ 
+
+> t
+
+as ω → ∞ ,where u∗ 
+
+> t
+
+is the optimizer of (7). The corresponding optimal dual variables at time t are denoted by λ† 
+
+> t
+
+. We reasonably assume that the linear independence constraint qualification holds at u† 
+
+> t
+
+, which implies that λ† 
+
+> t
+
+is unique. The anytime-feasible MPC-based planner agent π(tcpu )P
+
+evolves the following virtual continuous-time dynamical system based on a primal–dual gradient flow 
+
+ddρ ˆuρ = −ζ∇ˆuB zt, d, ˆuρ, ˆλρ
+
+, (13a) 
+
+ddρ ˆλρ = ζ
+
+
+
+∇ˆλB zt, d, ˆuρ, ˆλρ
+
+ + Ψ ρ
+
+
+
+, (13b) where ρ denotes the computation time within the sampling period t and ζ > 0 is a design parameter determining the evolution speed of (13). The function Ψρ : R¯c → R¯c is a projection operator that ensures the non-negativity of the dual variables λi, ∀i; see [27] for details. Following [27], the trajectories of the dynamical system satisfy the following properties. Proofs are omitted due to space limitations and follow directly from the same steps. 
+
+Proposition 1. Let (ˆ uρ, ˆλρ) be the trajectory of (13) . Given a feasible initial condition (ˆ u0, ˆλ0), (ˆ uρ, ˆλρ) exponentially converges to 
+
+
+
+u† 
+
+> t
+
+, λ †
+
+> t
+
+
+
+as ρ → ∞ .
+
+Proposition 2. Let (ˆ uρ, ˆλρ) be the solution of (13) . Given a feasible initial condition (ˆ u0, ˆλ0), ˆuρ satisfies constraints 
+
+(8) for all ρ, i.e., ˆuρ ∈ U for all ρ.
+
+Regarding Propositions 1 and 2, the dynamical system (13) ensures the resulting solution is feasible, yet suboptimal, while allowing for adjustable computational time tcpu . Con-sequently, the balance between suboptimality and speed can be tuned, offering an adaptable solution for use in the PriPG-RL framework as the planner agent. This adaptability allows (13) to effectively handle limited and varying computational resources, while maintaining feasibility and achieving control objectives. These properties could potentially help the RL to reduce optimality in early training, guide early exploration, and enhance learning efficiency. Leveraging the anytime feasibility guaranteed by Proposition 2, the evolution of the continuous-time dynamical system (13) can be safely terminated at any point, typically dictated by a pre-defined computational time budget tcpu . The first element of the resulting control sequence ˆuρ at termination is then extracted and utilized as the planner agent π(tcpu )P .IV. P2P-SAC: P LANNER -TO -P OLICY SOFT 
+
+ACTOR -C RITIC REINFORCEMENT LEARNING 
+
+We propose the P2P-SAC algorithm as a specific instan-tiation of πθ : S → ∆( U) that addresses all three objectives in Problem 1. The REAP-based framework of Section III serves as the planner agent π(tcpu )P (Definition 2), producing 
+
+u† 
+
+> t
+
+∈ U at any budget tcpu using (zt, It) and available only during training. The learned policy πθ operates exclusively on st = hs(xt) and requires no access to zt, It, or (A, B )
+
+at deployment. P2P-SAC couples four mechanisms to exploit π(tcpu )P
+
+without bounding the asymptotic performance of πθ : (i) a dual replay buffer, (ii) a deterministic three-phase maturity schedule, (iii) a logit-space imitation anchor, and (iv) an advantage-based sigmoid gate. 
+
+A. Dual Replay Buffer 
+
+Unlike prior RLfD methods that rely on fixed, pre-collected demonstrations [22], [23], [32], P2P-SAC generates its planner buffer online via behavioral substitution, ensuring it reflects the closed-loop dynamics of (1) under π(tcpu )P .
+
+Definition 4 (Dual Replay Buffer) . Given capacities CP <C, the dual replay buffer D = ( DP , DO ) comprises: (1) a write-once planner agent’s buffer DP of capacity CP that freezes transitions collected when Mt = 0 (Subsection IV-D), and (2) a standard FIFO online buffer DO of capacity 
+
+C − CP . Each stored transition is an augmented tuple 
+
+(st, u t, r t, s t+1 , u † 
+
+> t
+
+, h t), where ht ∈ { 0, 1} indicates whether a valid planner agent’s action was queried. 
+
+During the immature phase ( Mt = 0 , Definition 5), the planner agent’s action replaces the executed input via: 
+
+ut =
+
+(
+
+u† 
+
+> t
+
+, if Mt = 0 and ht = 1 ,
+
+˜ut, otherwise , (14) where ˜ut ∼ πθ (· | st). At each gradient step, a mini-batch 
+
+B is assembled as an equal-weight mixture: 
+
+B = BP ∪ B O , BP ∼ Uniform( DP , B P ),
+
+BO ∼ Uniform( DO , B O ), (15) with BP = ⌊B/ 2⌋, drawing entirely from the non-empty buffer if either is empty. 
+
+B. Deterministic Three-Phase Maturity Schedule 
+
+In the recent work [8], annealing schedules decay the guidance weight to zero, extinguishing the signal regardless of whether the critic function is reliable or the planner agent remains superior. Once this guidance is completely removed, the method reverts to standard RL, where the restricted observation space fails to form a valid MDP, exposing the agent to the unmitigated state aliasing of the underlying POMDP. P2P-SAC instead employs a deterministic schedule parameterized by plateau horizon Tp, annealing horizon Td,and guidance coefficients β0, β f > 0.
+
+Definition 5 (Three-Phase Maturity Schedule) . The guidance positive coefficient βt ∈ [βf , β 0] and maturity indicator 
+
+Mt ∈ { 0, 1} evolve sequentially. During the plateau phase (0 ≤ t ≤ Tp), the agent is immature ( Mt = 0) with 
+
+βt = β0, keeping behavioral substitution (14) active and routing transitions to DP . During the annealing phase ( Tp <t ≤ Tp + Td), Mt remains 0 while the coefficient decays via 
+
+βt = β0 − t−Tp 
+
+> Td
+
+(β0 − βf ). Finally, in the maturity phase (t > T p + Td), βt = βf and Mt = 1 .
+
+This absorbing maturity state avoids cyclic deadlocks, deactivates substitution, grants πθ full autonomy, and routes transitions to DO . By maintaining a non-zero final guidance positive coefficient βf alongside the advantage gate, P2P-SAC prevents the catastrophic return to unmitigated partial observability, ensuring the agent remains robust to state aliasing even after reaching maturity. 
+
+C. Logit-Space Imitation Anchor 
+
+The learning agent πθ uses a squashed Gaussian actor: 
+
+˜u = tanh( μθ (s)+ ϵ), where μθ (s) ∈ Rp is the pre-activation mean (logit) and ϵ ∼ N (0 , σ θ (s)2I). Any imitation loss on the squashed output ˜u has gradient scaled by (1 −
+
+tanh 2(μθ (s))) , which vanishes exponentially as ∥μθ (s)∥∞
+
+grows. Since planner agent’s actions near ∂U correspond to large logits, output-space losses [8], [22], [23] produce near-zero gradients at safety-critical operating points. However, P2P-SAC resolves this by anchoring in logit space. Given 
+
+u† = π(tcpu )P (zt, It) ∈ U with bounds [ulow , u high ]p:
+
+Definition 6 (Planner Agent’s Logit) . For a planner agent’s action u† ∈ U and numerical margin ε ∈ (0 , 1) , the planner agent’s logit ξ† is derived via the following component-wise operations: 
+
+ξ†= tanh −1
+
+
+
+clip 
+
+ 
+
+2 u† − ulow 
+
+uhigh − ulow 
+
+−1
+
+
+
+, −L, L 
+
+ 
+
+∈ Rp,
+
+(16) 
+
+where L = (1 −ε), and ε ensures ξ† remains finite near the boundary ∂U.
+
+The per-sample logit-space imitation loss is 
+
+ℓ(s, u † 
+
+> t
+
+) = 1
+
+p μθ (s) − ξ† 22, (17) whose gradient ∇μθ ℓ = 2 
+
+> p
+
+(μθ (s)−ξ†) is bounded away from zero whenever μθ (s)̸ = ξ†, regardless of the logit magni-tude. This loss serves as a surrogate for DKL (π(tcpu )P ∥πθ ):since π(tcpu )P is deterministic, the forward KL reduces to 
+
+− log πθ (u† | s), which for a Gaussian actor in logit space is equivalent to (17) up to variance terms. 
+
+D. Advantage-Based Sigmoid Gate 
+
+Applying (17) uniformly risks preventing πθ from sur-passing π(tcpu )P , particularly in the informational asymmetry gap G (Definition 3). Conversely, entirely disabling guidance as in prior study [8] discards critical signals in which the planner agent remains superior, forcing the agent to revert to standard RL within a restricted observation space that fails to form a valid MDP. This typically leads to catas-trophic forgetting and a return to the underlying POMDP’s state aliasing. P2P-SAC resolves this via a value-based gate that selectively maintains guidance in aliased states where the planner agent’s privileged advantage persists, using the estimated soft state value and planner agent advantage: 
+
+bV (s) = min  
+
+> j∈{ 1,2}
+
+Qϕj (s, ˜u) − α log πθ (˜ u | s), (18) 
+
+bA†(s, u †) = min  
+
+> j∈{ 1,2}
+
+Qϕj (s, u †) − bV (s), (19) where ˜u ∼ πθ (· | s), and Qϕj is the learned critic function conditioned on observations. The advantage gate maps bA†(s)
+
+to a soft weight via sigmoid with temperature τg > 0:
+
+mϕ(s, u †) = σ bA†(s, u †)
+
+τg
+
+!
+
+= 11 + exp 
+
+
+
+− bA†(s, u †)/τ g
+
+ .
+
+(20) Combining with the maturity indicator yields the composite gating function: 
+
+Gϕ(s, u †; Mt) = (1 − Mt) + Mt · mϕ(s, u †). (21) In the immature regime ( Mt = 0 ), Gϕ ≡ 1, applying the anchor uniformly since Qϕj is unreliable. In the mature regime ( Mt = 1 ), Gϕ = mϕ(s, u †): the anchor is suppressed where πθ dominates ( bA† < 0) and retained where the planner agent is superior. In states s ∈ G , the gate converges toward 
+
+0.5, asymptotically removing the imitation bias where it is least justified. 
+
+E. Composite Actor Objective 
+
+The actor loss combines the SAC objective (10) with the gated anchor: 
+
+Lπ (θ) = LSAC (θ) + Lanchor (θ), (22) 
+
+LSAC (θ) = Es∼B , ˜u∼πθ
+
+
+
+α log πθ (˜ u | s) − min  
+
+> j
+
+Qϕj (s, ˜u)
+
+
+
+,
+
+(23) 
+
+Lanchor (θ) = E(s,u †,h )∼B 
+
+βt Gϕ(s, u †; Mt) h , (24) with h ∈ {0, 1} the planner-availability indicator (Defi-nition 4). The product βt · Gϕ(s, u †; Mt) is the effective guidance weight, encoding both the global training phase and local planner agent superiority. The critic functions ϕj are frozen during the actor update. The entropy temperature α
+
+is updated by minimizing Lα = E˜u∼πθ [−α(log πθ (˜ u | s) + ¯H)] , and target networks are updated via Polyak averaging: 
+
+ϕj, targ ← ρpoly ϕj, targ + (1 − ρpoly ) ϕj .
+
+F. Algorithm 
+
+The P2P-SAC procedure is implemented in Algorithm 1. The process begins ( Lines 3–5 ) by querying both the planner agent and actor of the learning agent, selecting an action based on the maturity indicator ( Mt), and storing the transi-tion in the dual replay buffer. Next ( Line 6–11 ), it samples a mixed batch of data to train the critic function networks. Following this ( Lines 12–13 ), the algorithm computes the advantage gate ( Gϕ) using a stop-gradient to evaluate the planner agent’s usefulness without biasing the critic func-tion’s estimation. Finally ( Lines 14–16 ), the actor ( πθ ) is updated using the gated loss, followed by standard updates to the temperature and target networks. Algorithm 1 P2P-SAC 
+
+Require: π(tcpu )P ; (Tp, T d, β 0, β f ); τg ; (CP , C ); ρpoly ; ¯H; B 
+
+> 1:
+
+Initialize πθ (θ), Qϕj , Qϕj, targ ← Qϕj for j ∈ { 1, 2}, α,
+
+D = ( DP , DO ), M0 ← 0 
+
+> 2:
+
+for t = 0 , 1, 2, . . . do  
+
+> 3:
+
+Collect ( st, u† 
+
+> t
+
+, ˜ut) and generate ut using (14)  
+
+> 4:
+
+Execute ut; observe rt, st+1  
+
+> 5:
+
+By Definition 5 store (st, u t, r t, s t+1 , u † 
+
+> t
+
+) in D and update βt, Mt 
+
+> 6:
+
+Sample B as (15)  
+
+> 7:
+
+for j ∈ { 1, 2} do  
+
+> 8:
+
+˜u′ ∼ πθ (· | s′); 
+
+> 9:
+
+y ← r + γ min j′ Qϕj′ (s′, ˜u′) − α log πθ (˜ u′ | s′) 
+
+> 10:
+
+ϕj ← ϕj − ηϕ ∇ϕj
+
+> 1
+> |B|
+
+P
+
+> B
+
+(Qϕj (s, u ) − y)2 
+
+> 11:
+
+end for  
+
+> 12:
+
+Compute ξ† via (16); ℓ(s, u †) via (17)  
+
+> 13:
+
+Compute bV , bA†, mϕ, Gϕ via (18)–(21)  
+
+> 14:
+
+θ ← θ − ηθ ∇θ 1
+
+> |B|
+
+P
+
+> B
+
+Lπ (θ) ▷ Eq. (22)  
+
+> 15:
+
+α ← α − ηα ∇α 1
+
+> |B|
+
+P
+
+> B
+
+−α(log πθ (˜ u | s) + ¯H) 
+
+> 16:
+
+ϕj, targ ← ρpoly ϕj, targ + (1 − ρpoly ) ϕj , j ∈ { 1, 2} 
+
+> 17:
+
+end for 
+
+V. F RAMEWORK INSTANTIATION 
+
+This section establishes that (i) the REAP-based planner agent discussed in Section III satisfies Definition 2, and (ii) P2P-SAC optimizes a planner-regularized reactive ob-jective whose gradient is immune to the irreducible variance caused by state aliasing. 
+
+Corollary 1 (REAP-Based Planner Agent) . By Proposi-tions 1 and 2, the dynamical system defined in (13) initialized at a feasible (ˆ u0, ˆλ0) satisfies Definition 2. 
+
+We now characterize the actor gradient of P2P-SAC. Let 
+
+ρD (s) be the empirical marginal of observations in D and 
+
+νD (ξ†, u † | s) the empirical conditional of planner agent’s logits and actions given s. Define the buffer statistics (under stop-gradient): 
+
+¯mD (s) := EνD
+
+mϕ(s, u †), (25) 
+
+˜ξD (s) := EνD
+
+mϕ(s, u †) ξ†/ ¯mD (s), (26) 
+
+eVD (s) := 1
+
+> p
+
+
+
+EνD
+
+mϕ(s, u †)∥ξ†∥2 − ¯mD (s) ∥ ˜ξD (s)∥2
+
+,
+
+(27) with the convention ˜ξD (s) = 0, eVD (s) = 0 when ¯mD (s) = 0 .
+
+Theorem 1 (Planner-Regularized Objective) . In the mature phase ( Mt = 1 , h = 1 ), 
+
+∇θ Lπ (θ) = ∇θ LSAC (θ) + ∇θ RP2P (θ), (28) 
+
+where the planner agent’s regularizer is 
+
+RP2P (θ) := βf 
+
+> p
+
+Es∼ρD
+
+ ¯mD (s) ∥μθ (s) − ˜ξD (s)∥2. (29) 
+
+The gate-weighted aliasing variance C = βf Es[eVD (s)] 
+
+enters Lπ but is θ-independent and absent from (28) .Proof. With Mt = 1, h = 1: Lanchor (θ) = 
+
+> βf
+> p
+
+ED [mϕ(s, u †)∥μθ (s) − ξ†∥2]. Conditioning on s and noting that μθ (s) is constant over νD (· | s), the weighted bias–variance identity 3 with a = μθ (s), X = ξ†, w =
+
+mϕ(s, u †) gives Lanchor = RP2P (θ) + C. All quantities in 
+
+C are computed under stop-gradient and independent of θ,so ∇θ Lanchor = ∇θ RP2P .
+
+Remark 3. Three consequences follow from Theorem 1. 
+
+(a) Privileged-information distillation: RP2P pulls μθ (s) to-ward ˜ξD (s), the gate-weighted average of planner agent’s logits across latent states that produced s in the buffer, injecting privileged information into a reactive policy. 
+
+(b) Aliasing-immune gradient: the variance eVD (s), which captures the irreducible ambiguity in aliased states s ∈ G ,does not enter the policy gradient. (c) Bounded regularization cost: ¯mD (s) ≤ 1 implies RP2P (θ) ≤ βf 
+
+> p
+
+sup s ∥μθ (s) −
+
+˜ξD (s)∥2 for any θ, bounding the maximum penalty the regularizer can impose. 
+
+VI. S IMULATION AND EXPERIMENTAL EVALUATION 
+
+We evaluate the framework on autonomous quadrupedal navigation, specifying all abstract quantities from Section II. 
+
+A. Platform and Observation Instantiation 
+
+The platform is a Unitree Go2 quadruped. Following [19], [20], a frozen locomotion policy πll [33] converts velocity commands to torques at 200 Hz, while πθ outputs ut =[vx, v y ]⊤ ∈ U at 50 Hz. The observation maps are 
+
+st = hs(xt) = [ xrob  
+
+> t
+
+, y rob  
+
+> t
+
+, x goal , y goal ]⊤ ∈ R4, (30) 
+
+zt = hz (xt) = [ xrob  
+
+> t
+
+, y rob  
+
+> t
+
+]⊤ ∈ R2, (31) with goal (xgoal , y goal ) = (0 .0, 2.8) m. Obstacle positions, heading, and joint quantities are excluded from st (blind nav-igation [34]), inducing informational incompleteness ( ns <n). The planner agent receives the privileged information 
+
+It = {(oi, r i)6
+
+> i=1
+
+, (bi)4
+
+> i=1
+
+, x goal , y goal } encoding obstacle and boundary geometry, never communicated to πθ , con-firming G̸ = ∅. The planner agent’s world-frame velocity is mapped to the body frame via u† 
+
+> t
+
+= [ u†
+
+> y,w
+
+, −u†
+
+> x,w
+
+]⊤ with 
+
+ulow = uhigh = 0 .5 m/s. The linear model is a 2D single-integrator at 50 Hz: zk+1 = zk + uk · 0.02 , and ˜Z defined by linearized obstacle-avoidance halfspaces. By Corollary 1, REAP-based formulation in (13) with N = 15 and β = 100 
+
+satisfies Definition 2. Since obstacle positions and heading are excluded from st, the learning agent faces a POMDP (Section II-B): multiple latent configurations (xt, It) project to the same st, confirming G̸ = ∅.
+
+B. Simulation Setup 
+
+Training and evaluation use NVIDIA Isaac Lab [35] with the Isaac-Velocity-Flat-Unitree-Go2-v0 
+
+task at ∆tctrl = 0 .02 s (50 Hz). The arena is 4.1×5.6 m2 (x ∈
+
+[−2.2, 2.0] , y ∈ [−2.0, 3.5] m) with six cylindrical obstacles of radius 0.23 m, arranged symmetrically: one at the entry                 
+
+> 3E[w∥a−X∥2] = ¯ w∥a−˜X∥2+E[w∥X∥2]−¯w∥˜X∥2with ¯w=E[w],
+> ˜X=E[wX ]/¯w. Proof: expand ∥a−X∥2, substitute E[wX ] = ¯ w˜X.
+
+(0 .00 , 0.15) m, one at the centre (0 .00 , 1.45) m, and four flanking obstacles at (±1.30 , 0.75) m and (±1.30 , −0.45) m. The same geometry is used identically in Isaac Lab and the REAP-based planner agent. The robot spawns randomly in the lower half via rejection sampling [36]. Episodes terminate on goal success ( < 0.3 m), collision, fall (trunk < 0.1 m), or timeout ( Tmax = 8 ,000 steps). Five seeds {0, . . . , 4} per algorithm are run on the NVIDIA A40 GPU. To make the problem challenging for the algorithms, a sparse reward is defined as r(ut) = −cstep + rmag (ut), where cstep = 1 .0,
+
+rmag = −0.02 ∥ut∥22, with terminal rewards +100 (goal) and 
+
+−200 (crash). 
+
+C. Compared Algorithms and Hyperparameters 
+
+SAC [7]: vanilla maximum-entropy actor–critic, without planner agent. PPO [5]: Standard on-policy policy gradient with clip ratio ϵ = 0 .2, without planner agent. Accelerated SAC [8]: output-space pseudo-label loss with plateau-then-decay schedule ( Tp = 10 5, Td = 5 × 10 4, β0 = 10 .0); single buffer. P2P-SAC : Algorithm 1 with β0 = βf = 10 .0,
+
+Tp = 10 5, Td = 0 , τg = 1 .0, CP = 10 6, C = 2 × 10 6;REAP-based planner agent with N = 15 , β = 100 ; agent’a action bounds [−0.7, 0.7] 2. All methods share the same architecture: two hidden layers of 256 units (ReLU), Adam with lr = 3 ×10 −4. Note that Td = 0 collapses the annealing phase; the sole change at t = Tp is activation of mϕ(s),isolating the gate’s contribution. 
+
+D. Evaluation Metrics 
+
+Table. I summarizes the evaluation metrics are computed over the last 10 episodes with different seeds on the trained policies: success rate, crash rate, path optimality ℓep /∥pgoal −
+
+pspawn ∥2, runtime, and average velocity. 
+
+E. Results and Discussion 1) Sample efficiency: As it is shown in Fig. 2, in the training, P2P-SAC achieves 100% success after 1M steps, versus 40% for Accelerated SAC. The vanilla SAC and PPO fail at this task because they operate in the POMDP. 
+
+2) Final performance: The improvement of P2P-SAC over Accelerated SAC is attributable to two factors: the logit-space anchor provides non-vanishing gradients near ∂U, and the advantage gate preserves the imitation loss, and selec-tively suppresses imitation in G where the planner agent’s privileged It confers an unreplicable advantage. In P2P-SAC, setting Tp = 10 5 enables the planner to collect high-quality trajectories right from the start of training. This immediate proficiency results in a 100% success rate, as illustrated in Fig. 2, and empirically demonstrates the anytime feasibility of the REAP (13). 
+
+3) Advantage gate behaviour: During the annealing phase, Gϕ ≡ 1 by (21). At maturation ( t = Tp), Gϕ drops to 
+
+≈ 0.1 as the critic function initially estimates πθ as superior, then stabilizes at Gϕ ≈ 0.45 , consistent with the prediction that mϕ(s, u †) → 0.5 in G.
+
+4) Path quality: The dual buffer ensures the critic function bootstraps from the planner agent’s trajectories, yielding path optimality of 1.06 versus 1.10 for REAP.                                                             
+
+> TABLE I BEST -CHECKPOINT METRICS (MEAN ±STD , 5 SEEDS ). Algorithm Success (%) Crash (%) Path opt. Runtime (s) Ave. Velocity (m/s) Accel. SAC [8] 35.0 ±47.7 65.0 ±47.7 1.100 ±0.073 9.0 ±1.3 0.477 ±0.045 P2P-SAC 100% 0.0% 1.060 ±0.031 9.7 ±1.1 0.352 ±0.019 REAP [27] 100% 0.0% 1.10 ±0.04 12.26 ±1.29 0.353 ±0.028
+> 012345
+> −1,000
+> −500
+> 0
+> Environment Steps ( ×10 6)Episodic Reward (mean)
+> P2P-SAC Accel. SAC SAC PPO
+> P2P-SAC Accel. SAC SAC PPO
+> 0
+> 50
+> 100
+> Success Rate (%) Fig. 2. Training curves: mean episodic reward (solid lines, left y-axis) and success rate (dashed lines with markers, right y-axis) over environment steps; shaded regions indicate ±1standard deviation across seeds.
+
+F. Real-World Evaluation 
+
+The framework is validated on a physical Unitree Go2 quadruped. A remote unit (Intel i9-13900K, 64 GB RAM) executes the planning algorithms, communicating via Wi-Fi. State estimation is provided by an OptiTrack system (ten Prime x 13 cameras, 120 Hz, ±0.02 mm accuracy). The closed-loop control operates at 50 Hz. A video demonstration of the hardware deployment, along with the complete source code, is available at GitHub. 4        
+
+> Fig. 3. Hardware experiments using the Unitree Go2 quadruped. The left subfigure shows a composite image of the Unitree Go2 navigating an obstacle-rich environment under P2P-SAC. The top-right subfigure illustrates the desired velocities generated by the proposed method and the actual velocities measured by the onboard hardware, demonstrating that the velocity constraints are satisfied at all times. The bottom-right subfigure presents the trajectory in Cartesian coordinates along with the goal X-Y position.
+
+Fig. 3 shows the experimental results. The quadruped successfully avoids all obstacles within the velocity con-straints and reaches the goal, demonstrating that the policy trained via P2P-SAC transfers to hardware and maintains safe trajectories under real-world conditions. 
+
+> 4https://github.com/mohsen1amiri/PriPG-RL_UnitreeGo2.git
+
+VII. C ONCLUSION 
+
+We presented PriPG-RL, a framework for training reactive RL policies under partial observability by leveraging an anytime-feasible planner agent, which is available only dur-ing training. The framework pairs two instantiations: REAP as an anytime-feasible MPC planner agent, and P2P-SAC as a learning agent whose planner-regularized objective prov-ably separates useful privileged guidance from irreducible aliasing variance (Theorem 1). Simulation in NVIDIA Isaac Lab and deployment on a Unitree Go2 quadruped confirm that P2P-SAC achieves reliable obstacle avoidance in aPOMDP setting where standard SAC and PPO fail entirely. Future work will extend the PriPG-RL framework beyond reactive policies by proposing a time-varying, anytime-feasible planner agent to supervise history-aware architec-tures, thereby resolving the temporal ambiguities introduced by non-stationary environments. REFERENCES [1] A. Beikmohammadi and S. Magn´ usson, “Ta-explore: Teacher-assisted exploration for facilitating fast reinforcement learning,” in Proceedings of the 2023 International Conference on Autonomous Agents and Multiagent Systems , 2023, pp. 2412–2414. [2] V. Mnih, K. Kavukcuoglu, D. Silver, A. A. Rusu, J. Veness, M. G. Bellemare, A. Graves, M. Riedmiller, A. K. Fidjeland, G. Ostrovski 
+
+et al. , “Human-level control through deep reinforcement learning,” 
+
+nature , vol. 518, no. 7540, pp. 529–533, 2015. [3] Y. Duan, X. Chen, R. Houthooft, J. Schulman, and P. Abbeel, “Benchmarking deep reinforcement learning for continuous control,” in International conference on machine learning . PMLR, 2016, pp. 1329–1338. [4] M. Lauri, D. Hsu, and J. Pajarinen, “Partially observable markov decision processes in robotics: A survey,” IEEE Transactions on Robotics , vol. 39, no. 1, pp. 21–40, 2022. [5] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov, “Proximal policy optimization algorithms,” arXiv preprint arXiv:1707.06347 , 2017. [6] S. Fujimoto, H. Hoof, and D. Meger, “Addressing function approxi-mation error in actor-critic methods,” in International conference on machine learning . PMLR, 2018, pp. 1587–1596. [7] T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine, “Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor,” in International conference on machine learning . Pmlr, 2018, pp. 1861–1870. [8] A. Beikmohammadi and S. Magn´ usson, “Accelerating actor-critic-based algorithms via pseudo-labels derived from prior knowledge,” 
+
+Information Sciences , vol. 661, p. 120182, 2024. [9] M. Janner, J. Fu, M. Zhang, and S. Levine, “When to trust your model: Model-based policy optimization,” Advances in neural information processing systems , vol. 32, 2019. [10] D. Amodei, C. Olah, J. Steinhardt, P. Christiano, J. Schulman, and D. Man´ e, “Concrete problems in ai safety,” arXiv preprint arXiv:1606.06565 , 2016. [11] J. Uesato, A. Kumar, C. Szepesvari, T. Erez, A. Ruderman, K. An-derson, N. Heess, P. Kohli et al. , “Rigorous agent evaluation: An adversarial approach to uncover catastrophic failures,” arXiv preprint arXiv:1812.01647 , 2018. [12] J. Oh, G. Farquhar, I. Kemaev, D. A. Calian, M. Hessel, L. Zintgraf, S. Singh, H. Van Hasselt, and D. Silver, “Discovering state-of-the-art reinforcement learning algorithms,” Nature , vol. 648, no. 8093, pp. 312–319, 2025. [13] A. K. Shakya, G. Pillai, and S. Chakrabarty, “Reinforcement learning algorithms: A brief survey,” Expert Systems with Applications , vol. 231, p. 120495, 2023. [14] R. S. Sutton, A. G. Barto et al. , Reinforcement learning: An introduc-tion . MIT press Cambridge, 1998, vol. 1, no. 1. [15] S. P. Singh, T. Jaakkola, and M. I. Jordan, “Learning without state-estimation in partially observable markovian decision processes,” 
+
+ICML , 1994. [16] M. Amiri and S. Magn´ usson, “On the convergence of td-learning on markov reward processes with hidden states,” in 2024 European Control Conference (ECC) . IEEE, 2024, pp. 2097–2104. [17] M. Amiri and S. Magn´ usson, “Reinforcement learning in switching non-stationary markov decision processes: Algorithms and conver-gence analysis,” arXiv preprint arXiv:2503.18607 , 2025. [18] D. Chen, B. Zhou, V. Koltun, and P. Kr¨ ahenb¨ uhl, “Learning by cheating,” in Proc. Conference on Robot Learning (CoRL) , 2020, pp. 66–75. [19] J. Lee, J. Hwangbo, L. Wellhausen, V. Koltun, and M. Hutter, “Learning quadrupedal locomotion over challenging terrain,” Science robotics , vol. 5, no. 47, p. eabc5986, 2020. [20] G. B. Margolis, G. Yang, L. Paull, and P. Agrawal, “Rapid locomotion via reinforcement learning,” in Robotics: Science and Systems , 2022. [21] A. Kumar, Z. Fu, D. Pathak, and J. Malik, “RMA: Rapid motor adaptation for legged robots,” in Proc. Robotics: Science and Systems (RSS) , 2021. [22] T. Hester, M. Vecerik, O. Pietquin, M. Lanctot, T. Schaul, B. Piot, D. Horgan, J. Quan, A. Sendonaris, I. Osband et al. , “Deep q-learning from demonstrations,” in Proceedings of the AAAI conference on artificial intelligence , vol. 32, no. 1, 2018. [23] M. Vecerik, T. Hester, J. Scholz, F. Wang, O. Pietquin, B. Piot, N. Heess, T. Roth¨ orl, T. Lampe, and M. Riedmiller, “Leveraging demonstrations for deep reinforcement learning on robotics problems with sparse rewards,” arXiv preprint arXiv:1707.08817 , 2017. [24] A. Nair, A. Gupta, M. Dalal, and S. Levine, “Awac: Accelerating online reinforcement learning with offline datasets,” arXiv preprint arXiv:2006.09359 , 2020. [25] K. Lowrey, A. Rajeswaran, S. Kakade, E. Todorov, and I. Mordatch, “Plan online, learn offline: Efficient learning and exploration via model-based control,” arXiv preprint arXiv:1811.01848 , 2018. [26] A. Nagabandi, G. Kahn, R. S. Fearing, and S. Levine, “Neural network dynamics for model-based deep reinforcement learning with model-free fine-tuning,” in 2018 IEEE international conference on robotics and automation (ICRA) . IEEE, 2018, pp. 7559–7566. [27] M. Hosseinzadeh, B. Sinopoli, I. Kolmanovsky, and S. Baruah, “Robust-to-early termination model predictive control,” IEEE trans-actions on automatic control , vol. 69, no. 4, pp. 2507–2513, 2023. [28] M. Amiri and M. Hosseinzadeh, “REAP-T: A MATLAB toolbox for implementing robust-to-early termination model predictive control,” 
+
+IFAC-PapersOnLine , vol. 59, no. 30, pp. 1096–1101, 2025. [29] M. Amiri and M. Hosseinzadeh, “Practical considerations for imple-menting robust-to-early termination model predictive control,” Systems & Control Letters , vol. 196, p. 106018, 2025. [30] Y. M. Ren, M. S. Alhajeri, J. Luo, S. Chen, F. Abdullah, Z. Wu, and P. D. Christofides, “A tutorial review of neural network modeling approaches for model predictive control,” Computers & Chemical Engineering , vol. 165, p. 107956, 2022. [31] M. Amiri, I. Kolmanovsky, and M. Hosseinzadeh, “A dynamic em-bedding method for the real-time solution of time-varying constrained convex optimization problems,” Systems & Control Letters , vol. 209, p. 106352, 2026. [32] A. Nair, B. McGrew, M. Andrychowicz, W. Zaremba, and P. Abbeel, “Overcoming exploration in reinforcement learning with demonstra-tions,” in 2018 IEEE international conference on robotics and automa-tion (ICRA) . IEEE, 2018, pp. 6292–6299. [33] C. Schwarke, M. Mittal, N. Rudin, D. Hoeller, and M. Hutter, “Rsl-rl: A learning library for robotics research,” arXiv preprint arXiv:2509.10771 , 2025. [34] J. Siekmann, Y. Godse, A. Fern, and J. Hurst, “Blind bipedal stair traversal via sim-to-real reinforcement learning,” in Robotics: Science and Systems , 2021. [35] M. Mittal, P. Roth, J. Tigue, A. Richard, O. Zhang, P. Du, A. Serrano-Munoz, X. Yao, R. Zurbr¨ ugg, N. Rudin et al. , “Isaac lab: A gpu-accelerated simulation framework for multi-modal robot learning,” 
+
+arXiv preprint arXiv:2511.04831 , 2025. [36] W. R. Gilks and P. Wild, “Adaptive rejection sampling for gibbs sampling,” Journal of the Royal Statistical Society: Series C (Applied Statistics) , vol. 41, no. 2, pp. 337–348, 1992.
