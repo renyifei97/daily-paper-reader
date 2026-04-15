@@ -1,0 +1,989 @@
+Title: End-to-End Learning of Correlated Operating Reserve Requirements in Security-Constrained Economic Dispatch
+
+URL Source: https://arxiv.org/pdf/2604.05167v1
+
+Published Time: Wed, 08 Apr 2026 00:12:41 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# End-to-End Learning of Correlated Operating Reserve Requirements in Security-Constrained Economic Dispatch 
+
+Owen Shen ∗1, Hung-po Chao 2, Haihao Lu 1, and Patrick Jaillet 11Massachusetts Institute of Technology 
+
+> 2
+
+Energy Trading Analytics, LLC 
+
+Abstract 
+
+Operating reserve requirements in security-constrained economic dispatch (SCED) depend strongly on the assumed correlation structure of renewable forecast errors, yet that structure is usually specified exogenously rather than learned for the dispatch task itself. This paper for-mulates correlated reserve-set design as an end-to-end trainable robust optimization problem: choose the ellipsoidal uncertainty-set shape to minimize robust dispatch cost subject to a target coverage requirement. By profiling the coverage constraint into a shape-dependent radius, the original bilevel problem becomes a single-stage differentiable objective, and KKT/dual infor-mation from the SCED solve provides task gradients without differentiating through the solver. For unknown distributions, a four-way train/tune/calibrate/test split combines a smoothed quantile-sensitivity estimator for training with split conformal calibration for deployment, yield-ing finite-sample marginal coverage under exchangeability and a consistent gradient estimator for the smoothed objective. The same task gradient can also be passed upstream to context-dependent encoders, which we report as a secondary extension. The framework is evaluated on the IEEE 118-bus system with a coupled SCED formulation that includes inter-zone transfer constraints. The learned static ellipsoid reduces dispatch cost by about 4.8% relative to the Sample Covariance baseline while maintaining empirical coverage above the target level. 
+
+Keywords: Robust optimization, uncertainty sets, operating reserves, machine learning, confor-mal prediction, electricity markets. 
+
+# 1 Introduction 
+
+Electricity markets rely on operating reserve procurement and pricing mechanisms to manage un-certainty arising from high penetrations of wind and solar generation. Renewable forecast errors exhibit strong spatial and temporal correlations due to common weather patterns [Hodge and Milli-gan, 2011, Pinson, 2013]. When such correlations are ignored, reserve capacity may be inefficiently allocated, leading to excessive costs and distorted price signals. A central modeling question is therefore how correlated reserve requirements should be parameterized for the dispatch task itself. Robust optimization provides a principled framework for incorporating uncertainty into power system operations [Ben-Tal et al., 2009, Bertsimas et al., 2011]. In security-constrained economic dispatch (SCED), uncertain parameters are assumed to lie within a prescribed uncertainty set ,and the dispatch must remain feasible for all realizations within this set. The geometry of the 
+
+> ∗Corresponding author. Email: owenshen@mit.edu.
+
+1
+
+> arXiv:2604.05167v1 [math.OC] 6 Apr 2026
+
+uncertainty set fundamentally determines the conservatism and cost of the solution [Bertsimas et al., 2013]. The resulting design problem is inherently coupled: the uncertainty-set geometry affects reserve requirements, the SCED solve determines the economic value of that geometry, and the reliability requirement determines the radius needed for coverage. The goal in this paper is to learn that uncertainty-set geometry that is economically aligned with downstream dispatch. We therefore treat reserve-set design as an end-to-end trainable problem: profile the coverage requirement into a shape-dependent radius, optimize the resulting objective with KKT/dual information from the dispatch solve, and obtain a task gradient that can also be passed upstream to contextual models. 
+
+1.1 Literature Review 
+
+The most relevant prior work falls into six strands: robust power-system optimization, data-driven calibration, decision-focused learning, learned uncertainty sets, conformal prediction, and renewable forecast modeling. 
+
+A) Robust Optimization for Power Systems. Robust methods have been widely adopted for unit commitment and economic dispatch. Bertsimas et al. [Bertsimas et al., 2013] developed adap-tive robust optimization for security-constrained unit commitment with polyhedral uncertainty sets. Jiang et al. [Jiang et al., 2012] proposed two-stage robust unit commitment, and Zeng and Zhao [Zeng and Zhao, 2013] introduced column-and-constraint generation. Lorca et al. [Lorca et al., 2016] extended these to multistage settings, while Jabr [Jabr, 2013] developed adjustable robust OPF with ellipsoidal sets. These approaches assume a fixed uncertainty set geometry determined a priori. 
+
+B) Data-Driven and Distributionally Robust Approaches. Bertsimas et al. [Bertsimas et al., 2018] proposed data-driven robust optimization using hypothesis testing to calibrate set size. Dis-tributionally robust optimization (DRO) optimizes over ambiguity sets: Mohajerin Esfahani and Kuhn [Mohajerin Esfahani and Kuhn, 2018] developed Wasserstein DRO with tractable reformula-tions, Gao and Kleywegt [Gao and Kleywegt, 2023] established finite-sample guarantees, and Van Parys et al. [Van Parys et al., 2021] proved asymptotic optimality. In power systems, Xiong et al. [Xiong et al., 2017] applied moment-based DRO to unit commitment. Roald et al. [Roald et al., 2023] survey optimization under uncertainty in power systems. These methods do not directly optimize uncertainty set geometry for downstream costs. 
+
+C) Decision-Focused Learning and Differentiable Optimization. Decision-focused learning trains models to minimize downstream decision cost [Elmachtoub and Grigas, 2022, Donti et al., 2017]. Differentiable optimization layers [Amos and Kolter, 2017, Agrawal et al., 2019, Bolte et al., 2021] enable backpropagation through convex programs. Our envelope-based approach avoids differenti-ating through solvers entirely. 
+
+D) Learned Uncertainty Sets. Wang et al. [Wang et al., 2023] proposed learning decision-focused uncertainty sets via implicit differentiation. Chenreddy and Delage [Chenreddy and Delage, 2024] developed end-to-end conditional robust optimization. Goerigk and Kurtz [Goerigk and Kurtz, 2023] used neural networks to predict uncertainty set parameters. What remains missing for reserve procurement is an application-driven formulation in which the uncertainty-set geometry, the SCED solve, and the coverage calibration are optimized as one pipeline. The framework in this paper closes that gap by profiling the coverage constraint and using KKT/dual sensitivities from SCED to optimize the resulting single-stage objective without solver backpropagation. 
+
+E) Conformal Prediction. Conformal prediction [Vovk et al., 2005] provides distribution-free uncertainty quantification under exchangeability. Romano et al. [Romano et al., 2019] developed conformalized quantile regression, and Angelopoulos and Bates [Angelopoulos and Bates, 2023] 2provide a comprehensive tutorial. Johnstone and Cox [Johnstone and Cox, 2021] connected confor-mal prediction to robust optimization via Mahalanobis distance. Here, conformal calibration plays a specific operational role: once the shape is learned, it calibrates the radius needed to meet the reserve-coverage target. 
+
+F) Renewable Forecast Uncertainty. Wind and solar forecast errors exhibit complex spatial and temporal correlations [Hodge and Milligan, 2011, Pinson, 2013]. Hong and Fan [Hong and Fan, 2016] surveyed probabilistic load forecasting. These works motivate the need for correlation-aware uncertainty sets that adapt to varying forecast error patterns—precisely what the learned Cholesky parameterization is designed to capture. Taken together, these literatures motivate an end-to-end reserve-learning formulation in which uncertainty-set shape is learned for the dispatch task itself while coverage is enforced out of sample. That is the role of the framework developed below. 
+
+1.2 Contribution and Organization 
+
+Main contribution. 
+
+• Modeling and reformulation. We formulate correlated reserve-set design in SCED as an end-to-end trainable robust optimization problem, where the uncertainty-set shape is opti-mized against the downstream robust dispatch value function and the coverage constraint is profiled into a shape-dependent radius. This yields a single-stage gradient-friendly objec-tive, and the paper establishes the corresponding profiling and envelope-gradient results that justify using SCED dual information rather than solver differentiation. 
+
+• Algorithm and calibration. We develop a practical learning procedure based on a train/ tune/ calibrate/ test split, where the tuning set supports estimation of the smoothed profiled gradient and the calibration set supplies a conformal radius for the final deployed set. The paper further gives a finite-sample conformal coverage guarantee under exchangeability and a consistency result for the smoothed gradient estimator under standard regularity conditions. 
+
+• Empirical study. We validate the framework on the IEEE 118-bus system and show that the learned static ellipsoid reduces dispatch cost by 4.8% relative to the Sample Covariance baseline while maintaining empirical coverage above the target level. We further study the method under coupled SCED with transfer constraints, showing that the same formulation and gradient machinery remain effective in a more operationally constrained setting. 
+
+Organization. Section 2 fixes the uncertainty score, the robust dispatch value function, and the coverage-constrained learning problem. Section 3 develops the reformulation in three steps: dual-based sensitivity of V , profiled gradients through the shape-dependent radius, and final conformal calibration. Section 4 turns these ingredients into a training pipeline and then reports a secondary contextual extension. Section 5 presents the coupled SCED study, while the simpler decoupled zonal benchmark and the target-level sweep are deferred to Appendix E. 
+
+# 2 End-to-End Reserve-Learning Problem 
+
+In electricity markets, operating reserve procurement must hedge against net load uncertainty —the aggregate forecast error arising from renewable generation variability and load prediction errors. Let U ∈ Rd denote the uncertainty realization, where d corresponds to the number of uncertainty sources (e.g., wind and solar regions, load zones). The application problem addressed here is to 3learn an uncertainty set for U that is economical for SCED while still meeting a prescribed coverage level. This section fixes three objects that will be used throughout the paper: a shape-dependent un-certainty score, the robust dispatch value function, and the coverage-constrained learning problem that will later be reduced to a shape-only objective. The central design choice is the uncertainty set 
+
+U specifying which realizations must be hedged. This set must be large enough to cover most real-izations (reliability) yet small enough to avoid excessive reserve costs (efficiency). We parameterize uncertainty sets via two components: 
+
+• The shape parameter θ captures correlation structure—e.g., if wind forecast errors in neigh-boring regions are positively correlated, the uncertainty set elongates in that direction. 
+
+• The size parameter ρ controls overall conservatism—larger ρ means more coverage but higher reserve costs. The shape is the trainable object; the size will later be calibrated to meet the target coverage level. This separation is what allows the original coverage-constrained problem to be reduced to a single-stage differentiable objective. 
+
+2.1 Score-Based Uncertainty Sets and Gauge Interpretation 
+
+Fix an uncertainty dimension d ≥ 1 and a parameter set Θ ⊆ Rp. We begin with a shape-dependent score sθ(u) that measures how far a realization u lies from the center of the uncertainty set. For convex unit sets, this score is the gauge (or Minkowski functional); in the ellipsoidal case used later, it reduces to a whitened Euclidean norm. 
+
+Definition 1 (Parameterized Uncertainty Set) . For shape θ ∈ Θ and radius ρ > 0, 
+
+Uθ,ρ := {u ∈ Rd : sθ(u) ≤ ρ} (1) where sθ : Rd → [0 , ∞) is the gauge function of the unit set Uθ,1.The gauge function generalizes the notion of “distance from the origin” to non-spherical sets. For ellipsoidal uncertainty sets—the primary focus of this paper— θ is the Cholesky factor L of the covariance matrix Σ = LL ⊤, and the gauge sL(u) = ∥L−1u∥2 measures how many “standard deviations” u lie from the origin in the whitened coordinate system. When forecast errors in different zones are positively correlated, Σ has off-diagonal structure, and the ellipsoid elongates along the correlated direction. 
+
+Assumption 1 (Gauge Regularity) . For each θ ∈ Θ, Uθ,1 is nonempty, convex, compact, and contains 0 in its interior. Consequently, Uθ,ρ = ρ · U θ,1 for all ρ > 0. The support function converts uncertainty-set geometry into worst-case directional exposure, which is why it appears directly in the robust constraints below. 
+
+Definition 2 (Support Function) . σC (w) := sup u∈C ⟨w, u⟩.Operationally, σC (w) is the worst-case effect of uncertainty in direction w. By homogeneity, 
+
+σUθ,ρ (w) = ρ · σUθ,1 (w) (Lemma 6 in Appendix A). 42.2 Robust Optimization Value Function 
+
+Given a shape–radius pair ( θ, ρ ), the downstream task is the robust dispatch cost. We capture that task abstractly by the value function V (θ, ρ ), which will be referenced in every subsequent learning formulation. Let X ⊆ Rnx be a closed convex decision set, f : Rnx → R ∪ { +∞} a convex objective, and aj convex constraint functions. Fix exposure vectors w1, . . . , wm ∈ Rd and scalars b1, . . . , b m.
+
+V (θ, ρ ) := inf  
+
+> x∈X
+
+f (x)s.t. aj (x) + σUθ,ρ (wj ) ≤ bj , j = 1 , . . . , m, 
+
+(2) with V (θ, ρ ) = + ∞ if the feasible set is empty. 
+
+Assumption 2 (Local Slater and Dual Attainment) . Fix ( θ, ρ ) with V (θ, ρ ) < +∞. Assume f
+
+is bounded below on X (i.e., inf x∈X f (x) > −∞ ) and there exists ¯ x ∈ ri( X ) with f ( ¯ x) < +∞
+
+satisfying all constraints strictly. Under Assumption 2, strong duality holds and the set of optimal dual multipliers M∗(θ, ρ ) := argmax μ≥0 q(μ; θ, ρ ) is nonempty (Lemma 7). 
+
+2.3 The Bilevel Learning Problem 
+
+Using the robust dispatch value function V (θ, ρ ) from (2), we consider the following coverage-constrained end-to-end learning problem. Let U ∼ P be a random uncertainty realization. Define the gauge score CDF Fθ(r) := P(sθ(U ) ≤ r) and fix target coverage τ ∈ (0 , 1). min  
+
+> θ∈Θ, ρ> 0
+
+V (θ, ρ ) s.t. P(U ∈ U θ,ρ ) ≥ τ (3) Define the τ -quantile radius ρP (θ) := inf {r > 0 : Fθ(r) ≥ τ }.
+
+Proposition 1 (Radius Profiling) . Under Assumption 1, the bilevel problem (3) reduces to 
+
+min  
+
+> θ∈Θ
+
+JP (θ) := V (θ, ρ P (θ)) . (4) 
+
+Proof. The map ρ 7 → V (θ, ρ ) is nondecreasing (larger sets shrink the feasible region), so the smallest feasible radius is ρP (θ). See Appendix A. The profiling result has a clear operational interpretation: given a shape θ, use the smallest radius ρP (θ) that achieves τ -coverage . The shape determines where to allocate reserves across zones—encoding which uncertainty directions to hedge—while the radius calibrates how conserva-tively to hedge overall. The learning problem (4) optimizes the shape to minimize dispatch cost, while coverage is maintained by adjusting the radius to the learned shape. Proposition 1 is the first reduction step: it removes the outer coverage constraint and leaves a shape-only optimization prob-lem. The remaining challenge is to differentiate the dispatch value with respect to shape without backpropagating through the SCED solver. 
+
+# 3 Single-Stage Differentiable Reformulation 
+
+This section turns the coverage-constrained formulation into the trainable objective used in Al-gorithms 1–2. The reformulation has three steps. First, differentiate the robust dispatch value function V using SCED dual multipliers rather than solver backpropagation. Second, account for 5the fact that the coverage radius changes with the shape parameter. Third, after training, fix the deployed radius by split conformal calibration. Theorem 5 then justifies the smoothed profiled-gradient estimator used in practice. 
+
+3.1 KKT/Envelope Sensitivities of V (θ, ρ )
+
+At a fixed ( θ, ρ ), the robust SCED in (2) is a convex program. This subsection shows that its optimal dual variables are sufficient to differentiate the value function V (θ, ρ ) with respect to both shape and radius. We formalize this sensitivity using the Clarke subdifferential ∂C (Definition 3 in Appendix A; see also Clarke [1990]). 
+
+Assumption 3 (Support Function Smoothness) . For each j and ρ > 0, the map θ 7 → σUθ,ρ (wj ) is continuously differentiable on Θ with locally bounded gradient. 
+
+Proposition 2 (KKT/Envelope Sensitivity of V (θ, ρ )) . Under Assumptions 1, 2, and 3, fix (θ, ρ )
+
+with V (θ, ρ ) < +∞ and let μ∗ ∈ M ∗(θ, ρ ).
+
+(a) Shape gradient. 
+
+gθ(θ, ρ ; μ∗) := 
+
+> m
+
+X
+
+> j=1
+
+μ∗ 
+
+> j
+
+∇θσUθ,ρ (wj ) ∈ ∂C 
+
+> θ
+
+V (θ, ρ ). (5) 
+
+If the dual optimizer is unique, then V (·, ρ ) is differentiable at θ with gradient (5) .
+
+(b) Radius gradient. 
+
+gρ(θ, ρ ; μ∗) := 
+
+> m
+
+X
+
+> j=1
+
+μ∗ 
+
+> j
+
+σUθ,1 (wj ) ∈ ∂C 
+
+> ρ
+
+V (θ, ρ ). (6) 
+
+Proof. See Appendix B. The Lagrange dual decomposes so that only support function terms depend on ( θ, ρ ). Part (b) uses σUθ,ρ (wj ) = ρ σ Uθ,1 (wj ). This is the key computational simplification of the paper: one SCED solve provides the KKT multipliers μ∗, and those multipliers directly produce the shape and radius sensitivities. No differen-tiation through the optimization solver is required. In power-systems terms, μ∗ 
+
+> j
+
+is the shadow price 
+
+of constraint j—the marginal cost increase per MW of additional reserve requirement—and (5) steers θ toward configurations that relax the most costly binding constraints. 
+
+3.2 Profiled Gradient of the Single-Stage Objective 
+
+The next step is to differentiate the profiled objective JP (θ) = V (θ, ρ P (θ)). Because the calibrated radius itself depends on the shape parameter, the full gradient contains both a direct envelope term and an indirect radius-adjustment term. Under sufficient regularity, Proposition 3 gives this exact profiled gradient. 
+
+Assumption 4 (Quantile Regularity) . The CDF Fθ is continuously differentiable near ρP (θ) with strictly positive density fθ(ρP (θ)) > 0, and ( θ′, r ) 7 → Fθ′ (r) is C1 near ( θ, ρ P (θ)). Under Assumption 4, the implicit function theorem yields ∇θρP (θ) = −∇ θFθ(ρP (θ)) /f θ(ρP (θ)) (Lemma 9). 6Proposition 3 (Oracle Profiled Gradient) . Under Assumptions 1–4, assume V is differentiable at 
+
+(θ, ρ P (θ)) (e.g., the dual optimizer is unique). Let μ∗ denote the optimizer at (θ, ρ P (θ)) . Then 
+
+∇θJP (θ) = gθ(θ, ρ P ; μ∗) + gρ(θ, ρ P ; μ∗) ∇θρP (θ), (7) 
+
+where the first term is the direct shape effect (5) and the second is the quantile-sensitivity correction combining (6) with Lemma 9. Proof. Chain rule on JP (θ) = V (θ, ρ P (θ)) with envelope derivatives from Proposition 2 (unique-dual case). The direct shape effect captures how changing θ affects reserve requirements at fixed radius; the quantile-sensitivity correction accounts for the induced shift in ρP (θ) as reshaping changes which samples lie inside the set. This shape–size coupling is why the full profiled gradient is needed; when 
+
+P is unknown, the correction must be approximated from data. 
+
+3.3 Conformal Calibration of the Radius 
+
+Once a shape has been trained, the remaining task is to calibrate the radius so that the learned uncertainty set attains the target coverage level. Split conformal prediction provides exactly this calibration using an independent sample. 
+
+Assumption 5 (Calibration Exchangeability) . Conditional on ˆθ, the calibration sample ( U1, . . . , U ncal )and the future realization Unew are exchangeable. Given calibration scores Si = s ˆθ(Ui), define the split-conformal radius ˆρτ := inf 
+
+
+
+r > 0 : 1 + Pncal  
+
+> i=1
+
+1{Si ≤ r}
+
+ncal + 1 ≥ τ
+
+
+
+. (8) 
+
+Proposition 4 (Conformal Calibration Guarantee) . Under Assumption 5, fix any ˆθ independent of (Ui)ncal 
+
+> i=1
+
+. Then 
+
+P(Unew ∈ U ˆθ,ˆρτ ) ≥ τ. 
+
+Proof. See Appendix C. The radius in (8) is equivalent to the usual split-conformal order-statistic threshold; the proof uses the standard exchangeability rank argument with randomized tie-breaking. Operationally, training determines the shape, while calibration fixes the final deployed radius. In power-systems terms, τ = 0 .95 means the realized uncertainty falls within the procured set for at least 95% of future operating hours—a sufficient condition for reserve adequacy under (2), though not accounting for other reliability drivers (ramping, contingencies, model mismatch). The guarantee relies on a four-way data split: Dtrain for shape optimization, Dtune for training-time quantile-sensitivity estimation, Dcal for deployment-time radius calibration, and Dtest for evalua-tion. Independence between Dtune and Dcal ensures that calibration remains valid after tuning; for dependent time-series data, block-based calibration [Barber et al., 2023] is needed for rigorous finite-sample validity. 73.4 Tuning-Based Gradient Estimation and Main Consistency Result 
+
+Training cannot access the population radius ρP (θ) directly, so we replace it with a smoothed population quantile and its tuning-set estimate. Let Φ be a smooth CDF kernel with derivative 
+
+φ := Φ ′ (Assumption 6). For bandwidth ε > 0, define 
+
+Fθ,ε (r) := E
+
+
+
+Φ
+
+ r − sθ(U )
+
+ε
+
+ 
+
+,ρP,ε (θ) := inf {r : Fθ,ε (r) ≥ τ }. (9) 
+
+Radii used in the paper. The notation separates four roles. The population coverage radius 
+
+ρP (θ) appears in the original profiled objective (4). The smoothed population radius ρP,ε (θ) is its training-time population analogue. The empirical smoothed radius ˆ ρε(θ) is the tuning-set estimate used inside the gradient updates. The split-conformal radius ˆ ρτ is the final deployed radius used for calibration and test evaluation. Given tuning data {Ui}ntune  
+
+> i=1
+
+, define the empirical smoothed CDF and empirical smoothed quan-tile by ˆFθ,ε (r) := 1
+
+ntune 
+
+> ntune
+
+X
+
+> i=1
+
+Φ
+
+ r − sθ(Ui)
+
+ε
+
+
+
+,
+
+ˆρε(θ) := inf {r : ˆFθ,ε (r) ≥ τ }. (10) With scores Si(θ) = sθ(Ui) and weights ωi(θ) := φ((ˆ ρε(θ) − Si(θ)) /ε ), the empirical quantile sensitivity is 
+
+[∇θρε(θ) := 
+
+Pntune  
+
+> i=1
+
+ωi(θ)∇θsθ(Ui)
+
+Pntune  
+
+> i=1
+
+ωi(θ) . (11) The approximate profiled gradient combines the direct envelope effect with the induced change in the training-time radius: ˆgε(θ) := 
+
+> m
+
+X
+
+> j=1
+
+μ∗ 
+
+> j
+
+∇θσUθ, ˆρε (θ) (wj )
+
+| {z }
+
+> envelope shape term
+
++
+
+
+
+> m
+
+X
+
+> j=1
+
+μ∗ 
+
+> j
+
+σUθ,1 (wj )
+
+| {z }
+
+> size sensitivity
+
+· [∇θρε(θ)
+
+| {z }
+
+> quantile sensitivity
+
+(12) where μ∗ denotes the dual multipliers of the robust solve at ( θ, ˆρε(θ)). Define the smoothed profiled objective JP,ε (θ) := V (θ, ρ P,ε (θ)). The theorem below is the main statistical statement: the tuned gradient used in Algorithm 1 converges to the gradient of this smoothed profiled objective. 
+
+Theorem 5 (Consistency) . Fix ε > 0 and θ ∈ Θ. Under standard smoothness, strict positivity, and continuity conditions (stated as (A1)–(A5) in Appendix C), 
+
+ˆgε(θ) P
+
+−−→ ∇θJP,ε (θ) as ntune → ∞ .
+
+Proof. See Appendix C. 8In other words, the gradient used in the static training loop is asymptotically correct for the smoothed profiled objective, rather than for an unrelated surrogate. 
+
+Remark 1. Theorem 5 is proved for i.i.d. tuning samples. The vector autoregressive [VAR(1)] data in Section 5 therefore should be read as an application-driven stress test under temporal dependence, rather than as a direct verification of the theorem’s assumptions. 
+
+3.5 Ellipsoidal Specialization 
+
+We now instantiate the generic score and support functions for the ellipsoidal family used in the experiments. Let θ = L ∈ Rd×d be a lower-triangular Cholesky factor with positive diagonal. The ellipsoidal gauge and support functions are: 
+
+sL(u) = ∥L−1u∥2, σUL,ρ (w) = ρ∥L⊤w∥2. (13) The matrix gradients are (Proposition 14 in Appendix D): 
+
+∇L σUL,ρ (w) = ρ ww ⊤L
+
+∥L⊤w∥2
+
+, (14) 
+
+∇L sL(u) = − L−⊤ (L−1u)( L−1u)⊤
+
+∥L−1u∥2
+
+.
+
+For numerical stability, a trace normalization constraint tr( LL ⊤) = d is imposed via projection after each gradient step. 
+
+# 4 Training Procedure 
+
+This section turns the reformulation into an implementable pipeline. Algorithm 1 is the main static method; Algorithm 2 is a secondary context-dependent extension that uses the same task gradient for upstream learning. 
+
+4.1 Static Shape Training 
+
+Algorithm 1 is the main implementation of the single-stage reformulation for a fixed (non-contextual) shape parameter θ. Each iteration has three roles: estimate the shape-dependent radius sensitivity on tuning data, solve one robust SCED to extract KKT multipliers, and take one projected gradient step on the shape parameter. 
+
+Phase A (Tuning) estimates the current smoothed quantile ˆ ρε and its sensitivity from Dtune 
+
+using the smoothed CDF (9). Phase B solves the robust dispatch (2) at the current ( θk, ˆρε)and extracts the KKT multipliers μ∗. Phase C combines the envelope and quantile-sensitivity terms into the profiled gradient (12) and takes a projected gradient step. The projection Π Θ(·) := argmin θ∈Θ ∥ · − θ∥ (Frobenius norm for matrix parameters) enforces the parameter constraints—for ellipsoidal sets, this means lower-triangular structure, positive diagonal entries, and trace normal-ization tr( LL ⊤) = d.Two computational regimes determine the cost of Phase B. When constraints decouple across zones, reserve requirements Rmin  
+
+> z
+
+= ρ∥L⊤Az ∥2 are explicit functions of ( L, ρ ), and all gradients of the support function are available in closed form via (14). The SCED must still be solved to obtain dual multipliers μ∗, but no differentiation through the solver is required— μ∗ is a byproduct of any 9Algorithm 1 Training the Single-Stage Differentiable Reserve-Learning Problem 
+
+Require: Dtrain , Dtune , Dcal , coverage τ , bandwidth ε, iterations K, step sizes {ηk} 
+
+> 1:
+
+Initialize θ0 ∈ Θ {e.g., from sample covariance of Dtrain } 
+
+> 2:
+
+for k = 0 , 1, . . . , K − 1 do  
+
+> 3:
+
+// Phase A: Tuning  
+
+> 4:
+
+Compute gauge scores Si(θk) = sθk (Ui) for Ui ∈ D tune  
+
+> 5:
+
+Compute smoothed τ -quantile ˆ ρε(θk) and weights ωi 
+
+> 6:
+
+Estimate quantile gradient [∇θρε(θk) via (11)  
+
+> 7:
+
+// Phase B: Robust solve  
+
+> 8:
+
+Solve SCED robust dispatch (2) at ( θk, ˆρε(θk)); extract μ∗ 
+
+> 9:
+
+// Phase C: Gradient update  
+
+> 10:
+
+Compute ˆ gε(θk) via (12)  
+
+> 11:
+
+θk+1 ← ΠΘ(θk − ηk · ˆgε(θk))  
+
+> 12:
+
+end for  
+
+> 13:
+
+Compute calibration scores Si = sθK (Ui) for Ui ∈ D cal  
+
+> 14:
+
+Set ˆ ρτ to the split-conformal radius defined in Proposition 4 
+
+Ensure: Learned ˆθ = θK , calibrated ˆ ρτ with coverage ≥ τ (Proposition 4) LP solver (Appendix E). When network or transfer constraints bind, one SCED solve per iteration provides the dual multipliers required by Proposition 2. After training, conformal calibration (lines 14–15) computes gauge scores on the held-out Dcal 
+
+and then applies the standard split-conformal radius from Proposition 4, guaranteeing coverage 
+
+≥ τ . The tuning radius ˆ ρε is therefore only a training-time surrogate; deployment and reported evaluation always use the final conformal radius ˆ ρτ .
+
+4.2 Secondary Context-Dependent Extension and Upstream Gradient Passage 
+
+The static formulation above is the main object of study. For completeness, we also consider a context-dependent extension in which a differentiable encoder Lϕ : Ξ → Θ maps context features 
+
+ξ ∈ Ξ to shape parameters. This extension illustrates how the same task gradient can be passed upstream to a learned representation of operating conditions. The framework accommodates any differentiable encoder architecture; the only requirement is that Lϕ(ξ) produce a valid Cholesky factor (lower-triangular, positive diagonal) for each ξ.The learning objective in the contextual setting minimizes expected dispatch cost over operating conditions: min  
+
+> ϕ
+
+Eξ [V (Lϕ(ξ), ρ (ϕ))] , (15) where ρ(ϕ) is the smoothed τ -quantile of the mixture score distribution {sLϕ(ξt)(Ut)}t. In practice, the expectation is approximated by mini-batches from Dtrain (Algorithm 2, line 3), while ρ(ϕ) and its sensitivity are estimated from Dtune . Note that V (·, ·) denotes the same robust dispatch (2) for all t—the system parameters (loads, generator costs, network) are fixed, and context enters only through the uncertainty set shape Lϕ(ξt). Conformal calibration provides marginal coverage: 
+
+P(Unew ∈ U Lϕ(ξnew ),ˆρτ ) ≥ τ , averaging over both the future context and uncertainty realization. Algorithm 2 extends Algorithm 1 to the contextual setting. The key difference is that each training sample ( ξi, ui) produces its own shape Li = Lϕ(ξi) and its own SCED solve, yielding context-specific dual multipliers. The profiled gradient ˆ gi computed at each Li serves as a “task gradient” that is backpropagated through the encoder to update ϕ.10 Algorithm 2 Contextual Profiled Gradient Training 
+
+Require: Encoder Lϕ, Dtrain , Dtune , Dcal , coverage τ , bandwidth ε, iterations K, step sizes {ηk},batch size B 
+
+> 1:
+
+Initialize encoder parameters ϕ0 
+
+> 2:
+
+for k = 0 , 1, . . . , K − 1 do  
+
+> 3:
+
+Sample mini-batch {(ξi, ui)}Bi=1 from Dtrain  
+
+> 4:
+
+Compute per-sample shapes: Li = Lϕk (ξi) for i = 1 , . . . , B  
+
+> 5:
+
+// Phase A: Tuning (on Dtune ) 
+
+> 6:
+
+Compute gauge scores using current encoder on tuning set  
+
+> 7:
+
+Estimate smoothed quantile ˆ ρε and quantile sensitivity  
+
+> 8:
+
+// Phase B: Per-sample robust solves  
+
+> 9:
+
+for i = 1 , . . . , B do  
+
+> 10:
+
+Solve SCED at ( Li, ˆρε); extract μ∗ 
+
+> i
+> 11:
+
+Compute approximate task gradient ˆ gi via (12)  
+
+> 12:
+
+end for  
+
+> 13:
+
+// Phase C: Backpropagate through encoder  
+
+> 14:
+
+Set ∂J /∂ Li ← ˆgi for each sample  
+
+> 15:
+
+Update ϕk+1 ← ϕk − ηk∇ϕ
+
+ 1
+
+> B
+
+PBi=1 ⟨ˆgi, Li⟩F
+
+ 
+
+> 16:
+
+end for  
+
+> 17:
+
+Conformal calibration: ˆ ρτ = S(⌈(ncal +1) τ ⌉) where Si = sLϕ(ξi)(ui) on Dcal 
+
+Ensure: Learned encoder LϕK , calibrated ˆ ρτ with marginal coverage ≥ τ
+
+The per-sample SCED solves in Phase B are the main computational cost; each context sample may activate different binding constraints, yielding context-specific shadow prices μ∗ 
+
+> i
+
+that drive the encoder to learn condition-dependent reserve allocation. 
+
+Gradient approximation. The quantile-sensitivity correction in Algorithm 2 uses a shared estimate \∇Lρε computed from the full tuning set (lines 6–7). Strictly, the exact gradient of (15) w.r.t. ϕ requires differentiating ρ(ϕ) through the encoder, yielding a global correction ( ∂ρ ¯V ) ·∇ϕρ(ϕ) where ¯V averages over contexts. Algorithm 2 approximates this by treating each per-sample envelope gradient as a “task gradient” backpropagated through the encoder, with the shared quantile sensitivity serving as a first-order approximation. This reduces variance in the quantile-sensitivity estimate as the tuning set grows; bias from ignoring the global coupling through ρ(ϕ)may remain, and we do not provide a formal bound on this approximation error. The static case (Algorithm 1) remains exact. We therefore present the contextual extension as a practical heuristic motivated by the static theory, rather than as a theorem-backed contribution at the same level as Algorithm 1. 
+
+# 5 Coupled SCED Study on the IEEE 118-Bus System 
+
+This section evaluates the proposed end-to-end reserve-learning formulation on the IEEE 118-bus system. It instantiates the generic value function V (θ, ρ ) with a zonal SCED and reports the main empirical comparison. The coupled SCED with inter-zone transfer constraints is the primary case study because it captures the interaction between reserve procurement and deliverability. The simpler decoupled zonal-reserve benchmark and the target-level sweep are reported in Appendix E as supporting diagnostics. 11 Table 1: Zonal Aggregation 
+
+Zone Buses Load (MW) Gen. Cap. (MW) 
+
+1 1–12 423 550 2 13–24 412 520 3 25–36 445 580 4 37–48 398 490 5 49–60 467 610 6 61–72 389 480 7 73–84 456 590 8 85–96 401 510 9 97–108 478 620 10 109–118 373 550 
+
+Total 118 4,242 5,500 
+
+5.1 System and Data 
+
+Our experimental setup has three layers: the IEEE 118-bus system provides the physical bench-mark, dispatch is carried out over 10 aggregated zones, and uncertainty is generated at the coarser level of 5 geographic regions. We use the standard IEEE 118-bus case from the pandapower li-brary [Thurner et al., 2018], aggregated into the 10 zones shown in Table 1, with 54 generators. Each hourly problem is a single-period DC-SCED. Energy and reserve offer prices are drawn syn-thetically (seed 42), and the resulting LP is solved with HiGHS [Huangfu and Hall, 2018]. The context vector ξt contains forecast-side inputs—normalized load, solar, and wind forecasts, together with hour-of-day and month encodings—and is used only to describe the operating conditions under which uncertainty is generated. 
+
+Uncertainty Dimensions and Allocation. The uncertainty vector has dimension d = 15 because we track three source types (load, solar, wind) in each of five regions. In other words, each hourly sample contains one forecast-error component for every source–region pair. A fixed linear map A then converts these regional forecast errors into the 10 zonal net deviations seen by the dispatch model. Intuitively, regional errors are distributed to zones according to load share and resource footprint, so each zone inherits the uncertainty of the regions that supply it. The exposure vector used in (16) is the row A⊤ 
+
+> z
+
+, which represents zone z’s uncertainty exposure. 
+
+Data Generation. The hourly uncertainty series is synthetic, but calibrated to real forecast-error patterns. OPSD (Germany) provides realistic source-specific scales, correlations, and temporal persistence [Open Power System Data, 2020], while US EIA hourly demand data for CAISO, ERCOT, PJM, MISO, and NYISO is used to capture cross-region dependence. Given the context 
+
+ξt, we generate the uncertainty vector using a context-dependent VAR(1) model. The construction is designed to capture two empirical features simultaneously: temporal persistence and context-dependent scale/correlation. Load uncertainty increases in high-load conditions, solar uncertainty is negligible at night and rises during daylight hours, and wind uncertainty increases with the wind forecast. The context also changes how load, solar, and wind forecast errors co-move, while a fixed regional correlation component captures shared weather exposure across nearby areas. The resulting covariance matrix Σ( ξt) defines a ground-truth ellipsoid shape through its Cholesky factor 
+
+Ltrue (ξt), which serves as a benchmark for the learned methods. The dataset contains 35,040 hourly samples (4 years) and is split chronologically into 60% training (21,024), 20% tuning (7,008), 10% calibration (3,504), and 10% testing (3,504). The 12 target coverage level is τ = 0 .95. This four-way split cleanly separates shape learning, quantile estimation, conformal calibration, and final out-of-sample evaluation. 
+
+5.2 Compared Methods 
+
+All four methods use the same SCED model, data split, and split conformal calibration; they differ only in how the ellipsoid shape L is chosen. Sample Covariance is the primary statistical baseline throughout because it is the standard correlation-aware construction. Independent is included as a diagonal ablation that isolates the cost of ignoring correlation. We compare four approaches: 1. Sample Covariance. L = chol( ˆΣ) from the sample covariance of Dtrain . Captures pairwise correlations but is not optimized for dispatch cost. 2. Independent. L = diag(ˆ σ1, . . . , ˆσd) from marginal standard deviations of Dtrain . Ignores all cross-dimensional correlations. 3. Learned (Static). A single L ∈ Rd×d trained via Algorithm 1 ( K = 200 iterations, learning rate η = 0 .01, bandwidth ε = 0 .5, gradient clipping at norm 10) to minimize SCED cost, initialized from Sample Covariance. 4. Learned (Contextual). A secondary variant, reported for completeness, uses a multilayer perceptron (MLP) encoder Lϕ(ξ) with hidden dimensions [128 , 64] and rectified linear unit (ReLU) activations, outputting d(d + 1) /2 = 120 values that fill the lower triangle of L
+
+(with exp( ·) on diagonal entries for positivity, followed by trace normalization). Trained via Algorithm 2 with batch size 8, learning rate 3 × 10 −4 (Adam), gradient clipping (max norm 1.0 on encoder parameters), and early stopping with patience 400. Initialized from Learned (Static) by setting the final-layer bias to the vectorized Lstatic .
+
+5.3 Base Zonal SCED Model 
+
+This subsection gives the concrete SCED instantiation of the generic robust value function V (θ, ρ )in (2). The coupled study builds on the same single-period zonal SCED core used in the appendix decoupled benchmark. The decision variables are generator dispatch gi and reserve procurement 
+
+ri. Uncertainty enters only through the zonal reserve margins Rmin  
+
+> z
+
+:min 
+
+> g,r
+
+X
+
+> i∈G
+
+(cgi gi + cri ri)s.t. X
+
+> i∈G
+
+gi = X
+
+> b∈B
+
+Db,gi ≤ gi ≤ ¯gi − ri, r i ≥ 0, ∀i ∈ G ,
+
+X
+
+> i∈G z
+
+ri ≥ ρ∥L⊤Az ∥2, ∀z ∈ Z ,
+
+(16) where A⊤ 
+
+> z
+
+is the z-th row of A. The term ρ∥L⊤Az ∥2 is the worst-case zonal net-deviation hedge induced by the current ellipsoidal uncertainty set. Thus Rmin  
+
+> z
+
+= ρ∥L⊤Az ∥2 is the only channel through which uncertainty enters the dispatch, and its dependence on ( L, ρ ) is explicit. This base model is useful both conceptually and computationally: it isolates the economic effect of learning the uncertainty-set geometry, while the closed-form gradients in (14) remain transparent. 13 Table 2: Main Experiment: Coupled SCED with Transfer Constraints                     
+
+> Method Cost ( $/hr) Reserve (MW) Calibration Rate ∗Test Coverage [CI] †
+> Sample Covariance 100,496 1,572 0.950 0.980 [.967, .990] Independent 100,473 1,563 0.950 0.986 [.975, .994] Learned (Static) 95,683 977 0.950 0.970 [.948, .987] Learned (Contextual) ‡97,178 1,187 0.950 0.981 [.964, .994]
+> ∗Calibration inclusion rate (empirical fraction of calibration points inside the set).
+> †Block bootstrap 95% CI (block length 24 hr, 10,000 replicates).
+> ‡Contextual results for a single training seed.
+
+5.4 Main Experiment: Coupled SCED with Transfer Constraints 
+
+The main experiment augments the base zonal SCED with inter-zone transfer constraints. This is the more operationally relevant formulation because reserve requirements now compete with transfer headroom: a zone cannot rely arbitrarily on imports or exports to cover its uncertainty. Specifically, for a subset of tight zones Ztight ⊆ Z , we impose 
+
+X
+
+> i∈G z
+
+gi − Dz + ρ∥L⊤Az ∥2 ≤ T max  
+
+> z
+
+, ∀z ∈ Z tight , (17) where Dz := P 
+
+> b∈B z
+
+Db is the total load in zone z and T max  
+
+> z
+
+is the transfer-capacity limit. The transfer limits are fixed ex ante from the base decoupled benchmark. The three zones with the highest reserve shadow prices under the sample-covariance baseline are tightened ( αtight = 0 .90), while the remaining zones retain loose limits ( αloose = 1 .50); in this study, the tightened zones are 5, 8, and 10. The limits are defined by 
+
+T max  
+
+> z
+
+= αz
+
+X
+
+> i∈G z
+
+gbase  
+
+> i
+
+− Dz + ˆ ρε∥L⊤
+
+> base
+
+Az ∥2
+
+!
+
+, (18) where Lbase = chol( ˆΣ) is the Sample Covariance Cholesky factor, gbase is the corresponding decou-pled dispatch, and ˆ ρε is the smoothed τ -quantile on the tuning set (which may exceed the conformal radius, ensuring training-time feasibility). These limits are fixed once and then held constant across all four methods. The transfer constraints introduce additional dual variables λz . Proposition 2 continues to apply without modification; the only change is that the effective sensitivity weight becomes the combined dual ( μz + λz ): 
+
+∇LV = X
+
+> z∈Z
+
+(μ∗ 
+
+> z
+
++ λ∗ 
+
+> z
+
+) ∇L σUL,ρ (Az ), (19) where λ∗ 
+
+> z
+
+= 0 for non-tight zones. The absolute value in (17) is implemented via two linear inequalities (Lemma 8): an upper bound P 
+
+> i∈G z
+
+gi − Dz + ρ∥L⊤Az ∥2 ≤ T max  
+
+> z
+
+and a lower bound 
+
+−(P 
+
+> i∈G z
+
+gi − Dz ) + ρ∥L⊤Az ∥2 ≤ T max  
+
+> z
+
+. The transfer dual λ∗ 
+
+> z
+
+is the sum of the duals on these two constraints; typically at most one binds per zone, although both may bind in the degenerate case of zero net export. No new gradient derivation is required; only the relevant dual vector changes. Table 2 is the main numerical result. Relative to the Sample Covariance baseline, Learned (Static) lowers cost from $100,496/hr to $95,683/hr, a 4.8% reduction, while reducing reserve procurement from 1,572 to 977 MW and maintaining 0.970 test coverage [0.948, 0.987]. Independent is reported as a diagonal ablation; the learned static method also improves on it. The coupled 14 constraints raise costs for all methods, but the increase is materially smaller for the learned shapes. In the calibrated evaluation solves, the baseline shapes yield λ∗ 
+
+> z
+
+> 0 for all three tightened zones (z ∈ { 5, 8, 10 }), whereas the learned shapes give λ∗ 
+
+> 8
+
+= λ∗ 
+
+> 10
+
+= 0 (only zone 5 binds), because the learned reserve allocations leave transfer headroom in zones 8 and 10. Appendix E reports the simpler decoupled benchmark and a target-level sweep. Relative to that benchmark, the baseline methods experience $484–529/hr cost increases under coupling, whereas Learned (Static) increases by only $212/hr. This indicates that the learned uncertainty geometry remains advantageous once reserve requirements interact with transfer deliverability. 
+
+# 6 Discussion 
+
+The empirical pattern is consistent across the coupled and decoupled studies: once calibration is held fixed, the cost gains come from reshaping the uncertainty set rather than from relaxing coverage. 
+
+6.1 Practical and Computational Implications 
+
+Learned sets produce reserve shadow prices μ∗ 
+
+> z
+
+that are better aligned with economically relevant uncertainty directions, improving price signals in SCED-based markets. Context-dependent sets 
+
+Lϕ(ξ) further adapt to varying conditions (e.g., solar uncertainty near zero at night, shifting wind correlations during weather fronts). Computationally, both regimes require one SCED solve per training iteration to extract dual multipliers, but no differentiation through the solver; the decou-pled regime additionally admits closed-form support-function gradients. 
+
+6.2 Limitations and Extensions 
+
+Distribution Shift. Learned uncertainty sets are trained on historical data and may not gener-alize to extreme events or structural changes (e.g., new generation capacity). Hybrid approaches combining learned sets with worst-case bounds could provide robustness to rare events. 
+
+Scope of Baselines. The experiments compare four ellipsoidal uncertainty sets to isolate the effect of learning the ellipsoidal uncertainty geometry. Alternative geometries—budgeted polyhe-dral [Bertsimas and Sim, 2004], Wasserstein balls [Mohajerin Esfahani and Kuhn, 2018], moment-based ambiguity sets [Xiong et al., 2017]—would provide complementary baselines but differ in both geometry and calibration, complicating attribution. Extension to learned non-ellipsoidal sets is a natural direction. 
+
+Temporal and Statistical Scope. The formulation treats each hour independently; extension to multi-period unit commitment is natural, as the envelope gradient approach extends directly. The contextual method results are for a single seed; multi-seed evaluation would strengthen the empirical claims. 
+
+Asymmetric Uncertainty Costs. The gauge treats all directions symmetrically. A cost-weighted CDF F w 
+
+> θ
+
+(r) = E[w(U )1{sθ(U ) ≤ r}]/E[w(U )] can replace the uniform CDF for asym-metric costs; the profiled gradient applies unchanged. 
+
+Exchangeability and Coverage Validity. Proposition 4 requires exchangeability, which the VAR(1) data may violate (see Remark after Theorem 5). Block bootstrap CIs in Table 2 and Appendix E quantify the effect of serial dependence; for rigorous finite-sample validity, block conformal methods [Barber et al., 2023] should be employed. 15 7 Conclusion 
+
+This paper formulates correlated reserve-set design in SCED as an end-to-end trainable robust op-timization problem. By profiling the coverage constraint into a shape-dependent radius and using KKT/dual sensitivities from the SCED solve, the original coverage-constrained bilevel formula-tion becomes a single-stage differentiable objective that can be optimized without backpropagating through the solver. Training-time smoothed quantile estimation and deployment-time split confor-mal calibration separate optimization of the shape from final coverage control, while the same task gradient can be passed upstream to contextual encoders as a secondary extension. On the IEEE 118-bus system, the main coupled transfer-constrained study shows that the learned static ellipsoid lowers dispatch cost by about 4.8% relative to the Sample Covariance baseline while maintaining empirical coverage above the target. The appendix decoupled benchmark clarifies the same mechanism in a simpler setting and confirms that the gains are driven primarily by task-aligned reserve allocation rather than by looser coverage. Future work includes multi-period formulations, stronger empirical study of contextual learning, and robust extensions for structural shift and extreme events. 
+
+# Acknowledgements 
+
+Patrick Jaillet and Owen Shen acknowledge funding from ONR grant N00014-24-1-2470 and AFOSR grant FA9550-23-1-0190. Haihao Lu acknowledges funding from AFOSR Grant No. FA9550-24-1-0051 and ONR Grant No. N000142412735. 
+
+# References 
+
+Akshay Agrawal, Brandon Amos, Shane Barratt, Stephen Boyd, Steven Diamond, and J. Zico Kolter. Differentiable convex optimization layers. In Advances in Neural Information Processing Systems , volume 32, pages 9562–9574. Curran As-sociates, Inc., 2019. URL https://proceedings.neurips.cc/paper/2019/hash/ 9ce3c52fc54362e22053399d3181c638-Abstract.html .Brandon Amos and J. Zico Kolter. OptNet: differentiable optimization as a layer in neural networks. In Proceedings of the 34th International Conference on Machine Learning , vol-ume 70 of Proceedings of Machine Learning Research , pages 136–145. PMLR, 2017. URL 
+
+https://proceedings.mlr.press/v70/amos17a.html .Anastasios N. Angelopoulos and Stephen Bates. Conformal prediction: a gentle introduction. 
+
+Foundations and Trends in Machine Learning , 16(4):494–591, 2023. doi: 10.1561/2200000101. Rina Foygel Barber, Emmanuel J. Cand` es, Aaditya Ramdas, and Ryan J. Tibshirani. Conformal prediction beyond exchangeability. The Annals of Statistics , 51(2):816–845, 2023. doi: 10.1214/ 23-AOS2276. Aharon Ben-Tal, Laurent El Ghaoui, and Arkadi Nemirovski. Robust optimization . Princeton Series in Applied Mathematics. Princeton University Press, Princeton, NJ, 2009. Dimitris Bertsimas and Melvyn Sim. The price of robustness. Operations Research , 52(1):35–53, 2004. doi: 10.1287/opre.1030.0065. 16 Dimitris Bertsimas, David B. Brown, and Constantine Caramanis. Theory and applications of robust optimization. SIAM Review , 53(3):464–501, 2011. doi: 10.1137/080734510. Dimitris Bertsimas, Eugene Litvinov, Xu Andy Sun, Jinye Zhao, and Tongxin Zheng. Adaptive robust optimization for the security-constrained unit commitment problem. IEEE Transactions on Power Systems , 28(1):52–63, 2013. doi: 10.1109/TPWRS.2012.2205021. Dimitris Bertsimas, Vishal Gupta, and Nathan Kallus. Data-driven robust optimization. Mathe-matical Programming , 167(2):235–292, 2018. doi: 10.1007/s10107-017-1125-8. J´ erˆ ome Bolte, Tam Le, Edouard Pauwels, and Tony Silveti-Falls. Nonsmooth im-plicit differentiation for machine-learning and optimization. In Advances in Neu-ral Information Processing Systems , volume 34, pages 13537–13549. Curran Asso-ciates, Inc., 2021. URL https://proceedings.neurips.cc/paper_files/paper/2021/hash/ 70afbf2259b4449d8ae1429e054df1b1-Abstract.html .J. Fr´ ed´ eric Bonnans and Alexander Shapiro. Perturbation analysis of optimization problems .Springer Series in Operations Research and Financial Engineering. Springer, New York, NY, 2000. doi: 10.1007/978-1-4612-1394-9. Abhilash Reddy Chenreddy and Erick Delage. End-to-end conditional robust optimization. In 
+
+Proceedings of the Fortieth Conference on Uncertainty in Artificial Intelligence , volume 244 of Proceedings of Machine Learning Research , pages 736–748. PMLR, 2024. URL https: //proceedings.mlr.press/v244/chenreddy24a.html .Frank H. Clarke. Optimization and nonsmooth analysis . Number 5 in Classics in Applied Math-ematics. SIAM, Philadelphia, PA, 1990. doi: 10.1137/1.9781611971309. Reprint of the 1983 Wiley-Interscience edition. Priya L. Donti, Brandon Amos, and J. Zico Kolter. Task-based end-to-end model learning in stochastic optimization. In Advances in Neural Information Processing Systems , volume 30, pages 5484–5494. Curran Associates, Inc., 2017. URL https://proceedings.neurips.cc/paper/ 2017/hash/3fc2c60b5782f641f76bcefc39fb2392-Abstract.html .Adam N. Elmachtoub and Paul Grigas. Smart “predict, then optimize”. Management Science , 68 (1):9–26, 2022. doi: 10.1287/mnsc.2020.3922. Rui Gao and Anton Kleywegt. Distributionally robust stochastic optimization with Wasserstein distance. Mathematics of Operations Research , 48(2):603–655, 2023. doi: 10.1287/moor.2022. 1275. Marc Goerigk and Jannis Kurtz. Data-driven robust optimization using deep neural networks. 
+
+Computers & Operations Research , 151:106087, 2023. doi: 10.1016/j.cor.2022.106087. Bri-Mathias S. Hodge and Michael Milligan. Wind power forecasting error distributions over mul-tiple timescales. In 2011 IEEE Power and Energy Society General Meeting , pages 1–8, Detroit, MI, USA, 2011. doi: 10.1109/PES.2011.6039388. Tao Hong and Shu Fan. Probabilistic electric load forecasting: a tutorial review. International Journal of Forecasting , 32(3):914–938, 2016. doi: 10.1016/j.ijforecast.2015.11.011. Qiang Huangfu and J. A. J. Hall. Parallelizing the dual revised simplex method. Mathematical Programming Computation , 10(1):119–142, 2018. doi: 10.1007/s12532-017-0130-5. 17 Rabih A. Jabr. Adjustable robust OPF with renewable energy sources. IEEE Transactions on Power Systems , 28(4):4742–4751, 2013. doi: 10.1109/TPWRS.2013.2275013. Ruiwei Jiang, Jianhui Wang, and Yongpei Guan. Robust unit commitment with wind power and pumped storage hydro. IEEE Transactions on Power Systems , 27(2):800–810, 2012. doi: 10.1109/TPWRS.2011.2169817. Chancellor Johnstone and Bruce Cox. Conformal uncertainty sets for robust optimization. In 
+
+Proceedings of the Tenth Symposium on Conformal and Probabilistic Prediction and Applications ,volume 152 of Proceedings of Machine Learning Research , pages 72–90. PMLR, 2021. URL 
+
+https://proceedings.mlr.press/v152/johnstone21a.html .´Alvaro Lorca, X. Andy Sun, Eugene Litvinov, and Tongxin Zheng. Multistage adaptive robust optimization for the unit commitment problem. Operations Research , 64(1):32–51, 2016. doi: 10.1287/opre.2015.1456. Peyman Mohajerin Esfahani and Daniel Kuhn. Data-driven distributionally robust optimization us-ing the Wasserstein metric: performance guarantees and tractable reformulations. Mathematical Programming , 171(1-2):115–166, 2018. doi: 10.1007/s10107-017-1172-1. Open Power System Data. Data package time series. Data package, version 2020-10-06, 2020. URL 
+
+https://data.open-power-system-data.org/time_series/2020-10-06 . Primary data from various sources; for a complete list, see the URL. Pierre Pinson. Wind energy: forecasting challenges for its operational management. Statistical Science , 28(4):564–585, 2013. doi: 10.1214/13-STS445. Line A. Roald, David Pozo, Anthony Papavasiliou, Daniel K. Molzahn, Jalal Kazempour, and Antonio J. Conejo. Power systems optimization under uncertainty: a review of methods and applications. Electric Power Systems Research , 214:108725, 2023. doi: 10.1016/j.epsr.2022. 108725. Yaniv Romano, Evan Patterson, and Emmanuel J. Cand` es. Conformalized quantile regres-sion. In Advances in Neural Information Processing Systems , volume 32, pages 3543–3553. Curran Associates, Inc., 2019. URL https://proceedings.neurips.cc/paper/2019/hash/ 5103c3584b063c431bd1268e9b5e76fb-Abstract.html .Leon Thurner, Alexander Scheidler, Florian Sch¨ afer, Jan-Hendrik Menke, Julian Dollichon, Friederike Meier, Steffen Meinecke, and Martin Braun. pandapower—an open-source python tool for convenient modeling, analysis, and optimization of electric power systems. IEEE Trans-actions on Power Systems , 33(6):6510–6521, 2018. doi: 10.1109/TPWRS.2018.2829021. Bart P. G. Van Parys, Peyman Mohajerin Esfahani, and Daniel Kuhn. From data to decisions: distributionally robust optimization is optimal. Management Science , 67(6):3387–3402, 2021. doi: 10.1287/mnsc.2020.3678. Vladimir Vovk, Alexander Gammerman, and Glenn Shafer. Algorithmic learning in a random world . Springer, New York, NY, 2005. doi: 10.1007/b106715. Irina Wang, Bart P. G. Van Parys, and Bartolomeo Stellato. Learning decision-focused uncertainty sets in robust optimization. arXiv preprint arXiv:2305.19225, 2023. URL https://arxiv.org/ abs/2305.19225 . Version 5, revised June 2025. 18 Peng Xiong, Panida Jirutitijaroen, and Chanan Singh. A distributionally robust optimization model for unit commitment considering uncertain wind power generation. IEEE Transactions on Power Systems , 32(1):39–49, 2017. doi: 10.1109/TPWRS.2016.2544795. Bo Zeng and Long Zhao. Solving two-stage robust optimization problems using a column-and-constraint generation method. Operations Research Letters , 41(5):457–461, 2013. doi: 10.1016/ j.orl.2013.05.003. 19 A Supporting Definitions and Lemmas 
+
+Definition 3 (Clarke Subdifferential) . Let h : Rp → R be locally Lipschitz. The Clarke subdiffer-ential at x is ∂Ch(x) := conv {lim k→∞ ∇h(xk) : xk → x, h diff. at xk}.
+
+Lemma 6 (Support Function Scaling) . If C ⊆ Rd is nonempty and ρ > 0, then σρC (w) = ρ·σC (w).Proof. σρC (w) = sup u∈ρC ⟨w, u⟩ = ρ sup v∈C ⟨w, v⟩ = ρσ C (w). 
+
+Lemma 7 (Strong Duality) . Under Assumption 2, V (θ, ρ ) = max μ≥0 q(μ; θ, ρ ) and M∗(θ, ρ )̸ = ∅,where q is the Lagrange dual function. Proof of Proposition 1. (i) Uθ,ρ 1 ⊆ U θ,ρ 2 for ρ1 ≤ ρ2 implies support functions increase, feasible regions shrink, hence V (θ, ρ 1) ≤ V (θ, ρ 2). (ii) Fθ(ρ) ≥ τ iff ρ ≥ ρP (θ). (iii) For any feasible ( θ, ρ ), 
+
+V (θ, ρ ) ≥ V (θ, ρ P (θ)), so the optimal choice is ρ = ρP (θ). 
+
+Lemma 8 (Robust Absolute-Value Constraints) . For nonempty U ⊆ Rd, sup u∈U |f + ⟨w, u ⟩| ≤ F
+
+is equivalent to f + σU (w) ≤ F and −f + σU (−w) ≤ F . For centrally symmetric U, this simplifies to |f | + σU (w) ≤ F .Proof. sup u∈U |f + w⊤u| = max {sup u(f + w⊤u), sup u(−f − w⊤u)} = max {f + σU (w), −f +
+
+σU (−w)}. If U is centrally symmetric, σU (−w) = σU (w), giving |f | + σU (w). 
+
+# B Proof of Envelope Gradient Formula 
+
+Proof of Proposition 2. Fix ( θ, ρ ) with V (θ, ρ ) < +∞. By Lemma 7, V (θ, ρ ) = max μ≥0 q(μ; θ, ρ )with M∗(θ, ρ )̸ = ∅. The dual decomposes as q(μ; θ, ρ ) = ˜ q(μ) + P 
+
+> j
+
+μj (σUθ,ρ (wj ) − bj ), where ˜q(μ) := inf x∈X f (x) + P 
+
+> j
+
+μj aj (x) is independent of ( θ, ρ ). 
+
+Local Lipschitzness via bounded multipliers. By Assumption 2, there exists strictly feasible ¯ x
+
+with slack sj := bj − aj ( ¯ x) − σUθ,ρ (wj ) > 0. By continuity of σ in ( θ, ρ ), there is a neighborhood N
+
+of ( θ, ρ ) with slack ≥ sj /2 uniformly. For any μ ≥ 0 and ( θ′, ρ ′) ∈ N , evaluating the Lagrangian at ¯x gives q(μ; θ′, ρ ′) ≤ f ( ¯ x) − (smin /2) ∥μ∥1 where smin := min j sj . Since q(0; θ′, ρ ′) = inf x∈X f (x) >
+
+−∞ (Assumption 2), every dual optimizer satisfies ∥μ∗∥1 ≤ 2( f ( ¯ x) − inf x∈X f (x)) /s min uniformly on N . Combined with locally bounded gradients of σ (Assumption 3), V is locally Lipschitz on N .
+
+Envelope formula. Since V = max μ≥0 q(μ; θ, ρ ) with each q(μ; ·) being C1 and the maximiz-ing set locally compact, the Danskin/Clarke max-envelope theorem [Bonnans and Shapiro, 2000, Clarke, 1990] gives ∂C 
+
+> θ
+
+V (θ, ρ ) = conv {∇ θq(μ; θ, ρ ) : μ ∈ M ∗}. Substituting ∇θq = P 
+
+> j
+
+μj ∇θσj
+
+yields (5); any single μ∗ ∈ M ∗ gives a Clarke subgradient. If the optimizer is unique, ∂C is a singleton and V is differentiable. Part (b) follows identically using σUθ,ρ (wj ) = ρσ Uθ,1 (wj ), giving 
+
+∂ρq = P 
+
+> j
+
+μj σUθ,1 (wj ). 
+
+# C Proofs of Statistical Results 
+
+Lemma 9 (Quantile Derivative) . Under Assumption 4, ∇θρP (θ) = −∇ θFθ(ρP (θ)) /f θ(ρP (θ)) .Proof. Continuity of Fθ (Assumption 4) gives Fθ(ρP (θ)) = τ . The implicit function theorem applied to this identity, with ∂rFθ = fθ > 0, yields the result. 
+
+Assumption 6 (Smoothing Function) . Φ : R → [0 , 1] is C1, nondecreasing, with Φ( −∞ ) = 0, Φ(+ ∞) = 1, and φ := Φ ′ bounded, uniformly continuous, and strictly positive on R (e.g., Gaussian or logistic kernel). 20 Assumption 7 (Score Differentiability) . θ 7 → sθ(u) is C1 with ∥∇ θsθ(U )∥ ≤ M (U ) a.s. for some integrable M .
+
+Lemma 10 (Smoothed CDF Derivatives) . Under Assumptions 6–7, ∂rFθ,ε (r) = ε−1E[φ(( r −
+
+sθ(U )) /ε )] and ∇θFθ,ε (r) = −ε−1E[φ(( r − sθ(U )) /ε )∇θsθ(U )] .
+
+Lemma 11 (Smoothed Quantile Sensitivity) . If additionally ∂rFθ,ε (ρP,ε (θ)) > 0, then 
+
+∇θρP,ε (θ) = E[φ(( ρP,ε (θ) − sθ(U )) /ε )∇θsθ(U )] 
+
+E[φ(( ρP,ε (θ) − sθ(U )) /ε )] . (20) 
+
+This is a weighted average of ∇θsθ(U ) with kernel weights concentrated near the quantile boundary. 
+
+The regularity conditions for Theorem 5 are: (A1) U1, . . . , U ntune are i.i.d. from P .(A2) Assumptions 6–7 hold, φ is uniformly continuous and strictly positive. (A3) r 7 → Fθ,ε (r) is strictly increasing near ρP,ε (θ) with ∂rFθ,ε (ρP,ε (θ)) > 0. (A4) V is differentiable at ( θ, ρ P,ε (θ)) with unique, continuous dual optimizer nearby. (A5) ∇θσUθ,ρ (wj ) is continuous in ( θ, ρ ) near ( θ, ρ P,ε (θ)). 
+
+Proof of Proposition 4. Let k := ⌈(ncal + 1) τ ⌉ and write S(1) ≤ · · · ≤ S(ncal ) for the order statistics of the calibration scores. The definition in (8) is equivalent to ˆ ρτ = S(k). Condition on ˆθ. Under Assumption 5, the scores S1, . . . , S ncal , S new are exchangeable. Introduce i.i.d. Vi ∼ Unif(0 , 1) independent of everything and define the randomized rank R of ( Snew , V new ) among all ncal + 1 pairs under lexicographic order. Continuous tie-breaking ensures all pairs are distinct a.s., so exchangeability gives P(R = r | ˆθ) = 1 /(ncal + 1) for r = 1 , . . . , n cal + 1. If Snew > S (k), then at least k calibration scores satisfy Si ≤ S(k) < S new , forcing R ≥ k + 1. By contrapositive, {R ≤ k} ⊆ { Snew ≤ S(k)}. Therefore P(Snew ≤ ˆρτ | ˆθ) ≥ P(R ≤ k | ˆθ) = 
+
+k/ (ncal + 1) ≥ τ . Taking expectations over ˆθ yields P(Unew ∈ U ˆθ,ˆρτ ) ≥ τ .
+
+Proof of Theorem 5. Fix ε > 0 and θ ∈ Θ. Write Si := sθ(Ui), and let ˆF , F denote the empirical and population smoothed CDFs; ˆ ρ, ρ their τ -quantiles. 
+
+Step 1 (Uniform CDF convergence). Both F and ˆF are Lipschitz in r with constant 
+
+LF := ∥φ∥∞/ε . Fix δ > 0 so that κ := inf r∈[ρ−δ,ρ +δ] ∂rF (r) > 0. Covering [ ρ − δ, ρ + δ] with a finite grid of mesh h = η/ (4 LF ), Lipschitz interpolation gives sup r∈[ρ−δ,ρ +δ] | ˆF (r)−F (r)| ≤ max k | ˆF (rk)−
+
+F (rk)| + η/ 2. The LLN at each grid point and a union bound yield sup r∈[ρ−δ,ρ +δ] | ˆF (r) − F (r)| P
+
+−→ 0. 
+
+Step 2 (Quantile consistency). By the mean value theorem, F (ρ + η) ≥ τ + κη and 
+
+F (ρ − η) ≤ τ − κη . On the event sup r∈[ρ−δ,ρ +δ] | ˆF − F | ≤ κη/ 2, we get ˆF (ρ + η) ≥ τ + κη/ 2 > τ 
+
+and ˆF (ρ − η) ≤ τ − κη/ 2 < τ , so monotonicity of ˆF forces |ˆρ − ρ| ≤ η. Hence ˆ ρ P
+
+−→ ρ.
+
+Step 3 (Quantile sensitivity consistency). Define ωr(u) := φ(( r − sθ(u)) /ε ) and the empirical numerator/denominator Nn(r) := n−1 P 
+
+> i
+
+ωr(Ui)∇θsθ(Ui), Dn(r) := n−1 P 
+
+> i
+
+ωr(Ui), with population limits N (r), D(r). At fixed r = ρ: integrable domination ∥ωρ(U )∇θsθ(U )∥ ≤ ∥ φ∥∞M (U ) and the LLN give 
+
+Nn(ρ) P
+
+−→ N (ρ), Dn(ρ) P
+
+−→ D(ρ). 21 For random r = ˆ ρ: |ωˆρ(Ui) − ωρ(Ui)| ≤ Ω( |ˆρ − ρ|/ε ) where Ω is the modulus of continuity of φ. Since ˆ ρ → ρ in probability, Ω → 0. Combined with the LLN averages, Nn(ˆ ρ) P
+
+−→ N (ρ)and Dn(ˆ ρ) P
+
+−→ D(ρ). Since D(ρ) = ε∂ rF (ρ) > 0 by (A3), the continuous mapping theorem gives 
+
+Nn(ˆ ρ)/D n(ˆ ρ) P
+
+−→ ∇ θρP,ε (θ). 
+
+Step 4 (Combine). Define envelope terms 
+
+H(r) := P 
+
+> j
+
+μ∗ 
+
+> j
+
+(θ, r )∇θσj and G(r) := P 
+
+> j
+
+μ∗ 
+
+> j
+
+(θ, r )σUθ,1 (wj ). By (A4)–(A5), H and G are continu-ous at ρ, so H(ˆ ρ) P
+
+−→ H(ρ) and G(ˆ ρ) P
+
+−→ G(ρ). By Slutsky’s theorem, ˆgε(θ) = H(ˆ ρ) + G(ˆ ρ) · Nn(ˆ ρ)
+
+Dn(ˆ ρ)
+
+> P
+
+−→ H(ρ) + G(ρ) · ∇ θρP,ε (θ) = ∇θJP,ε (θ).
+
+Corollary 12 (Coverage Preserved Under Tuned Training) . Let ˆθ depend only on Dtrain ∪ D tune .Then conformal calibration on Dcal yields P(Unew ∈ U ˆθ,ˆρτ ) ≥ τ .
+
+# D Ellipsoidal Computation Details 
+
+Proposition 13 (Support Function for Ellipsoids) . σUL,ρ (w) = ρ∥L⊤w∥2.Proof. σUL,ρ (w) = sup ∥v∥2≤ρ⟨L⊤w, v⟩ = ρ∥L⊤w∥2.
+
+Proposition 14 (Ellipsoidal Gradients) . For w̸ = 0 with L⊤w̸ = 0 : ∇LσUL,ρ (w) = ρww ⊤L/∥L⊤w∥2.For u̸ = 0 : ∇LsL(u) = −L−⊤ (L−1u)( L−1u)⊤/∥L−1u∥2.Proof. For the support function, let y := L⊤w. Then d σ = ρy ⊤dy/ ∥y∥2 = ρ(L⊤w)⊤(d L)⊤w/∥L⊤w∥2,which identifies the Frobenius gradient as ρw(L⊤w)⊤/∥L⊤w∥2 = ρww ⊤L/∥L⊤w∥2.For the gauge, let v := L−1u. Then d v = −L−1(d L)v gives d s = −v⊤L−1(d L)v/ ∥v∥2, identi-fying the gradient as −L−⊤ vv ⊤/∥v∥2.
+
+# E Decoupled Zonal Benchmark and Additional Diagnostics 
+
+The decoupled formulation removes the transfer constraints from the main text and retains only the zonal reserve requirements. Because the reserve margins depend explicitly on ( L, ρ ), this benchmark isolates the core economic effect of learning the uncertainty-set geometry and provides a useful implementation check. 
+
+E.1 Decoupled Benchmark Results 
+
+Cost and reserves are evaluated at the conformally calibrated ˆ ρτ ; for static methods cost is deter-ministic, for contextual it is averaged over test-set contexts. Reserve reports P 
+
+> z
+
+Rmin  
+
+> z
+
+.Table 3 shows that Learned (Static) reduces cost by 4.5% ( $4,541/hr) relative to the Sample Covariance baseline and by 4.5% ( $4,473/hr) relative to the Independent ablation, while reduc-ing reserve procurement by about 39% relative to Sample Covariance (1,572 to 956 MW). The gain comes almost entirely from reserve procurement (reserve component P 
+
+> i
+
+cri ri: $9,115/hr →
+
+$4,805/hr, a 47% decrease), while the energy component P 
+
+> i
+
+cgi gi changes by less than $163/hr. The Sample Covariance baseline performs comparably to the Independent ablation ( $100,012 vs. 22 Table 3: Appendix Benchmark: Decoupled Zonal Reserves                     
+
+> Method Cost ( $/hr) Reserve (MW) Calibration Rate ∗Test Coverage [CI] †
+> Sample Covariance 100,012 1,572 0.950 0.980 [.967, .990] Independent 99,944 1,563 0.950 0.986 [.975, .994] Learned (Static) 95,471 956 0.950 0.967 [.946, .985] Learned (Contextual) ‡96,886 1,167 0.950 0.983 [.966, .995]
+> ∗Calibration inclusion rate (empirical fraction of calibration points inside the set).
+> †Block bootstrap 95% CI (block length 24 hr, 10,000 replicates).
+> ‡Contextual results for a single training seed.
+
+Table 4: Appendix Diagnostic: Cost–Coverage Tradeoff in the Decoupled Benchmark 
+
+τ
+
+Method 0.90 0.92 0.95 0.97 0.99 
+
+Cost ( $/hr) 
+
+Sample Covariance 99,186 99,491 100,012 100,489 101,501 Independent 99,119 99,481 99,944 100,530 101,523 Learned (Static) 94,951 95,134 95,471 95,981 96,809 Learned (Contextual) ‡ 95,719 96,036 96,886 97,711 99,857 
+
+Test Coverage 
+
+Sample Covariance 0.949 0.964 0.980 0.987 0.995 Independent 0.964 0.975 0.986 0.993 0.998 Learned (Static) 0.931 0.947 0.967 0.982 0.989 Learned (Contextual) ‡ 0.966 0.974 0.983 0.988 0.996 
+
+> ‡Contextual results for a single training seed.
+
+$99,944), confirming that a statistically reasonable covariance estimate is not by itself sufficient for lower dispatch cost. By construction, the split-conformal radius in Proposition 4 yields calibration coverage at least 
+
+τ . Table 3 reports out-of-sample test coverage with 95% CIs from a 24 hr block bootstrap (10,000 replicates) to account for serial dependence; all methods exceed τ = 0 .95. 
+
+E.2 Target-Level Sweep in the Decoupled Benchmark 
+
+Table 4 reports cost and test coverage across target levels τ ∈ { 0.90 , 0.92 , 0.95 , 0.97 , 0.99 }, with each method’s shape L fixed at the τ = 0 .95 training point and only the conformal radius ρ recalibrated at each τ . Learned (Static) achieves lower cost than the Sample Covariance baseline at every τ
+
+while maintaining realized test coverage near or above the target, confirming that the economic advantage is not an artifact of evaluating at a looser coverage level. Independent again serves as a diagonal ablation. At comparable realized coverage (e.g., Independent at τ = 0 .95 gives 0.986 versus Learned (Static) at τ = 0 .97 gives 0.982), Learned (Static) remains $3,963/hr cheaper. 23
