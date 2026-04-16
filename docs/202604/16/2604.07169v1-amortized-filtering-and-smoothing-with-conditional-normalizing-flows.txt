@@ -1,0 +1,4624 @@
+Title: Amortized Filtering and Smoothing with Conditional Normalizing Flows
+
+URL Source: https://arxiv.org/pdf/2604.07169v1
+
+Published Time: Thu, 09 Apr 2026 01:10:22 GMT
+
+Number of Pages: 43
+
+Markdown Content:
+# Amortized Filtering and Smoothing with Conditional Normalizing Flows 
+
+Tiangang Cui a, Xiaodong Feng b, Chenlong Pei c, Xiaoliang Wan d, Tao Zhou c
+
+> aSchool of Mathematics and Statistics, The University of Sydney, Camperdown, NSW 2006, Australia.
+> bFaculty of Science and Technology, Beijing Normal-Hong Kong Baptist University, Zhuhai 519087, China.
+> cInstitute of Computational Mathematics and Scientific /Engineering Computing, Academy of Mathematics and Systems Science, Chinese Academy of Sciences, Beijing, China.
+> dDepartment of Mathematics and Center for Computation and Technology, Louisiana State University, Baton Rouge 70803, USA.
+
+Abstract 
+
+Bayesian filtering and smoothing for high-dimensional nonlinear dynamical systems are fundamental yet challenging problems in many areas of science and engineering. Gaussian-based approximations often break down when posterior distributions are highly nonlinear or non-Gaussian, while sequential Monte Carlo methods can be computationally demanding and often su ff er from particle degeneracy, especially over long time horizons or when smoothing distributions are required. Recent deep generative models are capable of representing complex high-dimensional posteriors, but they typically treat filtering and smoothing separately and often rely on costly per-instance optimization, which limits their applicability in online and large-scale settings. To address these challenges, we propose AFSF, a unified amortized framework for filtering and smoothing with conditional normalizing flows. The core idea is to encode each observation history into a fixed-dimensional summary statistic and use this shared representation to learn both a forward flow for the filtering distribution and a backward flow for the backward transition kernel. Specifically, a recurrent encoder maps each observation history to a fixed-dimensional summary statistic whose dimension does not depend on the length of the time series. Conditioned on this shared summary statistic, the forward flow approximates the filtering distribution, while the backward flow approximates the backward transition kernel. The smoothing distribution over an entire trajectory is then recovered by combining the terminal filtering distribution with the learned backward flow through the standard backward recursion. By learning the underlying temporal evolution structure, AFSF also supports extrapolation beyond the training horizon. Moreover, by coupling the two flows through shared summary statistics, AFSF induces an implicit regularization across latent state trajectories and improves trajectory-level smoothing. In addition, we develop a flow-based particle filtering variant that provides an alternative filtering procedure and enables ESS-based diagnostics when explicit model factors are available. Numerical experiments on a high-dimensional advection-di ff usion system, a strongly nonlinear stochastic volatility model, a high-dimensional PDE system, and Lorenz systems in both single-scale and two-scale settings demonstrate that AFSF provides accurate approximations of both filtering distributions and smoothing paths. 
+
+Keywords: Data assimilation, Filtering and smoothing, Amortized inference, Conditional Normalizing flow, Recurrent neural network 
+
+1. Introduction 
+
+Filtering and smoothing [1] form the backbone of sequential inference in state-space models, where the goal is to estimate hidden, time-varying system states from indirect noisy time-series observations. They are central in data assimilation [2, 3, 4], robotics [5], signal processing [6], and econometrics [7, 8]. Filtering and smoothing are built around recursive representations of the time-evolving probability distributions of the system states, conditioned on observations over di ff erent time windows. In the presence of strong nonlinearity, non-Gaussianity, high-dimensional states, and long time horizons [9, 10, 11], filtering and          
+
+> Email addresses: tiangang.cui@sydney.edu.au (Tiangang Cui), xiaodongfeng@bnbu.edu.cn (Xiaodong Feng),
+> peichenlong@amss.ac.cn (Chenlong Pei), xlwan@lsu.edu (Xiaoliang Wan), tzhou@lsec.cc.ac.cn (Tao Zhou)
+> arXiv:2604.07169v1 [stat.ML] 8 Apr 2026
+
+smoothing methods must balance statistical accuracy with computational e ffi ciency to deliver tractable implementations. The Kalman filter provides an exact recursion for linear dynamics with Gaussian noise [12]. It has been extended to nonlinear models by propagating Gaussian approximations, either via local linearization (the extended Kalman filter) or through ensemble-based covariance estimation (the ensemble Kalman filter) [13, 14, 15]. However, these Gaussian filters rely on a moment-closure ansatz limiting to the first two moments and exhibit systematic bias for general nonlinear systems. Beyond Gaussian approximations, sequential Monte Carlo (SMC) methods [16, 17], commonly referred to as particle filters [18], represent filtering distributions using weighted samples and can, in principle, handle general nonlinear and non-Gaussian models [19]. However, particle methods typically su ff er from severe weight degeneracy as the state dimension and the time horizon increase. To remain e ff ective in high dimensions, one often has to employ refined methods such as the auxiliary particle filter [20] together with resampling strategies [21, 22, 23], or scale the sample size with the state dimension [24]. See [25, 26] for comprehensive reviews. Recent work has sought to move beyond these classical approximations by integrating modern machine learning with filtering and smoothing [27, 28]. When the state transition and observation models are available, learning is typically used to parameterize components of the Bayesian recursion (e.g., gain-like operators, analysis maps, or covariance structures), yielding enhanced filters that better accommodate nonlinearities and high-dimensional structures while retaining online scalability [29, 30, 31, 32]. For instance, score-based filters [33, 34, 35] represent the filtering density via its score function, enabling reverse-time di ff usion sampling with arbitrarily many particles and reduced high-dimensional degeneracy. MNMEF [36] uses a permutation-invariant neural measure mapping to transform the predicted joint state-observation measure into an updated state estimate. Another emerging line of work employs measure transport maps to transform forecast samples into approximately equally weighted samples targeting the evolving filtering distribution, and thus mitigates particle degeneracy and improves stability in high dimensions. Representative examples include ensemble transform methods based on discrete optimal transport [37] and coupling-based nonlinear ensemble filtering that exploits structured transport and conditional rearrangements [38, 39]. More recently, tensor-train-based approaches interpret sequential inference as recursive function approximation and exploit low-rank structure to build scalable density surrogates and associated Knothe–Rosenblatt rearrangements for filtering, smoothing, and parameter learning [40]. In parallel, the realization of transport maps via neural networks, particularly normalizing flows, provide flexible density approximations associated with exact likelihood evaluation and e ffi cient sampling through invertible transformations [41, 42]. Normalizing flows are also widely used for posterior approximation in simulation-based inference; see, e.g., [43, 44]. These capabilities have motivated flow-based formulations for nonlinear filtering in high dimensions [45]. Nonetheless, many existing measure transport approaches treat filtering and smoothing as separate tasks, or rely on costly per-instance optimization and approximation during online deployment, which limit their suitability for large-scale applications. To address these challenges, we propose a jointly amortized, data-driven framework based on a recurrent summary network and conditional normalizing flows. We design a single recurrent encoder to map an observation history y1: t to a fixed-dimensional summary statistic at each time step, independent of the length of the time series. Conditioned on this shared sequence of summaries, we then construct two separate conditional normalizing flows: a forward flow to approximate the filtering distribution of the current state, 
+
+p(ut | y1: t), and a backward flow to approximate the backward transition kernel linking consecutive states, 
+
+p(ut−1 | ut, y1: t−1). The forward flow enables real-time online state inference, while its combination with the backward flow recovers the smoothing distributions over entire trajectories via standard backward recursion. By sharing time-series summary statistics across time, the method couples the learned conditional distributions and induces an implicit regularization over whole state paths. Our main contributions can be summarized as follows: 
+
+• We introduce AFSF, a unified amortized framework for Bayesian filtering and smoothing in high-dimensional nonlinear dynamical systems. The framework jointly learns the filtering distribution and the backward transition kernel using a forward flow and a backward flow conditioned on shared summary statistics, providing a coherent approach to both online filtering and trajectory-level smoothing. More-over, by capturing the underlying temporal evolution structure, AFSF supports extrapolation beyond the training horizon, rather than merely fitting the observed training trajectories. 2• We design shared summary statistics of the observation history that serve as a common conditioning variable for the forward and backward flows. By coupling the two flows through the same summary statistics, this design induces an implicit regularization across latent state trajectories and yields a marked improvement in trajectory-level smoothing. 
+
+• We develop a flow-based particle filtering method. In particular, the learned flows are used to model a proposal distribution for propagating particles and a conditional density associated with the current observation. When explicit model factors are available, we further introduce an ESS-based diagnostic to quantify particle degeneracy under the learned proposal. 
+
+• We demonstrate the e ff ectiveness and robustness of the proposed framework on four representative benchmark problems: a high-dimensional advection-di ff usion system, a nonlinear stochastic volatility model, a high-dimensional PDE system, and Lorenz systems in both single-scale and two-scale settings. The remainder of this paper is organized as follows. Section 2 introduces the Bayesian filtering and smoothing setting and reviews the relevant preliminaries, including conditional normalizing flows and recurrent neural networks. Section 3 presents AFSF, our amortized framework based on shared summary statistics, a forward flow, and a backward flow, and describes the associated training and inference proce-dures. Section 3 also develops a flow-based particle filtering variant and discusses an ESS-based diagnostic when explicit model factors are available. Section 4 presents the numerical experiments. Finally, Section 5 concludes with limitations and future directions. 
+
+2. Problem setup and preliminaries 
+
+2.1. Problem setup 
+
+We consider a discrete-time stochastic dynamical system described by the following state-space model: 
+
+ut = f (ut−1, ϵ u,t),
+
+yt = h(ut, ϵ y,t), (1) where t ∈ N+ denotes discrete time, ut ∈ Rnu is the hidden state vector, and yt ∈ Rny is the corresponding observation. The state ut evolves according to the (possibly nonlinear) transition function f , while yt is generated by the measurement function h. The process noise ϵu,t and observation noise ϵy,t are assumed mutually independent and identically distributed over time. For notational simplicity, we write u1: t B
+
+(u1, . . . , ut) for the state trajectory and y1: t B (y1, . . . , yt) for the observation sequence. The above state-space model (1) induces the standard Markov factorization 
+
+p(u1: t, y1: t) = p(u1) p(y1 | u1)
+
+> t
+
+Y
+
+> k=2
+
+p(uk | uk−1) p(yk | uk),
+
+where p(uk | uk−1) and p(yk | uk) denote the state transition and observation distributions, respectively. We aim to design algorithms that simultaneously solve the following inference problems at each time t:
+
+• Filtering. Estimate the conditional distribution of the state ut given all observations y1: t up to time t:
+
+p(ut | y1: t).
+
+• Path estimation. Infer the entire state trajectory conditioned on all available observations: 
+
+p(u1: t | y1: t).
+
+Since both the state dimension of u1: t and the amount of data in y1: t increase with t, this problem typically becomes progressively more challenging over time. 
+
+• Smoothing. Estimate the conditional distribution of a past state uk given the full set of observations up to time t (with k < t), i.e. 
+
+p(uk | y1: t).
+
+3We do not treat smoothing as a separate problem from path estimation. Instead, we focus on approximating the filtering distribution of the current state and the joint posterior of the entire state trajectory: 
+
+p(ut | y1: t) and p(u1: t | y1: t), t ≥ 1.
+
+Although the smoothing distribution is formally obtained by marginalizing the posterior path distribution 
+
+p(u1: t | y1: t), explicit computation of the marginal density p(uk | y1: t) for k < t is generally intractable in high dimensions. Nevertheless, once samples can be drawn from the trajectory posterior p(u1: t | y1: t), the smoothing distribution can be assessed directly by marginalizing trajectory samples, i.e., simply taking these trajectory samples at time k.In this work, we assume access only to a simulator for the state-space model, from which samples can be generated for both the state transition and observation processes. We do not assume explicit knowledge of the functional forms of f and h, nor of the associated noise distributions. Equivalently, although the model may be written in terms of the transition distribution p(ut | ut−1) and the observation distribution p(yt | ut), our approach does not require these densities to be available in closed form or to be explicitly evaluated; see Section 3. This setting arises naturally in many real-world applications [44] where the underlying dynamics are complex or only partially understood. Specifically, we are given N simulated trajectories of the form {ui
+
+> 1: T
+
+, yi
+
+> 1: T
+
+}Ni=1. Moreover, from the perspective of sequential inference, it is often important not only to characterize these posterior distributions for 1 ≤ t ≤ T, where training data are available from the simulated trajectories, but also to propagate the associated posterior uncertainty to future states. Our goal is to learn such posterior approximations solely from the simulated trajectories described above and to deploy them both within and beyond the training horizon. To this end, we introduce two basic ingredients of our approach: conditional normalizing flows and recurrent neural networks. 
+
+2.2. Conditional normalizing flows 
+
+Let U ∈ Rdu be an unknown random vector, and let s ∈ Rds denote a conditioning variable. For each fixed 
+
+s, let p(· | s) denote the (unknown) conditional density of U given s. Our goal is to learn a conditional flow model with shared parameters θ such that, for each s in a prescribed set of conditioning values, the induced density pθ(· | s) provides an accurate approximation to p(· | s). Equivalently, we seek a parametric family of conditional densities {pθ(· | s)}s that approximates the target family {p(· | s)}s over the range of conditioning variables of interest. Let Z ∈ Rdu be an analytically tractable reference random variable with a known density pZ(z), e.g., Gaussian. A conditional normalizing flow seeks, for each s, an invertible mapping 
+
+fθ(·; s) : Rdu → Rdu , z = fθ(u; s),
+
+so that the transformed random variable, U = f −1 
+
+> θ
+
+(Z; s), is naturally equipped with a conditional density 
+
+pθ(u | s) = pZ
+
+ fθ(u; s) det ∇u fθ(u; s) ,
+
+by the change-of-variables formula, where ∇u fθ(u; s) denotes the Jacobian of fθ(·; s) with respect to u. This way, we are able to materialize a family of conditional distributions via the conditional normalizing flow. To characterize complicated conditional distributions, flow-based models construct the map fθ(u; s) by composing a sequence of bijections in a simpler form, namely, 
+
+fθ(u; s) = f[L](·; s) ◦ f[L−1] (·; s) ◦ · · · ◦ f[1] (u; s),
+
+where each f[i](·; s) is invertible and admits a tractable Jacobian determinant. Writing u[0] = u and u[i] =
+
+f[i](u[i−1] ; s) for i = 1, . . . , L, we have u[L] = fθ(u; s) and 
+
+det ∇u fθ(u; s) =
+
+> L
+
+Y
+
+> i=1
+
+det ∇u[i−1] f[i]
+
+u[i−1] ; s . (2) Computing the determinant det ∇u fθ for a general dense map in Rdu typically costs O(d3
+
+> u
+
+) operations via matrix decompositions, which can be prohibitive in high dimensions. Therefore, normalizing flows exploit 4structured architectures, such as triangular or autoregressive parameterizations, a ffi ne coupling transfor-mations, and other designs to make the Jacobian computation tractable, so that the log-determinant of each constituent bijection f[i] in (2) is available in closed form (or can be evaluated at substantially reduced cost). Consequently, numerous flow architectures have been proposed to balance expressiveness with computa-tional e ffi ciency; see, e.g., [41, 42] for detailed reviews. Here we employ the KRnet [46, 47] architecture to construct the conditional transformation fθ(·; s), with full details provided in A. To obtain an optimal parameter θ, a natural criterion is to minimize the discrepancy between the target conditional density p(· | s) and the model density pθ(· | s), measured by the conditional Kullback–Leibler divergence averaged over the conditioning variable s. For a given dataset {(u(n), s(n))}Nn=1, this is equivalent to maximizing the likelihood function 
+
+LN(θ) = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+log pθ
+
+u(n) | s(n) = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+log pZ
+
+z(n) +
+
+> L
+
+X
+
+> i=1
+
+log det ∇u(n)[i−1] 
+
+f[i]
+
+u(n)[i−1] ; s(n)  ,
+
+where u(n)[0] = u(n), u(n)[i] = f[i]
+
+u(n)[i−1] ; s(n) for i = 1, . . . , L, and z(n) = u(n)[L] = fθ
+
+u(n); s(n).In the above formulation, the conditioning variable s is assumed to be a fixed-dimensional input. In our sequential inference setting, however, the available information at time t is the full observation history y1: t,whose length grows with t. We therefore introduce recurrent neural networks to convert this variable-length sequence into compact fixed-dimensional summary statistics for subsequent flow-based modeling. 
+
+2.3. Recurrent neural networks 
+
+We employ a recurrent neural network (RNN), specifically a long short-term memory (LSTM) network, to encode the observation history y1: t into summary statistics that can be used in the subsequent conditional normalizing flows. Let y1: T be an input time series with yt ∈ Rdy at each time. A standard (single-layer) RNN computes a sequence of hidden states h1: T, with ht ∈ Rdh , by the recurrence 
+
+ht = ϕWyh yt + Whh ht−1 + bh
+
+, (3) with initial state h0 (typically set to 0), weight matrices Wyh ∈ Rdh×dy and Whh ∈ Rdh×dh , bias vector bh ∈ Rdh ,and an elementwise nonlinearity function ϕ (e.g. tanh, logistic sigmoid, or ReLU). While (3) provides a simple mechanism for processing temporal data, it is well known to su ff er from vanishing and exploding gradients when long-range temporal dependencies are present. To mitigate this di ffi culty, we employ a long short-term memory (LSTM) network. A standard (single-layer) LSTM augments the hidden state with an additional cell state, which introduces an auxiliary state variable for retaining information over longer temporal horizons. More precisely, given the current input 
+
+yt ∈ Rdy together with the previous hidden and cell states ( ht−1, ct−1) ∈ Rdh × Rdh , a single LSTM step produces updated states ( ht, ct) ∈ Rdh × Rdh . The gate variables and candidate update are defined by 
+
+it = σWyi yt + Whi ht−1 + bi
+
+,
+
+ft = σWy f yt + Wh f ht−1 + b f
+
+,
+
+ot = σWyo yt + Who ht−1 + bo
+
+,
+
+gt = tanh Wyg yt + Whg ht−1 + bg
+
+,
+
+(4) where σ denotes the logistic sigmoid function, it, ft, and ot are the input, forget, and output gates, respectively, and gt is a candidate update formed from the current input yt and the previous hidden state ht−1. We set the initial states ( h0, c0) to ( 0, 0). The cell state and hidden state are then updated according to 
+
+ct = ft ⊙ ct−1 + it ⊙ gt,
+
+ht = ot ⊙ tanh( ct), (5) where ⊙ denotes the Hadamard product. The updated cell state ct combines retained information from ct−1
+
+5with newly incorporated information from gt, while the hidden state ht is obtained as a gated transform of the updated cell state. Figure 1 provides a schematic illustration of a single-layer LSTM cell. All weight matrices and bias vectors have compatible dimensions; for example, 
+
+Wyi , Wy f , Wyo , Wyg ∈ Rdh×dy , Whi , Wh f , Who , Whg ∈ Rdh×dh , bi, b f , bo, bg ∈ Rdh .𝑐 𝑡 −1 
+
+> ℎ𝑡 −1
+> 𝜎
+> 𝑓 𝑡
+> 𝜎 tanh
+> 𝑔 𝑡
+> 𝑖 𝑡
+
++
+
+×
+
+× 
+
+> 𝜎 𝑜 𝑡
+
+× 
+
+> tanh
+> 𝑦 𝑡
+> ℎ𝑡
+> 𝑐 𝑡
+> Figure 1: Schematic of a single-layer LSTM cell.
+
+In practice, we use a multi-layer LSTM obtained by stacking L single-layer LSTMs. For each ℓ ∈ { 1, . . . , L}
+
+and time t we denote by h(ℓ) 
+
+> t
+
+, c(ℓ) 
+
+> t
+
+∈ Rdh the hidden and cell states in layer ℓ, and the hidden states h(ℓ) 
+
+> t
+
+are used as inputs for the next layer. The layerwise inputs are defined recursively by 
+
+z(1)  
+
+> t
+
+B yt, z(ℓ) 
+
+> t
+
+B h(ℓ−1)  
+
+> t
+
+for ℓ ≥ 2,
+
+and the update at layer ℓ is given by an LSTM mapping 
+
+Gℓ : z(ℓ) 
+
+> t
+
+, h(ℓ)
+
+> t−1
+
+, c(ℓ)
+
+> t−1
+
+ 7 −→ h(ℓ) 
+
+> t
+
+, c(ℓ)
+
+> t
+
+ , ℓ = 1, . . . , L,
+
+with layer-specific parameters ( W(ℓ) 
+
+> y·
+
+, W(ℓ) 
+
+> h·
+
+, b(ℓ) 
+
+> ·
+
+). For the update at time step t = 1, the initial hidden and cell states are conventionally set to zero vectors, i.e., h(ℓ)0 = 0 and c(ℓ)0 = 0 for all ℓ = 1, . . . , L. The top-layer hidden state h(L) 
+
+> t
+
+is taken as the recurrent representation at time t. Then, we obtain a fixed-dimensional summary of the history y1: t by an a ffi ne transformation of the top-layer hidden state h(L) 
+
+> t
+
+,
+
+st = Wsh(L) 
+
+> t
+
++ bs, Ws ∈ Rds×dh , bs ∈ Rds .
+
+The vectors st serve as fixed-dimensional summary statistics of y1: t and will be used as conditioning variables in subsequent probabilistic models. 
+
+Remark 2.1. A key structural di ff erence between the standard RNN recurrence (3) and the LSTM update (4-5) is the additive cell update (5) . Unrolling (5) gives, for t ≥ 1,ct =  tY
+
+> j=1
+
+fj
+
+ ⊙ c0 +
+
+> t
+
+X
+
+> s=1
+
+ tY
+
+> j=s+1
+
+fj
+
+ ⊙ is ⊙ gs
+
+,
+
+where an empty product is the all-ones vector. Hence each past update i s ⊙ gs is carried to time t with a weight given by products of forget gates. In particular, we have 
+
+∂ct
+
+∂ct−1
+
+= ft, ∂ct
+
+∂ct−k
+
+=
+
+> t
+
+Y
+
+> j=t−k+1
+
+fj,
+
+so gradients along the cell state are governed by gate products rather than repeated application of a fixed linear map and nonlinearity. When f j ≈ 1 over an interval, information and gradients are preserved across that interval, which mitigates vanishing gradients and supports long-range dependencies. 
+
+63. Methodology 
+
+In this section, we describe the proposed amortized framework for filtering and smoothing. We first present the model architecture and the corresponding training procedure, and then describe the associated filtering and smoothing inference procedures. We also introduce a flow-based particle filtering variant based on learned conditional flow models, and discuss an e ff ective sample size (ESS) diagnostic when explicit model factors are available. 
+
+3.1. Amortized filtering and smoothing 
+
+We first consider the filtering problem. For each t = 1, . . . , T, our goal is to approximate the filtering distribution p(ut | y1: t) by a conditional normalizing flow, referred to as the forward flow. The main di ffi culty is that the conditioning variable is the observation history y1: t, whose dimension grows with t. To obtain a fixed-dimensional representation of this history, we introduce a summary statistic 
+
+st = Enc( y1: t; ψ) ∈ Rh,
+
+where Enc( ·; ψ) is parameterized by a multi-layer LSTM; its architecture is described in Section 2.3. The forward flow then uses st as the conditioning variable and represents the filtering distribution as 
+
+p(ut | y1: t) ≈ pθ1,ψ (ut | st), st = Enc( y1: t; ψ), (6) where θ1 and ψ denote the parameters of the conditional normalizing flow pθ1 (ut | st) and the summary network st = Enc( y1: t; ψ), respectively; see Figure 2 for an illustration. 𝐀  
+
+> ℎ
+> 𝐀
+> Unfold
+> 𝐀 𝐀 −1
+> 𝐀 𝐀 −1
+> ℎ𝐀 −1
+> 𝐀 𝐀
+> 𝐀 𝐀
+> ℎ𝐀
+> 𝐀 𝐀 +1
+> 𝐀 𝐀 +1
+> ℎ𝐀 +1
+
+⋯      
+
+> Figure 2: Schematic of the recurrent summary network. The input observation sequence y1: tis processed by a multi-layer LSTM to produce hidden states at each time step. A linear transformation of the top-layer hidden state yields a fixed-dimensional summary statistic stthat encodes information from the entire history y1: t.
+
+We next turn to the smoothing problem. For any t ≥ 2, the trajectory smoothing distribution admits the standard backward factorization 
+
+p(u1: t | y1: t) = p(ut | y1: t)
+
+> t−1
+
+Y
+
+> k=1
+
+p(uk | uk+1, y1: k), (7) so that smoothing is determined by the terminal filtering distribution and the backward transition distribu-tions p(uk | uk+1, y1: k). Motivated by this factorization, we introduce a second conditional normalizing flow, referred to as the backward flow, to approximate the backward transitions, 
+
+p(ut | ut+1, y1: t) ≈ pθ2,ψ (ut | ut+1, st), st = Enc( y1: t; ψ), (8) where θ2 and ψ denote the parameters of the conditional normalizing flow pθ2 (ut | ut+1, st) and the summary network st = Enc( y1: t; ψ), respectively. The same summary network is used in both (6) and (8), with shared parameter ψ, so that the two conditional models are trained under a common representation of y1: t.For brevity, we refer to the proposed framework as AFSF (amortized filtering and smoothing with conditional normalizing flows). Given simulated trajectories {(ui
+
+> 1: T
+
+, yi
+
+> 1: T
+
+)}Ni=1, the forward and backward 7flows in AFSF are trained by maximum likelihood. Specifically, the training objective is defined as the weighted average negative log-likelihood min  
+
+> θ1,θ 2,ψ
+
+Lθ1,θ 2,ψ = − 1
+
+NT 
+
+> N
+
+X
+
+> i=1
+> T
+
+X
+
+> t=1
+
+log pθ1,ψ 
+
+uit | sit
+
+ − λ
+
+N(T − 1) 
+
+> N
+
+X
+
+> i=1
+> T−1
+
+X
+
+> t=1
+
+log pθ2,ψ 
+
+uit | uit+1, sit
+
+, (9) where sit = Enc( yi
+
+> 1: t
+
+; ψ) and λ > 0 is a weighting coe ffi cient. Sharing the summary network couples the two likelihood terms through the unified representation st, so that both conditional flows depend on the same finite-dimensional summary statistic of the observation history. With the choice λ = (T − 1) /T, the loss (9) can be rewritten as 
+
+Lθ1,θ 2,ψ = − 1
+
+NT 
+
+> N
+
+X
+
+> i=1
+> T
+
+X
+
+> t=1
+
+log pθ1,ψ (uit | sit) − 1
+
+NT 
+
+> N
+
+X
+
+> i=1
+> T−1
+
+X
+
+> t=1
+
+log pθ2,ψ (uit | uit+1, sit)
+
+= − 1
+
+NT 
+
+> N
+
+X
+
+> i=1
+> T−1
+
+X
+
+> t=1
+
+log pθ1,ψ (uit | sit) − 1
+
+NT 
+
+> N
+
+X
+
+> i=1
+
+log 
+
+pθ1,ψ (uiT | siT)
+
+> T−1
+
+Y
+
+> t=1
+
+pθ2,ψ (uit | uit+1, sit)
+
+ .
+
+For notational convenience, we denote the trajectory density induced by the terminal filtering distribution and the learned backward transitions by 
+
+psmoothing  
+
+> θ1,θ 2,ψ
+
+(u1: T | s1: T) B pθ1,ψ (uT | sT)
+
+> T−1
+
+Y
+
+> t=1
+
+pθ2,ψ (ut | ut+1, st),
+
+which yields the loss function 
+
+Lθ1,θ 2,ψ = − 1
+
+NT 
+
+> N
+
+X
+
+> i=1
+> T−1
+
+X
+
+> t=1
+
+log pθ1,ψ (uit | sit) − 1
+
+NT 
+
+> N
+
+X
+
+> i=1
+
+log psmoothing  
+
+> θ1,θ 2,ψ
+
+(ui 
+
+> 1: T
+
+| si
+
+> 1: T
+
+).
+
+In this form, the objective consists of a marginal term for intermediate-time filtering and a path-wise term for the induced trajectory model. Because both are conditioned on the shared summaries {st}, the optimization imposes an implicit consistency regularization: the learned backward transitions must remain coherent with the terminal-time filtering distribution under a common representation of the observation history. This consistency is important for stable backward simulation and accurate smoothing trajectories. 
+
+Remark 3.1. Alternatively, one may train the forward and backward flows separately: 
+
+min 
+
+> θ1,ψ 1
+
+− 1
+
+NT 
+
+> N
+
+X
+
+> i=1
+> T
+
+X
+
+> t=1
+
+log pθ1,ψ 1
+
+uit | siF,t
+
+, siF,t = Enc( yi
+
+> 1: t
+
+; ψ1),
+
+min 
+
+> θ2,ψ 2
+
+− 1
+
+N(T − 1) 
+
+> N
+
+X
+
+> i=1
+> T−1
+
+X
+
+> t=1
+
+log pθ2,ψ 2
+
+uit | uit+1, siS,t
+
+, siS,t = Enc( yi
+
+> 1: t
+
+; ψ2).
+
+B provides an information-theoretic perspective on this separation, showing that the optimal summary statistics 
+
+(sF,t, sS,t) for the two objectives need not coincide in general. Nevertheless, such decoupled training imposes no consistency constraint between the learned forward flow and backward flow, which may lead to degraded smoothing performance. We also show in B that if a su ffi cient summary statistic exists, then a single shared summary network can be optimal for both objectives. 
+
+The overall training procedure of AFSF is summarized in Algorithm 1. A schematic illustration of AFSF is shown in Figure 3. After training, samples from the filtering distribution at time t are obtained by first computing the summary statistic st = Enc( y1: t; ψ) and subsequently drawing 
+
+u(j) 
+
+> t
+
+∼ pθ1,ψ (· | st), j = 1, . . . , Nsample .
+
+8Algorithm 1 Training of AFSF  
+
+> 1:
+
+Input: Training trajectories {(ui
+
+> 1: T
+
+, yi
+
+> 1: T
+
+)}Ni=1; number of epochs Ne; mini-batch size Nb. 
+
+> 2:
+
+Output: Learned parameters ( θ1, θ 2, ψ ).  
+
+> 3:
+
+Initialize parameters ( θ1, θ 2, ψ ).  
+
+> 4:
+
+for epoch = 1, 2, . . . , Ne do  
+
+> 5:
+
+for each mini-batch B ⊂ { 1, . . . , N} with |B| = Nb do  
+
+> 6:
+
+For all i ∈ B , compute summary statistics sit = Enc( yi
+
+> 1: t
+
+; ψ) for t = 1, . . . , T. 
+
+> 7:
+
+Update ( θ1, θ 2, ψ ) by stochastic gradient descent on the mini-batch objective 
+
+Lθ1,θ 2,ψ (B) = − 1
+
+NbT
+
+X
+
+> i∈B
+> T
+
+X
+
+> t=1
+
+log pθ1,ψ (uit | sit) − λ
+
+Nb(T − 1) 
+
+X
+
+> i∈B
+> T−1
+
+X
+
+> t=1
+
+log pθ2,ψ (uit | uit+1, sit). 
+
+> 8:
+
+Return: (θ1, θ 2, ψ ). Starting from this set of filtering samples {u(j) 
+
+> t
+
+}Nsample  
+
+> j=1
+
+, we can generate trajectory samples from the smoothing path distribution psmoothing  
+
+> θ1,θ 2,ψ
+
+(u1: t | y1: t) by recursively applying the backward flow according to (7). Specifically, for k = t − 1, . . . , 1, we draw samples 
+
+u(j) 
+
+> k
+
+∼ pθ2,ψ 
+
+· | u(j)
+
+> k+1
+
+, sk
+
+, sk = Enc( y1: k; ψ), j = 1, . . . , Nsample .
+
+This procedure yields sample paths {u(j)1: t}Nsample  
+
+> j=1
+
+that approximate the true path distribution p(u1: t | y1: t). Furthermore, by terminating the backward recursion at any intermediate step k ≥ 1, we readily obtain samples {u(j) 
+
+> k
+
+}Nsample  
+
+> j=1
+
+from psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: t), which serve as an approximation to the smoothing distribution 
+
+p(uk | y1: t). The filtering and smoothing inference procedures in AFSF are summarized in Algorithm 2 and Algorithm 3 respectively. 
+
+Algorithm 2 Filtering inference in AFSF  
+
+> 1:
+
+Input: Observation history y1: t; number of samples Nsample ; learned parameters ( θ1, ψ ).  
+
+> 2:
+
+Output: Filtering samples {ujt }Nsample  
+
+> j=1
+
+approximating p(ut | y1: t).  
+
+> 3:
+
+Compute the summary statistic st = Enc( y1: t; ψ).  
+
+> 4:
+
+Sample {ujt }Nsample  
+
+> j=1
+
+from pθ1,ψ (ut | st).  
+
+> 5:
+
+Return: {ujt }Nsample  
+
+> j=1
+
+.
+
+Algorithm 3 Smoothing inference in AFSF  
+
+> 1:
+
+Input: Observation history y1: t; number of samples Nsample ; learned parameters ( θ1, θ 2, ψ ).  
+
+> 2:
+
+Output: Smoothing paths {uj
+
+> 1: t
+
+}Nsample  
+
+> j=1
+
+approximating p(u1: t | y1: t).  
+
+> 3:
+
+Compute summary statistics sk = Enc( y1: k; ψ) for k = 1, . . . , t. 
+
+> 4:
+
+Sample {ujt }Nsample  
+
+> j=1
+
+from pθ1,ψ (ut | st).  
+
+> 5:
+
+Initialize the jth path with terminal state ujt for j = 1, . . . , Nsample . 
+
+> 6:
+
+for k = t − 1, t − 2, . . . , 1 do  
+
+> 7:
+
+Sample {ujk}Nsample  
+
+> j=1
+
+from pθ2,ψ (uk | ujk+1, sk).  
+
+> 8:
+
+Extend the jth path by prepending ujk for j = 1, . . . , Nsample . 
+
+> 9:
+
+Return: {uj
+
+> 1: t
+
+}Nsample  
+
+> j=1
+
+.9𝑠 𝑡 −1 𝑠 𝑡  𝑠 𝑡 +1
+
+Conditional Normalizing Flow 
+
+> 𝑧
+> 𝑝 (𝑢 𝑡 +1|𝑠 𝑡 +1)𝑝 (𝑢 𝑡 |𝑠 𝑡 )
+
+⋯⋯
+
+Base distribution 
+
+Conditional Normalizing Flow            
+
+> 𝑠 1
+> 𝑝 (𝑢 1|𝑠 1)
+> 𝑠 𝑇 −1
+> 𝑝 (𝑢 𝑇 −1|𝑠 𝑇 −1)
+> 𝑢 𝑡 +1𝑢 𝑡 𝑢 𝑡 +2𝑢 𝑇
+> 𝑝 (𝑢 𝑡 −1|𝑢 𝑡 ,𝑠 𝑡 −1)
+> 𝑠 𝑇
+> 𝑝 (𝑢 𝑇 |𝑠 𝑇 )𝑝 (𝑢 𝑡 −1|𝑠 𝑡 −1)
+> 𝑝 (𝑢 𝑡 |𝑢 𝑡 +1,𝑠 𝑡 )𝑝 (𝑢 𝑡 +1|𝑢 𝑡 +2,𝑠 𝑡 +1)𝑝 (𝑢 𝑇 −1|𝑢 𝑇 ,𝑠 𝑇 −1)𝑝 (𝑢 1|𝑢 2,𝑠 1)
+> 𝑢 2
+
+Filtering Distributions 
+
+Backward Transition Distributions 
+
+> 𝑧
+
+⋯
+
+⋯ ⋯
+
+⋯Figure 3: Schematic of AFSF. A shared recurrent summary network encodes the observation history y1: t into a fixed-dimensional summary statistic st. Conditioned on the shared summary st, the forward and backward flows approximate the filtering distribution 
+
+p(ut | y1: t) and the backward transition distribution p(ut | ut+1, y1: t), respectively. 
+
+3.2. Flow-based particle filtering 
+
+Beyond the amortized filtering procedure provided by AFSF, which approximates the marginal state posterior distributions, we can also use AFSF to derive recursive flow-based particle filters. This yields an alternative way for updating the filtering distributions forward in time. Although the marginals produced by the pretrained conditional flow model may carry bias, propagating them forward as particles and correcting them with subsequently assimilated observations may progressively reduce this initialization bias. The resulting approach combines the e ffi ciency of pretrained conditional flow models with the corrective updates off ered by sequential Monte Carlo corrections. Recall that the filtering distribution satisfies the standard recursion 
+
+p(uk | y1: k) = 1
+
+p(yk | y1: k−1)
+
+Z
+
+p(uk, yk | uk−1) p(uk−1 | y1: k−1) d uk−1
+
+∝
+
+Z
+
+p(uk, yk | uk−1) p(uk−1 | y1: k−1) d uk−1.
+
+Here p(uk−1 | y1: k−1) denotes the filtering distribution at the previous step, and p(uk, yk | uk−1) is the joint transition distribution of the state and observation at time k conditioned on the previous state. In the classical state-space model setting, the joint distribution p(uk, yk | uk−1) can be factorized as p(uk, yk | uk−1) =
+
+p(uk | uk−1)p(yk | uk), where p(uk | uk−1) and p(yk | uk) denotes the state transition density and likelihood, respectively. In our setting, however, these densities are not assumed to be explicitly available. Instead, we only require access to simulated states and observations, as is typical in simulation-based inference. Since the filtering distribution is generally unavailable in closed form, particle filtering methods approx-imate it by an empirical distribution induced by a set of weighted samples. To construct a sequential update from the previous filtering distribution p(uk−1 | y1: k−1) to the new filtering distribution p(uk | y1: k), we consider an alternative factorization of the joint transition distribution 
+
+p(uk, yk | uk−1) = p(yk | uk−1) p(uk | yk, uk−1).
+
+10 This factorization follows the fully adapted proposal of particle filter [48]: the predictive likelihood p(yk | uk−1)is used to assess how well each particle from the previous filtering distribution explains the newly arrived observation yk, while the data-conditioned transition density p(uk | yk, uk−1) serves as an observation-adapted proposal for propagating particles to the new time step. Following this idea, we approximate the predictive density of the current observation given the previous state by 
+
+p(yk | uk−1) ≈ pθ3 (yk | uk−1),
+
+where pθ3 (yk | uk−1) is the density induced by a conditional normalizing flow. This model is used to reweight particles uk−1 according to their consistency with the current observation yk. In this way, particles that are more likely to explain the new data receive larger importance weights. We also introduce a second conditional normalizing flow, parametrized by θ4, to approximate the data-conditioned transition density, 
+
+p(uk | yk, uk−1) ≈ pθ4 (uk | yk, uk−1). (10) This flow is then used as a proposal mechanism to generate particles at time k conditional on both the previous state uk−1 and the current observation yk. Compared with propagating particles solely according to the latent dynamics, this observation-adapted proposal can reduce weight degeneracy and improve the effi ciency of the sequential update. The conditional densities pθ3 (yk | uk−1) and pθ4 (uk | yk, uk−1) can be trained offl ine from simulated data {(uik−1, uik, yik)}Ni=1 by minimizing the negative log-likelihoods min 
+
+> θ3
+
+− 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+log pθ3 (yik | uik−1), min 
+
+> θ4
+
+− 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+log pθ4 (uik | yik, uik−1),
+
+respectively. Given weighted particles {(u(j)
+
+> k−1
+
+, ω (j)
+
+> k−1
+
+)}Nj=1 approximating the previous filtering distribution p(uk−1 | y1: k−1), one step of the flow-based particle filter proceeds as follows: 
+
+• Predictive weighting. For each particle u(j)
+
+> k−1
+
+, evaluate the learned predictive density 
+
+pθ3 (yk | u(j)
+
+> k−1
+
+),
+
+and define the auxiliary weights ˜ω(j) 
+
+> k−1
+
+= ω(j) 
+
+> k−1
+
+pθ3 (yk | u(j)
+
+> k−1
+
+)
+
+PN 
+
+> ℓ=1
+
+ω(ℓ) 
+
+> k−1
+
+pθ3 (yk | u(ℓ)
+
+> k−1
+
+) , j = 1, . . . , N.
+
+• Resampling. Draw ancestor indices 
+
+a(j) ∼ Cat  ˜ω(1: N)
+
+> k−1
+
+, j = 1, . . . , N,
+
+where Cat( ·) denotes the categorical distribution on {1, . . . , N}.
+
+• Propagation. Conditioned on the selected ancestor and the current observation yk, generate new particles from the learned proposal density 
+
+u(j) 
+
+> k
+
+∼ pθ4 (· | yk, u(a(j)) 
+
+> k−1
+
+), j = 1, . . . , N.
+
+This yields the empirical distribution 
+
+πNk (d x) B 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+δu(j)
+
+> k
+
+(d x)that approximates the current filtering distribution p(uk | y1: k). 11 Remark 3.2. Following the conventional formulation of state-space models, the joint transition density can also be factorized as p(uk, yk | uk−1) = p(uk | uk−1) p(yk | uk).
+
+Accordingly, one may approximate the state transition density and the likelihood function using conditional normalizing flows, p(uk | uk−1) ≈ pθ5 (uk | uk−1), p(yk | uk) ≈ pθ6 (yk | uk),
+
+respectively. These two conditional densities can again be trained separately using simulated data. This leads to a bootstrap-type particle filtering strategy, in which particles are first propagated according to p θ5 (uk | uk−1) and then weighted using p θ6 (yk | uk). In contrast, the proposal density p θ4 (uk | yk, uk−1) defined in (10) explicitly incorporates the current observation y k, and therefore plays the role of an adapted proposal. As a result, it is expected to generate more informative particles than a bootstrap-type proposal based only on the latent dynamics. 
+
+When the true state-transition density and likelihood function are available, the e ffi ciency of the learned distributions can be assessed using the e ff ective sample size (ESS) and the relative e ff ective sample size (RESS). To this end, we compare the exact joint density 
+
+p(ut, yt, ut−1 | y1: t−1) = p(ut | ut−1) p(yt | ut) p(ut−1 | y1: t−1)with the joint density induced by the learned distributions, 
+
+q(ut, yt, ut−1 | y1: t−1) = pθ4 (ut | yt, ut−1) pθ3 (yt | ut−1) p(ut−1 | y1: t−1).
+
+Let {(u(i) 
+
+> t
+
+, y(i) 
+
+> t
+
+, u(i)
+
+> t−1
+
+)}Ni=1 be i.i.d. samples drawn from q, and define the corresponding importance weights 
+
+ωi B p(u(i) 
+
+> t
+
+| u(i)
+
+> t−1
+
+) p(y(i) 
+
+> t
+
+| u(i) 
+
+> t
+
+)
+
+pθ4 (u(i) 
+
+> t
+
+| y(i) 
+
+> t
+
+, u(i)
+
+> t−1
+
+) pθ3 (y(i) 
+
+> t
+
+| u(i)
+
+> t−1
+
+) , i = 1, . . . , N.
+
+Then the ESS and RESS are given by ESS = (PNi=1 ωi)2
+
+PNi=1 ω2
+
+> i
+
+, RESS = ESS 
+
+N .
+
+Recall the chi-squared divergence of the exact density p from the approximation density q,
+
+χ2(p∥q) B
+
+Z p(x)2
+
+q(x) dx − 1, x = (ut, yt, ut−1).
+
+It yields an estimate 
+
+χ2(p∥q) ≈ N
+
+ESS − 1.
+
+This way, ESS provides a convenient diagnostic for monitoring the e ffi ciency of flow-based particle filters when true likelihood and state transition density are available. 
+
+Remark 3.3. To draw samples from q (ut, yt, ut−1 | y1: t−1), we first sample u (i) 
+
+> t−1
+
+∼ p(· | y1: t−1), then draw y (i) 
+
+> t
+
+∼ pθ3 (· | 
+
+u(i)
+
+> t−1
+
+), and finally sample u (i) 
+
+> t
+
+∼ pθ4 (· | y(i) 
+
+> t
+
+, u(i)
+
+> t−1
+
+). This yields (u(i) 
+
+> t
+
+, y(i) 
+
+> t
+
+, u(i)
+
+> t−1
+
+) ∼ q. In our numerical experiments, we take N = 10 6 to obtain a stable Monte Carlo estimate. 
+
+4. Numerical experiments 
+
+In this section, we present several numerical experiments to demonstrate the e ff ectiveness of the proposed methods. We first assess the performance of AFSF on a one-dimensional linear advection di ff usion problem in Section 4.1, for which the exact solution is available. In this setting, we can quantify accuracy by computing the Kullback–Leibler (KL) divergence between the exact posterior and the predicted filtering and smoothing 12 distributions. Next, we evaluate both AFSF and the flow-based particle filtering method on a two-factor stochastic volatility model in Section 4.2. We then apply AFSF to a Burgers’ equation problem to validate the effi ciency of the proposed approach for problems governed by more complex nonlinear partial di ff erential equations (PDEs) in Section 4.3, and finally consider the stochastic Lorenz system in Section 4.4, where the state-transition density and the likelihood function are not available in the homogenized setting. When assessing the performance of the proposed methods, only the one-dimensional linear advection di ff usion problem admits an exact posterior distribution, which enables an explicit evaluation of KL di-vergence between the predicted and exact posteriors. For all experiments, we additionally report three complementary performance metrics: the root mean squared error (RMSE), the maximum mean discrep-ancy (MMD), and the continuous ranked probability score (CRPS). The implementation details of these metrics are provided in C. For all presented nonlinear data assimilation examples, we benchmark our filtering results against the state-of-the-art FBF method introduced in [45]. Across these numerical experiments, the CNFs within both the forward and backward flows are constructed by stacking a conditional scale-bias layer and 6 conditional affi ne coupling layers. Each coupling layer is implemented using a random Fourier feature coupling network, which is configured with a Fourier feature embedding and a standard MLP with a depth of 6 and a width of 64 neurons. Further architectural details can be found in A. The summary network st = Enc( y1: t; ψ) is implemented as a 4-layer LSTM, although this is reduced to a single layer for the one-dimensional linear advection-di ff usion problem, and is subsequently followed by a linear transformation. The dimensionality of the resulting summary statistic st is set such that dim( st) = 3 dim( yt), with the exception of the two-factor stochastic volatility example, where dim( st) = 5 dim( yt). For the training procedure, we employ the Adam optimizer with an initial learning rate of 0 .001. All simulations were implemented in PyTorch and performed on an NVIDIA V100 GPU with 32GB of memory. 
+
+4.1. One-dimensional linear advection di ff usion problem 
+
+We consider the one-dimensional linear advection di ff usion equation 
+
+∂tu(t, x) = a ∂xu(t, x) + κ ∂ xx u(t, x), x ∈ [0 , 1] , t ≥ 0,
+
+subject to periodic boundary conditions 
+
+u(t, 0) = u(t, 1) , ∂xu(t, 0) = ∂xu(t, 1) , t ≥ 0,
+
+and the initial condition 
+
+u(0 , x) = sin(2 πx), x ∈ [0 , 1] .
+
+We discretize [0 , 1] with n equidistant grid points 
+
+xj = j∆x, ∆x = 1
+
+n , j = 0, 1, . . . , n − 1,
+
+and denote the discrete state at observation times tk = k∆t by uk ∈ Rn, where ujk represents u(tk, xj). Throughout the experiments, the observation time step ∆t is fixed for all spatial resolutions n. The training and testing trajectories are generated by an explicit or hybrid finite-di ff erence (FD) solver with a stable fine time step δt, which typically becomes smaller as n increases. We assume that 
+
+∆t = mn δt, mn ∈ N,
+
+and let Mδt ∈ Rn×n denote the one-step FD update matrix associated with δt. The resulting linear propagation over one observation interval ∆t is 
+
+uk = Mu k−1, M B M mn 
+
+> δt
+
+.
+
+To account for unresolved dynamics as well as discretization and modeling errors, we introduce additive Gaussian noise at the ∆t scale: 
+
+uk = Mu k−1 + ϵu,k, ϵu,k ∼ N (0 , Q). (11) 13 Equivalently, one may inject i.i.d. Gaussian noise at each FD step of size δt with covariance matrix Qδt and then subsample every mn steps. This induces the coarse-scale covariance 
+
+Q =
+
+> mn−1
+
+X
+
+> i=0
+
+M i 
+
+> δt
+
+Qδt
+
+M i
+
+> δt
+
+⊤
+
+.
+
+The observations are assumed to be linear and noisy: 
+
+yk = Hu k + ϵy,k, ϵy,k ∼ N (0 , R), (12) where H ∈ Rny×n is the observation operator and R ∈ Rny×ny is the observation noise covariance matrix. The initial state is also taken to be uncertain: 
+
+u0 ∼ N (μ, Σ), μj = sin 2πjn
+
+!
+
+, j = 0, 1, · · · , n − 1, Σ = σ2In. (13) This benchmark therefore defines a linear Gaussian state-space model through (11) and (12), so the exact filtering and smoothing distributions are available in closed form; see D. 
+
+4.1.1. Case 1: a = −1 and κ = 0We first consider the case a = −1 and κ = 0, for which the di ff usion term vanishes and the PDE reduces to an advection equation. In this setting, the solution is transported at a constant speed without any di ff usive smoothing. After process noise is introduced, the resulting long-time inference problem becomes more challenging than in the di ff usive regime with κ , 0. Using the explicit FD solver, we discretize the advection term by a upwind scheme, which yields 
+
+Mδt = I − νA, ν = δt
+
+∆x ,
+
+where δt is the time step and A ∈ Rn×n is the backward di ff erence matrix under periodic boundary conditions. In addition, we take the process noise covariance in (11) to be spatially uncorrelated, namely Q = qI n with 
+
+q > 0. For the observation model (12), we observe every second grid point. Specifically, we define the index set 
+
+I = {0, 2, 4, . . . , n − 2},
+
+so that ny = |I| = n/2, assuming that n is even. The matrix H is then the corresponding subsampling matrix whose i-th row is the canonical basis vector ej with j = Ii, that is, 
+
+Hi,j =
+
+
+
+1, j = Ii,
+
+0, otherwise ,
+
+and we choose diagonal observation noise R = rI ny with r > 0. Under this setup, the noise levels q, r, and σ are kept fixed across di ff erent state dimensions n, which makes the inference task increasingly challenging as the discretization dimension grows. In the numerical experiments, we set ∆t = 0.05 and simulate the system in (11)-(13) with noise levels q = 0.01, r = 0.1, and 
+
+σ = 0.05. We consider discretization dimensions n = 10 , 20 , 30 , 40 , 50. For each n, we generate Ntrain = 2000 training trajectories of length Ttrain = 500 and Ntest = 200 testing trajectories. The performance of AFSF is summarized in Table 1. All reported error metrics are computed using the Ntest = 200 test trajectories, each of length Ttrain . Unless otherwise specified, this configuration is used throughout the remainder of the numerical experiments. The KL divergence for pθ1,ψ (uk | sk) indicates that the learned filtering distribution is highly accurate and remains stable as the state dimension increases. Moreover, the RMSE and the other evaluation metrics for the smoothing distribution psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain )are consistently better than those for pθ1,ψ (uk | sk), reflecting the benefit of incorporating information from the entire observation sequence. Although the MMD values increase with n, the other error measures remain stable, demonstrating the robustness of the proposed method as the discretisation dimension increases. 14 pθ1,ψ (uk | sk) pθ2,ψ (uk−1 | uk, sk) psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain )KL RMSE MMD CRPS KL RMSE MMD CRPS RMSE MMD CRPS 
+
+n = 10 0.0191 0.1457 0.0514 0.0822 0.0146 0.0949 0.0222 0.0536 0.1284 0.0401 0.0725 
+
+n = 20 0.0443 0.1345 0.0860 0.0759 0.0262 0.0956 0.0446 0.0540 0.1207 0.0704 0.0683 
+
+n = 30 0.0450 0.1288 0.1164 0.0727 0.0358 0.0960 0.0667 0.0542 0.1172 0.0979 0.0663 
+
+n = 40 0.0524 0.1252 0.1444 0.0706 0.0434 0.0962 0.0883 0.0543 0.1149 0.1237 0.0650 
+
+n = 50 0.0597 0.1228 0.1710 0.0693 0.0534 0.0965 0.1097 0.0544 0.1134 0.1484 0.0641 
+
+Table 1: Performance of the predicted filtering distribution pθ1,ψ (uk | sk), the backward kernel distribution pθ2,ψ (uk−1 | uk, sk), and the smoothing distribution psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain ) for Case 1 of the advection-di ff usion problem under di ff erent state dimensions. 0 10 20 30 40 50 
+
+> Time/s
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> 1.0
+> u13
+
+Smoothing Result                
+
+> 010 20 30 40 50
+> Time/s
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> 1.0
+> u25
+> 010 20 30 40 50
+> Time/s
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> 1.0
+> u37
+> 010 20 30 40 50
+> Time/s
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> 1.0
+> u13
+
+Filtering Result                   
+
+> 010 20 30 40 50
+> Time/s
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> 1.0
+> u25
+> 010 20 30 40 50
+> Time/s
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> 1.0
+> u37
+> reference mean predicted mean reference ±2 stds predicted ±2 stds Ttrain
+
+Figure 4: Visualization of the mean and uncertainty of the estimated filtering distribution pθ1,ψ (uk | sk) (left column) and the smoothing distribution psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: T ) (right column) for Case 1 of the advection-di ff usion problem with state dimension n = 50. 
+
+To illustrate the e ff ectiveness of the AFSF for high-dimensional state estimation, Figure 4 presents the mean and uncertainty of the estimated filtering distribution pθ1,ψ (uk | sk) and smoothing distribution 
+
+pθ1,θ 2,ψ (uk | y1: T) for the case n = 50 and T = 1000, corresponding to the physical time t = 50. The predicted mean and uncertainty are in excellent agreement with the reference solution. The vertical dashed gray line marks Ttrain , the maximum time horizon used in generating the training data. Unless otherwise specified, this notation is adopted throughout the subsequent numerical experiments. Importantly, the agreement persists not only within the training horizon but also over future time steps beyond it, which confirms the extrapolation capability of the proposed approach. Figure 5 shows the evolution of the KL divergence for pθ1,ψ (uk | sk) and pθ2,ψ (uk−1 | uk, sk) at n = 50. In both cases, the KL divergence decreases during the early stage, remains relatively stable over a long interval, and then increases only mildly as the prediction step grows. This trend persists beyond the training horizon indicated by the vertical dashed line at Ttrain , which provides further evidence of the temporal extrapolation 15 robustness of the proposed method. (For clarity, the first 10 time steps are omitted from the figure. The same plotting convention is used in the following numerical experiments.) 0 200 400 600 800 1000 
+
+Time step  
+
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> 0.12
+> 0.14
+> 0.16
+
+DKL (p(uk | y1 : k) pθ1, ψ (uk | sk))      
+
+> Ttrain 0200 400 600 800 1000
+
+Time step  
+
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> 0.12
+> 0.14
+> 0.16
+
+DKL (p(uk − 1 | uk, y 1 : k) pθ2, ψ (uk − 1 | uk, s k)) 
+
+> Ttrain
+
+Figure 5: Time evolution of DKL (p(uk | y1: k) ∥ pθ1,ψ (uk | sk)) (left) and DKL (p(uk−1 | uk, y1: k) ∥ pθ2,ψ (uk−1 | uk, sk)) (right) for Case 1 of the advection-di ff usion problem with state dimension n = 50. 
+
+Figure 6 further shows the evolution of RMSE and the other error metrics for pθ1,ψ (uk | sk) and pθ2,ψ (uk−1 |
+
+uk, sk) when n = 50. The results again demonstrate the strong robustness and temporal extrapolation performance of the proposed method. In addition, Figure 7 presents the absolute error between the posterior mean and the reference solution, together with the predicted standard deviation, along a test trajectory of length T = 1000. 0 200 400 600 800 1000                          
+
+> Time step
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> 0.12
+> RMSE
+> AFSF
+> Ttrain
+> 0200 400 600 800 1000
+> Time step
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> MMD
+> AFSF
+> Ttrain
+> 0200 400 600 800 1000
+> Time step
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> CRPS
+> AFSF
+> Ttrain 0200 400 600 800 1000
+> Time step
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> RMSE
+> AFSF
+> Ttrain
+> 0200 400 600 800 1000
+> Time step
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> 0.12
+> MMD
+> AFSF
+> Ttrain
+> 0200 400 600 800 1000
+> Time step
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+> 0.06
+> CRPS
+> AFSF
+> Ttrain
+
+Figure 6: Time evolution of error metrics (RMSE, MMD, and CRPS) for the predicted filtering distribution pθ1,ψ (uk | sk) (top row) and the backward kernel distribution pθ2,ψ (uk−1 | uk, sk) (bottom row) for Case 1 of the advection-di ff usion problem with state dimension 
+
+n = 50. 
+
+4.1.2. Case 2: a = 1 and κ = 0.01 In this subsection, we consider the case a = 1 and κ = 0.01 and study the performance of AFSF in a discretization-consistent setting. In this regime, the discrete model is expected to provide a progressively more accurate approximation of the underlying continuous model as the discretization dimension n in-creases. This setting therefore o ff ers a natural baseline for examining whether the proposed method can maintain stable and reliable inference performance across di ff erent spatial resolutions. In this case, the process-noise model in (11) should no longer be specified by a dimension-independent covariance of the form Q = qI n. Instead, we inject Gaussian noise at each fine finite-di ff erence step of size δt,with covariance 
+
+Qδt = δtn In.
+
+16 0 20 40 
+
+> t
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> x
+
+Reference Mean   
+
+> 020 40
+> t
+> x
+
+Predicted Mean   
+
+> 020 40
+> t
+> x
+
+Error   
+
+> 020 40
+> t
+> x
+
+Predicted Std   
+
+> -0.75
+> -0.50
+> -0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> -1.00
+> -0.75
+> -0.50
+> -0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.005
+> 0.010
+> 0.015
+> 0.020
+> 0.025
+> 0.030
+> 0.035
+> 0.040
+> 0.10
+> 0.11
+> 0.12
+> 0.13
+> 0.14
+> 0.15 020 40
+> t
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> x
+
+Reference Mean   
+
+> 020 40
+> t
+> x
+
+Predicted Mean   
+
+> 020 40
+> t
+> x
+
+Error   
+
+> 020 40
+> t
+> x
+
+Predicted Std 
+
+> -0.75
+> -0.50
+> -0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> -0.75
+> -0.50
+> -0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+> 0.09
+> 0.10
+> 0.11
+> 0.12
+> 0.13
+> 0.14
+
+Figure 7: Spatiotemporal results for the predicted filtering distribution pθ1,ψ (uk | sk) (top row) and the smoothing distribution 
+
+psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: T ) (bottom row) for Case 1 of the advection-di ff usion problem with state dimension n = 50. From left to right, the columns show the reference mean, the predicted mean, the absolute error, and the predicted standard deviation. 
+
+The corresponding process-noise covariance over one observation interval ∆t = mnδt is then given by 
+
+Q =
+
+mn−1X
+
+i=0
+
+M i
+
+δt Qδt
+
+M i
+
+δt
+
+⊤
+
+.
+
+Moreover, since the di ff usion coe ffi cient κ is no longer zero, we construct Mδt at each δt step using an explicit Lax-Wendro ff -type discretization. Furthermore, the observation model no longer subsamples every second component of uk. Instead, we partition the n state indices into nI consecutive groups Ii with |I i| = nnI ,
+
+i = 1, · · · , nI, such that 
+
+Ii = n(i − 1) × nnI
+
++ j | j = 1, · · · , nnI
+
+o, i = 1, · · · , nI,
+
+and yk ∈ Rny , ny = nI such that 
+
+yik = 1
+
+|I i|
+
+X
+
+j∈Ii
+
+ujk + ϵiy,k, i = 1, · · · , ny, (14) where ϵy,k ∼ N (0 , rI ny ) represents additive Gaussian white noise. In this example, we take ∆t = 0.01 and simulate using the observation equation (14) and initial condition (13) with noise level r = 0.01, σ = 0.05 /n. In this case, we conduct experiments with varying discretization dimensions n = 16 , 32 , 48 , 64 with fixed nI = 8. For each n, we use Ntrain = 2000 generated trajectories of length T = 500 for training and Ntest = 200 trajectories for testing. Table 2 reports the performance of AFSF in the discretization-consistent setting. For the learned filtering distribution pθ1,ψ (uk | sk), the KL divergence remains within a relatively narrow range as the state dimension 
+
+n increases, indicating that the filtering performance stays stable under mesh refinement. At the same time, the RMSE, MMD, and CRPS all decrease with n, showing that the approximation quality improves as the discretization becomes finer. A similar trend is observed for the learned backward kernel pθ2,ψ (uk−1 | uk, sk), whose error metrics also decrease steadily with the discretization dimension. The smoothing distribution 
+
+psmoothing 
+
+θ1,θ 2,ψ (uk | y1: Ttrain ) further improves upon the filtering distribution across all tested dimensions. 17 pθ1,ψ (uk | sk) pθ2,ψ (uk−1 | uk, sk) psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain )KL RMSE MMD CRPS KL RMSE MMD CRPS RMSE MMD CRPS 
+
+n = 16 0.1355 0.0558 0.0123 0.0314 0.0499 0.0236 0.0022 0.0133 0.0548 0.0102 0.0281 
+
+n = 32 0.1363 0.0360 0.0103 0.0203 0.0653 0.0162 0.0021 0.0091 0.0360 0.0082 0.0182 
+
+n = 48 0.1135 0.0267 0.0085 0.0150 0.0587 0.0121 0.0017 0.0068 0.0237 0.0067 0.0134 
+
+n = 64 0.1268 0.0214 0.0073 0.0121 0.0592 0.0095 0.0014 0.0054 0.0190 0.0058 0.0107 
+
+Table 2: The performance of the predicted filtering distribution pθ1,ψ (uk | sk), the backward kernel distribution pθ2,ψ (uk−1 | uk, sk), and the smoothing distribution psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain ) for Case 2 of the advection-di ff usion problem with varying state dimensions. 0 2 4 6 8 10 
+
+> Time/s
+> -0.5
+> 0.0
+> 0.5
+> 1.0
+> u13
+
+Smoothing Result                
+
+> 0246810
+> Time/s
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> u25
+> 0246810
+> Time/s
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> u37
+> 0246810
+> Time/s
+> -0.5
+> 0.0
+> 0.5
+> 1.0
+> u13
+
+Filtering Result                   
+
+> 0246810
+> Time/s
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> u25
+> 0246810
+> Time/s
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> u37
+> reference mean predicted mean reference ±2 stds predicted ±2 stds Ttrain
+
+Figure 8: Visualization of the mean and uncertainty of the estimated filtering distribution pθ1,ψ (uk | sk) (left column) and the smoothing distribution psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: T ) (right column) for Case 2 of the advection-di ff usion problem at state dimension n = 48. 
+
+To illustrate the e ff ectiveness of the AFSF method for high-dimensional state estimation, Figure 8 presents the mean and uncertainty of the estimated filtering distribution pθ1,ψ (uk | sk) and smoothing distribution 
+
+pθ1,θ 2,ψ (uk | y1: T) along a test trajectory with state dimension n = 48 and time horizon T = 1000, corresponding to the physical time t = 10. For the case n = 48, Figure 9 shows the evolution of the KL divergence for pθ1,ψ (uk | sk) and pθ2,ψ (uk−1 | uk, sk)over successive prediction steps. Under the same setting, Figure 10 presents the evolution of RMSE and the other evaluation metrics for pθ1,ψ (uk | sk) and pθ2,ψ (uk−1 | uk, sk). These results provide further evidence of the strong extrapolation capability of the proposed method and its robustness against error accumulation over long prediction horizons. In addition, Figure 11 shows the absolute error between the posterior mean and the reference solution, together with the predicted standard deviation, along a test trajectory of length 
+
+T = 1000. 18 0 200 400 600 800 1000 
+
+Time step 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+0.20 
+
+0.25 
+
+0.30 
+
+DKL (p(uk | y1 : k) pθ1, ψ (uk | sk)) 
+
+Ttrain 0 200 400 600 800 1000 
+
+Time step 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+0.20 
+
+0.25 
+
+0.30 
+
+DKL (p(uk − 1 | uk, y 1 : k) pθ2, ψ (uk − 1 | uk, s k)) 
+
+Ttrain Figure 9: Time evolution of DKL (p(uk | y1: k) ∥ pθ1,ψ (uk | sk)) (left) and DKL (p(uk−1 | uk, y1: k) ∥ pθ2,ψ (uk−1 | uk, sk)) (right) for Case 2 of the advection-di ff usion problem at state dimension n = 48. 0 200 400 600 800 1000 
+
+Time step 
+
+0.000 
+
+0.005 
+
+0.010 
+
+0.015 
+
+0.020 
+
+0.025 
+
+0.030 
+
+RMSE 
+
+AFSF 
+
+Ttrain 
+
+0 200 400 600 800 1000 
+
+Time step 
+
+0.000 
+
+0.002 
+
+0.004 
+
+0.006 
+
+0.008 
+
+0.010 
+
+MMD 
+
+AFSF 
+
+Ttrain 
+
+0 200 400 600 800 1000 
+
+Time step 
+
+0.000 
+
+0.003 
+
+0.005 
+
+0.007 
+
+0.010 
+
+0.013 
+
+0.015 
+
+CRPS 
+
+AFSF 
+
+Ttrain 0 200 400 600 800 1000 
+
+Time step 
+
+0.000 
+
+0.002 
+
+0.004 
+
+0.006 
+
+0.008 
+
+0.010 
+
+0.012 
+
+RMSE 
+
+AFSF 
+
+Ttrain 
+
+0 200 400 600 800 1000 
+
+Time step 
+
+0.000 
+
+0.001 
+
+0.001 
+
+0.002 
+
+0.002 
+
+MMD 
+
+AFSF 
+
+Ttrain 
+
+0 200 400 600 800 1000 
+
+Time step 
+
+0.000 
+
+0.002 
+
+0.004 
+
+0.006 
+
+CRPS 
+
+AFSF 
+
+Ttrain 
+
+Figure 10: Time evolution of error metrics (RMSE, MMD, and CRPS) for the predicted filtering distribution pθ1,ψ (uk | sk) (top row) and the backward kernel distribution pθ2,ψ (uk | uk+1, sk) (bottom row) for Case 2 of the advection-di ff usion problem at state dimension 
+
+n = 48. 0.0 2.5 5.0 7.5 
+
+t
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+> x
+
+Reference Mean 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Predicted Mean 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Error 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Predicted Std 
+
+> -0.75
+> -0.50
+> -0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> -0.75
+> -0.50
+> -0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 0.002
+> 0.004
+> 0.006
+> 0.008
+> 0.018
+> 0.020
+> 0.022
+> 0.024
+> 0.026
+> 0.028
+
+0.0 2.5 5.0 7.5 
+
+t
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+> x
+
+Reference Mean 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Predicted Mean 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Error 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Predicted Std 
+
+> -0.75
+> -0.50
+> -0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> -0.75
+> -0.50
+> -0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.002
+> 0.004
+> 0.006
+> 0.008
+> 0.018
+> 0.020
+> 0.022
+> 0.024
+> 0.026
+
+Figure 11: Spatiotemporal results for the predicted filtering distribution pθ1,ψ (uk | sk) (top row) and the smoothing distribution 
+
+psmoothing 
+
+θ1,θ 2,ψ (uk | y1: T ) (bottom row) for Case 2 of the advection-di ff usion problem at state dimension n = 48. From left to right, the columns display the reference mean, the predicted mean, the absolute error between them, and the predicted standard deviation. 
+
+19 4.2. Two-factor stochastic volatility model 
+
+Stochastic volatility (SV) models are widely used in financial econometrics to describe time-varying and persistent return uncertainty, while also accounting for volatility clustering and the heavy-tailed behavior of asset returns. Here, we consider a two-factor stochastic volatility model with latent log-volatility ut =
+
+(ut,1, ut,2)⊤ and observed returns yt = (yt,1, yt,2)⊤. The model is defined by 
+
+u0 ∼ N 0, diag( τ21, τ 22),
+
+ut = α + Aut−1 − α + Dσϵu,t, ϵu,t ∼ N (0, I2),
+
+yt = β exp  12 ut
+
+ ⊙ ϵy,t, ϵy,t ∼ N (0, I2),
+
+for t = 1, . . . , T, where ⊙ denotes the Hadamard product, and Dσ = diag( σ1, σ 2). The parameter choice is motivated by the S&P 500 dataset. In particular, [40] considers a single-factor SV model for S&P 500 daily returns and reports the MAP estimates γ = 0.97, σ = 0.3, β = 0.835. Based on these values, we set α = (0 , 0) ⊤, A = diag( γ1, γ 2), γ1 = γ2 = 0.97, σ1 = σ2 = 0.3, β = 0.835, and 
+
+τ21 = σ21
+
+1 − γ21
+
+, τ22 = σ22
+
+1 − γ22
+
+.
+
+This gives a simple two-factor extension of the single-factor SV model while keeping a direct connection to the empirical characteristics of the S&P 500 returns. We first use this model to generate synthetic data and evaluate the proposed methods in a controlled setting. Specifically, we generate N = 2000 labeled trajectories of length Ttrain = 1000 for training and an additional Ntest = 200 trajectories for testing. Under this setup, we evaluate both AFSF and the flow-based particle filtering method, and compare their filtering performance with that of FBF. Table 3 reports the filtering results. The learned filtering distribution pθ1,ψ (uk | sk) and the flow-based particle filtering distribution pparticle  
+
+> θ3,θ 4
+
+(uk | y1: k) achieve comparable performance, and both substantially outperform the FBF method pFBF (uk | y1: k) on this highly nonlinear two-dimensional problem. Figure 12 further compares the evolution of RESS for the flow-based particle filtering method and FBF on a test trajectory, and again indicates the advantage of the learned proposal. 
+
+pθ1,ψ (uk | sk) pparticle  
+
+> θ3,θ 4
+
+(uk | y1: k) pFBF (uk | y1: k)RMSE MMD CRPS RMSE MMD CRPS RMSE MMD CRPS 
+
+0.6117 0.1571 0.3435 0.6163 0.1591 0.3462 0.7481 0.2163 0.4188 
+
+Table 3: Comparison of filtering performance among the proposed AFSF method pθ1,ψ (uk | sk), the flow-based particle filtering method 
+
+pparticle  
+
+> θ3,θ 4
+
+(uk | y1: k), and the FBF method pFBF (uk | y1: k) for the stochastic volatility model. 0 250 500 750 1000 1250 1500 1750 2000 
+
+> Time step
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> RESS
+> Flow based particle filter
+> FBF
+> Ttrain
+> Relative Effective Sample Size (RESS)
+
+Figure 12: Comparison of the time evolution of RESS for the filtering distributions of the flow-based particle filtering method 
+
+pparticle  
+
+> θ3,θ 4
+
+(uk | y1: k) and the FBF method pFBF (uk | y1: k) for the two-factor stochastic volatility model on a test case. 
+
+20 0 250 500 750 1000 1250 1500 1750 2000         
+
+> Time step
+> 4
+> 2
+> 0
+> 2
+> 4
+> u1
+> 0250 500 750 1000 1250 1500 1750 2000
+> Time step
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> u2
+
+Filtering Result     
+
+> path predicted mean predicted ± 2 stds Ttrain
+
+Figure 13: Visualization of the mean and uncertainty of the estimated filtering distribution pθ1,ψ (uk | sk) for the two-factor stochastic volatility model. 0 250 500 750 1000 1250 1500 1750 2000         
+
+> Time step
+> 4
+> 2
+> 0
+> 2
+> 4
+> u1
+> 0250 500 750 1000 1250 1500 1750 2000
+> Time step
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> u2
+
+Particle Filtering Result     
+
+> path predicted mean predicted ± 2 stds Ttrain
+
+Figure 14: Visualization of the mean and uncertainty of the estimated filtering distribution pparticle  
+
+> θ3,θ 4
+
+(uk | y1: k) for the two-factor stochastic volatility model. 
+
+To further illustrate the behavior of the two learned filtering methods, Figures 13 and 14 visualize the mean and uncertainty of the estimated filtering distributions produced by AFSF and the flow-based particle filtering method, respectively, on a test trajectory of length T = 2000. Table 4 reports the performance of AFSF in filtering, backward simulation, and smoothing for the same two-factor model. The smoothing distribution significantly improves upon the filtering distribution, which is expected since it incorporates information from the full observation sequence. Figure 15 visualizes the 21 mean and uncertainty of the estimated smoothing distribution on the same test trajectory. Figure 16 further shows the evolution of RMSE and the other error metrics for the learned filtering distribution pθ1,ψ (uk | sk)and the backward kernel pθ2,ψ (uk−1 | uk, sk). 
+
+pθ1,ψ (uk | sk) pθ2,ψ (uk−1 | uk, sk) psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain )RMSE MMD CRPS RMSE MMD CRPS RMSE MMD CRPS Two factor 0.6117 0.1571 0.3435 0.2746 0.0363 0.1551 0.4805 0.1038 0.2710 
+
+Table 4: The performance of the predicted filtering distribution pθ1,ψ (uk | sk), the backward kernel distribution pθ2,ψ (uk−1 | uk, sk), and the smoothing distribution psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain ) for the two-factor stochastic volatility model. 0 250 500 750 1000 1250 1500 1750 2000             
+
+> Time step
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> u1
+> 0250 500 750 1000 1250 1500 1750 2000
+> Time step
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> u2
+> Smoothing Result
+> path predicted mean predicted ± 2 stds Ttrain
+
+Figure 15: Visualization of the mean and uncertainty of the estimated smoothing distribution psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: T ) for the two-factor stochastic volatility model with T = 2000. 
+
+After validating the proposed methods on synthetic data, we further examine the flow-based particle filtering method on real market data. Specifically, we apply the trained model to the daily returns of the S&P 500 index in order to assess its practical e ff ectiveness. Since the two-factor model considered here is built from S&P 500-based single-factor parameter estimates, we augment the processed S&P 500 return series with a synthetic trajectory generated from the corresponding single-factor SV model, and then use the resulting bivariate sequence for inference and prediction. Figure 17 presents the RESS of the flow-based particle filtering method on the empirical S&P 500 dataset, which suggests that the learned proposal remains e ff ective in the real-data setting. Figure 18 shows the corresponding filtering results. As illustrated in Figure 18, the proposed flow-based particle filtering method tracks the latent volatility of the S&P 500 index from December 31, 2018, to December 29, 2022. The large peak in the predicted mean together with the substantial widening of the 90% credible interval around k ≈ 300 reflects the severe market disruption associated with the initial COVID-19 outbreak in early 2020. Moreover, from roughly k ≈ 800 onward, the estimated volatility remains clearly elevated, and several pronounced peaks appear during this period. This pattern is consistent with the strong and persistent financial market turbulence associated with the Russia–Ukraine war and the broader uncertainty in 2022. 22 0 500 1000 1500 2000 
+
+Time step 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+RMSE     
+
+> AFSF
+> Ttrain
+> 0500 1000 1500 2000
+
+Time step 
+
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+
+MMD     
+
+> AFSF
+> Ttrain
+> 0500 1000 1500 2000
+
+Time step 
+
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+
+CRPS     
+
+> AFSF
+> Ttrain 0500 1000 1500 2000
+
+Time step 
+
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+
+RMSE     
+
+> AFSF
+> Ttrain
+> 0500 1000 1500 2000
+
+Time step 
+
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+
+MMD     
+
+> AFSF
+> Ttrain
+> 0500 1000 1500 2000
+
+Time step  
+
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+
+CRPS 
+
+> AFSF
+> Ttrain
+
+Figure 16: Time evolution of error metrics (RMSE, MMD, and CRPS) for the predicted filtering distribution pθ1,ψ (uk | sk) (top row) and the backward kernel distribution pθ2,ψ (uk−1 | uk, sk) (bottom row) for the two-factor stochastic volatility model. 0 200 400 600 800 1000 
+
+Time step 
+
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> RESS
+> Flow based particle filter
+
+Relative Effective Sample Size (RESS) 
+
+Figure 17: Time evolution of RESS for the filtering distributions of the flow-based particle filtering method pparticle 
+
+θ3,θ 4 (uk | y1: k) for the two-factor stochastic volatility model on S&P 500 dataset. 0 200 400 600 800 1000 
+
+Time step       
+
+> 8
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6S&P500 path
+> 0200 400 600 800 1000
+
+Time step 
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> predicted mean
+> 90% confidence interval
+
+S&P500 
+
+Figure 18: Flow-based particle filtering results for the S&P 500 dataset. The top row visualizes the observation sequence over time. The bottom row displays the mean and the 90% credible interval (5th to 95th percentiles) of the exponentiated state exp( uk), derived from the estimated filtering distribution pparticle 
+
+θ3,θ 4 (uk | y1: k). 
+
+23 4.3. Burgers’ equation 
+
+In this subsection we experiment with the Burgers’ equation driven by an additive random noise, which has found extensive applications. Let us consider the following Burgers’ equation: 
+
+
+
+du + u ∂xu − ν ∂ 2
+
+> xx
+
+u dt = σ dW (t), x ∈ [−1, 1] , t ∈ [0 , 1] ,
+
+u(0 , x) = − sin( πx), x ∈ [−1, 1] ,
+
+u(t, −1) = 0, t ∈ [0 , 1] ,
+
+u(t, 1) = 0, t ∈ [0 , 1] .
+
+(15) where ν represents the kinematic viscosity, W(t) is a continuous Wiener process, and u(x, t) indicates the concentration at position x and time t. In this example, σ and ν are set at 1 .0 and 0 .05, respectively. Additional numerical results for the case ν = 0.01 are provided in E.1. To generate the trajectory data, we simulate the Burgers’ equation (15) using an hybrid finite di ff erence on a 201 × 50 uniform temporal-spatial domain. The target state and measurement are defined as: 
+
+uk = u(k∆t, x1), u(k∆t, x2), . . . , u(k∆t, x50 ),
+
+yk = u(k∆t, x1), u(k∆t, x3) . . . , u(k∆t, x50 ) + ϵy,k, ϵy,k ∼ N 0, r2Iny
+
+,
+
+where ∆t = 0.005, ny = 25 and {x1, . . . , x50 } are the spatial grid points in the hybrid finite di ff erence simulation. Here, we aim to quantify the uncertainty of the random field u(kδt, ·) at {x1, . . . , x50 } using the AFSF, based on incomplete and noisy observations yk. We generate N = 3000 labeled trajectories of length Ttrain = 200 for training, and an additional Ntest = 200 trajectories for testing. First, we investigate the sensitivity of the AFSF to varying observation noise levels r2. Specifically, Table 5 compares the performance of our filtering distribution pθ1,ψ (uk | sk) against the FBF method pFBF (uk | y1: k)under di ff erent noise regimes. These results indicate that the performance of the two methods is remarkably similar, as both have nearly reached the accuracy of the analytical solution for the Burgers’ equation. On the other hand, our proposed filtering approach maintains a slight but consistent advantage over the FBF method. This trend is also reflected in Figure 19, which shows the evolution of RMSE and the other error metrics for both methods over time. 
+
+RMSE MMD CRPS 
+
+pθ1,ψ (uk | sk) pFBF (uk | y1: k) pθ1,ψ (uk | sk) pFBF (uk | y1: k) pθ1,ψ (uk | sk) pFBF (uk | y1: k)
+
+r2 = 0.01 0.0751 0.0752 0.0683 0.0681 0.0411 0.0410 
+
+r2 = 0.04 0.0898 0.0917 0.0961 0.0994 0.0497 0.0506 
+
+r2 = 0.09 0.1003 0.1015 0.1184 0.1203 0.0556 0.0561 
+
+r2 = 0.16 0.1084 0.1113 0.1369 0.1426 0.0601 0.0615 
+
+r2 = 0.25 0.1149 0.1179 0.1523 0.1584 0.0637 0.0650 
+
+Table 5: Comparison of filtering performance among the AFSF method pθ1,ψ (uk | sk) and the FBF method pFBF (uk | y1: k) for the Burgers’ equation problem with varying observation noise level r2.0 50 100 150 200         
+
+> Time step
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> RMSE
+> AFSF
+> FBF
+> 050 100 150 200
+> Time step
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> MMD
+> AFSF
+> FBF
+> 050 100 150 200
+> Time step
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> CRPS
+> AFSF
+> FBF
+
+Figure 19: Comparison of the time evolution of error metrics (RMSE, MMD, and CRPS) for the filtering distributions of the proposed AFSF method pθ1,ψ (uk | sk) and the FBF method pFBF (uk | y1: k) for the Burgers’ equation at an observation noise level of r2 = 0.25. 
+
+24 0.0 0.2 0.4 0.6 0.8 1.0 
+
+> Time/s
+> -0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> u13
+
+Smoothing Result                
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Time/s
+> -0.4
+> -0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> u25
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Time/s
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> u37
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Time/s
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> u13
+
+Filtering Result               
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Time/s
+> -0.50
+> -0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> u25
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Time/s
+> -1.25
+> -1.00
+> -0.75
+> -0.50
+> -0.25
+> 0.00
+> 0.25
+> u37
+> path predicted mean predicted ±2 stds
+
+Figure 20: Visualization of the mean and uncertainty of the estimated filtering distribution pθ1,ψ (uk | sk) (left column) and the smoothing distribution psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: T ) (right column) for the Burgers’ equation problem at an observation noise level of r2 = 0.25. 
+
+Table 6 reports the performance of AFSF for the Burgers’ equation. The smoothing distribution achieves slightly better results than the filtering distribution, which is expected since it incorporates information from the full observation sequence. To illustrate the behavior of AFSF under high observation noise, Figure 20 shows the mean and uncertainty of the estimated filtering and smoothing distributions along a test trajectory with r2 = 0.25 and T = 200, corresponding to the physical time t = 1. Figure 21 further presents the evolution of RMSE and the other error metrics for pθ2,ψ (uk−1 | uk, sk), providing additional evidence of the robustness of the proposed framework. Finally, Figure 22 displays the absolute error between the posterior mean and the reference state together with the predicted standard deviation along the same test trajectory. 
+
+pθ1,ψ (uk | sk) pθ2,ψ (uk−1 | uk, sk) psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain )RMSE MMD CRPS RMSE MMD CRPS RMSE MMD CRPS 
+
+r2 = 0.01 0.0751 0.0683 0.0411 0.0525 0.0340 0.0290 0.0710 0.0570 0.0373 
+
+r2 = 0.04 0.0898 0.0961 0.0497 0.0562 0.0387 0.0311 0.0879 0.0795 0.0458 
+
+r2 = 0.09 0.1003 0.1184 0.0556 0.0574 0.0405 0.0318 0.1056 0.0950 0.0502 
+
+r2 = 0.16 0.1084 0.1369 0.0601 0.0581 0.0414 0.0322 0.0981 0.1088 0.0531 
+
+r2 = 0.25 0.1149 0.1523 0.0637 0.0584 0.0418 0.0324 0.1185 0.1236 0.0581 
+
+Table 6: The performance of the predicted filtering distribution pθ1,ψ (uk | sk), the backward kernel distribution pθ2,ψ (uk−1 | uk, sk), and the smoothing distribution psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain ) for the Burgers’ equation problem with varying observation noise level r2.
+
+25 0 50 100 150 200 
+
+> Time step
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+> 0.06
+
+RMSE     
+
+> AFSF
+> 050 100 150 200
+> Time step
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+
+MMD     
+
+> AFSF
+> 050 100 150 200
+> Time step
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+
+CRPS 
+
+> AFSF
+
+Figure 21: Time evolution of error metrics (RMSE, MMD, and CRPS) for the predicted backward kernel distribution pθ2,ψ (uk | uk+1, sk)for the Burgers’ equation problem at an observation noise level r2 = 0.25. 0.00 0.25 0.50 0.75             
+
+> t
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> x
+> Path
+> 0.00 0.25 0.50 0.75
+> t
+> x
+> Predicted Mean
+> 0.00 0.25 0.50 0.75
+> t
+> x
+> Error
+> 0.00 0.25 0.50 0.75
+> t
+> x
+> Predicted Std
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> 1.0
+> -0.75
+> -0.50
+> -0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> 0.12
+> 0.14 0.00 0.25 0.50 0.75
+> t
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> x
+
+Path    
+
+> 0.00 0.25 0.50 0.75
+> t
+> x
+
+Predicted Mean    
+
+> 0.00 0.25 0.50 0.75
+> t
+> x
+
+Error    
+
+> 0.00 0.25 0.50 0.75
+> t
+> x
+
+Predicted Std 
+
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> 1.0
+> -0.75
+> -0.50
+> -0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+
+Figure 22: Spatiotemporal results for the predicted filtering distribution pθ1,ψ (uk | sk) (top row) and the smoothing distribution 
+
+psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: T ) (bottom row) for the Burgers’ equation problem at an observation noise level r2 = 0.25. From left to right, the columns display the true path (reference), the predicted mean, the absolute error between them, and the predicted standard deviation. 
+
+4.4. Lorenz model 
+
+Here, we consider the two-scale Lorenz model [49], which describes a coupled system of equations for K
+
+slow variables, ( u1, . . . , uK), and K × J fast variables, ( v1, . . . , vKJ ), arranged around a latitude circle 
+
+
+
+du t,i =
+
+
+
+−ut,i−1(ut,i−2 − ut,i+1) − ut,i + F − hc b
+
+PiJ j=(i−1) J+1 vt,j
+
+
+
+dt + σudW u,i, i = 1, . . . , K,
+
+dv t,j = −c b v t,j+1(vt,j+2 − vt,j−1) − c v t,j + hc b ut,⌊(j−1) /J⌋+1
+
+ dt + σvdW v,j, j = 1, . . . , KJ ,
+
+(16) where dW u,k and dW v,j are Brownian motion, ⌊·⌋ denotes the floor function, and the variables u and v have cyclic boundary conditions; that is, 
+
+ut,i B ut,mod( i−1,K)+1 and vt,j B vt,mod( j−1,KJ )+1.
+
+In the above system, the ut,i variables are large-amplitude, low-frequency variables, each of which is coupled to J small-amplitude, high-frequency vt,j variables. Lorenz suggested that the vt,j represent convective events, whereas the ut,i could represent, for example, larger-scale synoptic events. Parameters of the above system and their corresponding values adopted in this example are summarized in Table 7. Note that increasing the forcing term F leads to more turbulent behaviour. We consider two test cases. The first is the conventional single-scale case, where we set c = 0 to switch off the interaction between the two scales and focus solely on the slow scale. We additionally set σu = 1for this experiment. Under these conditions, both the state-transition density and the likelihood function 26 parameter symbol value number of slow variables Uk K vary number of fast variables Vj per Uk J 32 forcing term F 5, 8, or 16 coupling constant h 1spatial-scale ratio b 10 time-scale ratio c 4noise level of slow variables σu 0.1 noise level of fast variables σv 0.01 
+
+Table 7: Parameters of two-scale Lorenz system. 
+
+are available. The second is the two-scale system specified by parameters given in Table 7. In this case, after marginalizing the interaction with the fast dynamics, the e ff ective state-transition density for the slow dynamics alone becomes intractable. In both test cases, the slow variables uk are inferred through the measurement process 
+
+yk,i = u3 
+
+> k,i
+
++ ϵy,i, ϵy,i ∼ N (0 , 1) .
+
+For the single-scale case, observations are acquired at all indices i = 1, . . . , K, whereas for the two-scale case, they are restricted to the odd indices i = 2τ − 1 for τ = 1, . . . , K/2. 
+
+4.4.1. Single-scale case 
+
+In this test case, we set the initial condition to u0,j = sin  2πj/n and the forcing term to F = 8, which represents the moderate turbulent regime. The measurement time step is fixed at ∆t = 0.05. We design a series of experiments across various state dimensions K = 10 , 20 , 30 , 40 , 50. For each K, we generate 
+
+Ntrain = 2000 trajectories of length Ttrain = 500 for training and Ntest = 200 trajectories for testing. Table 8 compares the performance of the learned filtering distribution pθ1,ψ (uk | sk) with that of the FBF method pFBF (uk | y1: k) across di ff erent state dimensions K. The results show that, for the single-scale Lorenz-96 model, the proposed method consistently outperforms FBF. This advantage is also reflected in Figure 23, which further shows that the filtering performance remains stable over long prediction horizons. 
+
+RMSE MMD CRPS 
+
+pθ1,ψ (uk | sk) pFBF (uk | y1: k) pθ1,ψ (uk | sk) pFBF (uk | y1: k) pθ1,ψ (uk | sk) pFBF (uk | y1: k)
+
+K = 10 0.1632 0.2044 0.0647 0.0967 0.0738 0.1015 
+
+K = 20 0.1945 0.2439 0.1703 0.2530 0.0902 0.1272 
+
+K = 30 0.2081 0.2604 0.2675 0.3987 0.0976 0.1393 
+
+K = 40 0.2255 0.2742 0.3844 0.5295 0.1131 0.1489 
+
+K = 50 0.2605 0.3106 0.5508 0.6918 0.1366 0.1668 
+
+Table 8: Comparison of filtering performance among the proposed AFSF method pθ1,ψ (uk | sk) and the FBF method pFBF (uk | y1: k) for the single-scale Lorenz-96 model with varying state dimensions. 0 200 400 600 800 1000           
+
+> Time step
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> RMSE
+> AFSF
+> FBF
+> Ttrain
+> 0200 400 600 800 1000
+> Time step
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> MMD
+> AFSF
+> FBF
+> Ttrain
+> 0200 400 600 800 1000
+> Time step
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> CRPS
+> AFSF
+> FBF
+> Ttrain
+
+Figure 23: Comparison of the time evolution of error metrics (RMSE, MMD, and CRPS) for the filtering distributions of the proposed AFSF method pθ1,ψ (uk | sk) and the FBF method pFBF (uk | y1: k) for the single-scale Lorenz-96 model at state dimension n = 50. 
+
+Next, Table 9 reports the performance of AFSF for the single-scale Lorenz-96 model. For state dimensions 
+
+K ≤ 40, the smoothing distribution consistently outperforms the filtering distribution. This trend changes 27 at K = 50, where the smoothing results become worse than the filtering estimates. This deterioration is mainly due to the iterative structure of the smoothing procedure in Algorithm 3. In particular, sampling from psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain ) requires repeated backward propagation through the learned backward flow 
+
+pθ2,ψ (uk−1 | uk, sk), so approximation errors may accumulate along the reverse trajectory and eventually reduce the smoothing accuracy in higher-dimensional settings. This phenomenon can, however, be alleviated by increasing the amount of training data. For example, when the number of training trajectories is increased from Ntrain = 2000 to 3000 for the case K = 50, the smoothing RMSE, MMD, and CRPS decrease to 0 .2063, 0.4034, and 0 .1085, respectively, so that the smoothing results again become better than the filtering results. 
+
+pθ1,ψ (uk | sk) pθ2,ψ (uk−1 | uk, sk) psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain )RMSE MMD CRPS RMSE MMD CRPS RMSE MMD CRPS 
+
+K = 10 0.1632 0.0647 0.0738 0.1105 0.0301 0.0527 0.1298 0.0428 0.0598 
+
+K = 20 0.1945 0.1703 0.0902 0.1240 0.0738 0.0630 0.1525 0.1108 0.0742 
+
+K = 30 0.2081 0.2675 0.0976 0.1347 0.1253 0.0697 0.1680 0.1896 0.0838 
+
+K = 40 0.2255 0.3844 0.1131 0.1499 0.1979 0.0810 0.1881 0.2950 0.0991 
+
+K = 50 0.2605 0.5508 0.1366 0.1695 0.2966 0.0935 0.5423 0.4594 0.1844 
+
+Table 9: The performance of the predicted filtering distribution pθ1,ψ (uk | sk), the backward kernel distribution pθ2,ψ (uk−1 | uk, sk), and the smoothing distribution psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain ) for the single-scale Lorenz-96 model with varying state dimensions. 
+
+For K = 50, Figure 24 shows the evolution of RMSE and the other error metrics for pθ2,ψ (uk−1 | uk, sk), which again indicates the robustness of the proposed framework over long prediction horizons. In Figure 25, we further visualize the posterior mean and uncertainty along a test trajectory for the Lorenz-96 model with 
+
+K = 50 and T = 1000, corresponding to the physical time t = 50. Finally, Figure 26 presents the absolute error with respect to the reference state together with the predicted standard deviation along the same trajectory. 0 200 400 600 800 1000           
+
+> Time step
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> RMSE
+> AFSF
+> Ttrain
+> 0200 400 600 800 1000
+> Time step
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> MMD
+> AFSF
+> Ttrain
+> 0200 400 600 800 1000
+> Time step
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> 0.12
+> CRPS
+> AFSF
+> Ttrain
+
+Figure 24: Time evolution of error metrics (RMSE, MMD, and CRPS) for the predicted backward kernel distribution pθ2,ψ (uk | uk+1, sk)for the single-scale Lorenz-96 model at state dimension K = 50. 
+
+Furthermore, we investigate the necessity of sharing the summary statistic for the smoothing procedure. As shown in Table 10 for the K = 20 case, utilizing a shared sk is critical for achieving accurate smoothing. Although sharing sk only mildly a ff ects the performance of the forward and backward flows when they are evaluated separately, it is crucial for the backward iterative sampling procedure. With independent sum-mary statistics, errors accumulate rapidly during smoothing and eventually render the estimates unusable, especially for state dimensions K ≥ 20. This observation is also consistent with our analysis of the loss function (9) in Section 3.1. 
+
+pθ1,ψ (uk | sk) pθ2,ψ (uk−1 | uk, sk) psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain )RMSE MMD CRPS RMSE MMD CRPS RMSE MMD CRPS Shared 0.1945 0.1703 0.0902 0.1240 0.0738 0.0630 0.1525 0.1108 0.0742 Independent 0.1958 0.1713 0.0916 0.1596 0.1184 0.0816 60.3744 0.9841 33.2893 
+
+Table 10: Performance comparison for the single-scale Lorenz-96 model at K = 20 under two configurations: a shared-summary setting, where pθ1,ψ (uk | sk) and pθ2,ψ (uk−1 | uk, sk) use the same summary statistic sk, and an independent-summary setting, where they use di ff erent summary statistics. 
+
+28 0 10 20 30 40 50 
+
+Time/s 
+
+-5 
+
+0
+
+5
+
+10 
+
+> u13
+
+Smoothing Result 
+
+0 10 20 30 40 50 
+
+Time/s 
+
+-5 
+
+0
+
+5
+
+10 
+
+> u25
+
+0 10 20 30 40 50 
+
+Time/s 
+
+-5 
+
+0
+
+5
+
+10 
+
+> u37
+
+0 10 20 30 40 50 
+
+Time/s 
+
+-5 
+
+0
+
+5
+
+10 
+
+> u13
+
+Filtering Result 
+
+0 10 20 30 40 50 
+
+Time/s 
+
+-5 
+
+0
+
+5
+
+10 
+
+> u25
+
+0 10 20 30 40 50 
+
+Time/s 
+
+-5 
+
+0
+
+5
+
+10 
+
+> u37
+
+path predicted mean predicted ± 2 stds Ttrain Figure 25: Visualization of the mean and uncertainty of the estimated filtering distribution pθ1,ψ (uk | sk) (left column) and the smoothing distribution psmoothing 
+
+θ1,θ 2,ψ (uk | y1: T ) (right column) for the single-scale Lorenz-96 model at state dimension n = 50. 0 20 40 
+
+t
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+> x
+
+Path 
+
+0 20 40 
+
+t
+
+> x
+
+Predicted Mean 
+
+0 20 40 
+
+t
+
+> x
+
+Error 
+
+0 20 40 
+
+t
+
+> x
+
+Predicted Std 
+
+> -5
+> 0
+> 5
+> 10
+> -10
+> -5
+> 0
+> 5
+> 10
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+
+0 20 40 
+
+t
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+> x
+
+Path 
+
+0 20 40 
+
+t
+
+> x
+
+Predicted Mean 
+
+0 20 40 
+
+t
+
+> x
+
+Error 
+
+0 20 40 
+
+t
+
+> x
+
+Predicted Std 
+
+> -5
+> 0
+> 5
+> 10
+> -5
+> 0
+> 5
+> 10
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> 3.5
+> 4.0
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+
+Figure 26: Spatiotemporal results for the predicted filtering distribution pθ1,ψ (uk | sk) (top row) and the smoothing distribution 
+
+psmoothing 
+
+θ1,θ 2,ψ (uk | y1: T ) (bottom row) for the single-scale Lorenz-96 model at state dimension K = 50. From left to right, the columns display the true path (reference), the predicted mean, the absolute error between them, and the predicted standard deviation. 
+
+29 4.4.2. Two-scale Lorenz model 
+
+Next we test AFSF on the two-scale Lorenz model with parameters specified in Table 7, slow-state dimension K = 16, and the initial condition 
+
+u0,i = F + σu ϵu, ϵu,i ∼ N (0 , 1) ,
+
+v0,j = σv ϵv, ϵv,j ∼ N (0 , 1) .
+
+In this test case, we experiment with three choices of the forcing term: the low turbulent regime with F = 5, the moderate turbulent regime with F = 8, and the full turbulent regime with F = 16. For each F, we generate 
+
+Ntrain = 2000 trajectories of length Ttrain = 500 for training and Ntest = 200 trajectories for testing. Table 11 compares the performance of our filtering distribution pθ1,ψ (uk | sk) against the FBF method pFBF (uk | y1: k)across various forcing terms F. Our approach shows a clear advantage over FBF because the two-scale Lorenz model does not follow the standard structure of (1), which is a requirement for the FBF framework. This gap in performance shows that our method is more flexible in handling systems with complex dynamics. Additional evidence is provided in Figure 27, where the RMSE and other error metrics plots confirm that our filtering results remain accurate and reliable over long periods. 
+
+RMSE MMD CRPS 
+
+pθ1,ψ (uk | sk) pFBF (uk | y1: k) pθ1,ψ (uk | sk) pFBF (uk | y1: k) pθ1,ψ (uk | sk) pFBF (uk | y1: k)
+
+F = 5 0.4544 0.5817 0.5462 0.6557 0.2161 0.2661 
+
+F = 8 0.4397 0.8301 0.5069 0.8502 0.2055 0.3806 
+
+F = 16 0.5218 3.7536 0.5183 1.0198 0.2350 1.3578 
+
+Table 11: Comparison of filtering performance among the proposed AFSF method pθ1,ψ (uk | sk) and the FBF method pFBF (uk | y1: k) for the two-scale Lorenz model with varying forcing terms F.0 200 400 600 800 1000                           
+
+> Time step
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> RMSE
+> AFSF
+> FBF
+> Ttrain
+> 0200 400 600 800 1000
+> Time step
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 MMD
+> AFSF
+> FBF
+> Ttrain
+> 0200 400 600 800 1000
+> Time step
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> CRPS
+> AFSF
+> FBF
+> Ttrain 0200 400 600 800 1000
+> Time step
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> RMSE
+> AFSF
+> FBF
+> Ttrain
+> 0200 400 600 800 1000
+> Time step
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> MMD
+> AFSF
+> FBF
+> Ttrain
+> 0200 400 600 800 1000
+> Time step
+> 0
+> 1
+> 2
+> 3
+> 4
+> CRPS
+> AFSF
+> FBF
+> Ttrain
+
+Figure 27: Comparison of the time evolution of error metrics (RMSE, MMD, and CRPS) for the filtering distributions of the proposed AFSF method pθ1,ψ (uk | sk) and the FBF method pFBF (uk | y1: k) for the two-factor Lorenz model with forcing term F = 5 (top row) and 
+
+F = 16 (bottom row). 
+
+Table 12 summarizes the performance of AFSF for this case. The method remains accurate in both the low-turbulence regime with F = 5 and the fully turbulent regime with F = 16. In addition, the smoothing distribution consistently yields lower errors than the filtering distribution in all cases. To visually evaluate the AFSF method on the two-scale Lorenz model, Figures 28 and 29 display the posterior mean and uncertainty for F = 5 and F = 16 on test trajectories with length T = 1000 (corresponding to 10s) respectively. The sustained robustness of our framework is further confirmed by Figure 30, which tracks the RMSE and associated error indicators for the backward flow pθ2,ψ (uk−1 | uk, sk) under both F = 530 pθ1,ψ (uk | sk) pθ2,ψ (uk−1 | uk, sk−1) psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain )RMSE MMD CRPS RMSE MMD CRPS RMSE MMD CRPS 
+
+F = 5 0.4544 0.5462 0.2161 0.0857 0.0290 0.0453 0.4063 0.4579 0.1902 
+
+F = 8 0.4397 0.5069 0.2055 0.0876 0.0304 0.0469 0.3795 0.4257 0.1801 
+
+F = 16 0.5218 0.5183 0.2350 0.1094 0.0447 0.0581 0.4837 0.4603 0.2433 
+
+Table 12: The performance of the predicted filtering distribution pθ1,ψ (uk | sk), the backward kernel distribution pθ2,ψ (uk−1 | uk, sk), and the smoothing distribution psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: Ttrain ) for the two-scale Lorenz model with varying forcing terms F.
+
+and F = 16. Finally, Figure 31 illustrates the absolute error and predicted standard deviation relative to the reference state for these two forcing cases. 0 2 4 6 8 10 
+
+> Time/s
+> -2
+> 0
+> 2
+> 4
+> 6
+> u5
+
+Smoothing Result                
+
+> 0246810
+> Time/s
+> 0
+> 2
+> 4
+> 6
+> u9
+> 0246810
+> Time/s
+> -2
+> 0
+> 2
+> 4
+> 6
+> 8
+> u13
+> 0246810
+> Time/s
+> -2
+> 0
+> 2
+> 4
+> 6
+> u5
+
+Filtering Result                
+
+> 0246810
+> Time/s
+> 0
+> 2
+> 4
+> 6
+> u9
+> 0246810
+> Time/s
+> -2
+> 0
+> 2
+> 4
+> 6
+> 8
+> u13
+> path predicted mean predicted ±2 stds Ttrain
+
+Figure 28: Visualization of the mean and uncertainty of the estimated filtering distribution pθ1,ψ (uk | sk) (left column) and the smoothing distribution psmoothing  
+
+> θ1,θ 2,ψ
+
+(uk | y1: T ) (right column) for the two-scale Lorenz model at forcing term F = 5. 
+
+31 0 2 4 6 8 10 
+
+Time/s 
+
+-20 
+
+-10 
+
+0
+
+10 
+
+20 
+
+> u5
+
+Smoothing Result 
+
+0 2 4 6 8 10 
+
+Time/s 
+
+-30 
+
+-20 
+
+-10 
+
+0
+
+10 
+
+20 
+
+30 
+
+> u9
+
+0 2 4 6 8 10 
+
+Time/s 
+
+-10 
+
+-5 
+
+0
+
+5
+
+10 
+
+15 
+
+> u13
+
+0 2 4 6 8 10 
+
+Time/s 
+
+-20 
+
+-10 
+
+0
+
+10 
+
+20 
+
+> u5
+
+Filtering Result 
+
+0 2 4 6 8 10 
+
+Time/s 
+
+-20 
+
+-10 
+
+0
+
+10 
+
+20 
+
+30 
+
+> u9
+
+0 2 4 6 8 10 
+
+Time/s 
+
+-10 
+
+-5 
+
+0
+
+5
+
+10 
+
+15 
+
+> u13
+
+path predicted mean predicted ± 2 stds Ttrain Figure 29: Visualization of the mean and uncertainty of the estimated filtering distribution pθ1,ψ (uk | sk) (left column) and the smoothing distribution psmoothing 
+
+θ1,θ 2,ψ (uk | y1: T ) (right column) for the two-scale Lorenz model at forcing term F = 16. 0 200 400 600 800 1000 
+
+Time step 
+
+0.00 
+
+0.02 
+
+0.04 
+
+0.06 
+
+0.08 
+
+0.10 
+
+RMSE 
+
+AFSF 
+
+Ttrain 
+
+0 200 400 600 800 1000 
+
+Time step 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+0.04 MMD 
+
+AFSF 
+
+Ttrain 
+
+0 200 400 600 800 1000 
+
+Time step 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+0.04 
+
+0.05 
+
+CRPS 
+
+AFSF 
+
+Ttrain 0 200 400 600 800 1000 
+
+Time step 
+
+0.0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 RMSE 
+
+AFSF 
+
+Ttrain 
+
+0 200 400 600 800 1000 
+
+Time step 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+MMD 
+
+AFSF 
+
+Ttrain 
+
+0 200 400 600 800 1000 
+
+Time step 
+
+0.00 
+
+0.02 
+
+0.04 
+
+0.06 
+
+0.08 
+
+0.10 
+
+0.12 
+
+CRPS 
+
+AFSF 
+
+Ttrain 
+
+Figure 30: Time evolution of error metrics (RMSE, MMD, and CRPS) for the predicted backward kernel distribution pθ2,ψ (uk | uk+1, sk)for the two-scale Lorenz model with forcing term F = 5 (top row) and F = 16 (bottom row). 
+
+32 0.0 2.5 5.0 7.5 
+
+t
+
+0
+
+3
+
+6
+
+9
+
+12 
+
+> x
+
+Path 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Predicted Mean 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Error 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Predicted Std 
+
+> -4
+> -2
+> 0
+> 2
+> 4
+> 6
+> -4
+> -2
+> 0
+> 2
+> 4
+> 6
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+
+0.0 2.5 5.0 7.5 
+
+t
+
+0
+
+3
+
+6
+
+9
+
+12 
+
+> x
+
+Path 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Predicted Mean 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Error 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Predicted Std 
+
+> -4
+> -2
+> 0
+> 2
+> 4
+> 6
+> -4
+> -2
+> 0
+> 2
+> 4
+> 6
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+
+0.0 2.5 5.0 7.5 
+
+t
+
+0
+
+3
+
+6
+
+9
+
+12 
+
+> x
+
+Path 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Predicted Mean 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Error 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Predicted Std 
+
+> -20
+> -10
+> 0
+> 10
+> 20
+> -20
+> -10
+> 0
+> 10
+> 20
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+0.0 2.5 5.0 7.5 
+
+t
+
+0
+
+3
+
+6
+
+9
+
+12 
+
+> x
+
+Path 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Predicted Mean 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Error 
+
+0.0 2.5 5.0 7.5 
+
+t
+
+> x
+
+Predicted Std 
+
+> -20
+> -10
+> 0
+> 10
+> 20
+> -20
+> -10
+> 0
+> 10
+> 20
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> 3.5
+> 4.0
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+
+Figure 31: Spatiotemporal results for the two-scale Lorenz model under forcing terms F = 5 (top two rows) and F = 16 (bottom two rows). For each forcing term, the predicted filtering distribution pθ1,ψ (uk | sk) and the smoothing distribution psmoothing 
+
+θ1,θ 2,ψ (uk | y1: T ) are displayed in the upper and lower rows, respectively. From left to right, the columns show the true path (reference), the predicted mean, the absolute error, and the predicted standard deviation. 
+
+33 5. Conclusion 
+
+In this work we proposed an amortized framework for filtering and smoothing based on conditional normalizing flows and recurrent neural networks. By directly learning the filtering distribution and the backward kernel from simulated trajectories, the method avoids explicit modeling of transition and obser-vation densities and enables fast posterior sampling at test time. Sharing a single summary network for both objectives provides an information-theoretic justification and acts as an e ff ective regularizer against overfitting. Furthermore, we introduced a flow-based particle filtering variant as an alternative for online inference, allowing for diagnostics based on ESS when explicit model factors are available. Numerical results on a linear problem and several nonlinear data assimilation models demonstrate that the learned filters and smoothers remain accurate and robust as the state dimension increases. Future work will focus on establishing rigorous theoretical guarantees, incorporating more advanced sequence encoders such as Transformers, and extending the framework to more complex spatio-temporal systems and continuous-time formulations. 
+
+Acknowledgements A. Conditional normalizing flow 
+
+We briefly describe the simplified conditional KR-net, a conditional normalizing flow used in this work. It defines a conditional invertible map 
+
+z = TΘ(u; c), u ∈ Rdu , c ∈ Rdc ,
+
+which induces a tractable conditional density through the change-of-variables formula log pΘ(u | c) = log pZ
+
+TΘ(u; c) + log det ∇uTΘ(u; c) ,
+
+where the base density pZ is taken as an unconditional standard Gaussian N(0 , Idu ). The mapping TΘ
+
+is constructed by sequentially composing several invertible modules, specifically starting with an initial conditional scale-bias layer and followed by a stack of conditional a ffi ne coupling layers. We first introduce the conditional scale-bias layer, which applies a conditioning-dependent per-coordinate affi ne transformation and plays the role of a lightweight global re-scaling between coupling layers. Given 
+
+u ∈ Rdu and c ∈ Rdc , it is defined as 
+
+Ts
+
+> ψ
+
+(u; c) = exp ηψ(c) ⊙ u + ξψ(c),
+
+where ηψ(c), ξ ψ(c) ∈ Rdu are the outputs of a small neural network. This map is explicitly invertible with 
+
+Ts
+
+> ψ
+
+−1
+
+(v; c) = v − ξψ(c) ⊙ exp −ηψ(c),
+
+and its log-determinant is e ffi ciently computed as log det ∇uTs
+
+> ψ
+
+(u; c) =
+
+> du
+
+X
+
+> j=1
+
+ηψ, j(c).
+
+After applying this initial global rescaling, the model relies on a sequence of conditional a ffi ne coupling layers to introduce the necessary nonlinearity and high expressivity. Within a single such coupling layer, denoted by Tcoup  
+
+> ω
+
+, we fix a partition u = [u(1) , u(2) ]⊤ with u(1) ∈ Rk and u(2) ∈ Rdu−k, where k = ⌊du/2⌋. The forward mapping is given by ˜u(1) = u(1) , ˜u(2) = 1 + α tanh sω(u(1) , c) ⊙ u(2) + γ ⊙ tanh tω(u(1) , c),
+
+34 where sω, tω : Rk+dc → Rdu−k are neural networks, α ∈ (0 , 1) is fixed (we use α = 0.6), and γ ∈ Rdu−k 
+
+> +
+
+is a learned positive scaling vector. Since tanh( ·) ∈ (−1, 1), all scale factors 1 + α tanh sω(·, ·) strictly lie in the interval (1 − α, 1 + α), ensuring invertibility. The inverse is explicit: 
+
+u(1) = ˜u(1) , u(2) = ˜u(2) − γ ⊙ tanh tω( ˜ u(1) , c)
+
+1 + α tanh sω( ˜ u(1) , c) .
+
+Because the Jacobian of this transformation is block triangular, its log-determinant is log det ∇uTcoup  
+
+> ω
+
+(u; c) =
+
+> du−k
+
+X
+
+> j=1
+
+log 1 + α tanh sω, j(u(1) , c).
+
+In our implementation, the coupling networks within these conditional a ffi ne coupling layers are realized by random Fourier feature coupling networks. Specifically, let u = [u(1) , c]⊤ ∈ Rk+dc denote the concatenated input. We first apply a random Fourier feature embedding and then process it through a standard multi-layer perceptron (MLP): 
+
+h0 = u,
+
+h1 =
+
+
+
+sin e−σFh 0 + b0
+
+
+
+cos e−σFh 0 + b0
+
+
+
+h0
+
+ ,
+
+hi = SiLU( Wi−1hi−1 + bi−1), i = 2, . . . , M,
+
+"sω(u(1) , c)
+
+tω(u(1) , c)
+
+#
+
+= WMhM + bM,
+
+where ( F, b0) are fixed random features, while the scaling factor σ and the parameters {Wi, bi} are trainable. Finally, to construct the overall conditional KR-net architecture for TΘ, we compose the initial conditional scale-bias layer with a stack of K conditional a ffi ne coupling layers. Between successive coupling layers, we apply a fixed permutation Πk that swaps the roles of the two coordinate groups, so that all components are updated repeatedly: 
+
+TΘ(u; c) = Π K ◦ Tcoup  
+
+> ωK
+
+(·; c) ◦ · · · ◦ Π1 ◦ Tcoup  
+
+> ω1
+
+(·; c) ◦ Ts
+
+> ψ
+
+(·; c) ( u).
+
+The inverse map T−1 
+
+> Θ
+
+(z; c) is obtained by traversing the same sequence in reverse order and applying the analytic inverse of each component. The total log-determinant is computed by summing the per-layer contributions from the initial scale-bias layer and the K coupling layers, while each permutation Πk has a unit determinant and hence contributes zero to the total log-determinant. 
+
+B. Shared recurrent summary network 
+
+Let ( Ω, F , P) be a probability space and define random variables 
+
+X B uk, Y B y1: k, Z B uk+1.
+
+A summary is any measurable map S = f (Y). We consider two learning objectives: 
+
+• Filtering objective min 
+
+> f,θ 1
+
+E[− log pθ1 (X| f (Y))] .
+
+At optimum over θ1, the value equals H(X | S) with S = f (Y). 35 • Smoothing objective min 
+
+> f,θ 2
+
+E[− log pθ2 (X|Z, f (Y))] .
+
+At optimum over θ2, the value equals H(X|Z, S) with S = f (Y). Now define the optimal summaries 
+
+S∗ 
+
+> F
+
+= arg min   
+
+> S=f(Y)
+
+H(X | S), S∗ 
+
+> S
+
+= arg min   
+
+> S=f(Y)
+
+H(X|Z, S).
+
+Then we have 
+
+Lemma B.1. With S ∗
+
+> F
+
+, S∗ 
+
+> S
+
+defined above, we have I(X, S∗
+
+> F
+
+) ≥ I(X, S∗
+
+> S
+
+) and I(X; Z | S∗
+
+> S
+
+) ≥ I(X; Z | S∗
+
+> F
+
+).
+
+Proof. By definition, S∗ 
+
+> F
+
+minimizes H(X | S) over all f (Y), so H(X | S∗
+
+> F
+
+) ≤ H(X | S∗
+
+> S
+
+). Subtracting from H(X)gives I(X; S∗
+
+> F
+
+) ≥ I(X; S∗
+
+> S
+
+). Since 
+
+H(X | S∗
+
+> S
+
+) = H(X|Z, S∗
+
+> S
+
+) + I(X; Z | S∗
+
+> S
+
+).
+
+And S∗ 
+
+> S
+
+minimizes H(X|Z, S) over all f (Y), so H(X|Z, S∗
+
+> S
+
+) ≤ H(X|Z, S∗
+
+> F
+
+). Thus 
+
+H(X | S∗
+
+> S
+
+) ≤ H(X|Z, S∗
+
+> F
+
+) + I(X; Z | S∗
+
+> S
+
+).
+
+But 
+
+H(X | S∗
+
+> F
+
+) = H(X|Z, S∗
+
+> F
+
+) + I(X; Z | S∗
+
+> F
+
+).
+
+Hence we have 
+
+I(X; Z | S∗
+
+> F
+
+) − I(X; Z | S∗
+
+> S
+
+) ≤ H(X | S∗
+
+> F
+
+) − H(X | S∗
+
+> S
+
+) ≤ 0.
+
+□
+
+Definition B.1. A summary S † = f (Y) is su ffi cient if p(X|Y) = p(X | S†) a.s. 
+
+Proposition B.1. If a su ffi cient summary S † exists, then S † is optimal for both filtering and smoothing objectives, i.e., S† = S∗ 
+
+> F
+
+= S∗
+
+> S
+
+.
+
+C. Error Metric 
+
+To assess the performance of the proposed method, we use the following metrics 
+
+• Root Mean Squared Error (RMSE): Quantifies the accuracy of point estimates derived from the mean of the filtered distribution in recovering the true state values. RMSE =
+
+vut 1
+
+mK 
+
+> K
+
+X
+
+> k=1
+
+utrue  
+
+> k
+
+− 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+u(j)
+
+> k
+> 2
+
+• Maximum Mean Discrepancy(MMD): Measures the accuracy of point estimates in a nonlinear feature space defined by a kernel function. Let ϕ(·) denote a feature mapping derived from a kernel function 
+
+ker (·, ·) such that ϕ(x)Tϕ(y) = ker (x, y). At each time step k, the maximum mean discrepancy (MMD) 36 between empirical distribution of samples {u(j) 
+
+> k
+
+}Nj=1 generated by the filter and the delta distribution centered at utrue  
+
+> k
+
+is given by MMD k = ϕ(utrue  
+
+> k
+
+) − 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+ϕ(u(j) 
+
+> k
+
+)
+
+> 2
+
+= 1
+
+N2
+
+X
+
+> i,j
+
+ker (u(i) 
+
+> k
+
+, u(j) 
+
+> k
+
+) − 2
+
+N
+
+X
+
+> j
+
+ker (u(j) 
+
+> k
+
+, utrue  
+
+> k
+
+) + ker (utrue  
+
+> k
+
+, utrue  
+
+> k
+
+).
+
+To compare the performance of di ff erent filters, we use the average MMD: MMD = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+MMD k.
+
+In this work, we select the kernel function as ker (x, y) = exp 
+
+
+
+− ∥x−y∥2
+
+> 2σ2
+
+
+
+where σ = 2. 
+
+• Continuous Ranked Probability Score (CRPS): Assesses the consistency between the cumulative dis-tribution functions of the inferred state variables and the true state value. The continuous ranked probability score(CRPS) is commonly used to measure the di ff erence between the cumulative distri-bution of predicted samples and the empirical distribution of the true state in the context of state estimation. For the i-th component of the state at time step k, it is defined as CRPS k,i =
+
+Z ∞−∞ 
+
+1( utrue  
+
+> k
+
+< x) − 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+1( u(j) 
+
+> k,i
+
+< x)
+
+
+
+> 2
+
+dx .
+
+To assess the overall performance of filter methods, we compute the CRPS by averaging CRPS k,i across state components and time steps CRPS = 1
+
+mK 
+
+> K
+
+X
+
+> k=1
+> m
+
+X
+
+> i=1
+
+CRPS k,i.
+
+D. Linear reference calculations 
+
+We provide the closed-form expressions associated with a linear Gaussian state-space model, which are used as a reference in the numerical experiments. Consider the model 
+
+ut+1 = Mu t + wt, wt ∼ N (0 , Qt),
+
+yt = Hu t + vt, vt ∼ N (0 , R),
+
+where {wt} and {vt} are mutually independent and independent of the initial state. Here ut denotes the hidden state and yt the observation at time t, with process noise covariance Qt (which may be constant in time) and observation noise covariance R.The following standard identity for jointly Gaussian vectors will be used repeatedly. If 
+
+"ab
+
+#
+
+∼ N 
+
+"μa
+
+μb
+
+#
+
+,
+
+"Σaa Σab 
+
+Σba Σbb 
+
+#! 
+
+,
+
+then the conditional distribution of a given b is Gaussian with 
+
+E[a | b] = μa + Σ ab Σ−1 
+
+> bb
+
+(b − μb),
+
+Cov( a | b) = Σ aa − Σab Σ−1 
+
+> bb
+
+Σba .
+
+37 We now state, without further comment, the closed-form expressions for the distributions of interest. 
+
+(i) Single-step posterior p (ut | ut−1, yt). The one-step prior and likelihood are ut | ut−1 ∼ N (Mu t−1, Qt) and 
+
+yt | ut ∼ N (Hu t, R). Applying the Gaussian conditioning formula to the joint density of ( ut, yt) given ut−1
+
+yields ¯Kt = QtH⊤HQ tH⊤ + R−1
+
+,
+
+p(ut | ut−1, yt) = NMu t−1 + ¯Kt
+
+yt − HMu t−1
+
+, (I − ¯KtH) Qt
+
+.
+
+(ii) Filtering distribution p (ut | y1: t). Let ˆ ut−1|t−1 and Pt−1|t−1 denote the mean and covariance of the filtering distribution at time t − 1. The prediction step is ˆut|t−1 = M ˆut−1|t−1,
+
+Pt|t−1 = M P t−1|t−1 M⊤ + Qt.
+
+The innovation covariance and Kalman gain are 
+
+St = H P t|t−1 H⊤ + R,
+
+Kt = Pt|t−1 H⊤ S−1 
+
+> t
+
+.
+
+The updated filtering distribution is then ˆut|t = ˆut|t−1 + Kt
+
+yt − H ˆut|t−1
+
+,
+
+Pt|t = (I − KtH) Pt|t−1,
+
+p(ut | y1: t) = N ˆut|t, Pt|t
+
+.
+
+(iii) Backward kernel p (ut | ut+1, y1: t). Conditionally on y1: t, the pair ( ut, ut+1) is jointly Gaussian with 
+
+" ut
+
+ut+1
+
+#
+
+y1: t ∼ N 
+
+" ˆut|t
+
+ˆut+1|t
+
+#
+
+,
+
+" Pt|t Pt|tM⊤
+
+MP t|t Pt+1|t
+
+#! 
+
+, Pt+1|t = MP t|tM⊤ + Qt.
+
+Using the conditional Gaussian formula with a = ut, b = ut+1 leads to the Rauch-Tung-Striebel (RTS) backward kernel 
+
+Gt B Pt|tM⊤P−1
+
+> t+1|t
+
+,
+
+St B Pt|t − GtPt+1|tG⊤ 
+
+> t
+
+= (I − GtM) Pt|t,
+
+p(ut | ut+1, y1: t) = Nut; ˆ ut|t + Gt(ut+1 − ˆut+1|t), St
+
+.
+
+(iv) One-step-ahead predictive distribution p (yt+1 | ut). Finally, from ut+1 = Mu t + wt with wt ∼ N (0 , Qt) and 
+
+yt+1 = Hu t+1 + vt+1 with vt+1 ∼ N (0 , R), we obtain 
+
+p(yt+1 | ut) = Nyt+1; HMu t, HQ tH⊤ + R.
+
+These expressions provide the linear-Gaussian benchmark used for comparison with the learned nonlinear filters and smoothers in the first numerical experiment. 
+
+E. Other numerical experiments 
+
+E.1. Burgers’ equation with ν = 0.01 In Section 4.3, we report numerical results for the Burgers’ equation with ν = 0.05. Here, we additionally provide filtering results for the case ν = 0.01, with all other experimental settings kept the same as those in Section 4.3. 38 The results for case ν = 0.01 under di ff erent noise regimes are summarized in Table E.1. Consistent with the findings in Section 4.3, both our filtering distribution pθ1,ψ (uk | sk) and the FBF method pFBF (uk | y1: k)nearly reach the analytical accuracy of the Burgers’ equation problem, with our approach maintaining a slight but steady advantage. This performance is further visualized in Figure E.1, where the RMSE and other error metrics for both methods remain closely aligned throughout the simulation. Figure E.2 visualizes the estimated filtering distribution pθ1,ψ (uk | sk) for the Burgers’ equation at a noise level of r2 = 0.25, showing the posterior mean and uncertainty across both temporal and spatial dimensions. Finally, Figure E.3 highlights the precision of these estimates by plotting the absolute error relative to the reference state alongside the predicted standard deviation for the same test trajectory. 
+
+RMSE MMD CRPS 
+
+pθ1,ψ (uk | sk) pFBF (uk | y1: k) pθ1,ψ (uk | sk) pFBF (uk | y1: k) pθ1,ψ (uk | sk) pFBF (uk | y1: k)
+
+r2 = 0.01 0.1140 0.1152 0.1501 0.1521 0.0588 0.0594 
+
+r2 = 0.04 0.1270 0.1301 0.1830 0.1897 0.0686 0.0699 
+
+r2 = 0.09 0.1380 0.1403 0.2120 0.2169 0.0754 0.0766 
+
+r2 = 0.16 0.1467 0.1507 0.2360 0.2454 0.0807 0.0827 
+
+r2 = 0.25 0.1546 0.1640 0.2581 0.2833 0.0852 0.0900 
+
+Table E.1: Comparison of filtering performance among the proposed AFSF method pθ1,ψ (uk | sk) and the FBF method pFBF (uk | y1: k) for the Burgers’ equation problem with varying observation noise level r2 under ν = 0.01. 0 50 100 150 200         
+
+> Time step
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> RMSE
+> AFSF
+> FBF
+> 050 100 150 200
+> Time step
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> MMD
+> AFSF
+> FBF
+> 050 100 150 200
+> Time step
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> CRPS
+> AFSF
+> FBF
+
+Figure E.1: Comparison of the time evolution of error metrics (RMSE, MMD, and CRPS) for the filtering distributions of the proposed AFSF method pθ1,ψ (uk | sk) and the FBF method pFBF (uk | y1: k) for the Burgers’ equation problem at an observation noise level r2 = 0.25 with ν = 0.01. 
+
+39 0.0 0.2 0.4 0.6 0.8 1.0 
+
+Time/s 
+
+-0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> u13
+
+Filtering Result at Different Location 
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+Time/s 
+
+-0.6 
+
+-0.4 
+
+-0.2 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+> u25
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+Time/s 
+
+-1.25 
+
+-1.00 
+
+-0.75 
+
+-0.50 
+
+-0.25 
+
+0.00 
+
+0.25 
+
+> u37
+
+-1.00 -0.75 -0.50 -0.25 0.00 0.25 0.50 0.75 1.00 
+
+Position 
+
+-1.0 
+
+-0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> t = 0 .25 s
+
+Filtering Result at Different Time 
+
+-1.00 -0.75 -0.50 -0.25 0.00 0.25 0.50 0.75 1.00 
+
+Position 
+
+-0.5 
+
+0.0 
+
+0.5 
+
+> t = 0 .50 s
+
+-1.00 -0.75 -0.50 -0.25 0.00 0.25 0.50 0.75 1.00 
+
+Position 
+
+-0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> t = 0 .75 s
+
+path predicted mean predicted ± 2 stds Figure E.2: Visualization of the mean and uncertainty of the estimated filtering distribution pθ1,ψ (uk | sk) along the temporal (left column) and spatial (right column) dimensions for the Burgers’ equation problem at an observation noise level of r2 = 0.25. 0.00 0.25 0.50 0.75 
+
+t
+
+-1.0 
+
+-0.5 
+
+0.0 
+
+0.5 
+
+> x
+
+Path 
+
+0.00 0.25 0.50 0.75 
+
+t
+
+> x
+
+Predicted Mean 
+
+0.00 0.25 0.50 0.75 
+
+t
+
+> x
+
+Error 
+
+0.00 0.25 0.50 0.75 
+
+t
+
+> x
+
+Predicted Std 
+
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> 1.0
+> -1.00
+> -0.75
+> -0.50
+> -0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+
+Figure E.3: Spatiotemporal results for the predicted filtering distribution pθ1,ψ (uk | sk) for the Burgers’ equation problem at an observation noise level r2 = 0.25 with ν = 0.01. From left to right, the columns display the true path (reference), the predicted mean, the absolute error between them, and the predicted standard deviation. 
+
+40 References 
+
+[1] S. Särkkä, L. Svensson, Bayesian filtering and smoothing, volume 17, Cambridge university press, 2023. [2] K. Law, A. Stuart, K. Zygalakis, Data assimilation, Cham, Switzerland: Springer 214 (2015) 7. [3] M. Asch, M. Bocquet, M. Nodet, Data assimilation: methods, algorithms, and applications, SIAM, 2016. [4] E. Bach, R. Baptista, D. Sanz-Alonso, A. Stuart, Inverse problems and data assimilation: A machine learning approach, arXiv preprint arXiv:2410.10523 (2024). [5] J. Ko, D. Fox, GP-BayesFilters: Bayesian filtering using Gaussian process prediction and observation models, Autonomous Robots 27 (2009) 75–90. [6] J. V. Candy, Bayesian signal processing: classical, modern, and particle filtering methods, John Wiley & Sons, 2016. [7] H. F. Lopes, R. S. Tsay, Particle filters and Bayesian inference in financial econometrics, Journal of Forecasting 30 (2011) 168–209. [8] X. Zhang, M. L. King, Box-Cox stochastic volatility models with heavy-tails and correlated errors, Journal of Empirical Finance 15 (2008) 549–566. [9] N. Chopin, Central Limit Theorem for sequential Monte Carlo methods and its application to Bayesian inference, Annals of Statistics 32 (2004) 2385–2411. [10] T. Bengtsson, P. Bickel, B. Li, Curse-of-dimensionality revisited: Collapse of the particle filter in very large scale systems, in: Probability and statistics: Essays in honor of David A. Freedman, volume 2, Institute of Mathematical Statistics, 2008, pp. 316–335. [11] P. Rebeschini, R. van Handel, Can local particle filters beat the curse of dimensionality?, The Annals of Applied Probability (2015). [12] R. E. Kalman, A new approach to linear filtering and prediction problems (1960). [13] G. A. Einicke, L. B. White, Robust extended Kalman filtering, IEEE transactions on signal processing 47 (2002) 2596–2599. [14] G. Evensen, The ensemble Kalman filter: Theoretical formulation and practical implementation, Ocean dynamics 53 (2003) 343–367. [15] E. Calvello, S. Reich, A. M. Stuart, Ensemble Kalman methods: A mean-field perspective, Acta Numerica 34 (2025) 123–291. [16] A. Doucet, N. De Freitas, N. J. Gordon, et al., Sequential Monte Carlo methods in practice, volume 1, Springer, 2001. [17] A. Beskos, A. Jasra, E. A. Muza ff er, A. M. Stuart, Sequential Monte Carlo methods for Bayesian elliptic inverse problems, Statistics and Computing 25 (2015) 727–737. [18] P. M. Djuric, J. H. Kotecha, J. Zhang, Y. Huang, T. Ghirmai, M. F. Bugallo, J. Miguez, Particle filtering, IEEE signal processing magazine 20 (2003) 19–38. [19] N. J. Gordon, D. J. Salmond, A. F. Smith, Novel approach to nonlinear /non-Gaussian Bayesian state estimation, in: IEE proceedings F (radar and signal processing), volume 140, IET, pp. 107–113. [20] M. K. Pitt, N. Shephard, Filtering via simulation: Auxiliary particle filters, Journal of the American statistical association 94 (1999) 590–599. [21] J. Carpenter, P. Cli ff ord, P. Fearnhead, Improved particle filter for nonlinear problems, IEE Proceedings-Radar, Sonar and Navigation 146 (1999) 2–7. 41 [22] G. Kitagawa, Monte Carlo filter and smoother for non-Gaussian nonlinear state space models, Journal of computational and graphical statistics 5 (1996) 1–25. [23] W. R. Gilks, C. Berzuini, Following a moving target—Monte Carlo inference for dynamic Bayesian models, Journal of the Royal Statistical Society: Series B (Statistical Methodology) 63 (2001) 127–146. [24] C. Snyder, T. Bengtsson, P. Bickel, J. Anderson, Obstacles to high-dimensional particle filtering, Monthly Weather Review 136 (2008) 4629–4640. [25] S. Reich, C. Cotter, Probabilistic forecasting and Bayesian data assimilation, Cambridge University Press, 2015. [26] P. Del Moral, A. Doucet, A. Jasra, On adaptive resampling strategies for sequential Monte Carlo methods (2012). [27] S. Cheng, C. Quilodrán-Casas, S. Ouala, A. Farchi, C. Liu, P. Tandeo, R. Fablet, D. Lucor, B. Iooss, J. Brajard, et al., Machine learning with data assimilation and uncertainty quantification for dynamical systems: a review, IEEE /CAA Journal of Automatica Sinica 10 (2023) 1361–1387. [28] E. Bach, R. Baptista, D. Sanz-Alonso, A. Stuart, Machine learning for inverse problems and data assimilation, arXiv preprint arXiv:2410.10523 (2024). [29] X.-H. Zhou, Z.-R. Liu, H. Xiao, BI-EqNO: Generalized approximate Bayesian inference with an equiv-ariant neural operator framework, arXiv preprint arXiv:2410.16420 (2024). [30] M. Bocquet, A. Farchi, T. S. Finn, C. Durand, S. Cheng, Y. Chen, I. Pasmans, A. Carrassi, Accurate deep learning-based filtering for chaotic dynamics by identifying instabilities without an ensemble, Chaos: An Interdisciplinary Journal of Nonlinear Science 34 (2024). [31] E. Bach, R. Baptista, E. Luk, A. Stuart, Learning optimal filters using variational inference, arXiv preprint arXiv:2406.18066 (2024). [32] G. Revach, N. Shlezinger, X. Ni, A. L. Escoriza, R. J. Van Sloun, Y. C. Eldar, KalmanNet: Neural network aided Kalman filtering for partially known dynamics, IEEE Transactions on Signal Processing 70 (2022) 1532–1547. [33] F. Bao, Z. Zhang, G. Zhang, A score-based filter for nonlinear data assimilation, Journal of Computa-tional Physics 514 (2024) 113207. [34] F. Bao, Z. Zhang, G. Zhang, An ensemble score filter for tracking high-dimensional nonlinear dynamical systems, Computer Methods in Applied Mechanics and Engineering 432 (2024) 117447. [35] P. T. Huynh, G. Zhang, F. Bao, et al., Joint State-Parameter Estimation for the Reduced Fracture Model via the United Filter, Journal of Computational Physics (2025) 114159. [36] E. Bach, R. Baptista, E. Calvello, B. Chen, A. Stuart, Learning Enhanced Ensemble Filters, arXiv preprint arXiv:2504.17836 (2025). [37] A. Taghvaei, P. G. Mehta, An optimal transport formulation of the ensemble Kalman filter, IEEE Transactions on Automatic Control 66 (2020) 3052–3067. [38] A. Spantini, R. Baptista, Y. Marzouk, Coupling techniques for nonlinear ensemble filtering, SIAM Review 64 (2022) 921–953. [39] M. Ramgraber, D. Sharp, M. L. Provost, Y. Marzouk, A friendly introduction to triangular transport, arXiv preprint arXiv:2503.21673 (2025). [40] Y. Zhao, T. Cui, Tensor-train methods for sequential state and parameter learning in state-space models, Journal of Machine Learning Research 25 (2024) 1–51. 42 [41] I. Kobyzev, S. J. Prince, M. A. Brubaker, Normalizing flows: An introduction and review of current methods, IEEE transactions on pattern analysis and machine intelligence 43 (2020) 3964–3979. [42] G. Papamakarios, E. Nalisnick, D. J. Rezende, S. Mohamed, B. Lakshminarayanan, Normalizing flows for probabilistic modeling and inference, Journal of Machine Learning Research 22 (2021) 1–64. [43] A. Zammit-Mangion, M. Sainsbury-Dale, R. Huser, Neural methods for amortized inference, Annual Review of Statistics and Its Application 12 (2025) 311–335. [44] M. Deistler, J. Boelts, P. Steinbach, G. Moss, T. Moreau, M. Gloeckler, P. L. Rodrigues, J. Linhart, J. K. Lappalainen, B. K. Miller, et al., Simulation-based inference: A practical guide, arXiv preprint arXiv:2508.12939 (2025). [45] X. Wang, X. Guan, L. Guo, H. Wu, Flow-based Bayesian filtering for high-dimensional nonlinear stochastic dynamical systems, arXiv preprint arXiv:2502.16232 (2025). [46] X. Feng, L. Zeng, T. Zhou, Solving Time Dependent Fokker-Planck Equations via Temporal Normalizing Flow, Communications in Computational Physics 32 (2022) 401–423. [47] J. He, Q. Liao, X. Wan, Adaptive deep density approximation for stochastic dynamical systems, Journal of Scientific Computing 102 (2025) 57. [48] A. Doucet, S. Godsill, C. Andrieu, On sequential Monte Carlo sampling methods for Bayesian filtering, Statistics and computing 10 (2000) 197–208. [49] D. S. Wilks, E ff ects of stochastic parametrizations in the Lorenz’96 system, Quarterly Journal of the Royal Meteorological Society: A journal of the atmospheric sciences, applied meteorology and physical oceanography 131 (2005) 389–407. 43
