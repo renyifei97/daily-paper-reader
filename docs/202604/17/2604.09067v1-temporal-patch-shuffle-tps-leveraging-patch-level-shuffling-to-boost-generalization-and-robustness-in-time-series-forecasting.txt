@@ -1,0 +1,744 @@
+Title: Temporal Patch Shuffle (TPS): Leveraging Patch-Level Shuffling to Boost Generalization and Robustness in Time Series Forecasting
+
+URL Source: https://arxiv.org/pdf/2604.09067v1
+
+Published Time: Mon, 13 Apr 2026 00:44:24 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# Temporal Patch Shuffle (TPS): Leveraging Patch-Level Shuffling to Boost Generalization and Robustness in Time Series Forecasting 
+
+Jafar Bakhshaliyev * 1 Johannes Burchert * 2 Niels Landwehr * 1 Lars Schmidt-Thieme * 2 
+
+## Abstract 
+
+Data augmentation is a crucial technique for im-proving model generalization and robustness, par-ticularly in deep learning models where training data is limited. Although many augmentation methods have been developed for time series clas-sification, most are not directly applicable to time series forecasting due to the need to preserve tem-poral coherence. In this work, we propose Tem-poral Patch Shuffle (TPS), a simple and model-agnostic data augmentation method for forecast-ing that extracts overlapping temporal patches, selectively shuffles a subset of patches using variance-based ordering as a conservative heuris-tic, and reconstructs the sequence by averaging overlapping regions. This design increases sam-ple diversity while preserving forecast-consistent local temporal structure. We extensively evaluate TPS across nine long-term forecasting datasets us-ing five recent model families (TSMixer, DLinear, PatchTST, TiDE, and LightTS), and across four short-term forecasting datasets using PatchTST, observing consistent performance improvements. Comprehensive ablation studies further demon-strate the effectiveness, robustness, and design rationale of the proposed method. 
+
+## 1. Introduction 
+
+Multivariate time series prediction forecasts future values for multiple interdependent variables or channels. Time series forecasting is crucial in many areas, such as finance, healthcare, meteorology, and manufacturing (Zhou et al., 2021; Zeng et al., 2022; Liu et al., 2024). However, in many real-world applications, the available sensor data is limited 
+
+> *
+
+Equal contribution 1Data Science Group, University of Hildesheim, Hildesheim, Germany 2Information Sys-tems and Machine Learning Lab (ISMLL), University of Hildesheim, Hildesheim, Germany. Correspondence to: Jafar Bakhshaliyev <bakhshaliyevj@uni-hildesheim.edu >, Johannes Burchert <burchert@ismll.uni-hildesheim.de >.
+
+Preprint. April 13, 2026. 
+
+and the underlying temporal patterns depend on additional external factors that are not directly observable (Chen et al., 2023a; Semenoglou et al., 2023; Zhao et al., 2024). Data augmentation is becoming increasingly important in time series forecasting (TSF), as it plays a key role in boost-ing model accuracy and strengthening generalization ca-pabilities. When real data are scarce or insufficient, syn-thetic sample generation becomes essential. Augmentation enriches the dataset by applying transformations or pertur-bations to existing sequences, broadening the diversity of temporal patterns and improving model robustness against noise (Wen et al., 2021; Chen et al., 2023a; Arabi et al., 2024; Zhao et al., 2024). Although many augmentation methods have been proposed for TSF, designing an effective technique that preserves tem-poral dynamics and coherence remains challenging (Chen et al., 2023a; Zhao et al., 2024). Unlike classification, fore-casting also requires preserving coherence between the input window and its continuous future target. Transformation-based methods, such as noise injection, scaling, or time warping, are effective for time series classification but generally fail to deliver substantial benefits in forecast-ing (Le Guennec et al., 2016; Um et al., 2017; Wen et al., 2021; Chen et al., 2023a). Recent research has therefore focused on frequency-based augmentation, which manipu-lates the spectral components of time series and currently represents the most competitive family of augmentation methods for TSF (Chen et al., 2023a; Arabi et al., 2024; Zhao et al., 2024). Decomposition-based and other augmen-tation techniques (Bandara et al., 2021; Semenoglou et al., 2023; Zhang et al., 2023) have also shown promise, though comprehensive comparisons under unified fair experimental settings remain limited. In computer vision (CV), patch-based augmentations such as PatchShuffle (Kang et al., 2017) and PatchMix (Hong & Chen, 2024) have proven highly effective. However, to the best of our knowledge, no patch-based augmentation method has been developed specifically for TSF tasks. A naive adaptation of such image-style techniques to temporal data fails because it destroys local temporal coherence, often introducing artifacts and leading to distribution shifts. To address this gap, we propose Temporal Patch Shuffle (TPS), 1
+
+> arXiv:2604.09067v1 [cs.LG] 10 Apr 2026 Temporal Patch Shuffle for Time Series Forecasting
+
+a forecasting-tailored augmentation method that operates on overlapping temporal patches, applies controlled shuffling, and reconstructs the sequence by averaging overlapping re-gions. TPS is designed to increase sample diversity while preserving forecast-consistent local temporal structure and reducing the distributional gap between original and aug-mented samples. Our contributions are threefold: • We propose Temporal Patch Shuffle (TPS) , a sim-ple, model-agnostic augmentation method for forecast-ing that extracts overlapping temporal patches, applies controlled shuffling with variance-based ordering as a conservative heuristic, and reconstructs the sequence by averaging overlaps. • We demonstrate TPS on both long-term and short-term forecasting: across nine long-term benchmarks and five backbones, TPS improves MSE by 2.08–10.51% ; on four short-term traffic benchmarks with PatchTST, TPS achieves up to 7.14% MSE reduction, both measured relative to the best competing augmentation .• We provide extensive analyses, including component-wise ablations, hyperparameter sensitivity, and robust-ness under noise and distribution shifts, and we further show that TPS transfers beyond forecasting to time series classification. The code for this work is available in the repository at: https://github.com/jafarbakhshaliyev/TPS. 
+
+## 2. Related Work 
+
+A wide range of data augmentation methods have been pro-posed to improve the generalization and robustness of TSF models. Existing approaches can be grouped into four ma-jor categories: transformation-based methods (Cui et al., 2016; Wen & Keyes, 2019; Wen et al., 2021), frequency-based augmentations (Gao et al., 2021; Chen et al., 2023a;c; Arabi et al., 2024; Zhao et al., 2024), decomposition-based techniques (Zhang et al., 2023), and other augmentation methods (Forestier et al., 2017; Yoon et al., 2019; Ban-dara et al., 2021; Semenoglou et al., 2023). To the best of our knowledge, patch-based augmentation methods tai-lored specifically to time series forecasting have not been explored. 
+
+Transformation-based Augmentations. Initially devel-oped in computer vision, transformation-based methods such as Gaussian noise injection (Wen & Keyes, 2019), window cropping (Cui et al., 2016), window warping, and other techniques (Wen et al., 2021) have been adapted for time series tasks including classification and anomaly de-tection, showing significant effectiveness. Nevertheless, the direct application of these augmentation techniques to TSF tasks generally does not produce substantial benefits, as they either disturb temporal order, for example by intro-ducing random noise or shifting the time series, or lack sufficient diversity in the generated augmented samples, both of which are important considerations for forecasting tasks (Wen et al., 2021; Zhang et al., 2023; Zhao et al., 2024). Chen et al. (2023a) evaluated these techniques and concluded that they generally do not improve performance over models trained without augmentation. 
+
+Frequency-based Augmentations. Using time-frequency information, recent work has introduced a variety of aug-mentation strategies designed to improve forecasting perfor-mance, contributing to an expanding set of frequency-based techniques. One of the earliest approaches, RobustTAD (Gao et al., 2021), perturbs either the magnitude or phase of the Fourier spectrum. Chen et al. (2023a) proposed two aug-mentation techniques: FreqMask , which masks the signal’s frequency components, thereby removing specific events from the underlying system, and FreqMix , which mixes frequencies from two random series to exchange structural behaviors between systems. Wavelet-based extensions, in-cluding WaveMask and WaveMix (Arabi et al., 2024), ad-dress a limitation of Fourier-based methods by operating in a joint time–frequency space, enabling multi-resolution and localized perturbations. More recently, Zhao et al. (2024) proposed Dominant Shuffle , which shuffles the top dominant frequency components and mitigates the out-of-distribution artifacts produced by FreqMask and FreqMix. Additional frequency-domain methods include FreqAdd (Zhang et al., 2022b), which perturbs targeted frequency components by additive modification, and FreqPool (Chen et al., 2023c), which compresses the spectrum via pooling operations to improve model robustness. 
+
+Decomposition-based Augmentations and Others. Sev-eral TSF augmentation strategies build on decomposition methods, including Seasonal and Trend decomposition us-ing Loess (STL) (Cleveland et al., 1990) and Empirical Mode Decomposition (EMD) (Huang et al., 1998). Early work by Nam et al. (2020) applied EMD to decompose a series into Intrinsic Mode Functions (IMFs), which capture oscillatory components from high-frequency fluctuations to low-frequency variations, and generated augmentations by filtering noise. More recently, Spectral and Time Augmenta-tion (STAug) (Zhang et al., 2023) introduced a strategy that selects two sequences, applies EMD decomposition, weights IMF components, and combines them using a mixup-style interpolation. Beyond decomposition-based methods, several other aug-mentation methods have been proposed. The Upsample technique (Semenoglou et al., 2023) selects consecutive seg-2Temporal Patch Shuffle for Time Series Forecasting Aug.   
+
+> Look-back window Batch-wise Concat.
+> Output Target
+> Loss
+> Batch-wise Concat.
+> Backpropagation
+> Look-back window Target
+
+Figure 1. Overview of the training pipeline for time series forecasting with augmentation. The look-back window and forecast horizon are concatenated and processed by the augmentation module to produce synthetic sequences, following the general procedure described in Chen et al. (2023a). 
+
+ments and expands them back to the original length using lin-ear interpolation, effectively acting as a “magnifying glass” that emphasizes local patterns. Weighted Dynamic Time Warping Barycentric Averaging (wDBA) (Forestier et al., 2017) generates augmented samples by computing DTW distances and applying an exponentially weighted average over the closest neighbors in the training set. Moving Block Bootstrapping (MBB) (Bandara et al., 2021) decomposes a time series into trend, seasonal, and remainder components via STL, and perturbs the remainder using bootstrapped blocks to produce new time series. 
+
+## 3. Problem Formulation 
+
+We focus on the multivariate time series forecasting (MTSF) setting, where the goal is to predict future values for multi-ple correlated variables or channels over time. Forecasting tasks are commonly categorized by prediction length into short-term and long-term settings; longer prediction lengths introduce more uncertainty and are therefore more challeng-ing (Zhao et al., 2024). We use 0-based indexing and Python-style slicing notation throughout, where a : b denotes the half-open interval [a, b ).A multivariate time series batch of size B, length T , with C
+
+channels is represented as 
+
+X ∈ RB×T ×C . (1) We denote by X[b, τ, :] ∈ RC the observation vector at time step τ for the b-th instance. Datasets are partitioned into training, validation, and test splits following dataset-specific proportions. For simplicity, we present the formulation for a single batch X sampled from the training split; the training split contains many such batches processed sequentially during optimization. Given a look-back window length t < T , we define the look-back window as 
+
+L = X[: , 0 : t, :] ∈ RB×t×C , (2) and the corresponding forecast horizon of length h = T − t
+
+as 
+
+F = X[: , t : T, :] ∈ RB×h×C . (3) A forecasting model fθ parameterized by θ learns the map-ping 
+
+fθ : RB×t×C → RB×h×C , L 7 → fθ (L). (4) Model performance is evaluated using the Mean Squared Error (MSE): MSE = 1
+
+B · h · C ∥F − fθ (L)∥2 
+
+> F
+
+, (5) where ∥ · ∥ F denotes the Frobenius norm. Data augmentation methods aim to improve generalization by enriching the training distribution. In forecasting, how-ever, augmentation must preserve coherence between the look-back window and its continuous future target, rather than perturbing the input in isolation. Augmentations there-fore generate synthetic sequences S that are later split into synthetic look-back windows and corresponding synthetic forecast horizons. Figure 1 provides an overview of the forecasting augmenta-tion pipeline. Before augmentation is applied, the look-back window and its associated forecast horizon are concatenated to preserve input–target alignment. Augmentation produces synthetic look-back windows SL and corresponding syn-thetic forecast horizons SF . We then form the augmented look-back window L and augmented forecast horizon F
+
+by concatenating synthetic and original samples along the batch dimension, yielding a batch of size 2B:
+
+L = [ L; SL] ∈ R2B×t×C ,
+
+F = [ F; SF ] ∈ R2B×h×C . (6) The forecasting model is trained on (L, F).3Temporal Patch Shuffle for Time Series Forecasting 
+
+## 4. Motivation 
+
+While many time series augmentation techniques are in-spired by advances in computer vision (CV), patch-based augmentations, widely used in CV, remain largely unex-plored in time series analysis. Two recent CV methods, PatchShuffle (Kang et al., 2017) and PatchMix (Hong & Chen, 2024), have influenced the design of our augmenta-tion strategy for temporal data. PatchMix divides an input image into non-overlapping patches, shuffles them, and then recombines the shuffled patches using a mixup strategy with weights sampled from a Beta distribution. An important feature of PatchMix is that the mixing process introduces patches that may bypass the mixing step and go directly to the final composition, making the resulting image more diverse (Hong & Chen, 2024). 0.1 0.9                 
+
+> 1.3 0.5
+> 2.3 0.3
+> 0.7 1.9
+> 3.1 4.2
+> 1.2 0.6
+> 4.3 2.7
+> 0.4 3.8
+> 0.9 1.3
+> 0.1 0.5
+> 2.3 0.3
+> 1.9 0.7
+> 3.1 4.2
+> 1.2 0.6
+> 0.4 3.8
+> 4.3 2.7
+> Figure 2. Simplified illustration of PatchShuffle. A 4×4image is split into four 2×2patches. Within each patch, pixels are in-dependently shuffled, introducing local variation while preserving the global image structure (Kang et al., 2017).
+
+Figure 2 presents a simplified version of the PatchShuffle method. In this example, a 4 × 4 image matrix is divided into four non-overlapping 2 × 2 patches. The pixels within each patch are independently shuffled: attributes in each patch are permuted separately, and a shuffled patch may also retain its original structure. This local pixel-level shuffling introduces variation while preserving the global structure of the image (Kang et al., 2017). Although PatchShuffle and PatchMix are effective in the CV domain, directly applying them to time series is not straight-forward. The first challenge is that naive non-overlapping patching introduces boundary discontinuities that disrupt local temporal coherence, since time series are intrinsically sequential rather than arranged on a two-dimensional grid. The second challenge is forecasting-specific: augmentation should preserve coherence between the input window and its continuous future target, rather than perturbing the input alone. In addition, spatial transformations such as cropping, masking, or flipping, which are suitable for images, are generally inappropriate for sequential data unless carefully controlled. To address these issues, TPS adapts the underlying intu-ition of patch-based augmentation to the temporal domain through a forecasting-tailored design. It uses overlapping patches and averaging-based reconstruction to make patch reordering less disruptive to local temporal structure, while variance-based ordering serves as a conservative heuristic when only a subset of patches is shuffled. In this way, TPS increases sample diversity while mitigating the temporal ar-tifacts that naive CV-style patch shuffling would introduce. 
+
+## 5. Approach 
+
+Temporal Patch Shuffle (TPS) is a forecasting-tailored aug-mentation method that operates by extracting overlapping temporal patches, reordering a subset of them, and recon-structing the sequence by averaging overlapping regions. In the Temporal Patching block (depicted in green in Figure 3), overlapping windows are extracted using the patch length and stride as hyperparameters. In the subsequent Variance-Aware Shuffling block (depicted in purple in Figure 3), these patches are ordered by variance and selectively shuffled according to a predefined shuffle rate , α. Finally, the aug-mented sequence is reconstructed by averaging overlapping regions. Before applying the Temporal Patching block, the look-back window and forecast horizon are concatenated to preserve input–target alignment during augmentation. 
+
+Temporal Patching. Let a multivariate time series be de-fined as the concatenation of a look-back window L and a forecast horizon F:
+
+X = [ L, F] ∈ RB×T ×C . (7) The Temporal Patching block extracts overlapping patches of length p with stride s:
+
+P = Unfold (X, p, s ) ∈ RB×Np×C×p, (8) where the number of patches is 
+
+Np =
+
+ T − ps + 1 
+
+
+
+. (9) The Unfold operation extracts patches (sliding windows) from the temporal dimension. The resulting patch tensor is denoted by P ∈ RB×Np×C×p, where B is the batch size, 
+
+Np is the number of patches, C is the number of channels, and p is the patch length. Each patch is formed by selecting a window of length p
+
+along the temporal axis: 
+
+P[b, i ] = 
+
+
+
+Xb, i · s : i · s + p, : ⊤
+
+, (10) where b ∈ { 0, . . . , B − 1} and i ∈ { 0, . . . , N p − 1}.4Temporal Patch Shuffle for Time Series Forecasting Temporal Patching   
+
+> Look-back window Target horizon
+> Variance-Aware Shuf fl ing
+> Reconstruction
+> Look-back window Target horizon
+> Patches
+> Shuf fl ed Patches
+
+Figure 3. Illustration of the proposed TPS method for time series forecasting. The input sequence, consisting of a look-back window and a forecast horizon, is first processed by the Temporal Patching block to extract overlapping patches. These patches are then ordered by variance and partially shuffled in the Variance-Aware Shuffling block. Finally, the shuffled patches are merged back into a full sequence via the Reconstruction block by averaging overlapping regions. 
+
+Variance-Aware Shuffling. To prioritize patches for shuf-fling when only a subset is reordered, TPS computes a variance-based score. This score is used as a simple conser-vative heuristic for perturbation ordering. Let Pb := P[b, :
+
+, :, :] ∈ RNp×C×p denote the patch set for batch element b.The mean value of each patch is 
+
+¯P[b, i ] = 1
+
+C · p
+
+> C−1
+
+X
+
+> c=0
+> p−1
+
+X
+
+> j=0
+
+P[b, i, c, j ], (11) and the variance is Var (P[b, i ]) = 1
+
+C · p − 1
+
+X
+
+> c,j
+
+ P[b, i, c, j ] − ¯P[b, i ]2 ,
+
+(12) where P 
+
+> c,j
+
+is shorthand for PC−1
+
+> c=0
+
+Pp−1 
+
+> j=0
+
+and the variance is well-defined for C · p > 1 (i.e., p > 1 or C > 1). This yields the score vector: Score = Var (P) ∈ RB×Np . (13) In our experiments, inputs are standardized per channel using statistics computed on the training split; variance scores are computed in this normalized space. A fraction α of lowest-variance patches is selected for shuf-fling: 
+
+Ns = ⌊αN p⌋ , α ∈ (0 , 1] . (14) Let the selected patch indices for batch element b be 
+
+Ib ⊆ { 0, . . . , N p − 1}, |I b| = Ns, (15) where Ib contains the indices of the Ns smallest values in Score [b, :] .
+
+Algorithm 1 Temporal Patch Shuffle (TPS) 
+
+Require: look-back window L, forecast horizon F, patch length p, stride s, shuffle rate α
+
+Ensure: augmented sequence S
+
+1: X ← [L, F] {X ∈ RB×T ×C }
+
+2: P ← Unfold (X, p, s ) {P ∈ RB×Np×C×p}
+
+3: Score ← Var (P) {Score ∈ RB×Np }
+
+4: Ns ← ⌊ αN p⌋
+
+5: for b = 0 to B − 1 do 
+
+6: Ib ← Argsort (Score [b, :])[0 : Ns]
+
+7: πb ← RandPerm (Ns)
+
+8: Pb[Ib] ← Pb[Ib][ πb]
+
+9: end for 
+
+10: eP ← P {shuffled patch tensor }
+
+11: S ← Reconstruct ( eP)
+
+The chosen patches are then randomly permuted within each batch element: 
+
+Pb[Ib] ← Pb[Ib][ πb], (16) where πb is a random permutation of {0, . . . , N s − 1} that reorders the Ns selected patches. 
+
+Reconstruction. The Reconstruction block places each (shuffled) patch back at its original temporal position and averages overlapping regions. Let eP denote the patch tensor after shuffling. The reconstructed sequence S ∈ RB×T ×C
+
+is defined element-wise as 
+
+S[b, τ, c ] = 1
+
+KτNp−1
+
+X
+
+> i=0
+
+I{τ ∈ [i·s, i ·s+p)} eP[b, i, c, τ −i·s],
+
+(17) 5Temporal Patch Shuffle for Time Series Forecasting 
+
+for b ∈ { 0, . . . , B − 1}, τ ∈ { 0, . . . , T − 1}, and c ∈{0, . . . , C − 1},where 
+
+Kτ =
+
+> Np−1
+
+X
+
+> i=0
+
+I{τ ∈ [i · s, i · s + p)}. (18) This explicitly accounts for boundary regions, which are covered by fewer overlapping patches. Finally, S is partitioned into the augmented look-back win-dow and forecast horizon: 
+
+SL = S[: , 0 : t, :] ∈ RB×t×C ,
+
+SF = S[: , t : T, :] ∈ RB×h×C . (19) They are concatenated with their corresponding original samples, as in Eq. (6). These follow the same training pipeline illustrated in Figure 1. The complete TPS procedure is outlined in Algorithm 1. 
+
+## 6. Experiments 
+
+We evaluate our augmentation method TPS on widely used benchmark datasets for long-term forecasting (Section 6.2.1) and short-term forecasting (Section 6.2.2). We also pro-vide in-depth ablation studies examining component-wise contributions, out-of-distribution behavior, hyperparameter sensitivity, probabilistic forecasting quality, and additional analyses (Section 6.3). 
+
+6.1. Experimental Settings 
+
+We summarize the key experimental settings below; addi-tional details are provided in Appendices A, B, and C. 
+
+Models and Datasets. We evaluate TPS across a diverse set of forecasting architectures, ranging from linear models and MLP-based designs to transformer-style models, in-cluding DLinear (Zeng et al., 2022), TSMixer (Chen et al., 2023b), TiDE (Das et al., 2024), LightTS (Zhang et al., 2022a), and the transformer-based PatchTST (Nie et al., 2023). All models are trained using their respective default hyperparameters from the original implementations. For evaluation, we use nine benchmark datasets for long-term forecasting and four datasets for short-term forecasting. These datasets span a variety of domains and dimensional-ities, providing a broad test environment for assessing the robustness and generalizability of our augmentation method. Appendix A summarizes the dataset statistics, including in-put dimensionality, prediction lengths, and the proportions of training, validation, and test splits. 
+
+Baselines. We compare TPS against a comprehen-sive set of existing augmentation methods, including wDBA (Forestier et al., 2017), MBB (Bandara et al., 2021), RobustTAD (Gao et al., 2021), FreqAdd (Zhang et al., 2022b), FreqPool (Chen et al., 2023c), Upsam-ple (Semenoglou et al., 2023), STAug (Zhang et al., 2023), FreqMask/FreqMix (Chen et al., 2023a), Wave-Mask/WaveMix (Arabi et al., 2024), and Dominant Shuf-fle (Zhao et al., 2024). Augmentations based on generative models (e.g., TimeGAN (Yoon et al., 2019)) are omitted because they require training additional generator models and are substantially more computationally expensive than the other baselines; moreover, prior work reports limited benefits and potential noise artifacts (Chen et al., 2023a; Zhang et al., 2023). Hyperparameters for all augmentation baselines are listed in Appendix B. 
+
+Experimental Setups. Input sequence lengths follow the recommended configurations from the original backbone pa-pers to ensure fair comparisons. To maintain a controlled ex-perimental protocol across the full factorial space of datasets, prediction lengths, backbones, augmentation methods, and five runs, we evaluate all methods under a unified training budget. Specifically, all models are trained for 20 epochs (or fewer if the original configuration specifies a smaller value), with early stopping (patience 10) and the check-point selected by the lowest validation loss. Although some backbones are sometimes trained for longer schedules (e.g., PatchTST), using a unified protocol allows us to isolate aug-mentation effects under identical optimization conditions. Details of selecting (p, s, α ) and the remaining experimental setup are provided in Appendices B.1 and C, respectively. 
+
+6.2. Main Results 
+
+Experimental results are summarized in Table 1 for long-term forecasting and Table 2 for short-term forecasting. More detailed results are provided in Appendix D. 6.2.1. L ONG -T ERM FORECASTING 
+
+Table 1 reports average performance on nine datasets and four prediction lengths using Mean Squared Error (MSE) and Mean Absolute Error (MAE) for each model and aug-mentation method. For each dataset and prediction length, results are averaged over 5 runs; we then average across the four prediction lengths and across datasets. For methods that can be evaluated on all datasets, this corresponds to 36 settings (9 datasets × 4 prediction lengths). In this table, RobustTAD-m/p denotes the best result among RobustTAD variants applied to either the magnitude or phase compo-nent. Freq-Mask/Mix and Wave-Mask/Mix denote the best outcomes among the corresponding Mask and Mix variants. The #Wins row counts how many times TPS achieves the best result across the evaluated settings, and the Improve-
+
+6Temporal Patch Shuffle for Time Series Forecasting 
+
+Table 1. Long-term forecasting performance (MSE/MAE) averaged over nine datasets and four prediction lengths. #Wins is counted over 36 settings (9 datasets × 4 prediction lengths). Best results are highlighted in red bold , and second-best results in blue underline . STAug results are averaged over seven datasets due to GPU memory limitations. Standard deviations for each dataset and model combination are reported in Appendix D.2. 
+
+Method TSMixer DLinear PatchTST TiDE LightTS 
+
+MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE None 0.461 0.403 0.548 0.439 0.468 0.399 0.483 0.409 0.649 0.482 wDBA (2017) 0.462 0.403 0.536 0.433 0.459 0.396 0.495 0.417 0.638 0.477 MBB (2021) 0.467 0.405 0.544 0.439 0.459 0.395 0.495 0.416 0.651 0.484 RobustTAD-m/p (2021) 0.462 0.401 0.541 0.436 0.464 0.404 0.485 0.409 0.651 0.481 FreqAdd (2022b) 0.459 0.402 0.556 0.443 0.467 0.400 0.481 0.408 0.645 0.481 FreqPool (2023c) 0.473 0.408 0.533 0.437 0.476 0.403 0.499 0.419 0.624 0.471 Upsample (2023) 0.477 0.410 0.535 0.440 0.468 0.399 0.516 0.423 0.609 0.464 STAug (2023) 0.540 0.451 0.733 0.538 0.548 0.453 0.630 0.497 0.855 0.583 Freq-Mask/Mix (2023a) 0.468 0.405 0.540 0.432 0.462 0.400 0.492 0.412 0.636 0.475 Wave-Mask/Mix (2024) 0.463 0.403 0.545 0.436 0.458 0.398 0.480 0.407 0.643 0.478 Dominant Shuffle (2024) 0.471 0.407 0.545 0.433 0.469 0.402 0.493 0.411 0.634 0.472 
+
+TPS (Ours) 0.447 0.394 0.493 0.410 0.445 0.388 0.470 0.401 0.545 0.438 #Wins (out of 36) 26 29 35 34 27 27 30 27 32 32 
+
+Improvement 2.61% 1.75% 7.50% 5.09% 2.84% 1.77% 2.08% 1.47% 10.51% 5.60% 
+
+Table 2. Short-term traffic forecasting with PatchTST on PeMS-{03, 04, 07, 08 }. Mean ±std are computed over 5 runs per prediction length and then averaged over {12 , 24 , 36 , 48 }. Best results appear in red bold , and second-best results in blue underline.                                                                                                                                                                                                                                                                                                                            
+
+> Method PeMS03 PeMS04 PeMS07 PeMS08
+> MSE MAE MSE MAE MSE MAE MSE MAE None 0.118 ±0.0050 0.234 ±0.0082 0.135 ±0.0057 0.246 ±0.0036 0.117 ±0.0050 0.241 ±0.0088 0.159 ±0.0081 0.259 ±0.0099 wDBA (2017) 0.125 ±0.0051 0.247 ±0.0072 0.134 ±0.0022 0.246 ±0.0039 0.109 ±0.0066 0.233 ±0.0093 0.170 ±0.0076 0.262 ±0.0149 MBB (2021) 0.118 ±0.0013 0.231 ±0.0030 0.139 ±0.0054 0.255 ±0.0079 0.125 ±0.0038 0.258 ±0.0040 0.169 ±0.0046 0.260 ±0.0093 RobustTAD-m/p (2021) 0.122 ±0.0040 0.240 ±0.0057 0.134 ±0.0022 0.249 ±0.0040 0.111 ±0.0042 0.235 ±0.0076 0.159 ±0.0086 0.259 ±0.0095 FreqAdd (2022b) 0.123 ±0.0047 0.241 ±0.0075 0.139 ±0.0040 0.252 ±0.0061 0.118 ±0.0080 0.249 ±0.0126 0.161 ±0.0076 0.268 ±0.0090 FreqPool (2023c) 0.112 ±0.0034 0.230 ±0.0065 0.128 ±0.0028 0.243 ±0.0036 0.108 ±0.0109 0.232 ±0.0175 0.143 ±0.0064 0.252 ±0.0097 Upsample (2023) 0.112 ±0.0054 0.231 ±0.0082 0.136 ±0.0040 0.254 ±0.0056 0.109 ±0.0062 0.233 ±0.0102 0.141 ±0.0074 0.248 ±0.0082 STAug (2023) 0.113 ±0.0022 0.224 ±0.0037 0.135 ±0.0030 0.249 ±0.0040 0.118 ±0.0057 0.235 ±0.0065 0.150 ±0.0061 0.251 ±0.0090 Freq-Mask/Mix (2023a) 0.124 ±0.0067 0.243 ±0.0106 0.143 ±0.0059 0.257 ±0.0057 0.113 ±0.0061 0.235 ±0.0089 0.167 ±0.0080 0.266 ±0.0120 Wave-Mask/Mix (2024) 0.115 ±0.0061 0.228 ±0.0066 0.133 ±0.0032 0.246 ±0.0035 0.105 ±0.0036 0.228 ±0.0077 0.149 ±0.0160 0.258 ±0.0181 Dominant Shuffle (2024) 0.115 ±0.0030 0.231 ±0.0050 0.134 ±0.0033 0.252 ±0.0043 0.109 ±0.0070 0.231 ±0.0121 0.156 ±0.0063 0.256 ±0.0067
+> TPS (Ours) 0.104 ±0.0034 0.216 ±0.0059 0.125 ±0.0039 0.238 ±0.0044 0.105 ±0.0070 0.225 ±0.0122 0.135 ±0.0060 0.240 ±0.0068 #Wins (out of 4) 34333333
+> Improvement 7.14% 3.57% 2.34% 2.06% 0.00% 1.32% 4.26% 3.23%
+
+ment column reports the relative percentage gain of TPS over the second-best augmentation method. We note that STAug could not be evaluated on the ECL and Traffic datasets due to its high GPU memory require-ments; a limitation also acknowledged in the original STAug paper, which likewise omitted these two datasets (Zhang et al., 2023). Therefore, STAug results in Table 1 are av-eraged over the remaining seven datasets. For a fair com-parison including STAug, we additionally report averages over the common seven-dataset subset for all methods in Appendix D.1. TPS achieves substantial improvements of 2.61% , 7.50% ,
+
+2.84% , 2.08% , and 10.51% for TSMixer, DLinear, PatchTST, TiDE, and LightTS, respectively, while also ob-taining a high number of wins across all models. Detailed per-dataset results with standard deviations are provided in Appendix D.2. 6.2.2. S HORT -T ERM FORECASTING 
+
+For short-term forecasting, Table 2 presents results on the PeMS datasets using PatchTST. For each dataset and pre-diction length, metrics are averaged over 5 runs, and we report the average over prediction lengths {12 , 24 , 36 , 48 }.We use PatchTST here as a strong representative backbone on PeMS, since extending all 14 augmentation methods to all short-term datasets across all model families would substantially increase the experimental space on these high-dimensional traffic benchmarks. TPS achieves MSE im-provements of 7.14% , 2.34% , 0.00% , and 4.26% on PeMS-
+
+{03, 04, 07, 08 }, respectively. The second-best method is most frequently FreqPool, followed by Wave-Mask/Mix and Upsample. Additional short-term forecasting results are provided in Appendix D.3. 7Temporal Patch Shuffle for Time Series Forecasting 
+
+6.3. Ablation Study 
+
+We conducted several ablation studies to analyze the design choices of our augmentation and to better understand its properties. Additional details are provided in Appendix E. 
+
+Component-wise Analysis. Table 3 reports a component-wise ablation of TPS with DLinear (Zeng et al., 2022) on the ETT datasets, averaged over four prediction lengths {96, 192, 336, 720 }. Hyperparameters of TPS follow the same validation-selected configuration as in the main experiments and are therefore not fixed to α = 1 .0. Removing variance-based sorting slightly degrades performance, indicating that variance ordering provides a modest refinement when only a subset of patches is shuffled. By contrast, replacing overlap-ping patches with non-overlapping ones causes a clear drop, showing that overlap is one of the main mechanisms preserv-ing local temporal structure. Applying augmentation only to the input (breaking data–label coherence) substantially hurts performance, consistent with prior observations (Chen et al., 2023a; Wei et al., 2020). Finally, a frequency-domain variant, where the same patch-based operations are applied after transforming using the Fast Fourier Transform, also degrades results, suggesting TPS is more effective in the time domain. Full results are provided in Appendix E.                                
+
+> Table 3. Component-wise ablation (MSE) of TPS on ETT with DLinear, averaged over four prediction lengths. Best results are highlighted in red bold , and second-best results in blue underline .
+> Method ETTh1 ETTh2 ETTm1 ETTm2
+> None 0.438 0.464 0.361 0.276
+> TPS 0.410 0.369 0.354 0.261
+> - Variance Score 0.417 0.370 0.355 0.261
+> - Temporal Patching 0.416 0.379 0.376 0.267 - Data-Label Coherence 0.443 0.438 0.364 0.290 + Frequency Dom. 0.437 0.470 0.363 0.285
+
+Hyperparameter Sensitivity & t-SNE Analysis. Fig-ure 4 presents the ablation study on the hyperparameter sensitivity of TPS. Using LightTS with a prediction length of 336, we varied patch length, stride, and shuffle rate on the ETT datasets. When sweeping one hyperparameter, the other two were fixed to the best validation configuration for the same dataset. Higher shuffle rates consistently re-duced MSE, so values in the range of 0.7–1.0 were typically chosen. Stride and patch length exhibit non-monotonic, dataset-dependent trends, highlighting sensitivity to these parameters. Overall, smaller strides are typically more sta-ble, and moderately larger patch lengths often outperform very small ones. All results reflect average MSE over five runs. We note that when α = 1 .0, all patches are shuffled and variance ordering becomes irrelevant by construction; thus, the gains at high shuffle rates reflect broader shuf-fling within the overlapping-patch pipeline rather than the isolated effect of variance ordering. Following (Zhao et al., 2024), we performed a t-SNE anal-ysis on ETTh2 using DLinear with a prediction length of 336 (Appendix E, Fig. 5), comparing original data to sam-ples augmented by TPS and other methods. For TPS, the best validation configuration (p, s, α ) = (32 , 5, 1.0) both achieved the lowest forecasting error on ETTh2 and pro-duced augmented samples that overlapped most closely with the original distribution, suggesting that ETTh2 benefits from mild perturbations. Larger settings such as (120 , 24 , 1) 
+
+introduce stronger variation while preserving structural co-herence, highlighting the robustness and flexibility of TPS. Additional statistics are also reported in Appendix E. 
+
+Probabilistic Forecasting. We additionally evaluate TPS in a probabilistic forecasting setting using quantile regres-sion with nine quantiles and DLinear on the four ETT datasets across all four prediction lengths. Table 12 in Ap-pendix E reports pinball loss, Continuous Ranked Prob-ability Score (CRPS), and 80% prediction-interval (PI-80%) coverage and width, averaged over prediction lengths 
+
+{96 , 192 , 336 , 720 }. TPS improves pinball loss and CRPS in most individual settings and on all four datasets when averaged, while also producing substantially sharper predic-tion intervals. PI-80% coverage is more mixed, with TPS tending to slightly under-cover and the no-augmentation baseline tending to slightly over-cover, which is consistent with the absence of post-hoc calibration. Overall, these results indicate that TPS does not destabilize probabilistic forecasting and can improve proper scoring metrics beyond the standard point-forecasting setup. 
+
+Additional Ablation Studies. We conducted further abla-tion studies to evaluate the impact of augmentation methods on training time. The results, presented in Table 13 in Appendix E, show that TPS introduces a moderate augmen-tation overhead cost and yields only a modest increase in total epoch time compared to the baseline. Appendix E also includes an ablation study on augmentation sizes and ratios. 
+
+## 7. Discussion 
+
+We further evaluated TPS beyond forecasting on time se-ries classification. For univariate classification, we trained MiniRocket (Dempster et al., 2021) on a subset of 30 datasets from the widely used UCR repository (Dau et al., 2018). TPS achieved the best average accuracy among the compared augmentation baselines, improving over the second-best method by 0.50% . We additionally evaluated TPS on multivariate classification using MultiRocket (Tan et al., 2022) on 10 datasets from the UEA repository (Bag-nall et al., 2018), where TPS again achieved the best average accuracy, improving over the second-best method by 1.10% .8Temporal Patch Shuffle for Time Series Forecasting 25 50 75 100 125 150 175 200 225           
+
+> Patch Length
+> 0.43
+> 0.44
+> 0.45
+> 0.46
+> 0.47
+> 0.48
+> 0.49
+> MSE
+> ETTh1
+> ETTh2
+> 020 40 60 80 100 120
+> Stride
+> 0.45
+> 0.50
+> 0.55
+> 0.60
+> 0.65
+> MSE
+> 0.2 0.4 0.6 0.8 1.0
+> Shuffle Rate
+> 0.30
+> 0.35
+> 0.40
+> 0.45
+> 0.50
+> 0.55
+> 0.60
+> MSE
+> ETTh1
+> ETTh2
+> ETTm1
+> ETTm2
+
+Figure 4. Hyperparameter sensitivity of TPS on ETT with LightTS (prediction length 336). We report MSE averaged over five runs while varying one of {p, s, α } and fixing the other two to the best validation configuration. 
+
+Additional details on baselines, datasets, and experimental results are provided in Appendix F. These results highlight the versatility of TPS and demonstrate that its benefits ex-tend beyond forecasting to both univariate and multivariate classification settings. 
+
+Limitations. TPS has several practical limitations. First, its performance depends on the perturbation strength con-trolled by (p, s, α ); while TPS is generally robust under validation-based tuning, overly aggressive configurations can degrade performance on some datasets, as also reflected in our augmentation-size analysis in Appendix E. Second, the use of overlapping patches and reconstruction introduces additional training-time overhead compared with training without augmentation, although this cost remains moderate relative to stronger shuffling-based alternatives. 
+
+Future Work. A natural direction for future work is to evaluate TPS across additional model families, such as Graph Neural Networks (Yi et al., 2023) and Spiking Neural Networks (Wu et al., 2025), as well as newer foundation-model and adaptation settings for time-series analysis. An-other promising direction is to refine the current variance-based ordering with more expressive patch-importance crite-ria, including channel-aware or weighted multivariate scor-ing. Notably, one of the recent state-of-the-art forecasting models, CycleNet (Lin et al., 2024), was also evaluated in our study on ETTh1, where TPS surpasses all competing augmentation methods. Results for CycleNet, along with further discussion of future research directions, are provided in Appendix G. 
+
+## 8. Conclusion 
+
+In this work, we introduced Temporal Patch Shuffle (TPS), a simple and model-agnostic data augmentation method for time series forecasting that extracts overlapping tempo-ral patches, applies controlled shuffling, and reconstructs the sequence by averaging overlapping regions. Across diverse forecasting models and datasets, TPS consistently outperforms existing augmentation techniques and provides a strong and practical augmentation strategy for time series forecasting. Our ablation studies further clarify the roles of overlap, data–label coherence, and variance-based ordering, showing that TPS increases sample diversity while preserv-ing forecast-consistent local temporal structure. In addition, TPS extends naturally beyond forecasting to time series classification, indicating its broader applicability within the time series domain. 
+
+## Impact Statement 
+
+The purpose of this paper is to present a general augmen-tation approach for increasing both the reliability and ro-bustness of time-series forecasting models. These types of techniques can influence the real-world application of time-series forecasting models in areas such as energy, trans-portation, environmental monitoring and healthcare. The ability to create accurate forecasts can affect how decisions are made. However, the augmentation technique we devel-oped, TPS, is a model-agnostic augmentation technique that does not specifically target sensitive or high-risk applica-tions. Therefore, we do not expect that TPS presents any ethical or societal issues beyond those typically encountered with advancing machine learning methodologies, assuming that practitioners use TPS appropriately and according to established guidelines for their respective industry sectors. 
+
+## References 
+
+Aksu, T., Woo, G., Liu, J., Liu, X., Liu, C., Savarese, S., Xiong, C., and Sahoo, D. Gift-eval: A benchmark for general time series forecasting model evaluation, 2024. URL https://arxiv.org/abs/2410.10393 .Arabi, D., Bakhshaliyev, J., Coskuner, A., Madhusudhanan, K., and Uckardes, K. S. Wave-mask/mix: Exploring wavelet-based augmentations for time series forecast-9Temporal Patch Shuffle for Time Series Forecasting 
+
+ing, 2024. URL https://arxiv.org/abs/2408. 10951 .Bagnall, A., Dau, H. A., Lines, J., Flynn, M., Large, J., Bostrom, A., Southam, P., and Keogh, E. The uea mul-tivariate time series classification archive, 2018, 2018. URL https://arxiv.org/abs/1811.00075 .Bandara, K., Hewamalage, H., Liu, Y.-H., Kang, Y., and Bergmeir, C. Improving the accuracy of global forecast-ing models using time series data augmentation. Pattern Recognition , 120:108148, 2021. Chen, M., Xu, Z., Zeng, A., and Xu, Q. Fraug: Frequency domain augmentation for time series forecasting, 2023a. URL https://arxiv.org/abs/2302.09292 .Chen, S.-A., Li, C.-L., Yoder, N., Arik, S. O., and Pfister, T. Tsmixer: An all-mlp architecture for time series fore-casting, 2023b. URL https://arxiv.org/abs/ 2303.06053 .Chen, X., Ge, C., Wang, M., and Wang, J. Supervised contrastive few-shot learning for high-frequency time se-ries. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 37, pp. 7069–7077, 2023c. Cleveland, R. B., Cleveland, W. S., McRae, J. E., and Ter-penning, I. Stl: A seasonal-trend decomposition. J. Off. Stat , 1990. Cui, Z., Chen, W., and Chen, Y. Multi-scale convolutional neural networks for time series classification, 2016. URL 
+
+https://arxiv.org/abs/1603.06995 .Das, A., Kong, W., Leach, A., Mathur, S., Sen, R., and Yu, R. Long-term forecasting with tide: Time-series dense encoder, 2024. URL https://arxiv.org/abs/ 2304.08424 .Dau, H. A., Eamonn, K., Kaveh, K., Michael, Y. C.-C., Yan, Z., Shaghayegh, G., Ann, R. C., Yanping, Bing, H., Nurjahan, B., Anthony, B., Abdullah, M., Gustavo, B., and Hexagon-ML. The ucr time series classification archive, October 2018. URL https://www.cs.ucr. edu/˜eamonn/time_series_data_2018/ .Dempster, A., Schmidt, D. F., and Webb, G. I. Minirocket: A very fast (almost) deterministic transform for time series classification. In Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery; Data Mining , KDD ’21, pp. 248–257. ACM, August 2021. doi: 10.1145/ 3447548.3467231. URL http://dx.doi.org/10. 1145/3447548.3467231 .Forestier, G., Petitjean, F., Dau, H. A., Webb, G. I., and Keogh, E. Generating synthetic time series to augment sparse datasets. In 2017 IEEE international conference on data mining (ICDM) , pp. 865–870. IEEE, 2017. Gao, J., Song, X., Wen, Q., Wang, P., Sun, L., and Xu, H. Robusttad: Robust time series anomaly detection via decomposition and convolutional neural networks, 2021. URL https://arxiv.org/abs/2002.09545 .Hong, Y. and Chen, Y. Patchmix: patch-level mixup for data augmentation in convolutional neural networks. Knowl-edge and Information Systems , 66:3855–3881, 2024. doi: 10.1007/s10115-024-02141-3. URL https://doi. org/10.1007/s10115-024-02141-3 .Huang, N. E., Shen, Z., Long, S. R., Wu, M. C., Shih, H. H., Zheng, Q., Yen, N.-C., Tung, C. C., and Liu, H. H. The empirical mode decomposition and the hilbert spec-trum for nonlinear and non-stationary time series analysis. 
+
+Proceedings of the Royal Society of London. Series A: Mathematical, Physical and Engineering Sciences , 1998. Iglesias, G., Talavera, E., Gonz ´alez-Prieto, ´A., Mozo, A., and G ´omez-Canaval, S. Data augmentation tech-niques in time series domain: a survey and taxon-omy. Neural Computing and Applications , 35(14): 10123–10145, 2023. ISSN 1433-3058. doi: 10.1007/ s00521-023-08459-3. URL https://doi.org/10. 1007/s00521-023-08459-3 .Iwana, B. K. and Uchida, S. Time series data augmentation for neural networks by time warping with a discrimi-native teacher, 2020. URL https://arxiv.org/ abs/2004.08780 .Iwana, B. K. and Uchida, S. An empirical survey of data augmentation for time series classification with neu-ral networks. PLOS ONE , 16(7):1–32, 07 2021. doi: 10.1371/journal.pone.0254841. URL https://doi. org/10.1371/journal.pone.0254841 .Kamycki, K., Kapuscinski, T., and Oszust, M. Data aug-mentation with suboptimal warping for time-series clas-sification. Sensors , 20(1), 2020. ISSN 1424-8220. doi: 10.3390/s20010098. URL https://www.mdpi. com/1424-8220/20/1/98 .Kang, G., Dong, X., Zheng, L., and Yang, Y. Patchshuffle regularization, 2017. URL https://arxiv.org/ abs/1707.07103 .Le Guennec, A., Malinowski, S., and Tavenard, R. Data Augmentation for Time Series Classification using Con-volutional Neural Networks. In ECML/PKDD Workshop on Advanced Analytics and Learning on Temporal Data ,Riva Del Garda, Italy, September 2016. URL https: //shs.hal.science/halshs-01357973 .Lin, S., Lin, W., Hu, X., Wu, W., Mo, R., and Zhong, H. Cyclenet: Enhancing time series forecasting through mod-eling periodic patterns, 2024. URL https://arxiv. org/abs/2409.18479 .10 Temporal Patch Shuffle for Time Series Forecasting 
+
+Lipp, A. and Vermeesch, P. Short communication: The wasserstein distance as a dissimilarity metric for com-paring detrital age spectra and other geological distri-butions. Geochronology , 5(1):263–270, 2023. doi: 10.5194/gchron-5-263-2023. URL https://gchron. copernicus.org/articles/5/263/2023/ .Liu, M., Zeng, A., Chen, M., Xu, Z., Lai, Q., Ma, L., and Xu, Q. Scinet: Time series modeling and forecasting with sample convolution and interaction, 2022. URL 
+
+https://arxiv.org/abs/2106.09305 .Liu, Y., Hu, T., Zhang, H., Wu, H., Wang, S., Ma, L., and Long, M. itransformer: Inverted transformers are effective for time series forecasting, 2024. URL https: //arxiv.org/abs/2310.06625 .Nam, G.-H., Bu, S.-J., Park, N.-M., Seo, J.-Y., Jo, H.-C., and Jeong, W.-T. Data augmentation using empirical mode de-composition on neural networks to classify impact noise in vehicle. In ICASSP , 2020. Nie, Y., Nguyen, N. H., Sinthong, P., and Kalagnanam, J. A time series is worth 64 words: Long-term forecast-ing with transformers, 2023. URL https://arxiv. org/abs/2211.14730 .Pan, Q., Li, X., and Fang, L. Data Augmentation for Deep Learning-Based ECG Analysis , pp. 91–111. Springer Singapore, Singapore, 2020. ISBN 978-981-15-3824-7. doi: 10.1007/978-981-15-3824-7 6. URL https:// doi.org/10.1007/978-981-15-3824-7_6 .Park, D. S., Chan, W., Zhang, Y., Chiu, C.-C., Zoph, B., Cubuk, E. D., and Le, Q. V. Specaugment: A simple data augmentation method for automatic speech recognition. In Interspeech 2019 , interspeech2019. ISCA, September 2019. Semenoglou, A.-A., Spiliotis, E., and Assimakopoulos, V. Data augmentation for univariate time series forecasting with neural networks. Pattern Recognition , 134:109132, 2023. Tan, C. W., Dempster, A., Bergmeir, C., and Webb, G. I. Multirocket: Multiple pooling operators and transforma-tions for fast and effective time series classification, 2022. URL https://arxiv.org/abs/2102.00457 .Um, T. T., Pfister, F. M. J., Pichler, D., Endo, S., Lang, M., Hirche, S., Fietzek, U., and Kuli ´c, D. Data aug-mentation of wearable sensor data for parkinson’s dis-ease monitoring using convolutional neural networks. In 
+
+Proceedings of the 19th ACM International Conference on Multimodal Interaction , ICMI ’17. ACM, November 2017. doi: 10.1145/3136755.3136817. URL http: //dx.doi.org/10.1145/3136755.3136817 .Wei, L., Xiao, A., Xie, L., Chen, X., Zhang, X., and Tian, Q. Circumventing outliers of autoaugment with knowledge distillation, 2020. URL https://arxiv.org/abs/ 2003.11342 .Wen, Q., Sun, L., Yang, F., Song, X., Gao, J., Wang, X., and Xu, H. Time series data augmentation for deep learning: A survey. In Proceedings of the Thir-tieth International Joint Conference on Artificial Intelli-gence , IJCAI-2021, pp. 4653–4660. International Joint Conferences on Artificial Intelligence Organization, Au-gust 2021. doi: 10.24963/ijcai.2021/631. URL http: //dx.doi.org/10.24963/ijcai.2021/631 .Wen, T. and Keyes, R. Time series anomaly detection using convolutional neural networks and transfer learning, 2019. URL https://arxiv.org/abs/1905.13628 .Wu, H., Xu, J., Wang, J., and Long, M. Autoformer: De-composition transformers with auto-correlation for long-term series forecasting, 2022. URL https://arxiv. org/abs/2106.13008 .Wu, W., Huo, D., and Chen, H. Spikf: Spiking fourier network for efficient long-term prediction. In Forty-second International Conference on Machine Learning ,2025. URL https://openreview.net/forum? id=5jlvLwoO1n .Yi, K., Zhang, Q., Fan, W., He, H., Hu, L., Wang, P., An, N., Cao, L., and Niu, Z. Fouriergnn: Rethinking multi-variate time series forecasting from a pure graph perspec-tive, 2023. URL https://arxiv.org/abs/2311. 06190 .Yoon, J., Jarrett, D., and van der Schaar, M. Time-series generative adversarial networks. In Wallach, H., Larochelle, H., Beygelzimer, A., d'Alch ´e-Buc, F., Fox, E., and Garnett, R. (eds.), Advances in Neural Information Processing Systems , volume 32. Curran Associates, Inc., 2019. URL https://proceedings.neurips. cc/paper_files/paper/2019/file/ c9efe5f26cd17ba6216bbe2a7d26d490-Paper. pdf .Zeng, A., Chen, M., Zhang, L., and Xu, Q. Are transformers effective for time series forecasting?, 2022. URL https: //arxiv.org/abs/2205.13504 .Zhang, T., Zhang, Y., Cao, W., Bian, J., Yi, X., Zheng, S., and Li, J. Less is more: Fast multivariate time se-ries forecasting with light sampling-oriented mlp struc-tures, 2022a. URL https://arxiv.org/abs/ 2207.01186 .Zhang, X., Zhao, Z., Tsiligkaridis, T., and Zitnik, M. Self-supervised contrastive pre-training for time series via 11 Temporal Patch Shuffle for Time Series Forecasting 
+
+time-frequency consistency, 2022b. URL https:// arxiv.org/abs/2206.08496 .Zhang, X., Chowdhury, R. R., Shang, J., Gupta, R., and Hong, D. Towards diverse and coherent augmentation for time-series forecasting, 2023. URL https://arxiv. org/abs/2303.14254 .Zhao, K., He, Z., Hung, A., and Zeng, D. Dominant shuffle: A simple yet powerful data augmentation for time-series prediction, 2024. URL https://arxiv.org/abs/ 2405.16456 .Zhou, H., Zhang, S., Peng, J., Zhang, S., Li, J., Xiong, H., and Zhang, W. Informer: Beyond efficient transformer for long sequence time-series forecasting, 2021. URL 
+
+https://arxiv.org/abs/2012.07436 .12 Temporal Patch Shuffle for Time Series Forecasting 
+
+## A. Dataset Statistics 
+
+We use nine benchmark datasets for long-term time series forecasting and four datasets for short-term forecasting. A summary of these datasets is provided in Table 4. Datasets from ETTh1 to Influenza-like Illness (ILI) are used for long-term forecasting, while the Caltrans Performance Measurement System (PeMS) datasets are used for short-term forecasting. These datasets span diverse domains and dimensionalities, enabling a comprehensive evaluation of the effectiveness and generalizability of our proposed augmentation method (Liu et al., 2024). The Electricity Transformer Temperature (ETT) datasets (Zhou et al., 2021) consist of seven variables recorded from electricity transformers, covering the period from July 2016 to July 2018. The ETT benchmark is divided into four subsets: ETTh1 and ETTh2, recorded at hourly intervals, and ETTm1 and ETTm2, recorded every 15 minutes. The Exchange dataset (Wu et al., 2022) contains daily exchange rates from eight countries between 1990 and 2016. The Weather dataset (Wu et al., 2022) includes 21 meteorological variables measured every 10 minutes at the Max Planck Institute for Biogeochemistry weather station throughout 2020. ECL (Wu et al., 2022) contains hourly electricity consumption records from 321 clients, while Traffic (Wu et al., 2022) reports hourly road occupancy rates collected by 862 sensors across the San Francisco Bay Area freeways between January 2015 and December 2016. For short-term forecasting, we use the PeMS datasets, which consist of publicly available traffic sensor data collected across California at 5-minute intervals. We adopt four subsets—PeMS03, PeMS04, PeMS07, and PeMS08—as standardized in the SCINet framework (Liu et al., 2022). 
+
+Table 4. Summary of datasets used in time series forecasting experiments, including input dimensionality (number of channels), prediction lengths, and dataset sizes for training, validation, and test splits. The datasets span diverse domains such as electricity, weather, transportation, and health, covering both long-term and short-term forecasting tasks (Liu et al., 2024).                                                         
+
+> Dataset Dim. Prediction Length Dataset Size Information
+> ETTh1 7{96, 192, 336, 720 }(8545, 2881, 2881) Electricity (Hourly) ETTh2 7{96, 192, 336, 720 }(8545, 2881, 2881) Electricity (Hourly) ETTm1 7{96, 192, 336, 720 }(34465, 11521, 11521) Electricity (15min) ETTm2 7{96, 192, 336, 720 }(34465, 11521, 11521) Electricity (15min) Exchange 8{96, 192, 336, 720 }(5120, 665, 1422) Economy (Daily) Weather 21 {96, 192, 336, 720 }(36792, 5271, 10540) Weather (10min) ECL 321 {96, 192, 336, 720 }(18317, 2633, 5261) Electricity (Hourly) Traffic 862 {96, 192, 336, 720 }(12185, 1757, 3509) Transportation (Hourly) ILI 7{24, 36, 48, 60 }(629, 98, 194) Illness (Weekly) PeMS03 358 {12, 24, 36, 48 }(15617, 5135, 5135) Transportation (5min) PeMS04 307 {12, 24, 36, 48 }(10172, 3375, 3375) Transportation (5min) PeMS07 883 {12, 24, 36, 48 }(16911, 5622, 5622) Transportation (5min) PeMS08 170 {12, 24, 36, 48 }(10690, 3548, 3548) Transportation (5min)
+
+## B. Augmentation Baselines and Hyperparameters 
+
+Table 5 summarizes the hyperparameters used for all augmentation methods evaluated in this study, including our proposed method TPS. Most augmentation methods require only a small number of hyperparameters, and their recommended values are provided in the original papers. Nevertheless, we re-evaluated these settings to verify their effectiveness within our experimental setup. For wDBA and MBB, we reproduce the methods based on the descriptions provided in their original papers (Forestier et al., 2017; Bandara et al., 2021). For RobustTAD, we follow the implementation details from (Gao et al., 2021): amplitude-based augmentation replaces segments with values sampled from a Gaussian distribution, while phase-based augmentation perturbs phase values using Gaussian noise. FreqAdd and FreqPool are implemented following (Zhang et al., 2022b; Chen et al., 2023c), where the former modifies the frequency components and the latter compresses the spectrum. For Upsample, we reproduce the method by selecting a consecutive segment and stretching it to match the length of the original time series (Semenoglou et al., 2023). For STAug, Freq-Mask/Mix, Wave-Mask/Mix, and Dominant Shuffle, we directly use the official implementations from their released codebases (Zhang et al., 2023; Chen et al., 2023a; Arabi et al., 2024; Zhao et al., 2024). 13 Temporal Patch Shuffle for Time Series Forecasting 
+
+Table 5. Hyperparameters for the time series forecasting augmentation methods.                 
+
+> Method Hyperparameters
+> wDBA (2017) weighting, DTW constraints MBB (2021) block size, STL period RobustTAD-m/p (2021) perturbation rate, #segments, segment length FreqAdd (2022b) perturbation rate FreqPool (2023c) pool size Upsample (2023) subsequence length rate STAug (2023) mixup rate FreqMask (2023a) masking rate FreqMix (2023a) mixing rate Wave-Mask/Mix (2024) wavelet type, decomposition level, sampling rate Dominant Shuffle (2024) shuffle rate
+> TPS (Ours) patch length (p), stride (s), shuffle rate (α)
+
+B.1. TPS Hyperparameters Selection 
+
+We select (p, s, α ) using a validation-based search over a predefined set of candidate values: • Patch length: p ∈ { 16 , 32 , 48 , 64 , 72 , 96 , 120 , 168 , 192 , 200 , 220 , 240 , 280 , 300 , 340 , 380 , 400 , 420 , 440 , 560 , 700 }.• Stride: s ∈ { 1, 2, 5, 8, 12 , 16 , 24 , 32 , 36 , 96 }.• Shuffle rate: α ∈ { 0.2, 0.5, 0.7, 0.8, 0.9, 1.0}.To limit computational cost, we do not evaluate the full Cartesian product. Instead, we test a fixed set of approximately 20 candidate (p, s, α ) combinations and select the one that minimizes validation MSE. The selected configuration is then evaluated once on the test set. 
+
+## C. Experimental Details 
+
+Learning-rate schedulers are chosen according to the recommendations of the original papers when available, or otherwise based on empirical validation to ensure stable convergence. Learning rates are set using the original configurations as a starting point and adjusted when necessary based on validation performance. Together with the recommended input lengths for each backbone, this yields a controlled and fair evaluation protocol across all augmentation methods. In some cases, our reproduced results differ slightly from those reported in the original papers. This is primarily because we use a unified training protocol across all augmentation methods and backbone models in order to isolate augmentation effects under consistent optimization conditions. For TSMixer, we rely on the PyTorch implementation, which may also introduce minor deviations from the originally reported results. Nevertheless, all augmentation methods are evaluated under the same model and training configuration, ensuring a fair comparison. For CycleNet, our reproduced performance exceeds the results reported in the original work. We attribute this to differences in learning-rate scheduling and learning-rate settings, which led to a more favorable optimization outcome in our setup. 
+
+## D. Complementary Results 
+
+D.1. Averaged long-term forecasting 
+
+Table 6 reports the same long-term forecasting results as Table 1, but averaged over the common subset of seven datasets (excluding ECL and Traffic). This additional view is necessary because STAug cannot be evaluated on ECL and Traffic due to its high GPU memory requirements, consistent with the original STAug paper (Zhang et al., 2023). TPS achieves substantial improvements of 2.98% , 5.83% , 3.16% , 2.26% , and 10.90% for TSMixer, DLinear, PatchTST, TiDE, and LightTS, respectively, while also obtaining a high number of wins across all models. We also observe that STAug underperforms several other augmentation baselines on this common subset. 14 Temporal Patch Shuffle for Time Series Forecasting 
+
+Table 6. Long-term forecasting performance (MSE/MAE) averaged over seven datasets and four prediction lengths. #Wins is counted over 28 settings (7 datasets × 4 prediction lengths). Best results are highlighted in red bold , and second-best results in blue underline .(ECL and Traffic are excluded to match the common subset used by all methods.)                                                                                                                                                           
+
+> Method TSMixer DLinear PatchTST TiDE LightTS
+> MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE None 0.506 0.433 0.619 0.484 0.519 0.437 0.535 0.443 0.744 0.532 wDBA (2017) 0.507 0.432 0.603 0.477 0.508 0.434 0.551 0.454 0.730 0.525 MBB (2021) 0.514 0.435 0.611 0.480 0.507 0.432 0.550 0.451 0.746 0.533 RobustTAD-m/p (2021) 0.508 0.432 0.610 0.480 0.515 0.445 0.538 0.444 0.748 0.532 FreqAdd (2022b) 0.504 0.433 0.628 0.489 0.518 0.438 0.533 0.443 0.739 0.530 FreqPool (2023c) 0.520 0.439 0.593 0.475 0.529 0.442 0.551 0.452 0.709 0.515 Upsample (2023) 0.520 0.437 0.583 0.465 0.519 0.437 0.567 0.452 0.688 0.504 STAug (2023) 0.540 0.451 0.733 0.538 0.548 0.453 0.630 0.497 0.855 0.583 Freq-Mask/Mix (2023a) 0.512 0.435 0.608 0.475 0.512 0.438 0.546 0.447 0.729 0.524 Wave-Mask/Mix (2024) 0.509 0.433 0.615 0.481 0.507 0.436 0.531 0.441 0.739 0.527 Dominant Shuffle (2024) 0.517 0.437 0.615 0.477 0.521 0.442 0.548 0.446 0.725 0.518
+> TPS (Ours) 0.489 0.424 0.549 0.448 0.491 0.424 0.519 0.434 0.613 0.478 #Wins (out of 28) 20 22 28 28 22 24 27 25 27 27
+> Improvement 2.98% 1.85% 5.83% 3.66% 3.16% 1.89% 2.26% 1.59% 10.90% 5.16%
+
+D.2. Long-term forecasting 
+
+Tables 7 and 8 report long-term forecasting results on eight benchmark datasets (excluding ILI). We report mean MSE/MAE 
+
+± std, where the mean and standard deviation are first computed over five runs for each prediction length and then averaged over {96 , 192 , 336 , 720 }.TPS achieves the best performance in most settings, typically ranking first and occasionally second. The strongest competing methods vary by dataset, but are most often Freq-Mask/Mix, Wave-Mask/Mix, Dominant Shuffle, or Upsample. In addition to improved accuracy, TPS often reduces variability relative to training without augmentation, indicating that it can introduce useful diversity while keeping perturbations controlled. Full results for each individual prediction length are available in the supplementary Excel file at https://github.com/jafarbakhshaliyev/TPS/blob/main/results/results.xlsx. 
+
+D.3. Short-term forecasting 
+
+Table 9 reports the short-term forecasting results (MSE and MAE) on PeMS-{03, 04, 07, 08 } for prediction lengths {12, 24, 36, 48 }, averaged over five runs. TPS achieves the best performance in most cases, except at the 48-step prediction length where it generally ranks second. The strongest competing methods are typically STAug, FreqPool, or Wave-Mask/Mix. Experiments in this setting are conducted using PatchTST, which serves as a strong representative backbone on the PeMS benchmarks. This choice keeps the short-term evaluation tractable while still providing a meaningful comparison across augmentation methods on large, high-dimensional traffic datasets. 
+
+## E. Further Ablation Studies 
+
+Additional Results for Component-wise Analysis. Table 10 presents the complete component-wise ablation results on the ETT datasets, including MSE and MAE with their corresponding standard deviations. For each prediction length in {96, 192, 336, 720 }, results are computed over five runs and then averaged across the four prediction lengths. The MAE results follow the same trends as the MSE results, further supporting the consistency of each component’s contribution. First, we remove the variance-based ordering used to prioritize patches for shuffling. The results indicate that this component generally provides a modest improvement, although its effect naturally vanishes when the shuffle rate is set to 1.0.Second, we replace overlapping patches with non-overlapping ones, which leads to a substantial degradation in performance. This finding supports our design choice in TPS: overlapping patches are important for preserving local temporal structure and reducing discontinuities at patch boundaries. 15 Temporal Patch Shuffle for Time Series Forecasting 
+
+Third, we examine the role of data–label coherence in the augmentation pipeline. In the default design, augmentation is applied jointly to the input and forecast horizon. When augmentation is applied only to the input, performance deteriorates significantly, consistent with prior observations (Chen et al., 2023a; Zhao et al., 2024) on the importance of maintaining input–target alignment. Finally, we evaluate a frequency-domain variant in which the same patch-based operations are applied after transforming the signal using the Fast Fourier Transform (FFT). This variant also degrades performance, indicating that TPS is more effective in the time domain. 
+
+Distribution-Shift Comparison. Figure 5 presents t-distributed stochastic neighbor embeddings (t-SNE) comparing original data and augmented data generated by each augmentation method on ETTh2 using DLinear with a prediction length of 336. We consider several augmentation techniques, including Upsample, FreqAdd, FreqPool, FreqMask, FreqMix, Dominant Shuffle, and TPS with different parameter settings. For TPS, the configuration (32 , 5, 1) produces augmented samples that overlap most closely with the original data in the t-SNE visualization on ETTh2. This is consistent with the view that ETTh2 benefits from relatively mild perturbations, which aligns with smaller patch and stride values. At the same time, larger configurations such as (120 , 24 , 1) introduce stronger variation while still preserving broad structural coherence, illustrating the flexibility of TPS across different augmentation strengths.  
+
+> Figure 5. t-SNE visualization of original and augmented data on the ETTh2 dataset using DLinear with a prediction length of 336. A closer overlap between original and augmented points suggests better distributional alignment and reduced out-of-distribution deviation.
+> Best viewed in color.
+
+Table 11 reports a distribution-shift comparison across augmentation methods on ETTh2 using DLinear with a prediction length of 336. To quantitatively assess distributional similarity, we compute three metrics: • Kolmogorov–Smirnov (KS) statistic : measures the maximum deviation between the empirical cumulative distribution functions of two samples; higher values indicate greater marginal distributional discrepancy (Lipp & Vermeesch, 2023). • Wasserstein distance : quantifies the minimum effort required to transform one distribution into another, and is more robust to overall shape differences than the KS statistic (Lipp & Vermeesch, 2023; Iglesias et al., 2023). • Dynamic Time Warping (DTW) distance : a widely used metric for time series similarity, capturing alignment-based temporal differences (Iwana & Uchida, 2020; Iglesias et al., 2023). 16 Temporal Patch Shuffle for Time Series Forecasting 
+
+Computation on multivariate sequences: Let X, S ∈ RB×T ×C denote the original and augmented sequences. For KS and Wasserstein, we compute the metric per channel by flattening across batch and time, and then average across channels. For DTW, we compute sequence-level distances per sample and channel , i.e., DTW( X[b, :, c ], S[b, :, c ]) , and average over all b
+
+and c.Across these metrics, TPS with patch length 32, stride 5, and shuffle rate 1.0 achieves the most favorable alignment with the original data overall. Specifically, TPS attains the lowest Wasserstein distance (0.0097) and the lowest DTW distance (1.46), indicating strong preservation of both distributional structure and temporal dynamics. While TPS has a higher KS statistic (0.0848) than Dominant Shuffle (0.0688) and Upsample (0.0202), this is not inconsistent with the overall trend: KS reflects the maximum discrepancy between marginal value distributions, whereas Upsample in particular tends to preserve marginals through interpolation. In contrast, Wasserstein distance and DTW better capture structural and temporal consistency in this setting, where TPS performs best. The substantially lower DTW distance for TPS (1.46 vs. 4.91–14.72 for the other methods) further supports that TPS mitigates temporal distortion more effectively than competing augmentations. Overall, these results indicate that TPS generates realistic and distributionally consistent augmentations while introducing controlled variability that can improve generalization. 
+
+Probabilistic Forecasting. Table 12 reports probabilistic forecasting results using quantile regression with nine quantiles (τ ∈ { 0.05 , 0.1, 0.2, 0.3, 0.5, 0.7, 0.8, 0.9, 0.95 }) and DLinear on the four ETT datasets. We report four metrics averaged over prediction lengths {96 , 192 , 336 , 720 } and 5 seeds: Pinball loss (the quantile-weighted check loss), CRPS (Continuous Ranked Probability Score, equal to twice the pinball loss averaged over quantiles; lower is better), PI-80% Coverage 
+
+(empirical coverage of the 80% prediction interval formed by the 0.1 and 0.9 quantiles; the nominal target is 0.80), and 
+
+PI-80% Width (the average width of that interval; narrower is better at equal coverage). 
+
+Computational Overhead. Table 13 reports the impact of different augmentation methods on training time, evaluated with TSMixer on ETTh2 at prediction length 720. The Overhead metric measures the percentage increase in epoch time relative to training without augmentation. TPS increases epoch time compared with the no-augmentation baseline, but its overhead remains moderate relative to stronger shuffling-based augmentation methods. 
+
+Impact of Varying Augmentation Sizes & Ratios. Figure 6 reports an ablation study with varying augmentation sizes (1, 2, 3, 4, and 5) using PatchTST on ETTh1 and ETTh2 with prediction length 96. An augmentation size of 2 means that the augmented sample set is doubled by applying the augmentation method twice. This analysis examines whether increasing augmentation intensity continues to improve performance or instead introduces overly strong perturbations. The results show that FreqMix benefits from larger augmentation sizes on both datasets, while FreqMask improves only on ETTh2 when applied twice. In contrast, most other methods degrade as augmentation size increases. Notably, TPS on ETTh1 exhibits only minor performance variation up to augmentation size 4, indicating stable behavior under stronger augmentation. This contrasts with methods such as Upsample and FreqMask, which are more sensitive to augmentation size. Dominant Shuffle and FreqMix also remain relatively stable across different augmentation sizes. On ETTh2, TPS shows some degradation at larger augmentation sizes, suggesting that overly strong perturbations can become harmful in this setting. Nevertheless, across other models and prediction lengths on ETTh2, TPS is generally stable under different augmentation sizes. We also conduct experiments with different augmentation ratios (0.1, 0.3, 0.5, 0.7, and 1.0) using PatchTST on ETTh1 and ETTh2 with prediction length 96, as shown in Figure 7. The evaluated methods include FreqMask, FreqMix, Upsample, Dominant Shuffle, and TPS. Here, the augmentation ratio denotes the proportion of augmented samples included in each training batch, so lower ratios correspond to fewer augmented samples. TPS achieves the lowest MSE on both datasets when using the full augmentation ratio (1.0). Moreover, even with only 10% augmented samples (ratio 0.1), TPS outperforms all competing augmentation methods at their respective ratios. 
+
+## F. TPS for Time Series Classification 
+
+Datasets and Experimental Setups. We use the widely adopted UCR (Dau et al., 2018) and UEA (Bagnall et al., 2018) repositories to evaluate TPS on univariate and multivariate time series classification tasks. 17 Temporal Patch Shuffle for Time Series Forecasting 1 2 3 4 5
+
+Augmentation Size     
+
+> 0.36
+> 0.38
+> 0.40
+> 0.42
+> 0.44
+> 0.46
+> 0.48
+> MSE
+> ETTh1
+> FreqMask
+> FreqMix
+> Upsample
+> Dominant Shuffle
+> TPS
+> 12345
+
+Augmentation Size 
+
+> 0.27
+> 0.28
+> 0.29
+> 0.3
+> 0.31
+> 0.32
+> MSE
+> ETTh2
+
+Figure 6. Impact of varying augmentation sizes (1–5) on forecasting performance using the PatchTST model with a prediction length of 96 on the ETTh1 and ETTh2 datasets. The results demonstrate how different augmentation methods respond to increasing augmentation intensity, highlighting stability or degradation in performance. 
+
+For univariate classification, we use the UCR archive, which contains datasets with a single time-dependent variable (i.e., one channel). The archive covers diverse categories, including Device, ECG, Image, Motion, Sensor, Spectrograph, Simulated, and others (Dau et al., 2018). For our evaluation, we select 30 datasets from the 128 datasets in UCR, ensuring coverage across multiple categories. These datasets vary in training and test sizes, sequence lengths, and numbers of classes, making the evaluation broad and representative. Table 14 summarizes the selected UCR datasets. For multivariate classification, we use the UEA archive (Bagnall et al., 2018), which contains datasets with multiple input channels. We select 10 datasets from the 30 datasets in UEA, covering diverse application domains and a broad range of input dimensionalities, sequence lengths, and class counts. Table 15 summarizes the selected UEA datasets. For both settings, we split the original training data into 80% training and 20% validation sets. Hyperparameters are selected based on validation accuracy. When multiple configurations achieve the same validation accuracy, one is randomly chosen for final training on the full training set and evaluation on the provided test set. 
+
+Baselines and TPS. Transformation-based augmentation methods (Jittering (Um et al., 2017), Rotation (Iwana & Uchida, 2021), Scaling (Um et al., 2017), Magnitude Warping (Iwana & Uchida, 2021), Window Slicing (Le Guennec et al., 2016), Permutation and Random Permutation (Um et al., 2017; Pan et al., 2020), Time Warping (Um et al., 2017; Park et al., 2019), and Window Warping (Le Guennec et al., 2016)), together with pattern-based augmentation methods (SPAWNER (Kamycki et al., 2020), wDBA (Forestier et al., 2017), RGW and DGW (Um et al., 2017), RGWs and DGWs (Iwana & Uchida, 2020)), serve as the baseline augmentation approaches for time series classification. Implementation details for each method follow the configurations reported in their respective papers. For the classification backbones, we use MiniRocket (Dempster et al., 2021) for the univariate UCR setting and Multi-Rocket (Tan et al., 2022) for the multivariate UEA setting. To extend TPS to classification, two modifications are required. First, unlike forecasting, where the input consists of both the look-back window and the forecast horizon, classification models operate exclusively on the input sequence X ∈ RN ×T ×C , where N is the number of samples, T the temporal length, and C the number of channels. Second, the shuffling process is applied at the sample level rather than the batch level. 
+
+Experimental Results. Table 16 reports classification results for both settings: univariate classification with MiniRocket on 30 UCR datasets and multivariate classification with MultiRocket on 10 UEA datasets. Accuracy is the evaluation metric. For each dataset, results are computed over five independent runs and reported as mean ± standard deviation, then averaged across datasets. The Improvement row shows the relative gain of TPS over the best competing augmentation. #Rank 1 and 
+
+#Rank 2 report the percentage of datasets on which TPS ranks first and second, respectively, among all methods. 18 Temporal Patch Shuffle for Time Series Forecasting 0.1 0.3 0.5 0.7 1.0 
+
+Augmentation Ratio     
+
+> 0.345
+> 0.350
+> 0.355
+> 0.360
+> 0.365
+> 0.370
+> 0.375
+> 0.380
+> 0.385
+> MSE
+> ETTh1
+> FreqMask
+> FreqMix
+> Upsample
+> Dominant Shuffle
+> TPS
+> 0.1 0.3 0.5 0.7 1.0
+
+Augmentation Ratio 
+
+> 0.265
+> 0.268
+> 0.27
+> 0.273
+> 0.275
+> 0.278
+> 0.28
+> 0.283
+> 0.285
+> MSE
+> ETTh2
+
+Figure 7. Effect of varying augmentation ratios (0.1 to 1.0) on the MSE performance of different augmentation methods using the PatchTST model with prediction length 96 on the ETTh1 and ETTh2 datasets. The augmentation ratio indicates the proportion of augmented samples used during training. 
+
+TPS improves over the second-best augmentation by 0.50% on the univariate UCR benchmark and by 1.10% on the multivariate UEA benchmark. In addition, TPS achieves 50.00% cumulative Top-2 rankings on UCR and 60.00% 
+
+cumulative Top-2 rankings on UEA, indicating consistent performance across diverse classification datasets. Full per-dataset results are available in the Excel file at https://github.com/jafarbakhshaliyev/TPS/blob/main/results/results.xlsx. 
+
+## G. Discussion & Future Work 
+
+Results from CycleNet. Table 17 reports the results of CycleNet (Lin et al., 2024), a recent state-of-the-art model for time series forecasting. We performed extensive hyperparameter tuning specifically for the ETTh1 dataset. The table presents MSE results for prediction lengths {96, 192, 336, 720 }, with the final column showing the average performance. RobustTAD-m/p denotes the best result selected from the magnitude- or phase-modified versions of RobustTAD, and Freq-Mask/Mix represents the best performance obtained between FreqMask and FreqMix. TPS achieves a 1.74% improvement over the second-best method, Dominant Shuffle. This result further supports that TPS transfers effectively to strong forecasting backbones beyond the five main model families evaluated in the paper. 
+
+Future Directions. Several directions remain for future work. First, TPS could be evaluated on additional forecasting settings such as cold-start forecasting, where only a small proportion (e.g., 10% or 20%) of the training data is available, as explored in prior studies (Chen et al., 2023c;a). Second, the current variance-based ordering could be refined with more expressive patch-priority criteria, such as channel-aware or weighted multivariate scoring. Third, TPS could be evaluated across a broader range of forecasting settings, including newer backbone families, pretrained time-series foundation models under lightweight adaptation protocols (e.g., frozen backbone with a fine-tuned prediction head), and standardized benchmark suites such as GIFT-Eval (Aksu et al., 2024). 19 Temporal Patch Shuffle for Time Series Forecasting 
+
+Table 7. Long-term forecasting results averaged over prediction lengths {96 , 192 , 336 , 720 } on ETT-{h1,h2,m1,m2 } for all five backbone models. For each prediction length, we report mean ± std over 5 runs, then average these statistics over the four lengths. Best results per dataset and model are highlighted in red bold , and second-best results are shown in blue underline. 
+
+Method ETTh1 ETTh2 ETTm1 ETTm2 MSE MAE MSE MAE MSE MAE MSE MAE 
+
+> TSMixer
+
+None 0.413 ± 0.0023 0.434 ± 0.0020 0.342 ± 0.0023 0.394 ± 0.0017 0.351 ± 0.0010 0.378 ± 0.0008 0.262 ± 0.0017 0.320 ± 0.0014 wDBA (2017) 0.418 ± 0.0028 0.437 ± 0.0026 0.344 ± 0.0023 0.394 ± 0.0019 0.352 ± 0.0009 0.378 ± 0.0008 0.261 ± 0.0011 0.319 ± 0.0011 MBB (2021) 0.412 ± 0.0026 0.437 ± 0.0023 0.345 ± 0.0046 0.395 ± 0.0034 0.353 ± 0.0014 0.379 ± 0.0013 0.264 ± 0.0017 0.321 ± 0.0011 RobustTAD-m/p (2021) 0.416 ± 0.0018 0.434 ± 0.0016 0.343 ± 0.0032 0.394 ± 0.0023 0.350 ± 0.0008 0.377 ± 0.0008 0.262 ± 0.0037 0.319 ± 0.0021 FreqAdd (2022b) 0.413 ± 0.0026 0.432 ± 0.0024 0.343 ± 0.0025 0.393 ± 0.0016 0.351 ± 0.0010 0.377 ± 0.0008 0.263 ± 0.0062 0.320 ± 0.0035 FreqPool (2023c) 0.431 ± 0.0055 0.446 ± 0.0043 0.351 ± 0.0031 0.399 ± 0.0020 0.359 ± 0.0010 0.382 ± 0.0010 0.264 ± 0.0015 0.322 ± 0.0013 Upsample (2023) 0.416 ± 0.0023 0.434 ± 0.0023 0.343 ± 0.0019 0.392 ± 0.0014 0.378 ± 0.0013 0.396 ± 0.0009 0.263 ± 0.0016 0.320 ± 0.0010 STAug (2023) 0.411 ± 0.0020 0.432 ± 0.0019 0.393 ± 0.0067 0.427 ± 0.0032 0.352 ± 0.0017 0.377 ± 0.0015 0.339 ± 0.0055 0.373 ± 0.0021 Freq-Mask/Mix (2023a) 0.416 ± 0.0035 0.434 ± 0.0027 0.344 ± 0.0019 0.394 ± 0.0015 0.348 ± 0.0010 0.376 ± 0.0006 0.259 ± 0.0030 0.319 ± 0.0018 Wave-Mask/Mix (2024) 0.410 ± 0.0021 0.431 ± 0.0021 0.342 ± 0.0022 0.393 ± 0.0016 0.352 ± 0.0013 0.379 ± 0.0009 0.261 ± 0.0015 0.320 ± 0.0009 Dominant Shuffle (2024) 0.416 ± 0.0019 0.434 ± 0.0023 0.345 ± 0.0027 0.395 ± 0.0020 0.353 ± 0.0012 0.380 ± 0.0009 0.261 ± 0.0017 0.320 ± 0.0007 
+
+TPS (Ours) 0.402 ± 0.0018 0.425 ± 0.0019 0.339 ± 0.0021 0.390 ± 0.0015 0.346 ± 0.0010 0.373 ± 0.0007 0.257 ± 0.0016 0.317 ± 0.0008 DLinear 
+
+None 0.438 ± 0.0194 0.449 ± 0.0162 0.464 ± 0.0099 0.462 ± 0.0053 0.361 ± 0.0010 0.383 ± 0.0015 0.276 ± 0.0099 0.339 ± 0.0093 wDBA 0.432 ± 0.0126 0.443 ± 0.0126 0.434 ± 0.0383 0.444 ± 0.0175 0.360 ± 0.0011 0.381 ± 0.0016 0.270 ± 0.0050 0.334 ± 0.0055 MBB 0.429 ± 0.0114 0.444 ± 0.0111 0.449 ± 0.0324 0.454 ± 0.0152 0.360 ± 0.0009 0.382 ± 0.0015 0.280 ± 0.0080 0.343 ± 0.0072 RobustTAD-m/p 0.433 ± 0.0155 0.444 ± 0.0129 0.432 ± 0.0295 0.447 ± 0.0151 0.361 ± 0.0012 0.383 ± 0.0017 0.280 ± 0.0088 0.342 ± 0.0071 FreqAdd 0.432 ± 0.0128 0.446 ± 0.0120 0.471 ± 0.0195 0.466 ± 0.0090 0.364 ± 0.0009 0.386 ± 0.0012 0.285 ± 0.0097 0.347 ± 0.0085 FreqPool 0.450 ± 0.0231 0.455 ± 0.0166 0.422 ± 0.0177 0.439 ± 0.0104 0.380 ± 0.0008 0.399 ± 0.0011 0.273 ± 0.0111 0.335 ± 0.0075 Upsample 0.436 ± 0.0059 0.445 ± 0.0055 0.391 ± 0.0178 0.423 ± 0.0098 0.387 ± 0.0007 0.406 ± 0.0015 0.265 ± 0.0048 0.328 ± 0.0048 STAug 0.442 ± 0.0345 0.450 ± 0.0226 1.011 ± 0.1382 0.678 ± 0.0543 0.359 ± 0.0016 0.383 ± 0.0023 0.442 ± 0.0212 0.416 ± 0.0131 Freq-Mask/Mix 0.422 ± 0.0063 0.436 ± 0.0066 0.422 ± 0.0246 0.440 ± 0.0133 0.360 ± 0.0009 0.383 ± 0.0013 0.271 ± 0.0037 0.336 ± 0.0044 Wave-Mask/Mix 0.426 ± 0.0058 0.441 ± 0.0056 0.454 ± 0.0228 0.456 ± 0.0118 0.361 ± 0.0014 0.383 ± 0.0019 0.275 ± 0.0108 0.338 ± 0.0096 Dominant Shuffle 0.420 ± 0.0037 0.434 ± 0.0044 0.409 ± 0.0104 0.435 ± 0.0066 0.360 ± 0.0014 0.383 ± 0.0015 0.271 ± 0.0089 0.335 ± 0.0095 
+
+TPS (Ours) 0.410 ± 0.0036 0.425 ± 0.0031 0.369 ± 0.0056 0.408 ± 0.0039 0.354 ± 0.0006 0.377 ± 0.0006 0.261 ± 0.0018 0.324 ± 0.0027 PatchTST 
+
+None 0.414 ± 0.0026 0.428 ± 0.0023 0.331 ± 0.0016 0.380 ± 0.0020 0.354 ± 0.0030 0.383 ± 0.0019 0.258 ± 0.0018 0.316 ± 0.0013 wDBA 0.417 ± 0.0047 0.431 ± 0.0035 0.335 ± 0.0009 0.382 ± 0.0011 0.352 ± 0.0019 0.381 ± 0.0010 0.261 ± 0.0011 0.318 ± 0.0010 MBB 0.422 ± 0.0057 0.433 ± 0.0033 0.332 ± 0.0011 0.381 ± 0.0014 0.353 ± 0.0019 0.383 ± 0.0008 0.258 ± 0.0004 0.316 ± 0.0007 RobustTAD-m/p 0.423 ± 0.0116 0.434 ± 0.0058 0.331 ± 0.0009 0.380 ± 0.0059 0.354 ± 0.0025 0.383 ± 0.0018 0.258 ± 0.0020 0.317 ± 0.0016 FreqAdd 0.413 ± 0.0022 0.429 ± 0.0018 0.333 ± 0.0013 0.381 ± 0.0019 0.355 ± 0.0041 0.384 ± 0.0014 0.261 ± 0.0022 0.317 ± 0.0016 FreqPool 0.423 ± 0.0039 0.436 ± 0.0029 0.333 ± 0.0012 0.381 ± 0.0008 0.351 ± 0.0024 0.381 ± 0.0015 0.256 ± 0.0018 0.315 ± 0.0008 Upsample 0.419 ± 0.0047 0.433 ± 0.0029 0.335 ± 0.0010 0.382 ± 0.0011 0.356 ± 0.0037 0.387 ± 0.0021 0.258 ± 0.0013 0.316 ± 0.0006 STAug 0.419 ± 0.0074 0.429 ± 0.0033 0.416 ± 0.0115 0.428 ± 0.0047 0.348 ± 0.0025 0.379 ± 0.0016 0.275 ± 0.0036 0.325 ± 0.0017 Freq-Mask/Mix 0.412 ± 0.0024 0.427 ± 0.0023 0.329 ± 0.0012 0.380 ± 0.0009 0.351 ± 0.0019 0.382 ± 0.0011 0.261 ± 0.0038 0.318 ± 0.0025 Wave-Mask/Mix 0.412 ± 0.0029 0.428 ± 0.0021 0.330 ± 0.0017 0.379 ± 0.0018 0.352 ± 0.0027 0.381 ± 0.0018 0.258 ± 0.0012 0.316 ± 0.0012 Dominant Shuffle 0.408 ± 0.0015 0.424 ± 0.0010 0.329 ± 0.0009 0.382 ± 0.0012 0.354 ± 0.0022 0.383 ± 0.0017 0.258 ± 0.0014 0.316 ± 0.0013 
+
+TPS (Ours) 0.401 ± 0.0021 0.419 ± 0.0021 0.326 ± 0.0013 0.378 ± 0.0008 0.345 ± 0.0019 0.377 ± 0.0009 0.256 ± 0.0013 0.315 ± 0.0009 TiDE 
+
+None 0.417 ± 0.0012 0.432 ± 0.0011 0.316 ± 0.0018 0.375 ± 0.0011 0.359 ± 0.0036 0.381 ± 0.0032 0.250 ± 0.0009 0.313 ± 0.0005 wDBA 0.563 ± 0.0055 0.518 ± 0.0023 0.321 ± 0.0009 0.378 ± 0.0006 0.360 ± 0.0027 0.382 ± 0.0025 0.250 ± 0.0006 0.313 ± 0.0009 MBB 0.556 ± 0.0027 0.513 ± 0.0011 0.311 ± 0.0006 0.371 ± 0.0004 0.358 ± 0.0025 0.381 ± 0.0020 0.250 ± 0.0003 0.312 ± 0.0004 RobustTAD-m/p 0.418 ± 0.0019 0.433 ± 0.0012 0.316 ± 0.0008 0.375 ± 0.0005 0.357 ± 0.0008 0.380 ± 0.0011 0.251 ± 0.0009 0.313 ± 0.0005 FreqAdd 0.406 ± 0.0007 0.428 ± 0.0006 0.312 ± 0.0007 0.371 ± 0.0005 0.361 ± 0.0022 0.383 ± 0.0018 0.252 ± 0.0017 0.315 ± 0.0009 FreqPool 0.431 ± 0.0032 0.442 ± 0.0026 0.322 ± 0.0010 0.380 ± 0.0006 0.377 ± 0.0021 0.395 ± 0.0016 0.253 ± 0.0009 0.316 ± 0.0004 Upsample 0.423 ± 0.0008 0.439 ± 0.0006 0.328 ± 0.0043 0.381 ± 0.0023 0.390 ± 0.0042 0.402 ± 0.0023 0.252 ± 0.0005 0.314 ± 0.0003 STAug 0.533 ± 0.0038 0.514 ± 0.0018 0.571 ± 0.0751 0.521 ± 0.0382 0.356 ± 0.0016 0.379 ± 0.0017 0.421 ± 0.0099 0.396 ± 0.0037 Freq-Mask/Mix 0.421 ± 0.0017 0.436 ± 0.0011 0.317 ± 0.0008 0.377 ± 0.0007 0.355 ± 0.0011 0.379 ± 0.0009 0.253 ± 0.0012 0.317 ± 0.0007 Wave-Mask/Mix 0.402 ± 0.0005 0.426 ± 0.0006 0.312 ± 0.0009 0.372 ± 0.0007 0.357 ± 0.0014 0.380 ± 0.0011 0.249 ± 0.0003 0.312 ± 0.0005 Dominant Shuffle 0.412 ± 0.0010 0.429 ± 0.0007 0.312 ± 0.0010 0.374 ± 0.0005 0.353 ± 0.0020 0.379 ± 0.0018 0.255 ± 0.0007 0.317 ± 0.0006 
+
+TPS (Ours) 0.387 ± 0.0010 0.415 ± 0.0008 0.308 ± 0.0005 0.370 ± 0.0004 0.347 ± 0.0019 0.373 ± 0.0017 0.248 ± 0.0003 0.311 ± 0.0003 LightTS 
+
+None 0.462 ± 0.0051 0.473 ± 0.0030 0.611 ± 0.0152 0.540 ± 0.0089 0.380 ± 0.0025 0.401 ± 0.0021 0.301 ± 0.0052 0.363 ± 0.0050 wDBA 0.462 ± 0.0031 0.473 ± 0.0025 0.588 ± 0.0115 0.529 ± 0.0059 0.381 ± 0.0051 0.401 ± 0.0035 0.290 ± 0.0050 0.352 ± 0.0042 MBB 0.454 ± 0.0026 0.469 ± 0.0023 0.612 ± 0.0157 0.541 ± 0.0071 0.382 ± 0.0030 0.404 ± 0.0027 0.306 ± 0.0081 0.367 ± 0.0076 RobustTAD-m/p 0.462 ± 0.0023 0.473 ± 0.0015 0.597 ± 0.0127 0.535 ± 0.0074 0.382 ± 0.0032 0.402 ± 0.0029 0.299 ± 0.0021 0.360 ± 0.0025 FreqAdd 0.454 ± 0.0032 0.468 ± 0.0031 0.615 ± 0.0129 0.541 ± 0.0061 0.378 ± 0.0028 0.400 ± 0.0025 0.300 ± 0.0099 0.361 ± 0.0091 FreqPool 0.482 ± 0.0057 0.487 ± 0.0040 0.543 ± 0.0155 0.516 ± 0.0089 0.392 ± 0.0027 0.410 ± 0.0027 0.297 ± 0.0060 0.358 ± 0.0037 Upsample 0.468 ± 0.0030 0.478 ± 0.0020 0.446 ± 0.0066 0.464 ± 0.0034 0.402 ± 0.0054 0.415 ± 0.0038 0.283 ± 0.0018 0.347 ± 0.0027 STAug 0.458 ± 0.0034 0.470 ± 0.0026 1.248 ± 0.0336 0.782 ± 0.0119 0.363 ± 0.0014 0.388 ± 0.0014 0.546 ± 0.0165 0.486 ± 0.0083 Freq-Mask/Mix 0.461 ± 0.0028 0.473 ± 0.0018 0.558 ± 0.0110 0.518 ± 0.0063 0.373 ± 0.0016 0.398 ± 0.0014 0.297 ± 0.0119 0.360 ± 0.0118 Wave-Mask/Mix 0.448 ± 0.0031 0.466 ± 0.0021 0.611 ± 0.0086 0.539 ± 0.0047 0.377 ± 0.0018 0.400 ± 0.0024 0.299 ± 0.0075 0.360 ± 0.0074 Dominant Shuffle 0.449 ± 0.0036 0.464 ± 0.0028 0.511 ± 0.0101 0.496 ± 0.0058 0.372 ± 0.0038 0.398 ± 0.0031 0.290 ± 0.0035 0.353 ± 0.0043 
+
+TPS (Ours) 0.431 ± 0.0007 0.452 ± 0.0005 0.418 ± 0.0031 0.447 ± 0.0019 0.356 ± 0.0015 0.382 ± 0.0015 0.277 ± 0.0027 0.342 ± 0.0029 
+
+20 Temporal Patch Shuffle for Time Series Forecasting 
+
+Table 8. Long-term forecasting results averaged over prediction lengths {96 , 192 , 336 , 720 } on Exchange, Weather, ECL, and Traffic for all five backbone models. For each prediction length, we report mean ± std over 5 runs, then average these statistics over the four lengths. Best results per dataset and model are highlighted in red bold , and second-best results are shown in blue underline. 
+
+Method Exchange Weather ECL Traffic MSE MAE MSE MAE MSE MAE MSE MAE 
+
+> TSMixer
+
+None 0.417 ± 0.0074 0.436 ± 0.0038 0.224 ± 0.0016 0.263 ± 0.0014 0.170 ± 0.0003 0.269 ± 0.0004 0.436 ± 0.0007 0.327 ± 0.0009 wDBA (2017) 0.406 ± 0.0091 0.430 ± 0.0050 0.222 ± 0.0006 0.261 ± 0.0006 0.173 ± 0.0002 0.275 ± 0.0002 0.437 ± 0.0010 0.326 ± 0.0013 MBB (2021) 0.408 ± 0.0074 0.431 ± 0.0038 0.224 ± 0.0006 0.263 ± 0.0006 0.171 ± 0.0001 0.271 ± 0.0002 0.438 ± 0.0069 0.325 ± 0.0077 RobustTAD-m/p (2021) 0.409 ± 0.0042 0.431 ± 0.0028 0.223 ± 0.0010 0.262 ± 0.0010 0.168 ± 0.0003 0.268 ± 0.0005 0.431 ± 0.0004 0.317 ± 0.0008 FreqAdd (2022b) 0.407 ± 0.0071 0.436 ± 0.0035 0.226 ± 0.0007 0.265 ± 0.0006 0.168 ± 0.0002 0.268 ± 0.0002 0.432 ± 0.0006 0.319 ± 0.0009 FreqPool (2023c) 0.418 ± 0.0032 0.434 ± 0.0021 0.224 ± 0.0009 0.264 ± 0.0011 0.176 ± 0.0004 0.277 ± 0.0004 0.442 ± 0.0009 0.325 ± 0.0005 Upsample (2023) 0.401 ± 0.0053 0.425 ± 0.0032 0.217 ± 0.0008 0.259 ± 0.0009 0.187 ± 0.0003 0.286 ± 0.0004 0.463 ± 0.0008 0.346 ± 0.0008 STAug (2023) 0.413 ± 0.0061 0.434 ± 0.0037 0.241 ± 0.0046 0.285 ± 0.0058 - - - -Freq-Mask/Mix (2023a) 0.431 ± 0.0068 0.444 ± 0.0042 0.222 ± 0.0006 0.262 ± 0.0007 0.174 ± 0.0002 0.276 ± 0.0003 0.450 ± 0.0008 0.323 ± 0.0004 Wave-Mask/Mix (2024) 0.413 ± 0.0073 0.434 ± 0.0036 0.225 ± 0.0007 0.265 ± 0.0010 0.169 ± 0.0002 0.269 ± 0.0003 0.434 ± 0.0008 0.323 ± 0.0007 Dominant Shuffle (2024) 0.401 ± 0.0057 0.431 ± 0.0036 0.225 ± 0.0010 0.264 ± 0.0009 0.175 ± 0.0002 0.276 ± 0.0003 0.444 ± 0.0006 0.326 ± 0.0007 
+
+TPS (Ours) 0.391 ± 0.0067 0.421 ± 0.0036 0.222 ± 0.0010 0.260 ± 0.0007 0.168 ± 0.0002 0.267 ± 0.0002 0.428 ± 0.0004 0.313 ± 0.0008 DLinear 
+
+None 0.381 ± 0.0478 0.421 ± 0.0199 0.245 ± 0.0004 0.298 ± 0.0009 0.166 ± 0.0000 0.264 ± 0.0002 0.434 ± 0.0000 0.295 ± 0.0000 wDBA 0.386 ± 0.0602 0.422 ± 0.0311 0.245 ± 0.0031 0.296 ± 0.0062 0.173 ± 0.0000 0.263 ± 0.0004 0.434 ± 0.0000 0.295 ± 0.0000 MBB 0.383 ± 0.0414 0.419 ± 0.0164 0.246 ± 0.0025 0.299 ± 0.0056 0.173 ± 0.0001 0.273 ± 0.0001 0.450 ± 0.0000 0.315 ± 0.0002 RobustTAD-m/p 0.363 ± 0.0539 0.412 ± 0.0234 0.245 ± 0.0005 0.297 ± 0.0008 0.167 ± 0.0000 0.264 ± 0.0001 0.434 ± 0.0000 0.296 ± 0.0000 FreqAdd 0.385 ± 0.0344 0.430 ± 0.0166 0.247 ± 0.0009 0.299 ± 0.0018 0.170 ± 0.0000 0.269 ± 0.0001 0.435 ± 0.0000 0.300 ± 0.0000 FreqPool 0.286 ± 0.0127 0.377 ± 0.0081 0.261 ± 0.0009 0.316 ± 0.0017 0.182 ± 0.0000 0.280 ± 0.0002 0.466 ± 0.0000 0.332 ± 0.0001 Upsample 0.242 ± 0.0082 0.351 ± 0.0067 0.246 ± 0.0006 0.298 ± 0.0010 0.217 ± 0.0004 0.310 ± 0.0005 0.519 ± 0.0007 0.397 ± 0.0011 STAug 0.383 ± 0.0449 0.421 ± 0.0183 0.345 ± 0.0164 0.391 ± 0.0151 - - - -Freq-Mask/Mix 0.317 ± 0.0146 0.393 ± 0.0066 0.245 ± 0.0008 0.296 ± 0.0017 0.167 ± 0.0000 0.265 ± 0.0002 0.436 ± 0.0000 0.298 ± 0.0000 Wave-Mask/Mix 0.375 ± 0.0336 0.418 ± 0.0142 0.245 ± 0.0006 0.297 ± 0.0012 0.166 ± 0.0000 0.264 ± 0.0001 0.434 ± 0.0000 0.296 ± 0.0000 Dominant Shuffle 0.340 ± 0.0525 0.408 ± 0.0220 0.246 ± 0.0003 0.297 ± 0.0007 0.167 ± 0.0000 0.265 ± 0.0002 0.435 ± 0.0001 0.297 ± 0.0003 
+
+TPS (Ours) 0.237 ± 0.0035 0.349 ± 0.0026 0.239 ± 0.0003 0.285 ± 0.0007 0.166 ± 0.0000 0.263 ± 0.0002 0.432 ± 0.0000 0.292 ± 0.0000 PatchTST 
+
+None 0.381 ± 0.0082 0.413 ± 0.0052 0.237 ± 0.0008 0.272 ± 0.0007 0.163 ± 0.0003 0.255 ± 0.0003 0.411 ± 0.0005 0.274 ± 0.0005 wDBA 0.391 ± 0.0165 0.418 ± 0.0078 0.230 ± 0.0005 0.266 ± 0.0003 0.162 ± 0.0004 0.255 ± 0.0004 0.412 ± 0.0005 0.274 ± 0.0004 MBB 0.391 ± 0.0091 0.417 ± 0.0053 0.231 ± 0.0006 0.266 ± 0.0009 0.164 ± 0.0004 0.257 ± 0.0003 0.413 ± 0.0004 0.275 ± 0.0005 RobustTAD-m/p 0.395 ± 0.0152 0.419 ± 0.0074 0.236 ± 0.0007 0.271 ± 0.0008 0.162 ± 0.0001 0.254 ± 0.0002 0.408 ± 0.0004 0.273 ± 0.0004 FreqAdd 0.375 ± 0.0083 0.414 ± 0.0051 0.239 ± 0.0007 0.274 ± 0.0007 0.164 ± 0.0003 0.258 ± 0.0003 0.408 ± 0.0004 0.275 ± 0.0004 FreqPool 0.401 ± 0.0136 0.424 ± 0.0063 0.238 ± 0.0007 0.273 ± 0.0009 0.163 ± 0.0005 0.255 ± 0.0003 0.412 ± 0.0006 0.278 ± 0.0010 Upsample 0.361 ± 0.0064 0.415 ± 0.0039 0.234 ± 0.0007 0.270 ± 0.0010 0.165 ± 0.0006 0.257 ± 0.0006 0.415 ± 0.0007 0.281 ± 0.0009 STAug 0.381 ± 0.0086 0.413 ± 0.0045 0.265 ± 0.0011 0.303 ± 0.0013 - - - -Freq-Mask/Mix 0.410 ± 0.0083 0.428 ± 0.0050 0.238 ± 0.0005 0.273 ± 0.0007 0.164 ± 0.0001 0.256 ± 0.0002 0.412 ± 0.0003 0.276 ± 0.0003 Wave-Mask/Mix 0.380 ± 0.0103 0.426 ± 0.0065 0.236 ± 0.0004 0.271 ± 0.0005 0.163 ± 0.0002 0.256 ± 0.0002 0.407 ± 0.0002 0.273 ± 0.0002 
+
+Dominant Shuffle 0.367 ± 0.0082 0.418 ± 0.0036 0.241 ± 0.0006 0.275 ± 0.0051 0.163 ± 0.0002 0.255 ± 0.0001 0.409 ± 0.0004 0.274 ± 0.0002 
+
+TPS (Ours) 0.346 ± 0.0028 0.397 ± 0.0019 0.230 ± 0.0005 0.266 ± 0.0009 0.162 ± 0.0001 0.254 ± 0.0002 0.408 ± 0.0004 0.274 ± 0.0004 
+
+> TiDE
+
+None 0.382 ± 0.0023 0.414 ± 0.0010 0.240 ± 0.0004 0.279 ± 0.0005 0.162 ± 0.0000 0.255 ± 0.0000 0.440 ± 0.0003 0.319 ± 0.0003 wDBA 0.379 ± 0.0011 0.412 ± 0.0010 0.240 ± 0.0004 0.277 ± 0.0002 0.162 ± 0.0000 0.255 ± 0.0002 0.440 ± 0.0005 0.320 ± 0.0005 MBB 0.380 ± 0.0029 0.413 ± 0.0008 0.240 ± 0.0004 0.279 ± 0.0003 0.165 ± 0.0003 0.259 ± 0.0004 0.442 ± 0.0005 0.321 ± 0.0003 RobustTAD-m/p 0.385 ± 0.0023 0.415 ± 0.0003 0.240 ± 0.0004 0.279 ± 0.0005 0.162 ± 0.0000 0.255 ± 0.0001 0.440 ± 0.0005 0.319 ± 0.0004 FreqAdd 0.381 ± 0.0015 0.415 ± 0.0010 0.242 ± 0.0004 0.282 ± 0.0005 0.165 ± 0.0000 0.259 ± 0.0000 0.436 ± 0.0003 0.314 ± 0.0004 
+
+FreqPool 0.387 ± 0.0020 0.416 ± 0.0016 0.253 ± 0.0006 0.290 ± 0.0002 0.172 ± 0.0002 0.267 ± 0.0002 0.465 ± 0.0004 0.343 ± 0.0005 Upsample 0.372 ± 0.0014 0.409 ± 0.0007 0.238 ± 0.0006 0.275 ± 0.0011 0.181 ± 0.0002 0.277 ± 0.0004 0.488 ± 0.0007 0.372 ± 0.0006 STAug 0.383 ± 0.0017 0.414 ± 0.0013 0.341 ± 0.0213 0.338 ± 0.0106 - - - -Freq-Mask/Mix 0.421 ± 0.0071 0.430 ± 0.0023 0.242 ± 0.0004 0.280 ± 0.0004 0.164 ± 0.0000 0.258 ± 0.0000 0.439 ± 0.0003 0.318 ± 0.0031 Wave-Mask/Mix 0.382 ± 0.0029 0.413 ± 0.0011 0.241 ± 0.0004 0.280 ± 0.0004 0.162 ± 0.0000 0.255 ± 0.0001 0.438 ± 0.0003 0.318 ± 0.0003 Dominant Shuffle 0.376 ± 0.0040 0.413 ± 0.0015 0.243 ± 0.0003 0.281 ± 0.0003 0.163 ± 0.0000 0.257 ± 0.0000 0.439 ± 0.0003 0.318 ± 0.0003 
+
+TPS (Ours) 0.367 ± 0.0009 0.407 ± 0.0003 0.234 ± 0.0001 0.272 ± 0.0013 0.162 ± 0.0000 0.255 ± 0.0000 0.437 ± 0.0002 0.316 ± 0.0002 
+
+> LightTS
+
+None 0.416 ± 0.0348 0.462 ± 0.0133 0.236 ± 0.0027 0.290 ± 0.0036 0.182 ± 0.0088 0.288 ± 0.0106 0.445 ± 0.0053 0.328 ± 0.0054 wDBA 0.414 ± 0.0214 0.453 ± 0.0110 0.235 ± 0.0031 0.287 ± 0.0030 0.183 ± 0.0077 0.290 ± 0.0088 0.445 ± 0.0042 0.327 ± 0.0034 MBB 0.427 ± 0.0182 0.462 ± 0.0102 0.237 ± 0.0026 0.290 ± 0.0031 0.185 ± 0.0057 0.294 ± 0.0434 0.449 ± 0.0058 0.330 ± 0.0030 RobustTAD-m/p 0.419 ± 0.0304 0.459 ± 0.0156 0.236 ± 0.0031 0.290 ± 0.0033 0.180 ± 0.0064 0.285 ± 0.0082 0.440 ± 0.0104 0.319 ± 0.0105 
+
+FreqAdd 0.425 ± 0.0374 0.465 ± 0.0196 0.238 ± 0.0028 0.293 ± 0.0046 0.179 ± 0.0065 0.284 ± 0.0070 0.448 ± 0.0068 0.329 ± 0.0067 FreqPool 0.326 ± 0.0977 0.396 ± 0.0075 0.239 ± 0.0019 0.288 ± 0.0015 0.186 ± 0.0072 0.290 ± 0.0075 0.468 ± 0.0087 0.347 ± 0.0060 Upsample 0.289 ± 0.0128 0.394 ± 0.0080 0.235 ± 0.0028 0.285 ± 0.0018 0.187 ± 0.0058 0.294 ± 0.0072 0.474 ± 0.0102 0.354 ± 0.0088 STAug 0.410 ± 0.0366 0.452 ± 0.0160 0.287 ± 0.0144 0.339 ± 0.0165 - - - -Freq-Mask/Mix 0.372 ± 0.0360 0.440 ± 0.0096 0.235 ± 0.0020 0.287 ± 0.0026 0.179 ± 0.0062 0.282 ± 0.0061 0.441 ± 0.0027 0.322 ± 0.0023 Wave-Mask/Mix 0.421 ± 0.0310 0.453 ± 0.0142 0.235 ± 0.0039 0.289 ± 0.0059 0.178 ± 0.0059 0.284 ± 0.0077 0.440 ± 0.0047 0.322 ± 0.0039 Dominant Shuffle 0.358 ± 0.0138 0.432 ± 0.0089 0.235 ± 0.0032 0.287 ± 0.0034 0.192 ± 0.0111 0.296 ± 0.0093 0.445 ± 0.0051 0.327 ± 0.0055 
+
+TPS (Ours) 0.273 ± 0.0183 0.385 ± 0.0118 0.228 ± 0.0026 0.277 ± 0.0019 0.174 ± 0.0030 0.278 ± 0.0050 0.439 ± 0.0071 0.320 ± 0.0055 
+
+21 Temporal Patch Shuffle for Time Series Forecasting 
+
+Table 9. Short-term traffic forecasting with PatchTST on PeMS-{03,04,07,08 }. For each prediction length, results are reported as mean ±std over 5 runs, then averaged over these prediction lengths {12 , 24 , 36 , 48 }. Best results are highlighted in red bold , and second-best results are shown in blue underline. 
+
+> PeMS03
+
+Method 12 24 36 48 MSE MAE MSE MAE MSE MAE MSE MAE None 0.084 ± 0.0024 0.200 ± 0.0046 0.115 ± 0.0054 0.238 ± 0.0115 0.127 ± 0.0037 0.239 ± 0.0038 0.147 ± 0.0072 0.259 ± 0.0101 wDBA (2017) 0.086 ± 0.0060 0.203 ± 0.0092 0.120 ± 0.0043 0.230 ± 0.0014 0.135 ± 0.0070 0.265 ± 0.0106 0.158 ± 0.0013 0.289 ± 0.0024 MBB (2021) 0.075 ± 0.0005 0.183 ± 0.0008 0.107 ± 0.0017 0.221 ± 0.0025 0.140 ± 0.0013 0.259 ± 0.0051 0.151 ± 0.0013 0.262 ± 0.0015 RobustTAD-m/p (2021) 0.090 ± 0.0016 0.206 ± 0.0041 0.118 ± 0.0041 0.240 ± 0.0062 0.128 ± 0.0065 0.247 ± 0.0089 0.145 ± 0.0036 0.257 ± 0.0020 FreqAdd (2022b) 0.088 ± 0.0041 0.205 ± 0.0082 0.119 ± 0.0063 0.244 ± 0.0110 0.135 ± 0.0032 0.253 ± 0.0047 0.149 ± 0.0047 0.261 ± 0.0036 FreqPool (2023c) 0.078 ± 0.0009 0.190 ± 0.0022 0.106 ± 0.0053 0.227 ± 0.0103 0.120 ± 0.0027 0.237 ± 0.0036 0.145 ± 0.0032 0.265 ± 0.0067 Upsample (2023) 0.080 ± 0.0024 0.195 ± 0.0051 0.110 ± 0.0066 0.235 ± 0.0115 0.119 ± 0.0054 0.236 ± 0.0069 0.140 ± 0.0061 0.256 ± 0.0079 STAug (2023) 0.076 ± 0.0014 0.185 ± 0.0032 0.102 ± 0.0015 0.214 ± 0.0017 0.125 ± 0.0027 0.238 ± 0.0038 0.147 ± 0.0029 0.260 ± 0.0051 Freq-Mask/Mix (2023a) 0.084 ± 0.0030 0.198 ± 0.0058 0.123 ± 0.0067 0.253 ± 0.0142 0.134 ± 0.0077 0.251 ± 0.0090 0.153 ± 0.0082 0.268 ± 0.0114 Wave-Mask/Mix (2024) 0.085 ± 0.0080 0.196 ± 0.0079 0.106 ± 0.0029 0.221 ± 0.0044 0.122 ± 0.0064 0.235 ± 0.0064 0.145 ± 0.0061 0.258 ± 0.0070 Dominant Shuffle (2024) 0.087 ± 0.0009 0.199 ± 0.0039 0.111 ± 0.0034 0.235 ± 0.0062 0.122 ± 0.0021 0.238 ± 0.0032 0.139 ± 0.0044 0.253 ± 0.0061 
+
+TPS (Ours) 0.076 ± 0.0024 0.181 ± 0.0019 0.094 ± 0.0017 0.207 ± 0.0029 0.114 ± 0.0023 0.230 ± 0.0039 0.133 ± 0.0056 0.245 ± 0.0105 PeMS04 
+
+None 0.094 ± 0.0007 0.207 ± 0.0008 0.121 ± 0.0013 0.238 ± 0.0021 0.155 ± 0.0070 0.272 ± 0.0101 0.171 ± 0.0089 0.280 ± 0.0067 wDBA 0.093 ± 0.0019 0.205 ± 0.0044 0.125 ± 0.0015 0.241 ± 0.0022 0.150 ± 0.0033 0.259 ± 0.0036 0.169 ± 0.0018 0.277 ± 0.0049 MBB 0.095 ± 0.0001 0.210 ± 0.0014 0.133 ± 0.0081 0.253 ± 0.0116 0.153 ± 0.0057 0.271 ± 0.0091 0.176 ± 0.0045 0.285 ± 0.0056 RobustTAD-m/p 0.095 ± 0.0017 0.209 ± 0.0027 0.125 ± 0.0054 0.241 ± 0.0068 0.147 ± 0.0017 0.263 ± 0.0047 0.168 ± 0.0030 0.281 ± 0.0047 FreqAdd 0.098 ± 0.0047 0.213 ± 0.0068 0.128 ± 0.0036 0.244 ± 0.0037 0.155 ± 0.0034 0.268 ± 0.0072 0.175 ± 0.0042 0.284 ± 0.0062 FreqPool 0.093 ± 0.0015 0.204 ± 0.0013 0.119 ± 0.0014 0.235 ± 0.0032 0.142 ± 0.0037 0.260 ± 0.0056 0.157 ± 0.0036 0.271 ± 0.0031 
+
+Upsample 0.096 ± 0.0020 0.210 ± 0.0044 0.127 ± 0.0013 0.247 ± 0.0028 0.149 ± 0.0039 0.272 ± 0.0083 0.171 ± 0.0065 0.285 ± 0.0055 STAug 0.093 ± 0.0012 0.204 ± 0.0024 0.122 ± 0.0026 0.238 ± 0.0044 0.148 ± 0.0031 0.262 ± 0.0050 0.178 ± 0.0043 0.290 ± 0.0036 Freq-Mask/Mix 0.101 ± 0.0005 0.218 ± 0.0018 0.133 ± 0.0042 0.246 ± 0.0043 0.158 ± 0.0071 0.272 ± 0.0070 0.178 ± 0.0084 0.292 ± 0.0077 Wave-Mask/Mix 0.092 ± 0.0008 0.205 ± 0.0014 0.119 ± 0.0036 0.235 ± 0.0038 0.147 ± 0.0023 0.259 ± 0.0026 0.172 ± 0.0048 0.285 ± 0.0051 Dominant Shuffle 0.097 ± 0.0015 0.213 ± 0.0034 0.123 ± 0.0026 0.240 ± 0.0017 0.148 ± 0.0056 0.267 ± 0.0066 0.169 ± 0.0018 0.287 ± 0.0041 
+
+TPS (Ours) 0.091 ± 0.0012 0.202 ± 0.0018 0.112 ± 0.0023 0.227 ± 0.0029 0.133 ± 0.0039 0.250 ± 0.0046 0.163 ± 0.0063 0.274 ± 0.0068 
+
+> PeMS07
+
+None 0.073 ± 0.0011 0.188 ± 0.0034 0.101 ± 0.0061 0.222 ± 0.0100 0.129 ± 0.0050 0.252 ± 0.0115 0.164 ± 0.0059 0.300 ± 0.0081 wDBA 0.075 ± 0.0022 0.190 ± 0.0042 0.100 ± 0.0007 0.224 ± 0.0053 0.120 ± 0.0120 0.245 ± 0.0168 0.142 ± 0.0050 0.273 ± 0.0038 MBB 0.078 ± 0.0010 0.201 ± 0.0030 0.107 ± 0.0010 0.236 ± 0.0022 0.143 ± 0.0062 0.284 ± 0.0051 0.172 ± 0.0042 0.310 ± 0.0048 RobustTAD-m/p 0.076 ± 0.0020 0.190 ± 0.0044 0.103 ± 0.0036 0.231 ± 0.0076 0.120 ± 0.0027 0.246 ± 0.0043 0.146 ± 0.0069 0.274 ± 0.0117 FreqAdd 0.076 ± 0.0018 0.194 ± 0.0044 0.106 ± 0.0033 0.238 ± 0.0078 0.136 ± 0.0100 0.273 ± 0.0153 0.154 ± 0.0118 0.290 ± 0.0179 FreqPool 0.076 ± 0.0095 0.187 ± 0.0116 0.095 ± 0.0040 0.219 ± 0.0093 0.124 ± 0.0164 0.253 ± 0.0273 0.137 ± 0.0099 0.268 ± 0.0161 Upsample 0.078 ± 0.0060 0.193 ± 0.0100 0.104 ± 0.0043 0.228 ± 0.0079 0.121 ± 0.0076 0.248 ± 0.0124 0.134 ± 0.0063 0.263 ± 0.0099 STAug 0.071 ± 0.0020 0.181 ± 0.0060 0.114 ± 0.0054 0.218 ± 0.0045 0.129 ± 0.0082 0.255 ± 0.0075 0.159 ± 0.0054 0.285 ± 0.0076 Freq-Mask/Mix 0.079 ± 0.0037 0.194 ± 0.0060 0.110 ± 0.0074 0.239 ± 0.0130 0.126 ± 0.0047 0.249 ± 0.0051 0.137 ± 0.0075 0.258 ± 0.0093 Wave-Mask/Mix 0.074 ± 0.0053 0.190 ± 0.0128 0.096 ± 0.0025 0.221 ± 0.0040 0.118 ± 0.0037 0.248 ± 0.0068 0.130 ± 0.0022 0.254 ± 0.0032 
+
+Dominant Shuffle 0.078 ± 0.0031 0.195 ± 0.0080 0.100 ± 0.0063 0.222 ± 0.0113 0.118 ± 0.0076 0.244 ± 0.0124 0.139 ± 0.0095 0.264 ± 0.0156 
+
+TPS (Ours) 0.070 ± 0.0023 0.179 ± 0.0038 0.090 ± 0.0030 0.207 ± 0.0045 0.118 ± 0.0113 0.244 ± 0.0203 0.143 ± 0.0075 0.270 ± 0.0120 
+
+> PeMS08
+
+None 0.099 ± 0.0056 0.206 ± 0.0080 0.143 ± 0.0034 0.243 ± 0.0061 0.186 ± 0.0050 0.285 ± 0.0117 0.206 ± 0.0140 0.302 ± 0.0123 wDBA 0.102 ± 0.0069 0.210 ± 0.0128 0.146 ± 0.0045 0.239 ± 0.0053 0.200 ± 0.0035 0.282 ± 0.0198 0.232 ± 0.0124 0.316 ± 0.0175 MBB 0.095 ± 0.0006 0.203 ± 0.0012 0.149 ± 0.0044 0.245 ± 0.0092 0.188 ± 0.0031 0.269 ± 0.0015 0.244 ± 0.0074 0.324 ± 0.0161 RobustTAD-m/p 0.101 ± 0.0088 0.210 ± 0.0099 0.145 ± 0.0036 0.242 ± 0.0035 0.182 ± 0.0052 0.276 ± 0.0124 0.208 ± 0.0155 0.308 ± 0.0128 FreqAdd 0.103 ± 0.0058 0.217 ± 0.0082 0.151 ± 0.0069 0.255 ± 0.0089 0.185 ± 0.0072 0.296 ± 0.0076 0.206 ± 0.0100 0.304 ± 0.0108 FreqPool 0.097 ± 0.0031 0.203 ± 0.0044 0.128 ± 0.0093 0.238 ± 0.0096 0.161 ± 0.0028 0.270 ± 0.0130 0.187 ± 0.0076 0.296 ± 0.0096 Upsample 0.093 ± 0.0039 0.205 ± 0.0053 0.129 ± 0.0036 0.240 ± 0.0034 0.160 ± 0.0110 0.267 ± 0.0119 0.181 ± 0.0084 0.279 ± 0.0093 
+
+STAug 0.094 ± 0.0050 0.205 ± 0.0089 0.131 ± 0.0042 0.236 ± 0.0051 0.167 ± 0.0070 0.268 ± 0.0114 0.206 ± 0.0077 0.295 ± 0.0093 Freq-Mask/Mix 0.101 ± 0.0014 0.206 ± 0.0022 0.150 ± 0.0051 0.252 ± 0.0050 0.194 ± 0.0102 0.302 ± 0.0139 0.221 ± 0.0112 0.304 ± 0.0187 Wave-Mask/Mix 0.092 ± 0.0024 0.202 ± 0.0046 0.130 ± 0.0077 0.248 ± 0.0089 0.167 ± 0.0149 0.276 ± 0.0156 0.206 ± 0.0272 0.306 ± 0.0310 Dominant Shuffle 0.096 ± 0.0031 0.205 ± 0.0041 0.141 ± 0.0072 0.244 ± 0.0074 0.178 ± 0.0088 0.280 ± 0.0091 0.210 ± 0.0043 0.293 ± 0.0052 
+
+TPS (Ours) 0.089 ± 0.0022 0.197 ± 0.0036 0.113 ± 0.0033 0.223 ± 0.0073 0.139 ± 0.0047 0.246 ± 0.0050 0.198 ± 0.0104 0.295 ± 0.0097 
+
+Table 10. Component-wise ablation results of TPS on ETT-{h1,h2,m1,m2 } using DLinear. Values are reported as mean ± std MSE/MAE over five runs, averaged across prediction lengths {96, 192, 336, 720 }. Best results are highlighted in red bold , and second-best results are shown in blue underline. 
+
+Methods ETTh1 ETTh2 ETTm1 ETTm2 
+
+MSE MAE MSE MAE MSE MAE MSE MAE None 0.438 ± 0.0194 0.449 ± 0.0162 0.464 ± 0.0099 0.462 ± 0.0053 0.361 ± 0.0010 0.383 ± 0.0015 0.276 ± 0.0099 0.339 ± 0.0093 
+
+TPS 0.410 ± 0.0036 0.425 ± 0.0031 0.369 ± 0.0056 0.408 ± 0.0039 0.354 ± 0.0006 0.377 ± 0.0006 0.261 ± 0.0018 0.324 ± 0.0027 
+
+- Variance Score 0.417 ± 0.0166 0.430 ± 0.0129 0.370 ± 0.0066 0.409 ± 0.0048 0.355 ± 0.0006 0.377 ± 0.0005 0.261 ± 0.0024 0.324 ± 0.0033 
+
+- Temporal Patching 0.416 ± 0.0083 0.430 ± 0.0040 0.379 ± 0.0092 0.424 ± 0.0057 0.376 ± 0.0018 0.397 ± 0.0009 0.267 ± 0.0031 0.332 ± 0.0039 - Data–Label Coherence 0.443 ± 0.0158 0.451 ± 0.0144 0.438 ± 0.0146 0.447 ± 0.0074 0.364 ± 0.0018 0.386 ± 0.0022 0.290 ± 0.0122 0.352 ± 0.0103 + Frequency Domain 0.437 ± 0.0096 0.448 ± 0.0077 0.470 ± 0.0267 0.464 ± 0.0132 0.363 ± 0.0011 0.384 ± 0.0016 0.285 ± 0.0082 0.345 ± 0.0065 
+
+22 Temporal Patch Shuffle for Time Series Forecasting 
+
+Table 11. Distribution-shift comparison across augmentation methods on ETTh2 (DLinear, prediction length 336). KS and Wasserstein are computed per channel on flattened (B, T ) samples and averaged across channels; DTW is computed per sample and channel and then averaged. Lower values indicate closer alignment between original and augmented data. Best results are highlighted in red bold .
+
+Method Avg. KS Stat ↓ Avg. Wasserstein ↓ Avg. DTW ↓
+
+Upsample (2023) 0.0202 0.0177 8.73 FreqAdd (2022b) 0.1019 0.1475 8.55 FreqPool (2023c) 0.3366 0.3839 14.72 FreqMask (2023a) 0.0793 0.0523 4.91 FreqMix (2023a) 0.0756 0.0855 7.12 Dominant Shuffle (2024) 0.0688 0.0550 6.02 
+
+TPS (32, 5, 1) 0.0848 0.0097 1.46 
+
+Table 12. Probabilistic forecasting results (DLinear) on ETT datasets, averaged over prediction lengths {96 , 192 , 336 , 720 } and 5 seeds. Metrics: Pinball loss ( ↓), CRPS ( ↓), PI-80% Coverage (nominal 0.80), and PI-80% Width ( ↓). Best results are highlighted in red bold ,and second-best in blue underline. 
+
+ETTh1 ETTh2 Method Pinball CRPS Cov-80% Wid-80% Pinball CRPS Cov-80% Wid-80% None 0.1752 0.3504 0.8278 1.3893 0.1764 0.3527 0.7905 1.3560 Upsample (2023) 0.1778 0.3555 0.8230 1.4152 0.1693 0.3387 0.7571 1.1593 FreqMask (2023a) 0.1788 0.3575 0.8655 1.6418 0.1718 0.3436 0.7819 1.2848 FreqAdd (2022b) 0.1785 0.3570 0.8740 1.6811 0.1827 0.3654 0.8521 1.7097 FreqMix (2023a) 0.1774 0.3546 0.8420 1.4729 0.1743 0.3486 0.8216 1.4943 Dominant Shuffle (2024) 0.1753 0.3505 0.8419 1.4582 0.1723 0.3446 0.8004 1.3726 TPS (Ours) 0.1727 0.3454 0.7923 1.2315 0.1636 0.3273 0.7391 1.0239 ETTm1 ETTm2 Method Pinball CRPS Cov-80% Wid-80% Pinball CRPS Cov-80% Wid-80% None 0.1556 0.3112 0.8237 1.1709 0.1341 0.2681 0.8161 1.0735 Upsample 0.1648 0.3296 0.8017 1.1829 0.1345 0.2690 0.7716 0.9179 FreqMask 0.1560 0.3119 0.8120 1.1323 0.1340 0.2680 0.8037 1.0160 FreqAdd 0.1589 0.3178 0.8639 1.3929 0.1406 0.2812 0.8844 1.4778 FreqMix 0.1572 0.3144 0.8419 1.2664 0.1352 0.2705 0.8255 1.1288 Dom. Shuffle 0.1570 0.3140 0.8358 1.2382 0.1346 0.2693 0.8294 1.1331 TPS (Ours) 0.1547 0.3094 0.7857 1.0325 0.1333 0.2666 0.7515 0.8351 
+
+Table 13. Training-time comparison of augmentation methods using TSMixer on ETTh2 with a prediction length of 720. Aug. Time 
+
+denotes the average time (ms) required to generate augmented samples, Epoch Time reports the mean training time per epoch (s), and 
+
+Overhead measures the percentage increase relative to the baseline (None). 
+
+Method Aug. Time (ms) Epoch Time (s) Overhead (%) 
+
+None 0.000 2.298 0.00 FreqPool (2023c) 1.023 2.611 13.63 FreqMask (2023a) 1.097 2.633 14.59 FreqAdd (2022b) 1.151 2.635 14.67 RobustTAD-m (2021) 1.603 2.690 17.08 FreqMix (2023a) 1.573 2.720 18.36 RobustTAD-p (2021) 1.659 2.762 20.19 WaveMix (2024) 2.287 2.864 24.64 Upsample (2024) 2.486 2.944 28.14 WaveMask (2024) 3.809 3.145 36.86 
+
+TPS (Ours) 7.688 4.094 78.15 Dominant Shuffle (2024) 22.908 7.698 235.02 
+
+23 Temporal Patch Shuffle for Time Series Forecasting 
+
+Table 14. Summary of selected UCR univariate time series classification datasets used in our experiments. The table includes dataset category, name, training and test sizes, input sequence lengths, and numbers of classes (Dau et al., 2018). 
+
+Type Dataset Train Test Length Classes Device ACSF1 100 100 1460 10 HouseTwenty 34 101 3000 2ScreenType 375 375 720 3
+
+ECG ECG5000 500 4500 140 5ECG200 100 100 96 2ECGFiveDays 23 861 136 2
+
+Image Adiac 390 391 176 37 FaceFour 24 88 350 4FaceAll 560 1690 131 14 HandOutlines 1000 370 2709 2MiddlePhalanxTW 399 154 80 6PhalangesOutlinesCorrect 1800 858 80 2ShapesAll 600 600 512 60 
+
+Motion Haptics 155 308 1092 5WormsTwoClass 181 77 900 2InlineSkate 100 550 1882 7
+
+Sensor Car 60 60 577 4Earthquakes 322 139 512 2FordA 3601 1320 500 2FordB 3636 810 500 2ItalyPowerDemand 67 1029 24 2Lightning2 60 61 637 2StarLightCurves 1000 8236 1024 3
+
+Spectro Beef 30 30 470 5EthanolLevel 504 500 1751 4Wine 57 54 234 2Meat 60 60 448 3OliveOil 30 30 570 4
+
+Simulated/Audio ChlorineConcentration 467 3840 166 3Phoneme 214 1896 1024 39 
+
+Table 15. Summary of selected UEA multivariate time series classification datasets used in our experiments. The table includes training and test sizes, input dimensionality, sequence length, and number of classes (Bagnall et al., 2018). 
+
+Dataset Train Test Dim. Length Classes 
+
+AtrialFibrillation 15 15 2 640 3Cricket 108 72 6 1197 12 DuckDuckGeese 60 40 1345 270 5ERing 30 30 4 65 6EthanolConcentration 261 263 3 1751 4LSST 2459 2466 6 36 14 Libras 180 180 2 45 15 FaceDetection 5890 3524 144 62 2FingerMovements 316 100 28 50 2MotorImagery 278 100 64 3000 2
+
+24 Temporal Patch Shuffle for Time Series Forecasting 
+
+Table 16. Accuracy of MiniRocket and MultiRocket under different augmentation methods for univariate and multivariate time series classification, respectively. For each dataset, results are first averaged over five runs. We then report the mean ± standard deviation across 30 UCR datasets for the univariate setting and 10 UEA datasets for the multivariate setting. Best results are highlighted in red bold , and second-best results are shown in blue underline. 
+
+Method Univariate Accuracy Multivariate Accuracy 
+
+None 0.797 ± 0.0099 0.601 ± 0.0252 Window Warping (2016) 0.791 ± 0.0309 0.636 ± 0.0203 Window Slicing (2016) 0.800 ± 0.0125 0.631 ± 0.0310 Jittering (2017) 0.786 ± 0.0140 0.631 ± 0.0258 Scaling (2017) 0.793 ± 0.0133 0.608 ± 0.0232 Permutation (2017; 2020) 0.796 ± 0.0164 0.603 ± 0.0228 Rand. Permutation (2017; 2020) 0.789 ± 0.0144 0.619 ± 0.0181 Time Warping (2017; 2019) 0.756 ± 0.0314 0.616 ± 0.0218 Mag. Warping (2021) 0.787 ± 0.0287 0.612 ± 0.0294 Rotation (2021) 0.793 ± 0.0153 0.607 ± 0.0363 wDBA (2017) 0.796 ± 0.0120 0.617 ± 0.0256 RGW (2017) 0.790 ± 0.0130 0.631 ± 0.0241 DGW (2017) 0.787 ± 0.0150 0.623 ± 0.0174 SPAWNER (2020) 0.785 ± 0.0122 0.630 ± 0.0258 RGWs (2020) 0.799 ± 0.0128 0.633 ± 0.0192 DGWs (2020) 0.797 ± 0.0132 0.621 ± 0.0285 
+
+TPS (Ours) 0.804 ± 0.0098 0.643 ± 0.0253 Improvement 0.50% 1.10% #Rank 1 (%) 30.00 20.00 
+
+#Rank 2 (%) 20.00 40.00 
+
+Table 17. CycleNet forecasting performance on ETTh1 (MSE ± std) for prediction lengths {96, 192, 336, 720 }. For each prediction length, mean ± standard deviation is computed over five runs. Best results are highlighted in red bold , and second-best results are shown in blue underline. 
+
+Method 96 192 336 720 AVG 
+
+None 0.368 ± 0.0022 0.407 ± 0.0038 0.406 ± 0.0030 0.446 ± 0.0027 0.407 ± 0.0026 RobustTAD-m/p (2021) 0.368 ± 0.0026 0.403 ± 0.0031 0.400 ± 0.0011 0.444 ± 0.0025 0.404 ± 0.0020 FreqAdd (2022b) 0.368 ± 0.0050 0.406 ± 0.0049 0.400 ± 0.0025 0.441 ± 0.0066 0.404 ± 0.0040 FreqPool (2023c) 0.402 ± 0.0012 0.413 ± 0.0021 0.408 ± 0.0005 0.447 ± 0.0024 0.418 ± 0.0009 Upsample (2023) 0.377 ± 0.0007 0.412 ± 0.0030 0.402 ± 0.0021 0.437 ± 0.0038 0.407 ± 0.0016 Freq-Mask/Mix (2023a) 0.366 ± 0.0008 0.404 ± 0.0043 0.404 ± 0.0009 0.448 ± 0.0024 0.406 ± 0.0009 Dominant Shuffle (2024) 0.364 ± 0.0031 0.401 ± 0.0012 0.400 ± 0.0022 0.441 ± 0.0016 0.402 ± 0.0027 
+
+TPS (Ours) 0.368 ± 0.0006 0.399 ± 0.0029 0.387 ± 0.0041 0.424 ± 0.0019 0.395 ± 0.0029 Improvement –1.10% 0.50% 3.25% 2.97% 1.74% 
+
+25

@@ -1,0 +1,1882 @@
+Title: Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting
+
+URL Source: https://arxiv.org/pdf/2604.07610v1
+
+Published Time: Fri, 10 Apr 2026 00:26:44 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+Yumeng Zhao 1 2 Shengxiang Yang 2 Xianpeng Wang 3
+
+# Abstract 
+
+Industrial forecasting often involves multi-source asynchronous signals and multi-output targets, while deployment requires explicit trade-offs be-tween prediction error and model complexity. Current practices typically fix alignment strate-gies or network designs, making it difficult to systematically co-design preprocessing, archi-tecture, and hyperparameters in budget-limited training-based evaluations. To address this is-sue, we propose an auto-configuration framework that outputs a deployable Pareto set of forecast-ing models balancing error and complexity. At the model level, a Multi-Scale Bi-Branch Con-volutional Neural Network (MS–BCNN) is de-veloped, where short- and long-kernel branches capture local fluctuations and long-term trends, respectively, for multi-output regression. At the search level, we unify alignment operators, ar-chitectural choices, and training hyperparameters into a hierarchical-conditional mixed configura-tion space, and apply Player-based Hybrid Multi-Objective Evolutionary Algorithm (PHMOEA) to approximate the error–complexity Pareto frontier within a limited computational budget. Experi-ments on hierarchical synthetic benchmarks and a real-world sintering dataset demonstrate that our framework outperforms competitive baselines under the same budget and offers flexible deploy-ment choices. 
+
+> 1
+
+National Frontiers Science Center for Industrial Intelligence and Systems Optimization, Northeastern University, Shenyang, China 2Innovative Artificial Intelligence Cluster, Digital Future Institute, De Montfort University, Leicester, U.K. 3Key Laboratory of Data Analytics and Optimization for Smart Industry (Northeast-ern University), Ministry of Education, Shenyang, China. Corre-spondence to: Shengxiang Yang <syang@dmu.ac.uk >, Xianpeng Wang <wangxianpeng@ise.neu.edu.cn >.
+
+Preprint. April 10, 2026. 
+
+# 1. Introduction 
+
+Multivariate time-series forecasting has been widely adopted in many domains, including industry, energy, weather, and finance, for state monitoring and trend pre-diction, and continues to benefit from advances in deep tem-poral modeling (Wu et al., 2024). In industrial processes, predicting quality variables that are difficult to measure online from process variables is a key approach for pro-cess monitoring and quality prediction (Shardt et al., 2023). Existing deep forecasting methods span a broad range of architectures, including CNNs, RNNs, and Transformers, yet multi-source heterogeneity, multi-scale variations, and multi-output targets in real-world settings remain persistent challenges (Lim & Zohren, 2021). For instance, in indus-trial settings, different sensors are often sampled at different rates, which makes mapping them onto a unified temporal resolution an unavoidable step before modeling in practical systems (Kong et al., 2025). To tackle this, a common engineering practice is to adopt a fixed strategy to align multi-scale signals onto a unified time grid, and then apply standard models for learning and pre-diction (Huang et al., 2021). However, different alignment strategies differ in how they preserve high-frequency fluc-tuations, suppress noise, and handle missingness, and their performance depends strongly on sampling sparsity, noise level, and cross-scale coupling, making it difficult to reli-ably select the most suitable preprocessing scheme across datasets or operating conditions based on manual experience alone (Liu et al., 2025). Moreover, when jointly considering multi-scale representation structures, training hyperparam-eters, and deployment constraints, preprocessing choices interact with network structure and training, leading to a surge of candidate configurations whose training-based eval-uations are costly (Lu et al., 2025). From an optimiza-tion perspective, this amounts to a budgeted multi-objective black-box optimization problem with mixed variables and feasibility constraints, where only a few evaluations are affordable to approach favorable error–complexity trade-offs. Consequently, the goal of auto-configuration should go beyond tuning within a fixed network, and instead sys-tematically select combinations of preprocessing–structure– hyperparameters in a unified search space, while providing 1
+
+> arXiv:2604.07610v1 [cs.LG] 8 Apr 2026 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting
+
+diverse error–complexity trade-offs in the form of a Pareto model set to meet heterogeneous deployment needs. However, mainstream automated machine learning settings are mostly developed around standardized search spaces and generic tasks (He et al., 2021), whereas industrial multi-scale forecasting often also involves preprocessing operators such as resampling or aggregation, making these paradigms difficult to adopt directly. Meanwhile, evaluating each candi-date configuration typically requires an almost full training and validation run, leaving a strictly limited computational budget and thereby calling for auto-configuration methods that can find high-quality error–complexity trade-offs with fewer evaluations. Therefore, we focus on a multi-scale multi-output forecasting problem distilled from real-world sintering quality prediction, and proposes a multi-objective auto-configuration framework that aims to output a deploy-able Pareto model set under a limited computational budget. This problem remains largely underexplored in the literature due to the following challenges: • In mixed spaces with discrete and continuous variables and hierarchical conditional dependencies, it remains challenging to build a comparable unified encoding and feasibility-preserving variation mechanisms; more-over, the absence of standardized benchmarks makes reproducible evaluation harder. • Single-branch modeling often fails to capture short-term perturbations and long-term trends jointly, and weak input–output correlations in industrial data fur-ther hinder multi-output representation learning. • It is also challenging to stably output a competitive error–complexity Pareto model set with fewer evalu-ations while avoiding search degeneration and local optima under a limited computational budget. We propose an auto-configured forecasting framework that searches a configurable multi-scale forecasting network space via multi-objective evolutionary search to obtain an error–complexity Pareto model set. Specifically, MS– BCNN uses two convolutional branches with short and long kernels to model local fluctuations and long-term trends for multi-output regression, and we unify preprocessing opera-tors, architectural hyperparameters, branch fusion strategies, and training hyperparameters into a mixed configuration space with conditional constraints. Finally, under a lim-ited computational budget, we apply PHMOEA to stably approximate the error–complexity Pareto frontier, and vali-date the resulting Pareto model set on hierarchical synthetic benchmarks and real sintering data. The main contributions of our work are summarized as follows: • We distill an industrial forecasting task with multi-scale inputs and multi-output targets from real-world sintering quality prediction, and formalize it as a bud-geted multi-objective auto-configuration problem with a deployment-oriented Pareto model set as output. • We propose an auto-configuration framework that uni-fies MS–BCNN’s multi-scale representations with PH-MOEA’s budgeted multi-objective search in a single pipeline; extensive experiments on hierarchical syn-thetic benchmarks and real sintering data demonstrate its advantages under a limited computational budget. • To reproducibly evaluate search behaviors in hierar-chical mixed decision spaces, we construct hierarchi-cal synthetic benchmark problems to systematically examine hierarchical conditional encoding and multi-objective search. 
+
+# 2. Related Work 
+
+Recent advances in multivariate time-series forecasting often combine decomposition modeling with efficient at-tention or Transformers to capture long-term trends and cross-series dependencies for more stable and accurate long-horizon prediction (Zhou et al., 2022). Another common strategy splits long sequences into fixed-length temporal segments and models segments as units, reducing compu-tation while strengthening the representation of local pat-terns (Nie et al., 2023). However, most studies still report a single operating point under fixed preprocessing and fixed architectures, and they rarely expose a deployable set of trade-offs between forecasting error and model complexity. Multi-source asynchronous data can be viewed as irregu-lar multivariate time series, where variables are sampled at different rates and their timestamps are often not aligned, which complicates modeling both temporal relationships and cross-variable dependencies (Ansari et al., 2023; Zhang et al., 2024; Li et al., 2025). To handle such irregularity, a class of continuous-time models advances computation us-ing the actual time gaps and updates internal representations when new data arrive, avoiding the need to interpolate or pad data onto a fixed time grid (Ansari et al., 2023). When timestamps are misaligned across variables, recent methods further use graph- or hypergraph-based message passing to learn asynchronous correlations, reducing reliance on strict alignment and padding (Zhang et al., 2024; Li et al., 2025). For auto-configuration, hyperparameter optimization and architecture search often require repeatedly training and evaluating candidate configurations, which is expensive, calling for efficient budget-aware search and explicit model-ing of multi-objective trade-offs (Rakotoarison et al., 2024; Lu et al., 2024). Recent work develops multi-objective op-timization strategies, including multi-objective Bayesian 2Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+optimization and scalarization, to better approximate Pareto frontiers and characterize trade-offs among objectives (Park et al., 2024; Lin et al., 2024). In addition, freeze–thaw style approaches improve search efficiency under expensive evaluations by allocating training resources progressively, offering useful resource-allocation principles for budget-constrained configuration search (Rakotoarison et al., 2024). Building on these lines, we unify alignment and resampling, a multi-scale backbone, and training choices into a hierarchi-cal conditional configuration space and conduct budgeted multi-objective evolutionary search to output a deployment-oriented Pareto model set that explicitly presents the error– complexity trade-off. 
+
+# 3. Industrial Background and Problem Formulation 
+
+Sintering is a key upstream step in ironmaking that con-verts blended fines into sinter for downstream use, and its coupled heat transfer, combustion, and gas–solid flow lead to strongly nonlinear and multi-scale dynamics (Xue & Yi, 2024; Olevsky et al., 2006). In practice, sensors are sam-pled asynchronously at multiple rates, while terminal quality is obtained from low-frequency and delayed assays, moti-vating data-driven forecasting for monitoring and control. Grounded in this industrial task, we distill a general problem of auto-configuring networks for multi-scale multi-output forecasting on multi-source asynchronous time series. We denote the multi-source input as a collection of time series sampled at different rates: 
+
+X = X(1) , X(2) , . . . , X(S), (1) where S is the number of sources and X(s) ∈ RTs×ds
+
+denotes the raw sequence of source s with length Ts and channel dimension ds. We map each source to a fixed length 
+
+Lp and concatenate channels to obtain ˜X ∈ RLp×D with 
+
+D = PSs=1 ds. Let y ∈ RK denote the K-dimensional target vector for the sample, where K is the number of target variables to be predicted jointly. Given ˜X, a model 
+
+M(·; x) specified by configuration x outputs: 
+
+ˆy(x) = M( ˜X; x) ∈ RK . (2) Furthermore, the configuration process exhibits conditional activation: parameters become feasible only when their associated operators are selected. This induces a hierar-chical mixed search space X , whose formal definition is given in Appendix A.1. Meanwhile, reducing forecasting error in real deployments often increases model complexity and inference cost, while lightweight models reduce cost but may sacrifice accuracy, so the objectives conflict and form a canonical multi-objective trade-off. Accordingly, we formalize auto-configuration as a bi-objective optimization problem over a hierarchical conditional mixed space: 
+
+min  
+
+> x∈X
+
+F (x) =  f1(x), f 2(x). (3) Here, f1(x) is the validation mean squared error (MSE) and 
+
+f2(x) is the number of trainable parameters. 
+
+f1(x) = MSE( x) = 1
+
+ND K
+
+> ND
+
+X
+
+> n=1
+
+∥yn − ˆyn(x)∥22 , (4) 
+
+f2(x) = P (x) = X
+
+> θ∈Θ( x)
+
+numel( θ). (5) Here, ND is the number of validation samples and Θ( x)
+
+is the set of trainable parameter tensors decoded from 
+
+x; numel( θ) is the number of scalar entries in θ (Ap-pendix A.2). We apply per-generation normalization only for search and it does not change Pareto dominance (Ap-pendix A.3). 
+
+# 4. Method 
+
+4.1. Framework Overview 
+
+As shown in Fig. 1, we unify candidate proposal, evaluator-based evaluation, election and update into a closed loop for auto-configuring multi-scale multi-output time-series forecasting models. Given a training dataset D, PHMOEA iteratively proposes candidate configurations x in a hierar-chical conditional mixed space; x jointly specifies prepro-cessing, the MS–BCNN architecture, and training hyper-parameters. The evaluator decodes x into an executable pipeline and performs one train–validate run, returning the bi-objective value F (x) = ( f1(x), f 2(x)) for selection and update, thereby approaching the error–complexity Pareto front. Under the joint constraints of a maximum number of generations and early stopping, the loop outputs a deploy-able Pareto set of models. 
+
+4.2. Configurable MS–BCNN 
+
+This subsection introduces MS–BCNN, a configurable multi-scale convolutional forecasting backbone searched and evaluated by PHMOEA offline. On the input side, we resample and align the raw sequence of each data source to a unified length Lp using a config-urable alignment operator, so that subsequent convolutions operate on a consistent time index. The alignment operator and its parameters are included in the configuration space as discrete choices. Beyond process signals, we concatenate standard sine–cosine periodic embeddings with the input features to encode sample-level time information. We con-catenate the aligned sequences from all sources along the feature dimension to form ˜X, and apply a per-timestep lin-ear projection to map channels to C0 before feeding the result into the convolutional backbone. 3Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting        
+
+> Figure 1. Evaluator-driven auto-configuration framework for multi-scale multi-output time-series forecasting. PHMOEA proposes a configuration x, and the evaluator decodes xto configure preprocessing, MS–BCNN, and training, returning F(x)for selection and iteration. Solid arrows denote data or prediction flows, and dashed arrows denote configuration flows.
+
+In the backbone, each layer uses parallel short-kernel and long-kernel convolutions to capture fast local fluctuations and slow global trends, with configurable kernel sizes, nor-malization, and activations. After multiple bi-branch layers, we fuse the final representations hshort and hlong into h using a configurable fusion operator: 
+
+h = Fuse conv 
+
+ hshort , h long  . (6) Finally, we flatten h into a feature vector f and use a lightweight prediction head to output a K-dimensional pre-diction vector. In a single configuration space, we jointly search input alignment, architectural options such as ker-nel sizes, normalization, and activations, as well as train-ing hyperparameters including the loss function and the learning-rate schedule. To control the space size, we fix the number of layers and the stacking order, and provide full specifications and instantiation details in Appendix A.4. 
+
+4.3. Hierarchical Conditional Configuration Space Hierarchy and conditional dependencies. 
+
+We organize configuration variables by levels L, and denote level-ℓ variables by x(ℓ). A conditional variable becomes ac-tive only when its parent discrete choice is selected; we for-malize this with a binary activity indicator a(ℓ) 
+
+> j
+
+(x) ∈ { 0, 1}.During decoding, we mask all variables with a(ℓ) 
+
+> j
+
+(x) = 0 so that every decoded configuration is valid. The complete vari-able list and dependency graph are provided in Appendix Table 4. For a unified notation, the i-th individual is repre-sented as a hierarchical decision vector: 
+
+xi =  x(ℓ)
+
+> i,j
+
+
+
+> ℓ∈L , j =1 ,...,n ℓ
+
+, (7) where nℓ is the number of variables at level ℓ, and x(ℓ)
+
+> i,j
+
+encodes a continuous, discrete, or conditional decision. 
+
+Encoding and decoding. 
+
+To apply the same evolutionary operators to discrete, contin-uous, and conditional variables, we adopt a unified discrete index encoding and decode indices back to executable con-figurations. Discrete variables are encoded by candidate indices; each continuous variable is discretized into Kd bins (linear- or log-scale as appropriate) and encoded by the bin index, which is mapped back to a concrete value during de-coding. For conditional variables, decoding activates them only when their parent discrete choices are active; otherwise, they are masked to keep every decoded configuration valid. Implementation details of the discretization and the linear and log mappings are provided in Appendix A.5. 
+
+Hierarchical repair. 
+
+To ensure executability, we perform hierarchical repair around decoding and use Lamarckian write-back (Elsken et al., 2019), where repaired values are written back to the individual representation and inherited in subsequent evolu-tion. For continuous variables that are sensitive to training, we keep an empirically determined safe range and clip out-of-range values to avoid numerical instability or obviously invalid evaluations. For inactive conditional variables, we apply semantic freezing by marking them invalid to skip 4Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+computation; once re-activated, we restore their most recent valid values to preserve genetic continuity. 
+
+Deduplication. 
+
+To reduce duplicate evaluations, we canonicalize each repaired-and-decoded executable configuration and com-pute a hash key (Carter & Wegman, 1979) over its deter-ministic serialization; candidates whose keys have appeared before are rejected before training. We deduplicate at the executable-configuration level, so different genotypes that decode to the same configuration are evaluated only once. If a candidate is infeasible or duplicated, we retry offspring generation up to ntrial attempts; if all attempts fail, we skip this offspring slot to avoid stalling (Appendix A.6). 
+
+Adaptive refinement for continuous variables. 
+
+To enable coarse-to-fine search, we adaptively refine the discretization of each continuous variable by maintaining interval partitions and refining them based on how non-dominated solutions concentrate over intervals. Specifically, we compute the fraction f (ℓ) 
+
+> d,k
+
+of the current generation’s non-dominated solutions falling into the k-th interval; when an interval satisfies f (ℓ) 
+
+> d,k
+
+> δ h for H consecutive genera-tions, we trigger further refinement on that interval. We maintain a cross-generation state S to implement the H-generation persistence and avoid spurious triggers due to stochastic fluctuations; implementation details are provided in Appendix A.7. Representative values follow the same linear and log discretization in Appendix A.5, enabling pro-gressively finer search under the unified encoding. 
+
+4.4. PHMOEA: Framework and Complexity Player scoring standards. 
+
+To convert multi-objective performance into archive-update weights, we design a stage-dependent score Ri, which updates the cross-generation player archives (H, C) and guides stratified offspring sampling. The stage factor is 
+
+ϕt = t/T max , controlling the stage-wise weighting. We further use within-generation normalized objectives ˆfm(xi)
+
+and a normalized crowding measure ˆci (Appendix A.3). We define a rank–diversity score si and an objective-guided score gi, and blend them across stages to obtain Ri:
+
+si = 11 + ri
+
++ λ ˆci,gi = w ˆf1(xi) + (1 − w) ˆf2(xi),Ri =
+
+
+
+si, ϕt < κ 1,αtsi + (1 − αt)gi, κ1 ≤ ϕt < κ 2,gi + γ ˆci, ϕt ≥ κ2,
+
+(8) where ri is the non-dominated rank; 0 ≤ κ1 < κ 2 ≤ 1 are stage-switching thresholds, and αt = ( κ2 − ϕt)/(κ2 − κ1).Here λ, w, γ are hyperparameters; we normalize Ri over the population to obtain weights ωi (with P 
+
+> i
+
+ωi = 1 ) for archive updates. 
+
+Generate offspring with player tracking. 
+
+PHMOEA treats each dimension-wise candidate aj,k ∈ Aj
+
+as a player and maintains two global player-keyed archives: a heat archive H and a count archive C. Given the par-ent population Pt from environmental selection, we update 
+
+(H, C) using the individual weights {ωi} by accumulating 
+
+ωi to the players appearing in xi and incrementing their occurrence counts. For each dimension j, we partition candidates into a hot set Ahot  
+
+> j
+
+(top-q% by heat), a cold set Acold  
+
+> j
+
+(bottom-p%
+
+by count), and a normal set Anorm  
+
+> j
+
+(the remainder), and define the non-hot pool Anh  
+
+> j
+
+= Anorm  
+
+> j
+
+∪ Acold  
+
+> j
+
+. Sampling from Ahot  
+
+> j
+
+is uniform, whereas sampling from Anh  
+
+> j
+
+applies a cold-bonus factor o and renormalizes within the pool: 
+
+P (a | Anh  
+
+> j
+
+) = η(a)
+
+P
+
+> b∈Anh
+> j
+
+η(b) , η(a) = 
+
+(
+
+o, a ∈ Acold  
+
+> j
+
+,
+
+1, a ∈ Anorm  
+
+> j
+
+.
+
+(9) At generation t, we generate N offspring Qt from three sources with stage ratios (ρpar , ρ hot , ρ nh ) determined by ϕt
+
+(same stage split as Eq. 8), where ρpar + ρhot + ρnh = 1 .We create Npar = ⌊ρpar N ⌋ parent-operator offspring, 
+
+Nhot = ⌊ρhot N ⌋ Hot-type offspring, and set Nnh =
+
+N − Npar − Nhot for NonHot-type offspring. The parent-operator offspring are produced from Pt via SBX crossover and polynomial mutation, while Hot-type and NonHot-type offspring are assembled by sampling one candidate per di-mension from {Ahot  
+
+> j
+
+} or {Anh  
+
+> j
+
+}, respectively. For assem-bled offspring, we apply variable-wise cross-pool mutation: each dimension is mutated with probability e (up to mmax 
+
+mutated dimensions per individual) by resampling from the opposite pool A¯sj (with ¯s opposite to the assembling pool), followed by hierarchical repair and deduplication (Sec. 4.3) to ensure feasibility and uniqueness. Finally, we perform environmental selection on Pt ∪ Qt to obtain Pt+1 with population size N ; see Algorithm 1 for the full procedure. 
+
+Main procedure. 
+
+Algorithm 2 outlines PHMOEA. We initialize and evaluate 
+
+P0, and initialize the archives (H, C) and refinement state 
+
+S. At generation t, we check the budgeted early-stopping criterion before offspring generation and stop if it is met (Appendix A.8). We update S and refine continuous vari-ables when triggered, enabling coarse-to-fine search. We generate Qt from Pt via Algorithm 1 (updating (H, C)), evaluate Qt, and select Pt+1 from Pt ∪ Qt. Finally, we output the non-dominated set of the last population as P⋆.The Evaluator is the same as in Fig. 1: each evaluation runs one train–validate, returns F (x), and counts as one function 5Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+Algorithm 1 Generate offspring with player tracking 
+
+Input: Parents Pt; population size N ; candidate sets 
+
+{Aj }Jj=1 ; heat/count archives (H, C); stage factor ϕt;cross-pool mutation probability e; max mutated dims 
+
+mmax .
+
+Output: Offspring Qt; updated archives (H, C). 
+
+> 1:
+
+Update archives (H, C) by Eqs. (8).  
+
+> 2:
+
+for j = 1 to J do  
+
+> 3:
+
+Partition Aj into Ahot  
+
+> j
+
+, A norm  
+
+> j
+
+, A cold  
+
+> j
+
+using archives 
+
+(H, C); 
+
+> 4:
+
+Anh  
+
+> j
+
+← Anorm  
+
+> j
+
+∪ Acold  
+
+> j
+
+; 
+
+> 5:
+
+Sample uniformly in Ahot  
+
+> j
+
+; sample from Anh  
+
+> j
+
+by Eq. (9);  
+
+> 6:
+
+end for  
+
+> 7:
+
+Compute counts Npar , N hot , N nh from ϕt and N ; 
+
+> 8:
+
+Qt ← ∅ ; 
+
+> 9:
+
+(Lines 10–12 apply hierarchical repair and deduplica-tion to each new offspring.)  
+
+> 10:
+
+Qpar  
+
+> t
+
+← Variation( Pt, N par ) with SBX crossover and polynomial mutation;  
+
+> 11:
+
+Qhot  
+
+> t
+
+← AssembleHot( {Ahot  
+
+> j
+
+}Jj=1 , N hot ) with uni-form sampling and cross-pool mutation (e, m max ); 
+
+> 12:
+
+Qnh  
+
+> t
+
+← AssembleNonHot( {Anh  
+
+> j
+
+}Jj=1 , N nh ) with sam-pling by Eq. (9) and cross-pool mutation (e, m max ); 
+
+> 13:
+
+Qt ← Qpar  
+
+> t
+
+∪ Qhot  
+
+> t
+
+∪ Qnh  
+
+> t
+
+; 
+
+> 14:
+
+return Qt, (H, C).evaluation. 
+
+Complexity. 
+
+The runtime is dominated by training-based function evalu-ations: letting C be the average cost of one train–validate run, the overall time is O(FEs · C). In the worst case, 
+
+FEs = Tmax N , yielding the standard bound O(Tmax N C );in practice, repair, deduplication, and early stopping reduce the number of candidates admitted to evaluation, thereby lowering effective evaluations. The remaining genetic and archive-maintenance overhead is lightweight relative to evaluation and does not change the dominant term (Ap-pendix A.9). 
+
+# 5. Experiments 
+
+5.1. Experimental Setup Real-world dataset. 
+
+We collect 2283 production-cycle samples from a sintering workshop in a large steel enterprise to evaluate multi-output quality forecasting in a real industrial setting. Each sample is associated with five terminal quality targets (TFe, FeO, SiO 2, CaO, and basicity), whose assay-based ground-truth values become available with a delay after each produc-
+
+Algorithm 2 Main algorithm of PHMOEA 
+
+Input: Dataset D; candidate sets {Aj }Jj=1 ; population size N ; max generations Tmax ; stage factor ϕt; cross-pool mutation probability e; max mutated dims mmax .
+
+Output: Pareto set P⋆. 
+
+> 1:
+
+P0 ← InitRandomPop( N, {Aj }Jj=1 ); 
+
+> 2:
+
+P0 ← Evaluator( P0, D); 
+
+> 3:
+
+(( H, C), S) ← InitArchives( {Aj }Jj=1 ); 
+
+> 4:
+
+for t = 0 to Tmax − 1 do  
+
+> 5:
+
+if EarlyStop( Pt) then  
+
+> 6:
+
+break ; 
+
+> 7:
+
+end if  
+
+> 8:
+
+S ← UpdateRefineState( S, P t); 
+
+> 9:
+
+if RefineCheck( Pt, S) then  
+
+> 10:
+
+{Aj }Jj=1 ← AdaptiveRefine( {Aj }Jj=1 , P t, S); 
+
+> 11:
+
+end if  
+
+> 12:
+
+(Qt, (H, C)) ← GenerateOffspring( Pt, N, 
+
+{Aj }Jj=1 , (H, C), ϕ t, e, m max ) by Algorithm 1;  
+
+> 13:
+
+Qt ← Evaluator( Qt, D); 
+
+> 14:
+
+Pt+1 ← EnvironmentalSelect( Pt ∪ Qt, N ); 
+
+> 15:
+
+end for  
+
+> 16:
+
+P⋆ ← ExtractPF( P ); 
+
+> 17:
+
+return P⋆.tion cycle. We use a chronological split as the primary evaluation setting, and additionally report results on a ran-domly shuffled split as a complementary control under an approximately independent and identically distributed (i.i.d.) assumption. Input variables are collected from on-site mea-surement systems, and the complete input–target list as well as preprocessing and split details are provided in Ap-pendix B.1. 
+
+Benchmarks. 
+
+We evaluate hierarchical-conditional search on hierarchical synthetic benchmarks and the real sintering task. To our knowledge, there are no widely used public benchmarks that explicitly capture hierarchical-conditional decision struc-tures; thus, we construct hierarchical variants of classical DTLZ functions (Deb et al., 2005) to analyze search behav-ior under controlled Pareto-front geometries. Specifically, we use bi-objective H-DTLZ2 (smooth convex Pareto front) and H-DTLZ7 (disconnected and multimodal Pareto front) to cover complementary front shapes (definitions and the hierarchical projection Π( ·) are given in Appendix B.2). On the real sintering task, PHMOEA searches hierarchical con-ditional configurations spanning preprocessing operators, the MS–BCNN architecture, and training hyperparameters, and outputs a deployable Pareto model set. Precise def-initions of the resampling operators in the preprocessing module are provided in Appendix B.3. 
+
+Baselines, metrics, and availability. In evolutionary-6Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+search comparisons, we evaluate PHMOEA against four widely used multi-objective evolutionary algorithms, in-cluding MOEA/D (Zhang & Li, 2007), NSGA-II (Deb et al., 2002), NSGA-III (Deb & Jain, 2014), and SMS-EMOA (Beume et al., 2007). We measure performance using inverted generational distance (IGD) (Coello Coello & Cort ´es, 2004) and hypervolume (HV) (Zitzler & Thiele, 1999), and report function evaluations (FEs) as the search cost (formal definitions are provided in Appendix B.4). Since the true Pareto front is unavailable for the real sin-tering task, we compute IGD using an approximate refer-ence front constructed by merging all solutions produced by all methods and then filtering the non-dominated (and duplicate-free) subset. For forecasting-performance com-parisons, we compare the MS–BCNN selected from PH-MOEA’s Pareto set against OB-ISSID (Wang et al., 2025), Ventingformer (Dai et al., 2025), Transformer (Vaswani et al., 2017), LSTM (Hochreiter & Schmidhuber, 1997), and GRU-PLS (Yang et al., 2022). We evaluate forecasting performance using MSE, mean absolute error (MAE), mean absolute percentage error (MAPE), and overall normalized metrics (NMSE and NMAE), with all metric definitions provided in Appendix B.5. For reproducibility, we provide code, the normalized dataset, and preprocessing scripts in the supplementary material (detailed settings are provided in Appendix B.6). 
+
+5.2. Search Quality and Efficiency 
+
+We compare PHMOEA against representative evolutionary baselines on both synthetic benchmarks and the real-world sintering task, and summarize the results in terms of search quality (IGD and HV) and evaluation efficiency (FEs). First, on the synthetic benchmarks, PHMOEA converges faster and stabilizes earlier at a low IGD level (Fig. 2). At the final generation, PHMOEA achieves IGD and HV that are close to strong baselines, even though it is not the best on every metric (Appendix Table 6). Second, on the real-world sintering task, PHMOEA achieves the best or tied-best search quality and significantly outper-forms several baselines (Table 1). Here ↓ and ↑ indicate lower and higher is better; +, −, = mean PHMOEA is significantly better, worse, or no different than the base-line. Notably, MOEA/D remains markedly worse under the same evaluation budget, suggesting insufficient convergence within the allotted evaluations on this task. Third, on the real-world sintering task, PHMOEA is substan-tially more evaluation-efficient under the same budget and stopping rule, which is particularly important when each evaluation requires a full train-and-validate run (Table 1). As a result, PHMOEA reaches a diminishing-returns region earlier and yields an equally strong or better trade-off set at lower evaluation cost.                     
+
+> Figure 2. IGD curves along evolution on two H-DTLZ benchmark problems.
+> Table 1. Sintering-task results of multi-objective evolutionary algorithms (mean ±std). Algorithm IGD ↓HV ↑FEs ↓
+> PHMOEA 0.0163 ±0.0026 0.986 ±0.005 1113.6 ±1.9 MOEA/D 0.1400 ±0.0150 +0.781 ±0.020 +1500 NSGA-II 0.0308 ±0.0040 +0.984 ±0.006 =1500 NSGA-III 0.0282 ±0.0035 +0.986 ±0.005 =1500 SMS-EMOA 0.0175 ±0.0030 =0.980 ±0.006 =1500
+
+5.3. Forecasting Performance 
+
+This section evaluates multi-target forecasting on the real-world sintering dataset under two settings: a shuffled split as an approximate i.i.d. reference and a chronological split that better reflects deployment. First, under the shuffled setting, most baselines already achieve competitive overall errors, indicating that this ref-erence comparison reflects modeling capacity rather than overly weak competitors (Table 2). In addition, MS–BCNN ranks first on the overall metrics, and the per-target break-down and full visualizations of the same experiments are provided in the appendix (Appendix Table 7 and Appendix Fig. 6). Second, under the chronological setting, all methods incur larger overall errors, reflecting the practical difficulty caused by non-stationarity and temporal shifts (Table 3). Never-theless, MS–BCNN remains the best on the composite nor-malized errors, while Ventingformer is slightly better on the relative-error metric, suggesting complementary strengths under different error characterizations (Table 3). Third, the error scatter plot complements the numerical results by revealing error patterns: MS–BCNN exhibits a more concentrated distribution closer to the zero-error re-gion, whereas several baselines show more dispersed or structured deviations (Fig. 3). Detailed per-target numbers and full time-series plots for the same chronological evalu-ation are provided in the appendix (Appendix Table 8 and Appendix Fig. 7). Overall, the shuffled setting serves as an approximate i.i.d. reference that also confirms the strength of the baselines, 7Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting                                                                                                                     
+
+> Table 2. Overall forecasting performance on the real-world sinter-ing dataset with randomly shuffled samples (mean ±std). Model NMSE ↓NMAE ↓MAPE(%) ↓
+> MS-BCNN 0.268 ±0.217 0.348 ±0.138 1.19 ±0.04
+> OB-ISSID 0.304 ±0.201 0.381 ±0.135 1.31 ±0.07
+> Ventingformer 0.279 ±0.199 0.366 ±0.136 1.25 ±0.07
+> Transformer 0.456 ±0.177 0.483 ±0.103 1.65 ±0.17
+> LSTM 0.380 ±0.220 0.421 ±0.142 1.44 ±0.08
+> GRU-PLS 0.462 ±0.171 0.512 ±0.082 1.74 ±0.08
+> Table 3. Overall forecasting performance on the real-world sinter-ing dataset under the chronological evaluation setting (mean ±std). Model NMSE ↓NMAE ↓MAPE(%) ↓
+> MS-BCNN 4.446 ±2.193 1.682 ±0.490 3.02 ±0.66
+> OB-ISSID 119 .7±101 .78.003 ±3.659 13 .57 ±7.50
+> Ventingformer 4.789 ±4.111 1.698 ±0.746 2.89 ±0.87
+> Transformer 7.581 ±8.678 2.180 ±1.304 3.43 ±0.76
+> LSTM 114 .8±206 .46.334 ±7.545 4.23 ±1.53
+> GRU-PLS 10 .714 ±6.280 2.795 ±1.053 4.61 ±0.18
+
+while the chronological evaluation better reflects deploy-ment difficulty; across both settings, MS–BCNN demon-strates more reliable overall accuracy and stability.  
+
+> Figure 3. Error scatter plot on the real-world sintering task under the chronological evaluation setting.
+
+5.4. Ablation Study 
+
+To assess the contribution of key components, we conduct ablation studies for both PHMOEA and MS–BCNN. Fig. 4 summarizes the overall results, where panel (a) reports the mean IGD averaged over H-DTLZ2 and H-DTLZ7. First, for PHMOEA, removing elitism leads to the most pronounced performance degradation, indicating that elitist preservation is crucial for stable convergence (Fig. 4a). In contrast, removing de-duplication causes only a mild drop, consistent with its role in improving efficiency by avoiding redundant evaluations; detailed statistics and IGD trajecto-ries are provided in Appendix Table 9 and Appendix Fig. 8. Second, for MS–BCNN, removing the time embedding no-  
+
+> (a) PHMOEA ablation (b) MS-BCNN ablation
+> Figure 4. Ablation results of the proposed methods. Panel (a) re-ports IGD for PHMOEA, averaged over two synthetic benchmarks (H-DTLZ2 and H-DTLZ7), while panel (b) reports NMSE on the real-world sintering dataset for MS–BCNN. For both metrics, lower values indicate better performance.
+
+ticeably worsens the overall NMSE, suggesting that ex-plicit temporal cues are critical for chronological forecast-ing (Fig. 4b). In addition, both the short-only and long-only variants underperform the dual-branch design, supporting the benefit of multi-scale modeling for real-world dynamic sintering forecasting; per-target details are deferred to Ap-pendix Table 10. 
+
+# 6. Conclusion and Future Work 
+
+This paper studies multi-output quality prediction on sin-tering data with multi-source asynchronous sampling, fo-cusing on deployment-constrained modeling and automatic configuration. We present a deployment-oriented config-urable modeling and search framework that unifies align-ment operators, scale choices, and network structures in a hierarchical conditional space and jointly optimizes the error–complexity trade-off to obtain a deployable Pareto set. Concretely, we use a multi-scale bi-branch convolutional backbone to capture short-term fluctuations and long-term trends, and develop a multi-objective evolutionary search strategy to efficiently explore configurations under a lim-ited budget while reducing redundant evaluations. Results on synthetic benchmarks and a real-world sintering dataset demonstrate that our framework yields better trade-off solu-tions than strong baselines and alternative search strategies, enabling more flexible model selection in deployment. While this work focuses on deployable modeling and trade-off solution discovery, real-world sintering production often exhibits pronounced regime changes and distribution drift, which can erode predictive performance over time. An important future direction is to develop dynamic learning models for such nonstationarity, enabling controlled updates and stable maintenance under drift, and further character-izing drift severity to support more fine-grained response strategies. Building on this, the Pareto set produced in this paper can serve as candidate initializations and structural priors for subsequent dynamic learning, reducing adaptation cost and improving robustness in long-term operation. We 8Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+believe that coupling offline configurable search with on-line drift-responsive maintenance will improve the reliabil-ity and scalability of multi-source asynchronous industrial time-series forecasting in real deployments. 
+
+# References 
+
+Ansari, A. F., Bose, A., Keller, F., Flunkert, V., Gasthaus, J., Maddix, D., Wang, H., Januschowski, T., and Ran-gapuram, S. S. Neural continuous-discrete state space models. In Proceedings of the 40th International Confer-ence on Machine Learning , volume 202 of Proceedings of Machine Learning Research , pp. 948–975, 2023. Beume, N., Naujoks, B., and Emmerich, M. SMS-EMOA: Multiobjective selection based on dominated hypervol-ume. European Journal of Operational Research , 181(3): 1653–1669, 2007. doi: 10.1016/j.ejor.2006.08.008. Carter, J. L. and Wegman, M. N. Universal classes of hash functions. Journal of Computer and System Sciences , 18 (2):143–154, 1979. Coello Coello, C. A. and Cort ´es, N. C. A study of the parallelization of a coevolutionary multi-objective evo-lutionary algorithm. In MICAI 2004: Advances in Ar-tificial Intelligence , volume 2972 of Lecture Notes in Computer Science , pp. 688–697. Springer, 2004. doi: 10.1007/978-3-540-24694-7 71. Dai, Y., Chen, N., and Shao, Z. Hybrid self-learning model for the prediction and control of sintering furnace temper-ature. Control Engineering Practice , 154:106159, 2025. doi: 10.1016/j.conengprac.2024.106159. Deb, K. and Jain, H. An evolutionary many-objective opti-mization algorithm using reference-point-based nondomi-nated sorting approach, part I: Solving problems with box constraints. IEEE Transactions on Evolutionary Compu-tation , 18(4):577–601, 2014. doi: 10.1109/TEVC.2014. 2373386. Deb, K., Pratap, A., Agarwal, S., and Meyarivan, T. A fast and elitist multiobjective genetic algorithm: NSGA-II. 
+
+IEEE Transactions on Evolutionary Computation , 6(2): 182–197, 2002. Deb, K., Thiele, L., Laumanns, M., and Zitzler, E. Scalable test problems for evolutionary multiobjective optimiza-tion. In Abraham, A., Jain, L., and Goldberg, R. (eds.), 
+
+Evolutionary Multiobjective Optimization , pp. 105–145. Springer, 2005. doi: 10.1007/1-84628-137-7 6. Elsken, T., Metzen, J. H., and Hutter, F. Efficient multi-objective neural architecture search via Lamarckian evo-lution, 2019. arXiv:1804.09081. He, X., Zhao, K., and Chu, X. AutoML: A survey of the state-of-the-art. Knowledge-Based Systems , 212:106622, 2021. doi: 10.1016/j.knosys.2020.106622. Hochreiter, S. and Schmidhuber, J. Long short-term memory. 
+
+Neural Computation , 9(8):1735–1780, 1997. doi: 10. 1162/neco.1997.9.8.1735. Huang, K., Wu, S., Li, Y., Yang, C., and Gui, W. A multi-rate sampling data fusion method for fault diagnosis and its industrial applications. Journal of Process Control ,104:54–61, 2021. doi: 10.1016/j.jprocont.2021.06.003. Kong, X., Chen, Z., Liu, W., Ning, K., Zhang, L., Marier, S. M., Liu, Y., Chen, Y., and Xia, F. Deep learning for time series forecasting: a survey. International Journal of Machine Learning and Cybernetics , 16:5079–5112, 2025. doi: 10.1007/s13042-025-02560-w. Li, B., Luo, Y., Liu, Z., Zheng, J., Lv, J., and Ma, Q. Hyper-IMTS: Hypergraph neural network for irregular multivari-ate time series forecasting. In Proceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pp. 35502–35518, 2025. Lim, B. and Zohren, S. Time-series forecasting with deep learning: a survey. Philosophical Transactions of the Royal Society A: Mathematical, Physical and En-gineering Sciences , 379(2194):20200209, 2021. doi: 10.1098/rsta.2020.0209. Lin, X., Zhang, X., Yang, Z., Liu, F., Wang, Z., and Zhang, Q. Smooth tchebycheff scalarization for multi-objective optimization. In Proceedings of the 41st In-ternational Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pp. 30479–30509, 2024. Liu, X., Qiu, X., Wu, X., Li, Z., Guo, C., Hu, J., and Yang, B. Rethinking irregular time series forecasting: A simple yet effective baseline, 2025. arXiv:2505.11250. Lu, G., Ou, Y., Wang, Z., Qu, Y., Xia, Y., Tang, D., Kotenko, I., and Li, W. A survey of deep learning for time se-ries forecasting: Theories, datasets, and state-of-the-art techniques. Computers, Materials and Continua , 85(2): 2403–2441, 2025. doi: 10.32604/cmc.2025.068024. Lu, Z., Cheng, R., Jin, Y., Tan, K. C., and Deb, K. Neural architecture search as multiobjective optimization bench-marks: Problem formulation and performance assessment. 
+
+IEEE Transactions on Evolutionary Computation , 28(2): 323–337, 2024. doi: 10.1109/TEVC.2022.3233364. Nie, Y., Nguyen, N. H., Sinthong, P., and Kalagnanam, J. A time series is worth 64 words: Long-term forecasting with transformers. In International Conference on Learning Representations , 2023. 9Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+Olevsky, E. A., Tikare, V., and Garino, T. Multi-scale study of sintering: A review. Journal of the American Ceramic Society , 89(6):1914–1922, 2006. doi: 10.1111/j. 1551-2916.2006.01054.x. Park, J. W., Tagasovska, N., Maser, M., Ra, S., and Cho, K. BOtied: Multi-objective Bayesian optimization with tied multivariate ranks. In Proceedings of the 41st In-ternational Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pp. 39813–39833, 2024. Rakotoarison, H., Adriaensen, S., Mallik, N., Garibov, S., Bergman, E., and Hutter, F. In-context freeze-thaw Bayesian optimization for hyperparameter optimization. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Ma-chine Learning Research , pp. 41982–42008, 2024. Shardt, Y. A. W., Brooks, K., Yang, X., and Kim, S. Advanced soft-sensor systems for process monitor-ing, control, optimisation, and fault diagnosis. IFAC-PapersOnLine , 56(2):11768–11777, 2023. doi: 10.1016/ j.ifacol.2023.10.565. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, L., and Polosukhin, I. Atten-tion is all you need. In Advances in Neural Information Processing Systems , 2017. Wang, S., Yang, C., and Lou, S. Facilitating ferrous oxide prediction: Enabling sintering forecasting with orthog-onal basis-based implicit subspace identification. IEEE Transactions on Industrial Informatics , 21(1), 2025. doi: 10.1109/TII.2024.3431087. Wu, D., Gundimeda, S., Mou, S., and Quinn, C. Unsuper-vised change point detection in multivariate time series. In Proceedings of The 27th International Conference on Artificial Intelligence and Statistics , volume 238 of Pro-ceedings of Machine Learning Research , pp. 3844–3852, 2024. Xue, M. and Yi, M. Phase-field simulation of sintering process: A review. CMES - Computer Modeling in En-gineering and Sciences , 140(2):1165–1204, 2024. doi: 10.32604/cmes.2024.049367. Yang, C., Yang, C., Li, J., Li, Y., and Yan, F. Forecasting of iron ore sintering quality index: A latent variable method with deep inner structure. Computers in Industry , 141: 103713, 2022. doi: 10.1016/j.compind.2022.103713. Zhang, Q. and Li, H. MOEA/D: A multiobjective evolu-tionary algorithm based on decomposition. IEEE Trans-actions on Evolutionary Computation , 11(6):712–731, 2007. doi: 10.1109/TEVC.2007.892759. Zhang, W., Yin, C., Liu, H., Zhou, X., and Xiong, H. Irreg-ular multivariate time series forecasting: A transformable patching graph neural networks approach. In Proceedings of the 41st International Conference on Machine Learn-ing , volume 235 of Proceedings of Machine Learning Research , pp. 60179–60196, 2024. Zhou, T., Ma, Z., Wen, Q., Wang, X., Sun, L., and Jin, R. FEDformer: Frequency enhanced decomposed trans-former for long-term series forecasting. In Proceedings of the 39th International Conference on Machine Learn-ing , volume 162 of Proceedings of Machine Learning Research , pp. 27268–27286, 2022. Zitzler, E. and Thiele, L. Multiobjective evolutionary algo-rithms: A comparative case study and the strength pareto approach. IEEE Transactions on Evolutionary Computa-tion , 3(4):257–271, 1999. doi: 10.1109/4235.797969. 10 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+# Appendix A. Definition of the PHMOEA Search Space 
+
+A.1. Hierarchical decision variables and activation rules 
+
+To formalize conditional activation, we model the configuration space as a hierarchical conditional mixed space, where the activity of some variables is determined by higher-level discrete choices. The i-th candidate configuration is represented as a hierarchical decision vector over levels L, where level ℓ contains nℓ
+
+variables: 
+
+xi =  x(ℓ)
+
+> i,j
+
+
+
+> ℓ∈L , j =1 ,...,n ℓ
+
+. (10) For each hierarchical variable, we define an activation indicator a(ℓ) 
+
+> j
+
+(x) ∈ { 0, 1}: the variable is active if and only if its parent decision is selected. This induces the active-variable set A(x), which characterizes feasibility constraints: 
+
+A(x) = 
+
+n
+
+(ℓ, j ) | a(ℓ) 
+
+> j
+
+(x) = 1 
+
+o
+
+. (11) In the implementation, inactive variables do not participate in model construction and training, and are stored using placeholders in the encoding to keep a unified dimensionality. 
+
+A.2. Trainable-Parameter Counting for Model Complexity 
+
+This section specifies the counting protocol of P (x) for measuring model complexity. We count only trainable parameters in the network specified by x.Parameters counted in P (x) include the following. (1) weights and biases of convolutional and linear layers. (2) affine parameters in normalization layers (e.g., γ and β when affine is enabled). (3) trainable parameters introduced by fusion modules (e.g., linear projections in gating, attention, or multi-head attention). (4) learnable branch weights under weighted-sum fusion. (5) weights and biases of the prediction head (MLP) and the output layer. We do not count parameter-free operators (e.g., activations, pooling, and dropout) or non-trainable buffers (e.g., BatchNorm running mean and running variance). 
+
+A.3. Per-generation objective and crowding normalization in PHMOEA 
+
+To mitigate scale differences between objectives during evolutionary search, we apply per-generation normalization to objectives and crowding in PHMOEA. This normalization is used only for search-related weighting and sampling guidance, and does not affect the raw objective values reported in results. Let S(t) denote the set of evaluated individuals in generation t, and let ε > 0 be a numerical stabilizer. In this work, the two objectives are f1(x) = MSE( x) and f2(x) = P (x).We compute the minimum and maximum of each objective over S(t):
+
+f (t) 
+
+> m, min
+
+= min 
+
+> x∈S (t)
+
+fm(x), f (t) 
+
+> m, max
+
+= max 
+
+> x∈S (t)
+
+fm(x), m ∈ { 1, 2}. (12) We then define the per-generation normalized objectives (denoted as ˆfm(x) in the main text): 
+
+ˆfm(x) = fm(x) − f (t)
+
+> m, min
+
+f (t) 
+
+> m, max
+
+− f (t) 
+
+> m, min
+
++ ε , m ∈ { 1, 2}. (13) 11 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+The crowding measure ci is computed as the standard NSGA-II crowding distance and normalized within the generation to obtain ˆci:
+
+ˆci = ci − c(t)min 
+
+c(t)max − c(t)min + ε , c(t)min = min 
+
+> xi∈S (t)
+
+ci, c (t)max = max 
+
+> xi∈S (t)
+
+ci. (14) This normalization is a monotone affine transformation within each generation and therefore does not change Pareto dominance within that generation. 
+
+A.4. Configuration space specification 
+
+To facilitate reproducibility and future extensions, we provide the complete list of decision variables and their conditional dependencies used in PHMOEA. In our case study, we use a fixed-length encoding and represent a candidate configuration as x = ( x1, . . . , x 24 ), where inactive conditional variables are kept as placeholders. A conditional variable is active only when its parent discrete choice satisfies the condition in Table 4; this can be indicated by ak(x) ∈ { 0, 1}, and we mask variables with ak(x) = 0 during decoding to keep configurations executable. Table 4 summarizes variable names, types, ranges and candidate sets. We encode sample-level time variables using sine–cosine periodic functions to obtain a time-embedding vector; this is a standard component and is summarized in the main text, while we provide the exact definition here for reproducibility. 
+
+ztime = Concat Kt
+
+> k=1
+
+h
+
+sin 
+
+
+
+2π τk
+
+> Pk
+
+
+
+, cos 
+
+
+
+2π τk
+
+> Pk
+
+i 
+
+. (15) Here τk and Pk denote the k-th time variable and its natural period, respectively, Kt is the number of time variables, and 
+
+Concat( ·) denotes concatenation along the feature dimension. For each source j ∈ { 1, . . . , S }, let the aligned sequence be ˜X(j) ∈ RLp×Cj ; we concatenate features from all sources along the channel dimension and append the time embedding broadcast along the time axis to obtain the final aligned input 
+
+˜X. ˜X = Concat 
+
+ ˜X(1) , . . . , ˜X(S), 1Lp (ztime )⊤
+
+∈ RLp×Cin , (16) Here 1Lp is an all-ones vector of length Lp used to replicate the sample-level embedding along the time axis, and 
+
+Cin = PSj=1 Cj + 2 Kt is the resulting input channel dimension. We next specify the deterministic computation graph used to instantiate MS–BCNN from a configuration in Table 4. Let H(0) ∈ RLp×C0 be the projected feature sequence, where C0 = x6.We use a fixed 3-layer bi-branch 1D convolutional stack with channel widths C1 = x7, C2 = x8, and C3 = x9; the short and long branches share the same channel width at each layer and differ only in kernel sizes specified by x10 and x11 .All convolutions use stride 1 and length-preserving padding (for odd kernel size k, we set p = ( k − 1) /2), so the temporal length remains Lp throughout the backbone. Within each branch and each layer, the operator order is fixed as Conv1D → Norm( x5) → Act( x12 ) → Dropout( x13 );no additional pooling or residual connections are used in the backbone. After the 3rd layer, we obtain Hshort , Hlong ∈ RLp×Cf with Cf = C3 = x9 and fuse them using x22 to get H ∈ RLp×Cf .We directly flatten H into f ∈ RLpCf (without global average pooling) and apply a single linear prediction head 
+
+ˆy = Wf + b, W ∈ RK×(LpCf ), (17) where K is the number of prediction targets. 12 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+Table 4. Decision variables in PHMOEA. Variable Name Type Range / Candidate Set 
+
+x1 Resampling operator R Discrete {linear , decimate repeat , hybrid ,
+
+pool , conv blurpool , fir lowpass }
+
+x2 Pooling type (active if x1 = pool ) Conditional Discrete {avg , max , median , weighted }
+
+x3 Aligned length Lp Discrete {8, 12, 24, 36, 48 }
+
+x4 Batch size Discrete {16, 32, 64, 128 }
+
+x5 Normalization layer Discrete {BatchNorm , LayerNorm ,
+
+InstanceNorm }
+
+x6 Projection channels C0 Discrete {8, 16, 32, 64 }
+
+x7 Channels (conv1) Discrete {8, 16, 32, 64 }
+
+x8 Channels (conv2) Discrete {16, 32, 64, 128 }
+
+x9 Channels (conv3) Discrete {32, 64, 128, 256 }
+
+x10 Short-branch kernel sizes (3 layers) Discrete {(3,3,3), (3,5,7), (3,5,9), (5,7,11) }
+
+x11 Long-branch kernel sizes (3 layers) Discrete {(7,9,11), (9,11,13), (11,13,15) }
+
+x12 Activation Discrete {ReLU , GELU , SiLU , Tanh }
+
+x13 Dropout rate Continuous [0 , 0.5] 
+
+x14 Learning rate Continuous log-uniform in [10 −5, 10 −2]
+
+x15 Weight decay Continuous log-uniform in [10 −6, 10 −2]
+
+x16 Learning-rate scheduler Discrete {on , off }
+
+x17 Scheduler type (active if x16 = on ) Conditional Discrete {plateau , warmup cosine }
+
+x18 Loss type Discrete MSE , MAE , SmoothL1 , MAPE , Huber ,
+
+LogCosh , Quantile , SMAPE ,
+
+Combined , AdaptiveCombined 
+
+x19 Combined-loss form (active if 
+
+x18 ∈ { Combined , AdaptiveCombined })Conditional Discrete {(MSE ,MAE ), ( MSE ,Huber ), ( MAE ,Huber ), (MAE ,MAPE ), (MSE ,SMAPE ), ( MAE ,Quantile ), (Huber ,Quantile ), (MAE ,multi quantile ), (MSE ,SmoothL1 ), ( MAE ,LogCosh )}
+
+x20 Loss weights (active if 
+
+x18 = AdaptiveCombined )Conditional Discrete {(0.9,0.1), (0.7,0.3), (0.5,0.5) }
+
+x21 Learning rate for combined loss (active if 
+
+x18 = AdaptiveCombined )Conditional Discrete log-spaced candidates {0.001, 0.01, 0.1, 0.2, 0.5 }
+
+x22 Fusion operator Fuse conv Discrete {concat , add , weighting , gating ,
+
+attention , cross mapping }
+
+x23 Weighting mode (active if x22 = weighting ) Conditional Discrete {add , concat }
+
+x24 Cross-mapping mode (active if 
+
+x22 = cross mapping )Conditional Discrete {add , concat , gated }
+
+A.5. Encoding and decoding details 
+
+For the d-th continuous variable with range [ad, b d], we discretize it into Kd bins and use each bin midpoint as the representative value (linear scale): 
+
+vd,k = ad + 2k − 12Kd
+
+(bd − ad), k = 1 , . . . , K d. (18) When a variable is positive and spans orders of magnitude (e.g., learning rate and weight decay), we use log-scale discretization by partitioning uniformly in log space and mapping back to the original space: 
+
+vd,k = exp((1 − αd,k ) log( ad) + αd,k log( bd)) ,αd,k = 2k − 12Kd
+
+. (19) For conditional variables, decoding activates them only when their parent discrete choices are selected (i.e., the corresponding activity indicator equals 1); otherwise they are masked and ignored during instantiation to ensure executability. 13 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+A.6. Deduplication and retry-budget protocol 
+
+Executable-configuration canonicalization: deduplication is performed after decoding and repair and before training evaluation; we retain only active variables and build a deterministic representation in a fixed order. For a decoded candidate 
+
+x, let A(x) denote its active-variable set, and denote the canonical form by canon( x). We construct canon( x) as an ordered sequence of key–value pairs  (j, val j ) 
+
+> j∈A (x)
+
+sorted by dimension index: discrete variables use candidate IDs, while continuous variables use their bin indices to avoid spurious differences due to floating-point precision. Hash key: we compute a hash key key( x) from the deterministic serialization ser(canon( x)) and check membership in a global key set K. Within a single run, K is maintained across generations and stores keys of configurations admitted to evaluation; once a candidate passes the check and is admitted, we insert its key into K.Retry budget: for each offspring slot, we attempt at most ntrial trials to obtain a feasible and non-duplicated candidate; if all trials fail, we skip the slot and proceed to the next one to avoid stalling. Because of the skip rule, the number of individuals admitted to evaluation in a generation can be smaller than the nominal N , consistent with the Nt notation in the main-text complexity analysis. 
+
+A.7. Adaptive refinement protocol for continuous variables 
+
+This appendix provides implementation details for adaptive refinement of continuous variables, including interval breakpoint construction, interval-mass statistics, and the update and trigger rules of the cross-generation state S.Breakpoints: for the d-th continuous variable at level ℓ with current range [a(ℓ) 
+
+> d
+
+, b (ℓ) 
+
+> d
+
+], we uniformly split it into K(ℓ)
+
+> d
+
+sub-intervals and define the breakpoints as: 
+
+β(ℓ) 
+
+> d,k
+
+= a(ℓ) 
+
+> d
+
++ kK(ℓ)
+
+> d
+
+ b(ℓ) 
+
+> d
+
+− a(ℓ)
+
+> d
+
+, k = 0 , 1, . . . , K (ℓ) 
+
+> d
+
+. (20) Intervals and bin assignment: the k-th interval is I(ℓ) 
+
+> d,k
+
+= [ β(ℓ)
+
+> d,k −1
+
+, β (ℓ)
+
+> d,k
+
+) (with the last interval right-closed to include the boundary), and we assign a decoded value (or its bin index) to an interval accordingly. Interval mass: let P ⋆t be the current generation’s non-dominated set; we define the interval mass as 
+
+f (ℓ)
+
+> d,k
+
+(t) = 1
+
+|P ⋆t |
+
+X 
+
+> x∈P⋆t
+
+I
+
+h
+
+x(ℓ) 
+
+> d
+
+∈ I(ℓ)
+
+> d,k
+
+i
+
+, (21) where I[·] is the indicator function and x(ℓ) 
+
+> d
+
+denotes the decoded value (or equivalently, the bin assignment) of individual x
+
+on this continuous variable. Cross-generation state and trigger: for each (ℓ, d, k ) we maintain a consecutive counter c(ℓ)
+
+> d,k
+
+(t) ∈ { 0, 1, . . . } and trigger refinement with threshold δh and persistence window H:
+
+c(ℓ)
+
+> d,k
+
+(t) = 
+
+(
+
+c(ℓ)
+
+> d,k
+
+(t − 1) + 1 , f (ℓ)
+
+> d,k
+
+(t) > δ h,
+
+0, otherwise , (22) When c(ℓ)
+
+> d,k
+
+(t) ≥ H, we refine the interval I(ℓ) 
+
+> d,k
+
+(e.g., by further splitting it into finer sub-intervals and updating the corresponding partition for dimension (ℓ, d )). Representative values: after refinement, representative values used for encoding and decoding follow the same unified discretization; the linear/log mappings are given in Appendix A.5. 
+
+A.8. Early-Stopping Mechanism 
+
+To reduce redundant expensive function evaluations after the Pareto front has largely converged, we check an early-stopping rule before generating/evaluating offspring in each generation; if progress has been stagnant over the last W generations, we terminate at Tstop < T max .14 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+The rule depends only on generation-wise statistics of the bi-objective minimization F (x) = ( f1(x), f 2(x)) and can be applied uniformly to synthetic benchmarks, surrogate benchmarks, and the real-world task. Let Pt denote the population at generation t, and let P ⋆t ⊆ Pt denote its current non-dominated set (the first front). We define the mean objective value on P ⋆t (for i ∈ { 1, 2}) as: 
+
+f i(t) = 1
+
+|P ⋆t |
+
+X 
+
+> x∈P⋆t
+
+fi(x). (23) To avoid scale sensitivity, we use a relative-improvement convention with a window size W :
+
+∆f i(t) = max 0, f i(t − W ) − f i(t)
+
+max  f i(t − W ) , ϵ 0
+
+, i ∈ { 1, 2}. (24) Front coverage is measured by hypervolume HV (P ⋆t ) (defined in Appendix C.4) with the relative gain: 
+
+∆HV (t) = max 0, HV (P ⋆t ) − HV (P ⋆t−W )
+
+max  HV (P ⋆t−W ) , ϵ 0
+
+. (25) We set the HV reference point to r = ( r1, r 2) with ri = 1 .1 · max x∈P0 fi(x) for i ∈ { 1, 2}, and keep r fixed for all subsequent generations. Before generating/evaluating offspring at each generation, we compute the three stagnation signals in Eqs. (24)–(25); early stopping is triggered only when all of them fall below their thresholds. In all experiments, we use W = 8 , ϵ0 = 10 −12 , ϵ1 = 10 −3, ϵ2 = 10 −3, and ϵHV = 10 −4, where ϵ1 and ϵ2 are thresholds for ∆f 1(t) and ∆f 2(t), respectively. 
+
+A.9. Complexity details 
+
+This subsection supplements the main-text complexity statement by clarifying the counting protocol and outlining the derivation, and by bounding non-evaluation overhead to show it does not change the dominant term. The population size is N and the algorithm runs for at most Tmax generations; one function evaluation (FE) corresponds to one full train–validate run of a candidate configuration that returns its objective vector. Let Nt denote the number of candidates admitted to evaluation at generation t. Because feasibility repair and deduplication are applied before evaluation and an offspring slot can be skipped when the retry budget is exhausted, we have 0 ≤ Nt ≤ N .If the algorithm terminates at Tstop ≤ Tmax generations, the total number of evaluations is 
+
+FEs = N +
+
+> Tstop
+
+X
+
+> t=1
+
+Nt, (26) where the leading term N accounts for evaluating the initial population P0.Let C be the average cost of one train–validate run. The total evaluation cost is O(FEs · C); in the worst case where 
+
+Nt = N and Tstop = Tmax , this reduces to O(Tmax N C ).For non-evaluation overhead, per-generation operations such as non-dominated sorting, archive updates, sampling, and repair/deduplication scale at most linearly or near-linearly with N (e.g., O(N log N ) or O(N J )). Compared with the training cost C, these terms are auxiliary and do not change the dominant complexity. 
+
+# B. Experimental Details 
+
+B.1. Real-world Sintering Dataset 
+
+This section summarizes the input–target specification and the preprocessing/splitting protocol of the real-world sintering dataset for reproducibility and for preventing temporal leakage. Table 5 lists all input variables and output targets, grouped by category. 15 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting          
+
+> Table 5. Input variables and output targets in the sintering dataset (grouped by category). Category Variables / Targets Raw-material composition and blending Mixed-material moisture, temperature, and granularity; fuel granularity; coarse fraction ratio (particle size >5mm); ore-type proportions in the blend (six ore types); second-mixing additions (e.g., quicklime, return fines, coke breeze); planned blending ratios; planned basicity; raw-material price indicators (five series). Process and thermal Temperatures (ignition, exhaust gas, BTP); pressures (furnace negative pressure, main-line negative pressure, gas pressure, air pressure); flows (coal-gas flow, air flow); ore-bin scale flow rates (six bins). Equipment state and environment Material bed thickness; plate-belt speed; sintering machine speed; finished-product weighing; production output. Output targets TFe; FeO; SiO 2; CaO; Basicity.
+
+We summarize the preprocessing and split protocol below, following filtering, missing-value repair, cycle alignment, normalization, and splitting. (1) Sample filtering: we remove samples from non-stationary periods such as startup and shutdown to reduce the impact of transient regimes on modeling and evaluation. (2) Missing-value repair: we apply time-ordered linear interpolation only to short missing gaps; longer gaps are not interpolated and are handled by the missing-data policy. Time variables and time embedding: for each cycle-level sample, we extract calendar components from its associated cycle timestamp and build the time embedding by Eq. (15). We fix the cycle timestamp as the start time of the corresponding production cycle and use four components (year, month, day-of-month, and hour), hence Kt = 4 .We use zero-based indices and define {(τk, P k)}Kt 
+
+> k=1
+
+deterministically as: τ1 = year − year min and P1 = year max −
+
+year min + 1 ; τ2 = month − 1 and P2 = 12 ; τ3 = day − 1 (day-of-month) and P3 = 31 ; τ4 = hour and P4 = 24 .With zero-based indices, τk ∈ [0 , P k − 1] holds by construction and no additional modulo operation is applied; we directly use Eq. (15) without further normalization of τk.(4) Normalization and leakage prevention: we apply per-feature Min–Max scaling; statistics are estimated on the training split only and then fixed for transforming validation and test splits to prevent temporal leakage. (5) Data splits: we use a chronological train/validation/test split (0.70/0.15/0.15) to mimic forward-in-time deployment, and additionally run a control evaluation on a randomly shuffled split to approximate an independent and identically distributed (i.i.d.) setting; both settings use the same split ratio and evaluation protocol. 
+
+B.2. Hierarchical Synthetic Benchmarks 
+
+We construct two bi-objective ( M = 2 ) hierarchical synthetic benchmarks based on DTLZ2 and DTLZ7. The hierarchical structure is realized by a projection operator z = Π( x) that decodes a mixed decision x and extracts currently active continuous variables to form z = Π( x) ∈ [0 , 1] n. Inactive continuous variables are set to a problem-specific neutral value consistent with the Pareto set so that the reference Pareto front remains reachable. In particular, we set inactive variables to 
+
+0.5 for H-DTLZ2 and to 0 for H-DTLZ7. We introduce a hierarchical coupling regularizer on tail variables to emphasize parent–child dependencies. Let aj (x) ∈ { 0, 1}
+
+denote the activity indicator of the j-th continuous variable, and define the active tail-index set as Jc(x) = {j ∈ { 3, . . . , n } | 
+
+aj (x) = 1 }. The coupling term is defined as 
+
+c(z, x ) = 
+
+
+
+0, |J c(x)| = 0 ,
+
+> 1
+> |J c(x)|
+
+P
+
+> j∈J c(x)
+
+ zj − zp(j)
+
+2, |J c(x)| > 0, gcpl (z, x ) = γ c (z, x ), (27) where γ ≥ 0 is a coupling coefficient. 16 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+To instantiate the parent index p(j) for j ∈ { 3, . . . , n }, we consider two topologies and define two parent-index functions: 
+
+pchain (j) = j − 1, ptree (j) = 
+
+ j − 32
+
+
+
++ 2 , j ∈ { 3, . . . , n }. (28) We use p(j) = pchain (j) for the chain topology and p(j) = ptree (j) for the binary-tree topology. 
+
+H-DTLZ2 (normalized and coupled, M = 2 ). For H-DTLZ2, we use the standard DTLZ2 angular mapping and define 
+
+g2(z, x ) = 1
+
+n − 1
+
+> n
+
+X
+
+> j=2
+
+(zj − 0.5) 2 + gcpl (z, x ), (29) 
+
+f1(z, x ) = (1 + g2(z, x )) cos 
+
+ π
+
+2 z1
+
+
+
+, f2(z, x ) = (1 + g2(z, x )) sin 
+
+ π
+
+2 z1
+
+
+
+, (30) and 
+
+FH-DTLZ2 (x) =  f1(Π( x), x ), f 2(Π( x), x ). (31) The Pareto front satisfies g2(z, x ) = 0 and remains the quarter unit circle in the first quadrant: 
+
+P⋆ 
+
+> H-DTLZ2
+
+=   cos( π 
+
+> 2
+
+u), sin( π 
+
+> 2
+
+u) u ∈ [0 , 1] . (32) 
+
+H-DTLZ7 (normalized and coupled, M = 2 ). For H-DTLZ7, we define 
+
+f1(z) = z1, g7(z, x ) = 1 + 9
+
+n − 1
+
+> n
+
+X
+
+> j=2
+
+zj + gcpl (z, x ), (33) 
+
+h(z, x ) = 2 − f1(z)
+
+g7(z, x )
+
+ 1 + sin  3πf 1(z) , f2(z, x ) = 12 g7(z, x ) h(z, x ), (34) and 
+
+FH-DTLZ7 (x) =  f1(Π( x)) , f 2(Π( x), x ). (35) For M = 2 , the Pareto front under g7(z, x ) = 1 can be defined via non-dominated filtering of the parameterized candidate set: 
+
+P⋆ 
+
+> H-DTLZ7
+
+= ND 
+
+(
+
+u, 2 − u 1 + sin(3 πu )
+
+2
+
+!
+
+u ∈ [0 , 1] 
+
+)! 
+
+, (36) where ND( ·) denotes the non-dominated filtering operator under minimization. 
+
+B.3. Decision Variables and Operator Definitions 
+
+This section is aligned with Table 4: following x1 to x24 , we clarify the meaning of each decision variable and provide operator and loss definitions when needed (candidate sets and ranges are given in Table 4) to ensure reproducibility. Let a source sequence before alignment be X ∈ RT ×F and the aligned output be ˜X ∈ RLp×F . In our search space, Lp ≥ 2,so the continuous-time coordinate below is well-defined. We define the continuous-time coordinate ut = tLp−1 (T − 1) 
+
+for t = 0 , . . . , L p − 1. Let [[ u]] denote rounding to the nearest integer and clipping to [0 , T − 1] (implemented as 
+
+min( T − 1, max(0 , ⌊u + 0 .5⌋)) ). To be consistent with Eq. (86), all losses below use normalized mean reduction over samples and output dimensions: for any set of ND pairs {(yn, ˆyn)}ND 
+
+> n=1
+
+with K outputs ( yn, ˆyn ∈ RK ), we compute  
+
+> 1
+> NDK
+
+PND
+
+> n=1
+
+PKk=1 ℓ(yn,k , ˆyn,k ) (for division-based losses such as MAPE/SMAPE, we add ϵ > 0 to denominators to avoid zero division). 17 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+x1: Resampling operator R. x1 selects the resampling operator that maps X to length Lp.(1) linear (linear interpolation). Define it = ⌊ut⌋ and λt = ut − it.
+
+˜X[t, :] = 
+
+(
+
+(1 − λt)X[it, :] + λtX[it + 1 , :] , it < T − 1,
+
+X[T − 1, :] , it = T − 1. (37) (2) decimate repeat (uniform decimation for downsampling, repetition for upsampling). For downsampling, use 
+
+jt = [[ ut]] .
+
+jt = [[ ut]] , ˜X[t, :] = X[jt, :] . (38) For upsampling, repeat samples to reach length Lp. The repetition counts are determined by (q, s ) with q = ⌊Lp/T ⌋
+
+and s = Lp − qT .
+
+ni =
+
+(
+
+q + 1 , i < s, q, i ≥ s, i = 0 , . . . , T − 1. (39) Let L−1 = 0 and Li = Pik=0 nk. When Li−1 ≤ t < L i, set ˜X[t, :] = X[i, :] .(3) hybrid (decimation + smoothing for downsampling, repetition/linear for upsampling). For downsampling, first uniformly decimate with jt = [[ ut]] to obtain Z, then apply three-point moving-average smoothing. 
+
+Z[t, :] = X[jt, :] . (40) 
+
+˜X[t, :] = 
+
+
+
+Z[0 , :] , t = 0 ,
+
+> 13
+
+ Z[t − 1, :] + Z[t, :] + Z[t + 1 , :] , 1 ≤ t ≤ Lp − 2,
+
+Z[Lp − 1, :] , t = Lp − 1.
+
+(41) For upsampling, it degenerates to repetition when T = 1 , otherwise it uses linear .(4) pool (interval pooling for downsampling, repetition for upsampling). When T > L p, we partition the time axis into 
+
+Lp adjacent intervals and aggregate within each interval, where the aggregation operator is selected by the conditional variable x2. The boundaries are et = ⌊ tT Lp ⌋ for t = 0 , . . . , L p, and the index set is It = {k | et ≤ k < e t+1 }. When 
+
+T ≤ Lp, upsampling follows the same repetition-padding rule as decimate repeat .(5) conv blurpool (blur convolution + decimation for downsampling, interpolation + blur for upsampling). This operator applies 1D convolution along the time axis independently for each feature dimension, using reflective padding at the boundaries. For downsampling, blur with h = 116 [1 , 4, 6, 4, 1] and then uniformly decimate with jt = [[ ut]] .
+
+h = 116 [1 , 4, 6, 4, 1] , Z = X ∗ h, ˜X[t, :] = Z[jt, :] . (42) For upsampling, first obtain ˆX by linear , then blur with the same kernel h.
+
+ˆX = linear (X), ˜X = ˆX ∗ h. (43) (6) fir lowpass (windowed-sinc FIR low-pass + decimation for downsampling, interpolation + mild FIR smoothing for upsampling). This operator performs filtering and decimation along the time axis independently for each feature dimension. For downsampling, we apply a windowed-sinc FIR low-pass kernel hfir (Hamming window) for anti-aliasing and then uniformly decimate with jt = [[ ut]] . Let d = T /L p and fc ≈ 0.5/d .
+
+Z = X ∗ hfir , ˜X[t, :] = Z[jt, :] . (44) For upsampling, we first obtain ˆX by linear , then apply a small mean FIR kernel ¯h = 1 
+
+> K
+
+[1 , . . . , 1] for mild smoothing (a small odd K ≤ 5 in our implementation). 
+
+ˆX = linear (X), ˜X = ˆX ∗ ¯h. (45) 18 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+x2: Pooling type (active if x1 = pool ). Active only when x1 = pool , using the interval partition It defined under x1.Each interval is aggregated into one output point, computed independently per feature. (1) avg : interval average pooling. 
+
+˜X[t, :] = 1
+
+|I t|
+
+X
+
+> k∈I t
+
+X[k, :] . (46) (2) max : interval max pooling (element-wise over features). 
+
+˜X[t, :] = max 
+
+> k∈I t
+
+X[k, :] . (47) (3) median : interval median pooling (element-wise over features). 
+
+˜X[t, :] = median  {X[k, :] }k∈I t
+
+. (48) (4) weighted : triangular-weighted average pooling with normalized weights within each interval, which degenerates to copying when |I t| = 1 .
+
+αt,k =
+
+
+
+1, |I t| = 1 ,
+
+1 − 2( k − et)
+
+|I t| − 1 − 1 , |I t| ≥ 2, wt,k = αt,k 
+
+P 
+
+> j∈I t
+
+αt,j 
+
+. (49) 
+
+˜X[t, :] = X
+
+> k∈I t
+
+wt,k X[k, :] . (50) 
+
+x5: Normalization layer. x5 selects the normalization layer type using standard definitions with learnable affine parameters 
+
+γ, β . In the equations below, ϵ > 0 is a numerical-stability constant, and μ and σ2 denote the mean and variance computed over the corresponding normalization axes. (1) BatchNorm :
+
+BN( a) = γ a − μB
+
+pσ2 
+
+> B
+
++ ϵ + β. (51) (2) LayerNorm :
+
+LN( a) = γ a − μfeat 
+
+pσ2feat + ϵ + β. (52) (3) InstanceNorm :
+
+IN( a) = γ a − μinst 
+
+pσ2inst + ϵ + β. (53) 
+
+x12 : Activation. x12 selects a pointwise activation function. To avoid implementation ambiguity, we provide the standard mathematical definitions below, where σ(·) is the logistic sigmoid and Φ( ·) is the standard normal CDF. (1) ReLU :
+
+ReLU( a) = max(0 , a ). (54) (2) GELU (exact): 
+
+GELU( a) = a Φ( a), Φ( a) = 
+
+Z a
+
+> −∞
+
+1
+
+√2π exp 
+
+
+
+− t2
+
+2
+
+
+
+dt. (55) (3) SiLU :
+
+SiLU( a) = a σ (a), σ(a) = 11 + exp( −a) . (56) (4) Tanh :
+
+tanh( a) = exp( a) − exp( −a)exp( a) + exp( −a) . (57) 19 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+x16 : Learning-rate scheduler. x16 controls whether to enable learning-rate scheduling, and the specific scheduler is selected by the conditional variable x17 .
+
+x17 : Scheduler type (active if x16 = on ). When scheduling is enabled, x17 selects the scheduler type. (1) plateau (reduce-on-plateau). When the monitored metric does not improve for several epochs, the learning rate is multiplied by a fixed decay factor (standard implementation). (2) warmup cosine . Let the total steps be S, the warmup steps be Sw, and the step index be s = 0 , . . . , S − 1. The learning rate is 
+
+ηs =
+
+
+
+ηmax 
+
+s + 1 
+
+Sw
+
+, 0 ≤ s < S w,ηmin + 12 (ηmax − ηmin )
+
+
+
+1 + cos 
+
+
+
+π s − Sw
+
+S − Sw
+
+ 
+
+, Sw ≤ s ≤ S − 1.
+
+(58) 
+
+x18 : Loss type. x18 selects the training loss type. Below we use elementwise residual rn,k = yn,k − ˆyn,k .(1) MSE :
+
+LMSE = 1
+
+ND K
+
+> ND
+
+X
+
+> n=1
+> K
+
+X
+
+> k=1
+
+r2
+
+> n,k
+
+. (59) (2) MAE :
+
+LMAE = 1
+
+ND K
+
+> ND
+
+X
+
+> n=1
+> K
+
+X
+
+> k=1
+
+|rn,k |. (60) (3) SmoothL1 (with a fixed transition β > 0 in implementation): 
+
+ℓSmoothL1 (r) = 
+
+( 12β r2, |r| < β, 
+
+|r| − β 
+
+> 2
+
+, otherwise , LSmoothL1 = 1
+
+ND K
+
+X
+
+> n,k
+
+ℓSmoothL1 (rn,k ). (61) (4) MAPE (with stabilizer ϵ > 0): 
+
+LMAPE = 100 
+
+ND K
+
+X
+
+> n,k
+
+|rn,k ||yn,k | + ϵ . (62) (5) Huber (with a fixed threshold δ > 0 in implementation): 
+
+ℓHuber (r) = 
+
+( 12 r2, |r| ≤ δ, δ  |r| − δ
+
+> 2
+
+ , |r| > δ, LHuber = 1
+
+ND K
+
+X
+
+> n,k
+
+ℓHuber (rn,k ). (63) (6) LogCosh :
+
+LLogCosh = 1
+
+ND K
+
+X
+
+> n,k
+
+logcosh( rn,k ). (64) (7) Quantile (pinball loss with a fixed τ ∈ (0 , 1) in implementation): 
+
+ρτ (r) = max( τ r, (τ − 1) r), LQuantile = 1
+
+ND K
+
+X
+
+> n,k
+
+ρτ (rn,k ). (65) (8) SMAPE (with stabilizer ϵ > 0): 
+
+LSMAPE = 100 
+
+ND K
+
+X
+
+> n,k
+
+2|rn,k ||yn,k | + |ˆyn,k | + ϵ . (66) 20 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+(9) Combined . This option uses a two-term combined loss, where the loss pair is selected by the conditional variable x19 .
+
+LCombined = α La + (1 − α) Lb, (67) where (La, Lb) is selected by x19 and α is fixed to 0.5 for a symmetric combination. (10) AdaptiveCombined . This option also uses the loss pair selected by x19 , with weight initialization given by x20 
+
+and weight-update learning rate given by x21 .
+
+LAdaptive = w1 La + w2 Lb, w1, w 2 ≥ 0, w1 + w2 = 1 . (68) 
+
+x22 : Fusion operator Fuse conv . x22 selects the fusion operator for short/long branch features. Let Hs, Hℓ ∈ RLp×C be the two branch outputs. (1) concat :
+
+Fuse( Hs, Hℓ) = [ Hs ∥ Hℓ] ∈ RLp×2C . (69) (2) add :
+
+Fuse( Hs, Hℓ) = Hs + Hℓ. (70) (3) weighting : The specific output form in this fusion family is selected by the conditional variable x23 .(4) gating :
+
+G = σ(Wg [Hs∥Hℓ] + bg ) , Fuse( Hs, Hℓ) = G ⊙ Hs + (1 − G) ⊙ Hℓ. (71) (5) attention (cross-attention form): Here we use single-head cross-attention and fix d = Cf , where Cf equals the decoded value of x9 in Table 4. Let Hs, Hℓ ∈ RLp×Cf , and let WQ, WK , WV ∈ RCf ×Cf .
+
+Q = HsWQ, K = HℓWK , V = HℓWV , Fuse( Hs, Hℓ) = softmax 
+
+ QK ⊤
+
+√d
+
+
+
+V. (72) (6) cross mapping : The specific combination mode in this fusion family is selected by the conditional variable x24 .
+
+x23 : Weighting mode (active if x22 = weighting ). Active only when x22 = weighting , we first compute a weight 
+
+α ∈ [0 , 1] and then output according to x23 . Here GAP( ·) denotes global average pooling over the time dimension. 
+
+α = σ w⊤GAP([ Hs∥Hℓ])  . (73) (1) add :
+
+Fuse( Hs, Hℓ) = α Hs + (1 − α) Hℓ. (74) (2) concat :
+
+Fuse( Hs, Hℓ) = [ α Hs ∥ (1 − α) Hℓ] . (75) 
+
+x24 : Cross-mapping mode (active if x22 = cross mapping ). Active only when x22 = cross mapping , we first perform cross-branch mappings and then combine according to x24 .
+
+ˆHs = ϕs(Hℓ), ˆHℓ = ϕℓ(Hs), (76) where ϕs, ϕ ℓ are learnable pointwise linear mappings (e.g., 1 × 1 convolutions or linear layers). (1) add :
+
+Fuse( Hs, Hℓ) = 
+
+
+
+Hs + ˆHs
+
+
+
++
+
+
+
+Hℓ + ˆHℓ
+
+
+
+. (77) (2) concat :
+
+Fuse( Hs, Hℓ) = 
+
+h
+
+Hs + ˆHs ∥ Hℓ + ˆHℓ
+
+i
+
+. (78) (3) gated :
+
+G = σ(Wg [Hs∥Hℓ] + bg ) , Fuse( Hs, Hℓ) = G ⊙ (Hs + ˆHs) + (1 − G) ⊙ (Hℓ + ˆHℓ). (79) 21 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+B.4. Evolutionary Optimization Metrics 
+
+Let the reference Pareto front be P ∗ = {z1, z 2, . . . , z m} and the non-dominated solution set obtained by an algorithm be 
+
+A = {a1, a 2, . . . , a n}.
+
+Inverted Generational Distance (IGD) IGD measures the average distance from each point on the reference front to its nearest point in A:
+
+IGD( A, P ∗) = 1
+
+|P ∗|
+
+X 
+
+> z∈P∗
+
+min  
+
+> a∈A
+
+∥z − a∥2. (80) 
+
+Hypervolume (HV) Given a reference point r, HV measures the Lebesgue measure of the objective-space region dominated by A and bounded by r:
+
+HV( A) = Vol [
+
+> a∈A
+
+[a, r ]
+
+!
+
+. (81) 
+
+B.5. Model Prediction Metrics 
+
+Assume the test set contains N samples. For the n-th sample and the k-th target ( k = 1 , . . . , K , n = 1 , . . . , N ), the ground truth and prediction are denoted by yk,n and ˆyk,n , respectively. Let ¯yk = 1
+
+> N
+
+PNn=1 yk,n .
+
+Per-target metrics The mean squared error (MSE), mean absolute error (MAE), and mean absolute percentage error (MAPE) for target k are defined as 
+
+MSE k = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+ yk,n − ˆyk,n 
+
+2, (82) 
+
+MAE k = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+yk,n − ˆyk,n , (83) 
+
+MAPE k = 100 
+
+N
+
+> N
+
+X
+
+> n=1
+
+yk,n − ˆyk,n 
+
+yk,n + ϵ , (84) where ϵ is a small constant to avoid division by zero in degenerate cases. 
+
+Across-target averaged metrics The mean MAPE across K targets is 
+
+MAPE mean = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+MAPE k. (85) 
+
+Normalized metrics (NMSE and NMAE) Let σk be the standard deviation of the ground-truth values for target k
+
+(computed on the evaluation set or on a fixed reference set, consistent across methods). The overall normalized metrics are defined by normalizing each target and then averaging over targets: 
+
+NMSE = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+MSE k
+
+σ2 
+
+> k
+
++ ϵ , NMAE = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+MAE k
+
+σk + ϵ . (86) In this work, K = 5 .
+
+B.6. Experimental Settings and Hardware 
+
+Software implementation: all code is implemented and debugged in PyCharm (Python/PyTorch). Hardware: since one FE on the real sintering task corresponds to a full train-and-validate run, we perform parallel evaluations on a server equipped with two RTX 3090 GPUs; model development and debugging are conducted on a local Apple M4 Pro MacBook Pro, which can remotely schedule the server resources under the same experimental pipeline. 22 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+Algorithm settings (PHMOEA and evolutionary baselines): on the real sintering task, we use a population size N = 50 and a maximum generation Tmax = 30 , resulting in a maximum budget of N ·Tmax = 1500 function evaluations (FEs). All evolutionary methods share the same budget and termination criterion on the real task, and we enable the same early-stopping mechanism with a window size W = 8 generations. On synthetic benchmarks, to visualize complete generation-wise convergence trajectories, we disable early stopping and set N = 100 and Tmax = 100 . PHMOEA uses the following fixed hyper-parameters: crossover probability pc = 0 .8, mutation probability pm = 0 .2, initial bin number Ki = 6 for continuous variables, and deduplication resampling limit ntrial = 50 . Player tracking uses q = 0 .3, p = 0 .2, cold bonus 
+
+o = 0 .15 , and cross-pool mutation probability e = 0 .1. We use the stage factor ϕt = t/T max and split the search into three stages using κ1 and κ2: early if ϕt < κ 1, middle if κ1 ≤ ϕt < κ 2, and late if ϕt ≥ κ2. We set (κ1, κ 2) = (0 .3, 0.6) for the real sintering task and (κ1, κ 2) = (0 .2, 0.4) for synthetic benchmarks. Stage ratios are controlled by StageRatio( ϕt)
+
+using a fixed three-stage schedule: in the early stage, (ρpar , ρ hot , ρ nh ) = (0 .8, 0.1, 0.1) ; in the middle stage, (0 .6, 0.2, 0.2) ;and in the late stage, (0 .5, 0.3, 0.2) . For continuous variables, we use SBX crossover and polynomial mutation (PM) with distribution indices ηc = 15 and ηm = 20 , and apply polynomial mutation with a per-dimension probability ppoly  
+
+> m
+
+= 1 /D ,where D is the encoding dimension. We cap the number of mutated dimensions in a single mutation to mmax = min(6 , D )
+
+to avoid overly aggressive perturbations. For Eq.(8), we slightly bias toward the error objective on the real task by setting 
+
+w = 0 .7, while using balanced weights w = 0 .5 on synthetic benchmarks; the remaining coefficients are fixed to λ = 0 .2
+
+and γ = 0 .05 in all experiments. Unless otherwise stated, each evolutionary algorithm is run for 20 independent trials and we report mean ±std, with statistical significance tested by the Wilcoxon rank-sum test at p < 0.05 .Model settings (MS–BCNN as a PHMOEA-selected configuration): PHMOEA outputs a Pareto set of non-dominated solutions; to showcase the instantiated model and conduct downstream forecasting-performance comparisons, we select one solution as an exemplar configuration xsel from the Pareto set and keep it fixed across all forecasting comparisons. To avoid ambiguity, we record its instantiated decision-variable values following Table 4 (candidate sets in Table 4; operator/loss definitions in Appendix B.3): 
+
+x1 = hybrid , x 2 = avg (inactive if x1̸ = pool ), x 3 = 12 , x 4 = 32 , x 5 = BatchNorm ,x6 = 16 , x 7 = 16 , x 8 = 32 , x 9 = 64 , x 10 = (3 , 5, 7) , x 11 = (9 , 11 , 13) ,x12 = Tanh , x 13 = 0 .1, x 14 = 10 −3, x 15 = 5 .39 × 10 −5, x 16 = on ,x17 = warmup cosine (active if x16 = on ), x 18 = AdaptiveCombined , x 19 = ( MAE , LogCosh ) ( active if x18 ∈ { Combined , A
+
+x20 = (0 .7, 0.3) ( active if x18 = AdaptiveCombined ), x 21 = 0 .001 ( active if x18 = AdaptiveCombined ),x22 = concat , x 23 = -- (inactive if x22 ̸ = weighting ), x 24 = -- (inactive if x22 ̸ = cross mapping ).
+
+# C. Full Results and Ablations 
+
+C.1. Results of Evolutionary Algorithms                           
+
+> Table 6. Per-benchmark evolutionary results on H-DTLZ2/7 at the final generation ( g=100 ). Best IGD (lower) and best HV (higher) per benchmark are highlighted in gray. Values are reported with 7 decimal places. Benchmark Method IGD ↓HV ↑
+> H-DTLZ2 PHMOEA 0.0051725 ±0.00008 0.4188035 ±0.00024 MOEA/D 0.0043681 ±0.00011 0.4192696 ±0.00041 NSGA-II 0.0049416 ±0.00038 0.4194225 ±0.00062 NSGA-III 0.0041721 ±0.00002 0.4197837 ±0.00015 SMSEMOA 0.0051574 ±0.00012 0.4208402 ±0.00004 H-DTLZ7 PHMOEA 0.0033302 ±0.00013 0.5566254 ±0.00001 MOEA/D 0.0033004 ±0.00016 0.5566116 ±0.00001 NSGA-II 0.0034201 ±0.00013 0.5564066 ±0.00008 NSGA-III 0.0032780 ±0.00001 0.5566078 ±0.00004 SMSEMOA 0.0025751 ±0.000015 0.5572028 ±0.00009
+
+23 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+Figure 5. Comparison of Pareto fronts achieved by different evolutionary algorithms on the real-world sintering task in the MSE– parameter-count objective space. 
+
+24 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+C.2. Results of Models  
+
+> Table 7. Per-target forecasting performance on five sintering targets under the shuffled (approximately i.i.d.) evaluation setting (mean ±std). For each target and metric, the best result is highlighted in gray.
+
+Model Target MSE / NMSE MAE / NMAE MAPE (%) MS-BCNN TFe 0.066887 ± 0.004481 0.199272 ± 0.006370 0.358438 ± 0.011667 
+
+FeO 0.130500 ± 0.005977 0.248728 ± 0.007786 2.762939 ± 0.082877 
+
+SiO 2 0.004147 ± 0.000860 0.047211 ± 0.003289 0.834882 ± 0.055914 
+
+CaO 0.034386 ± 0.002732 0.137910 ± 0.004608 1.140071 ± 0.037974 
+
+Basicity 0.000561 ± 0.000020 0.017901 ± 0.000419 0.840955 ± 0.019404 
+
+Overall 0.267880 ± 0.217387 0.347816 ± 0.138165 1.187457 ± 0.041567 
+
+OB-ISSID TFe 0.087376 ± 0.012018 0.221529 ± 0.013426 0.397920 ± 0.023850 
+
+FeO 0.124807 ± 0.009778 0.259250 ± 0.008807 2.904489 ± 0.101035 
+
+SiO 2 0.006618 ± 0.001655 0.056789 ± 0.005482 1.007978 ± 0.101921 
+
+CaO 0.047292 ± 0.008086 0.156763 ± 0.009696 1.302444 ± 0.085195 
+
+Basicity 0.000690 ± 0.000050 0.019374 ± 0.000459 0.912564 ± 0.021654 
+
+Overall 0.304435 ± 0.200582 0.380942 ± 0.135334 1.305079 ± 0.066731 
+
+Ventingformer TFe 0.078146 ± 0.012676 0.209559 ± 0.015034 0.376626 ± 0.027000 
+
+FeO 0.121521 ± 0.013489 0.252890 ± 0.011607 2.829842 ± 0.137632 
+
+SiO 2 0.004980 ± 0.001040 0.052148 ± 0.004801 0.924745 ± 0.085734 
+
+CaO 0.041254 ± 0.006052 0.149523 ± 0.007049 1.240762 ± 0.060862 
+
+Basicity 0.000623 ± 0.000035 0.018812 ± 0.000359 0.885587 ± 0.016939 
+
+Overall 0.279285 ± 0.198880 0.365572 ± 0.136393 1.251512 ± 0.065633 
+
+Transformer TFe 0.179614 ± 0.051713 0.306316 ± 0.043242 0.548945 ± 0.076513 
+
+FeO 0.146094 ± 0.013018 0.281115 ± 0.012444 3.140294 ± 0.141931 
+
+SiO 2 0.018645 ± 0.006535 0.096401 ± 0.017427 1.725985 ± 0.322216 
+
+CaO 0.089728 ± 0.021513 0.213125 ± 0.026726 1.784003 ± 0.234445 
+
+Basicity 0.000906 ± 0.000114 0.022628 ± 0.001780 1.067092 ± 0.084132 
+
+Overall 0.456411 ± 0.176579 0.482932 ± 0.102764 1.653264 ± 0.171847 
+
+LSTM TFe 0.121748 ± 0.021304 0.247516 ± 0.015248 0.444744 ± 0.026978 
+
+FeO 0.143653 ± 0.012786 0.278965 ± 0.010682 3.122390 ± 0.109783 
+
+SiO 2 0.010181 ± 0.002500 0.066771 ± 0.006445 1.185119 ± 0.120935 
+
+CaO 0.062829 ± 0.012811 0.170975 ± 0.010754 1.423044 ± 0.094781 
+
+Basicity 0.000855 ± 0.000080 0.021571 ± 0.001170 1.018066 ± 0.056480 
+
+Overall 0.380269 ± 0.220356 0.421303 ± 0.141852 1.438673 ± 0.081791 
+
+GRU-PLS TFe 0.202637 ± 0.018764 0.354862 ± 0.017037 0.635633 ± 0.030851 
+
+FeO 0.146588 ± 0.017297 0.281162 ± 0.011820 3.148090 ± 0.132091 
+
+SiO 2 0.018845 ± 0.001616 0.106709 ± 0.004294 1.898254 ± 0.075795 
+
+CaO 0.087245 ± 0.008711 0.231595 ± 0.011355 1.927161 ± 0.094707 
+
+Basicity 0.000894 ± 0.000073 0.022799 ± 0.000951 1.075404 ± 0.046638 
+
+Overall 0.461843 ± 0.170664 0.512008 ± 0.082071 1.736908 ± 0.076016    
+
+> Note: The Overall row reports NMSE and NMAE (computed by normalizing each target’s error using its variance/standard deviation and then averaging across the five targets), while MAPE is macro-averaged across the five targets.
+
+25 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+(a) MS-BCNN (b) OB-ISSID (c) Ventingformer 
+
+(d) Transformer (e) LSTM (f) GRU-PLS 
+
+Figure 6. Qualitative comparison of ground-truth and predicted trajectories for five quality targets under the shuffled (approximately i.i.d.) evaluation setting. Each panel shows the test-set predictions of one model (TFe, FeO, SiO 2, CaO, and Basicity). 
+
+26 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+Table 8. Per-target forecasting performance on five sintering targets under the chronological (non-shuffled) evaluation setting (mean ±std). For each target and metric, the best result is highlighted in gray. 
+
+Model Target MSE / NMSE MAE / NMAE MAPE (%) MS-BCNN TFe 0.387834 ± 0.141648 0.529125 ± 0.106408 0.939281 ± 0.188755 
+
+FeO 0.205710 ± 0.046634 0.344918 ± 0.047771 3.767097 ± 0.507709 
+
+SiO 2 0.092268 ± 0.037270 0.256975 ± 0.064096 4.688675 ± 1.153858 
+
+CaO 0.340601 ± 0.136297 0.479478 ± 0.110109 4.048819 ± 0.919742 
+
+Basicity 0.001920 ± 0.001217 0.035376 ± 0.011207 1.639518 ± 0.517844 
+
+Overall 4.445824 ± 2.193273 1.682359 ± 0.490118 3.016678 ± 0.657582 
+
+OB-ISSID TFe 15 .17148 ± 10 .89632 3.240489 ± 1.500977 5.752892 ± 2.664363 
+
+FeO 7.427538 ± 11 .39653 1.922083 ± 1.362099 21 .099157 ± 14 .891946 
+
+SiO 2 2.478063 ± 2.177933 1.255659 ± 0.693490 22 .826424 ± 12 .581261 
+
+CaO 2.934882 ± 1.721921 1.291617 ± 0.406435 10 .961348 ± 3.423734 
+
+Basicity 0.037870 ± 0.040804 0.154900 ± 0.084536 7.205134 ± 3.930654 
+
+Overall 119 .6787 ± 101 .7280 8.002796 ± 3.658696 13 .568991 ± 7.498392 
+
+Ventingformer TFe 0.618011 ± 0.430214 0.677437 ± 0.165248 1.201339 ± 0.954510 
+
+FeO 0.344389 ± 0.161157 0.494081 ± 0.124562 5.503169 ± 1.158960 
+
+SiO 2 0.069925 ± 0.004973 0.215943 ± 0.084562 3.937254 ± 1.425162 
+
+CaO 0.079916 ± 0.014892 0.218651 ± 0.013254 1.851269 ± 0.242563 
+
+Basicity 0.002504 ± 0.000254 0.042743 ± 0.021445 1.976784 ± 0.581347 
+
+Overall 4.788518 ± 4.111249 1.697928 ± 0.746268 2.893963 ± 0.872508 
+
+Transformer TFe 1.201653 ± 1.119301 1.048477 ± 0.325778 1.817939 ± 0.822995 
+
+FeO 0.478953 ± 0.156598 0.577473 ± 0.101278 6.266190 ± 0.997501 
+
+SiO 2 0.072787 ± 0.005404 0.240469 ± 0.009146 4.150201 ± 1.267836 
+
+CaO 0.186698 ± 0.036337 0.378812 ± 0.021531 3.131392 ± 0.574227 
+
+Basicity 0.001879 ± 0.000277 0.034847 ± 0.002894 1.774490 ± 0.134311 
+
+Overall 7.580927 ± 8.678255 2.180247 ± 1.303618 3.428042 ± 0.759374 
+
+LSTM TFe 1.543370 ± 1.162099 1.239216 ± 0.756242 2.220838 ± 1.784521 
+
+FeO 0.215657 ± 0.138634 0.363922 ± 0.026993 3.915424 ± 1.212547 
+
+SiO 2 0.265145 ± 0.062545 0.384512 ± 0.164988 3.901176 ± 1.567876 
+
+CaO 0.140146 ± 0.016552 0.348531 ± 0.112578 6.413463 ± 1.696815 
+
+Basicity 0.358738 ± 0.148035 0.549547 ± 0.193562 4.699463 ± 1.364844 
+
+Overall 114 .7737 ± 206 .4481 6.333591 ± 7.544510 4.227223 ± 1.525321 
+
+GRU-PLS TFe 0.943971 ± 0.046501 0.899228 ± 0.020768 1.596798 ± 0.036822 
+
+FeO 0.387848 ± 0.036230 0.521086 ± 0.030214 5.807001 ± 0.337101 
+
+SiO 2 0.080240 ± 0.006853 0.228669 ± 0.011692 4.115747 ± 0.210896 
+
+CaO 0.959481 ± 0.052035 0.880215 ± 0.024368 7.426723 ± 0.206384 
+
+Basicity 0.008617 ± 0.000501 0.088803 ± 0.002844 4.118412 ± 0.132350 
+
+Overall 10 .71403 ± 6.279894 2.795390 ± 1.053220 4.612936 ± 0.184711    
+
+> Note: For each target row, we report MSE and MAE (with MAPE). The Overall row reports NMSE and NMAE, computed by normalizing each target error (e.g., by its variance/standard deviation) and then macro-averaging over the five targets; MAPE is also macro-averaged.
+
+27 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+(a) MS-BCNN (b) OB-ISSID (c) Ventingformer 
+
+(d) LSTM (e) GRU-PLS (f) Transformer 
+
+Figure 7. Qualitative comparison of ground-truth and predicted trajectories for five quality targets under the chronological (non-shuffled) evaluation setting. Each panel shows the test-set predictions of one model (TFe, FeO, SiO 2, CaO, and Basicity). 
+
+C.3. Ablation Study 
+
+Table 9. PHMOEA ablation on H-DTLZ2 and H-DTLZ7 (mean ±std across random seeds). Benchmark Variant IGD ↓ HV ↑
+
+H-DTLZ2 Full (PHMOEA) 0.0051723 ±0.00008 0.4188054 ±0.00024 Without De-duplication 0.0054982 ±0.00017 0.41825782 ±0.00029 Without Elitism 0.0088575 ±0.00190 0.4135749 ±0.00629 H-DTLZ7 Full (PHMOEA) 0.0033303 ±0.00013 0.5566297 ±0.00001 Without De-duplication 0.0033351 ±0.00016 0.5466567 ±0.00002 Without Elitism 0.0102604 ±0.00013 0.54902670 ±0.00001 
+
+28 Auto-Configured Networks for Multi-Scale Multi-Output Time-Series Forecasting 
+
+Figure 8. IGD trajectories over generations for PHMOEA ablations on synthetic benchmarks. 
+
+Table 10. Per-target ablation results of MS–BCNN on the real-world sintering task under the chronological (non-shuffled) evaluation setting (mean ±std across 5 random seeds). 
+
+Variant Target MSE / NMSE ↓ MAE / NMAE ↓ MAPE(%) ↓
+
+Full (MS-BCNN) TFe 0.387834 ± 0.141648 0.529125 ± 0.106408 0.939281 ± 0.188755 
+
+FeO 0.205710 ± 0.046634 0.344918 ± 0.047771 3.767097 ± 0.507709 
+
+SiO 2 0.092268 ± 0.037270 0.256975 ± 0.064096 4.688675 ± 1.153858 
+
+CaO 0.340601 ± 0.136297 0.479478 ± 0.110109 4.048819 ± 0.919742 
+
+Basicity 0.001920 ± 0.001217 0.035376 ± 0.011207 1.639518 ± 0.517844 
+
+Overall 4.445824 ± 2.193273 1.682359 ± 0.490118 3.016678 ± 0.657582 
+
+w/o Time Embedding TFe 0.528306 ± 0.438353 0.589665 ± 0.291728 1.046420 ± 0.517767 
+
+FeO 0.196099 ± 0.051730 0.339057 ± 0.054657 3.741805 ± 0.623491 
+
+SiO 2 0.109426 ± 0.063735 0.283855 ± 0.096255 5.205599 ± 1.756073 
+
+CaO 0.284755 ± 0.185126 0.440510 ± 0.163061 3.735470 ± 1.396127 
+
+Basicity 0.004088 ± 0.001677 0.056617 ± 0.014191 2.622988 ± 0.659113 
+
+Overall 5.660484 ± 3.074876 1.905506 ± 0.575237 3.270456 ± 0.657582 
+
+Single-branch (Short-only) TFe 0.408283 ± 0.224539 0.533293 ± 0.204381 0.857912 ± 0.362429 
+
+FeO 0.210917 ± 0.049795 0.340264 ± 0.050435 3.737282 ± 0.523007 
+
+SiO 2 0.085649 ± 0.047021 0.266748 ± 0.077165 4.508693 ± 1.423346 
+
+CaO 0.366627 ± 0.065350 0.483729 ± 0.065157 3.662865 ± 0.569832 
+
+Basicity 0.003152 ± 0.000510 0.048463 ± 0.004712 2.241636 ± 0.218776 
+
+Overall 4.910173 ± 2.186641 1.801127 ± 0.476171 3.001678 ± 0.657582 
+
+Single-branch (Long-only) TFe 0.406314 ± 0.053484 0.536952 ± 0.058610 0.953975 ± 0.104273 
+
+FeO 0.159779 ± 0.013265 0.296559 ± 0.017777 3.238290 ± 0.190778 
+
+SiO 2 0.097965 ± 0.037240 0.262124 ± 0.054341 4.733682 ± 0.986584 
+
+CaO 0.502150 ± 0.165891 0.596165 ± 0.134105 5.011213 ± 1.122812 
+
+Basicity 0.001816 ± 0.000817 0.034605 ± 0.008354 1.601567 ± 0.386090 
+
+Overall 4.956630 ± 2.725779 1.753690 ± 0.603572 3.107745 ± 0.657582    
+
+> Note: For each target row, we report MSE/MAE (with MAPE). The Overall row reports NMSE and NMAE (NMSE = MSE/var, NMAE = MAE/std) macro-averaged over the five targets; MAPE is also macro-averaged.
+
+29
