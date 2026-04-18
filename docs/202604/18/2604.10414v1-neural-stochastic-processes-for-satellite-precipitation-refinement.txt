@@ -1,0 +1,1023 @@
+Title: Neural Stochastic Processes for Satellite Precipitation Refinement
+
+URL Source: https://arxiv.org/pdf/2604.10414v1
+
+Published Time: Tue, 14 Apr 2026 01:09:41 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# Neural Stochastic Processes for Satellite Precipitation Refinement 
+
+Shunya Nagashima 1, Takumi Bannai 2,3, Shuitsu Koyama 1, Tomoya Mitsui 1, Shuntaro Suzuki 11Neurogica Inc. 2LTS, Inc. 3ME-Lab Japan, Inc. 
+
+## Abstract 
+
+Accurate precipitation estimation is critical for flood forecasting, water resource management, and disaster preparedness. Satellite products provide global hourly coverage but contain systematic biases; ground-based gauges are accurate at point locations but too sparse for direct gridded correction. Existing methods fuse these sources by interpolating gauge observations onto the satellite grid, but treat each time step independently and therefore discard temporal structure in precipitation fields. We propose Neural Stochastic Process (NSP), a model that pairs a Neural Process encoder conditioning on arbitrary sets of gauge observations with a latent Neural SDE on a 2D spatial representation. NSP is trained under a single variational objective with simulation-free cost. We also introduce QPEBench, a benchmark of 43,756 hourly samples over the Contiguous United States (2021–2025) with four aligned data sources and six evaluation metrics. On QPEBench, NSP outperforms 13 baselines across all six metrics and surpasses JAXA’s operational gauge-calibrated product. An additional experiment on Kyushu, Japan confirms generalization to a different region with independent data sources. 
+
+## 1 Introduction 
+
+Accurate precipitation monitoring underpins flood forecasting, water resource management, and disaster preparedness [ 1 , 39 , 67 ]; weather, climate, and water-related hazards imposed cumulative losses exceeding US$4.3 trillion over 1970–2021 [ 67 ]. Satellite products such as GSMaP [ 35 ] provide global hourly estimates but exhibit systematic biases [ 29 ], while ground-based radar coverage remains absent across most of Africa, central Asia, and oceanic regions [ 55 ]. Correcting satellite biases with sparse gauge observations is therefore essential, especially where no ground-based alternative exists. In this paper, we address the refinement of satellite precipitation estimates by fusing spatially con-tinuous satellite observations with highly accurate but spatially sparse point measurements from ground-based gauges to produce spatially coherent precipitation fields (Fig. 1). The underlying prob-lem—estimating a continuous spatio-temporal field from sparse, irregularly placed observations under non-stationary dynamics—has been studied through Gaussian processes [ 50 ], neural processes [ 23 ], and neural differential equations [ 13 , 37 ], yet spatial and temporal modeling remain largely disjoint. This task is challenging because precipitation is zero-inflated and heavy-tailed [ 62 ] and gauge observations are sparse and time-varying; furthermore, convective cells can evolve within an hour, making independent per-timestep estimation temporally incoherent. Even JAXA’s gauge-calibrated product achieved hourly correlation of only 0.31–0.47 against surface gauge observations in prior regional evaluations [40]. Existing approaches address only part of this challenge: geostatistical methods [ 16 , 11 ] are intractable at high resolution, pixel-wise corrections [ 54 , 66 , 24 ] ignore spatial structure, machine learning methods [ 14 , 5] process each time step independently, and no standardized benchmark with unified evaluation exists for this task. To address these limitations, we propose Neural Stochastic Process (NSP), a framework that unifies Neural Process-based spatial interpolation from sparse observations [ 23 ] with Neural SDE-based continuous-time dynamics [ 37 ] under a single variational objective. NSP models joint spatio-temporal structure through a latent stochastic process on a 2D spatial field, producing temporally consistent predictions via a residual correction to the satellite estimate. 
+
+> arXiv:2604.10414v1 [cs.CV] 12 Apr 2026
+
+Figure 1: Motivation for the proposed Neural Stochastic Process (NSP). Satellite precipitation estimates provide gridded coverage but carry systematic biases, while gauges are sparse but locally accurate. NSP encodes satellite estimates, elevation, and gauges with the encoder Eφ, evolves a latent state through stochastic dynamics, and maps it to a calibrated precipitation estimate with the decoder 
+
+Dθ ; “Eval only” indicates that the radar reference is used only for comparison, not as a model input. We also construct QPEBench (Quantitative Precipitation Estimation Benchmark), the first ML-ready benchmark for spatio-temporal precipitation refinement, covering five years (2021–2025) of hourly data over the Contiguous United States with radar-based reference fields and six metrics (Section 3). Our contributions are as follows: • A variational objective unifying Neural Process inference with Neural SDE dynamics; its temporal term is a closed-form transition KL from Girsanov’s theorem [ 37 ], requiring no SDE solver calls. • A spatially-structured 2D latent field that replaces the global representation of standard NPs, enabling convolutional SDE dynamics with position-dependent uncertainty. • QPEBench, the first ML-ready benchmark for spatio-temporal precipitation refinement with six evaluation metrics covering accuracy and spatial structure. • A comprehensive empirical evaluation on QPEBench showing that NSP outperforms all 13 baselines and JAXA’s operational gauge-calibrated product (GSMaP GC) across all six metrics. 
+
+## 2 Related Work 
+
+Satellite precipitation refinement. Satellite products such as GSMaP [ 35 ] and GPM IMERG [ 28 ]provide global hourly estimates but exhibit systematic biases arising from indirect retrieval [ 29 ]; comprehensive surveys are provided in [ 58 , 41 ]. Classical methods range from geostatistical interpo-lation such as kriging [ 16 ] to local bias-correction schemes such as IDW [ 54 ], quantile mapping [ 66 ], and EMOS [ 24 ]; they either rely on explicit spatial covariance modeling that is difficult to scale or adjust locations individually without producing spatially coherent precipitation fields. CNN-based approaches have been applied to NWP post-processing [ 5] and satellite bias correction over complex terrain [ 12 ], though regression-based training tends to oversmooth heavy precipitation. GANs produce stochastic precipitation fields that better capture the full intensity distribution [ 36 ], and diffusion models conditioned on NWP or satellite variables demonstrate balanced skill across intensity quantiles [ 38 , 57 ]. However, these methods typically assume dense conditioning variables or image-to-image settings rather than sparse, irregular gauge context, and none jointly models sparse-gauge interpolation with temporal dynamics. We tested a conditional DDPM under our sparse-gauge protocol but found it unstable across folds; see Appendix E.9. 
+
+Precipitation and weather benchmarks. WeatherBench 2 [ 51 ] and ChaosBench [ 44 ] target forecast evaluation, while RainBench [ 17 ], RainNet [ 15 ], RainShift [ 27 ], and SatRain [ 49 ] focus on precipitation forecasting, downscaling, or retrieval evaluation; see Appendix A for details. To our knowledge, none of these benchmarks addresses fusing satellite estimates with sparse, irregularly distributed gauge observations. QPEBench fills this gap with five years of aligned satellite, elevation, and gauge inputs alongside six metrics covering both accuracy and spatial structure. 2Neural Processes. Neural Processes (NPs) [ 22 , 23 ] learn to predict dense outputs from sparse context observations in a single forward pass, providing a scalable alternative to Gaussian Processes; recent developments are surveyed in [ 10 ]. Subsequent work has introduced convolutional architectures that exploit spatial stationarity [ 25 , 20 ], gridded transformer variants that scale to large spatio-temporal datasets [ 4], and flow matching for improved conditional generation [ 26 ]; see Appendix A for a fuller catalogue. The NP variants most relevant to this task still treat each time step independently. 
+
+Neural SDEs. Neural ODEs [ 13 ] parameterize continuous-time dynamics with neural networks; Neural SDEs [ 63 , 37 ] generalize this by adding a learnable diffusion term, capturing both deterministic trends and stochastic fluctuations [ 30 ]. Training latent SDEs requires a path-level KL divergence that typically demands expensive simulation through SDE solvers [ 31 ]. Girsanov’s theorem [ 37 ] reduces this to a drift matching loss with no SDE solver calls, and recent work extends simulation-free training through score- and flow-matching formulations [ 7]; see Appendix A for applications. NSP applies convolutional drift and diffusion on a 2D spatial latent field, extending prior latent SDE formulations from vector-valued to spatially structured dynamics. 
+
+## 3 QPEBench 
+
+Existing ML-ready precipitation benchmarks address medium-range forecasting over gridded reanal-ysis fields [ 51 , 44 , 17 ] or paired low/high-resolution downscaling [ 15 , 27 ], rather than fusing satellite estimates with sparse gauge observations. We propose QPEBench, built from aligned multi-source inputs and an independent radar reference over the Contiguous United States (CONUS). 
+
+Data sources. QPEBench combines four data sources on a common 260 ×590 grid at 0.1◦ resolution (∼11 km). Satellite precipitation : JAXA’s GSMaP MVK product [ 35 ] provides gauge-uncorrected hourly estimates. We chose GSMaP over NASA IMERG [ 28 ] because the MVK (satellite-only) and GC (gauge-calibrated) variants share the same retrieval algorithm, enabling a controlled comparison of gauge fusion methods under the same satellite baseline. Elevation : ETOPO 2022 [ 21 ] supplies elevation, resampled to the 0.1◦ grid. Gauge observations : hourly reports from 11,879 unique stations obtained through the Synoptic Data API [ 59 ], totaling over 423 million records. Radar reference :NOAA’s Multi-Radar Multi-Sensor (MRMS) Radar-Only QPE [ 56 ], resampled to 0.1◦, provides spatially dense, gauge-independent precipitation estimates and is strictly excluded from training .Models receive satellite, elevation, and gauge inputs; radar serves only as evaluation reference. 
+
+Dataset statistics. The benchmark spans five years from January 2021 to December 2025, yielding 43,824 hourly time steps across diverse meteorological conditions including major hurricanes; see Appendix C.2. The spatial extent covers CONUS ( 24 ◦–50 ◦N, 125 ◦W– 66 ◦W), much larger than the regional domains used in prior QPE studies [ 68 , 6]. Hourly precipitation is zero-inflated and heavy-tailed: most pixels record no rain, yet the non-zero values span several orders of magnitude [ 61 ]. After quality filtering (see Appendix C.3), 43,756 samples remain, averaging 7,269 gauges per hour. 
+
+Evaluation protocol. We employ three-fold expanding-window time-series cross-validation over the five-year period, advancing the test year from 2023 to 2025 while growing the training set chronologically to prevent temporal leakage; see Appendix D.4. Following standard QPE and spatial verification practice [ 19 , 52 ], QPEBench adopts six metrics covering both numerical accuracy and spatial structure: RMSE r and MAE r evaluate the full gridded field against the independent radar reference; RMSE g and MAE g quantify fidelity to gauge observations at discrete locations; rr, coll 
+
+measures the Pearson correlation between predictions and radar at locations where both gauge and radar exceed 0.1 mm/h, mitigating correlation inflation by the dominant dry class [ 60 ]; and FSS R,the Fractions Skill Score averaged over four intensity thresholds (1.0, 2.5, 5.0, and 10.0 mm/h) with a 
+
+20 × 20 pixel neighborhood, assesses whether the predicted field reproduces physically plausible precipitation patterns at the neighborhood scale. Formal definitions are provided in Appendix C.1. 
+
+## 4 Neural Stochastic Process 
+
+Ground-based radar provides the most accurate precipitation fields but covers only a small fraction of the globe [ 55 ]; where radar is unavailable, satellite estimates must be refined using sparse, irregularly placed gauge observations whose count and locations change hourly. Neural Processes [ 22 , 23 ]are well suited to this setting: the encoder conditions on the subset of gauges available at each 3Figure 2: Architecture of Neural Stochastic Process (NSP). (a) During training, gauge observations are split into context and target sets: the black markers in the input maps denote context gauges encoded through the mask mt, while the right panel shows target gauges yt used by Lrec . The shared encoder maps consecutive inputs to zt and zt+1 , and Ltrans aligns the Neural SDE prior pθ (zt+1 | zt)
+
+with the encoder posterior qφ(zt+1 | xt+1 ). (b) At inference, all available gauges are treated as context, and a single encoder–decoder pass predicts ˆyt without SDE integration. hour, treating them as context points that provide local bias supervision at observed locations, while the decoder generalizes to unobserved target locations, enabling a single model to accommodate the irregular, time-varying observation network without architectural modification. We extend this framework with Neural SDEs [ 37 ] under a unified variational objective, forming the Neural Stochastic Process (NSP) for spatio-temporal precipitation refinement. NSP consists of three components (Fig. 2): an encoder mapping inputs to a spatially-structured latent distribution, a Neural SDE regularizing temporal dynamics, and a decoder predicting residual corrections. At each time step t, the input xt ∈ R4×H×W consists of a satellite precipitation estimate 
+
+xs,t ∈ RH×W , elevation xe ∈ RH×W , sparse gauge observations xg,t ∈ RH×W , and a binary mask 
+
+mt ∈ { 0, 1}H×W indicating observed locations. 
+
+4.1 Context-to-target formulation 
+
+Following the Neural Process framework, gauge observations are partitioned during training into a context set Ct for the encoder and a target set Tt for the reconstruction loss. We denote the target gauge observations by yt = {yi : i ∈ T t}; at inference, all available gauges serve as context and ˆyt
+
+is the full predicted precipitation field (partitioning details in Section 5). The encoder maps xt to an approximate posterior over a spatially-structured latent state: 
+
+qφ(zt | xt) = N μφ(xt), diag  σ2
+
+> φ
+
+(xt) , (1) where zt ∈ RD×H′×W ′
+
+preserves the spatial layout of xt (Section 4.4). A sample zt is drawn via the reparameterization trick [ 33 ]. The decoder predicts a residual correction δt in log-precipitation space and a predictive variance ˆσ2
+
+> y,t
+
+, conditioned on zt, xs,t , and xe. The refined estimate is 
+
+ˆyt = exp  log(1 + xs,t ) + δt
+
+ − 1, (2) and the reconstruction loss is evaluated at target locations against the held-out gauge observations. 
+
+4.2 Temporal dynamics via Neural SDE 
+
+Applying the Neural Process independently at each time step ignores temporal dependencies, leading to physically implausible discontinuities. We model the latent temporal dynamics as an SDE: 
+
+dzt = fθ (zt) dt + σθ (zt) ⊙ dWt, (3) 4where fθ and σθ are neural networks parameterizing the drift and element-wise diffusion (Section 4.4), 
+
+⊙ denotes the Hadamard product, Wt is a Wiener process, and σθ is constrained to be positive. 
+
+4.3 Unified variational objective 
+
+A heuristic combination of independent Neural Process losses with an auxiliary SDE penalty lacks a clear probabilistic interpretation. The objective is to retain the deployed single-hour encoder while encouraging temporally consistent latent trajectories. Accordingly, we use a factorized approximate posterior for per-hour inference and introduce temporal coupling through the SDE transition term. We derive a single variational bound that decomposes into a spatial reconstruction term (the standard NP ELBO) and a temporal drift-matching term (the Neural SDE transition loss), thereby unifying the two frameworks under one generative model. 
+
+Generative model. The joint distribution over observations y0: T and latent states z0: T factorizes as 
+
+pθ (y0: T , z0: T ) = p(z0) 
+
+> T−1
+
+Y
+
+> t=0
+
+pθ (zt+1 | zt)
+
+> T
+
+Y
+
+> t=0
+
+pθ (yt | zt), (4) where p(z0) = N (0, I), pθ (zt+1 | zt) is the SDE transition, and pθ (yt | zt) denotes the decoder likelihood; the decoder additionally conditions on the satellite field xs,t and elevation xe, which we suppress from the notation as they are always observed. 
+
+Proposition 1 (ELBO decomposition). We introduce a mean-field approximate posterior qφ(z0: T |
+
+x0: T ) = Q 
+
+> t
+
+qφ(zt | xt), where each factor is given by (1). Unlike latent SDE formulations that use temporally coupled posterior inference [ 37 , 31 ], this approximation keeps encoder inference parallel across time and consistent with test time, where each zt must be inferred from a single hour’s observation alone. A joint posterior over the full spatio-temporal latent field would require sequential inference over all time steps and is substantially more expensive in our high-dimensional 2D setting. Temporal coupling is then introduced through Ltrans , which aligns the independently encoded qφ(zt+1 | xt+1 ) with the SDE transition from zt; Section 6 and Appendix E.3 show that removing this term degrades gridded accuracy. Factorizing the joint distribution (4) and applying Jensen’s inequality yields the following bound; see Appendix B: 
+
+− log pθ (y0: T ) ≤ − 
+
+> T
+
+X
+
+> t=0
+
+Eqφ(zt|xt)
+
+log pθ (yt | zt)| {z }
+
+> Lrec
+
++ DKL 
+
+ qφ(z0 | x0) ∥ p(z0)| {z }
+
+> Lprior
+
++ 
+
+> T−1
+
+X
+
+> t=0
+
+Eqφ(zt|xt)
+
+h
+
+DKL 
+
+ qφ(zt+1 | xt+1 ) ∥ pθ (zt+1 | zt)i| {z }
+
+> Ltrans
+
+, (5) where pθ (yt | zt) is a heteroscedastic Gaussian whose mean and variance are produced by the decoder. 
+
+Lrec is the standard Neural Process reconstruction loss summed over all time steps, and Lprior 
+
+regularizes the initial latent state z0 toward the standard Gaussian prior; together they recover the single-step NP ELBO at t=0 . Ltrans couples consecutive time steps by comparing two distributions over zt+1 : the encoder’s posterior qφ(zt+1 | xt+1 ), obtained by independently encoding the next observation xt+1 , and the SDE’s forward prediction pθ (zt+1 | zt) from the current latent state. Minimizing this divergence trains fθ to approximate the encoder’s latent transition from zt alone. 
+
+Proposition 2 (solver-free transition KL and Girsanov reduction). Under an Euler–Maruyama discretization of (3) with step size ∆t, the SDE transition becomes Gaussian: 
+
+pθ (zt+1 | zt) = N zt + fθ (zt) ∆ t, diag( σθ (zt)2) ∆ t. (6) Since both qφ(zt+1 | xt+1 ) and pθ (zt+1 | zt) are diagonal Gaussians, Ltrans admits a closed-form, simulation-free evaluation with no SDE solver calls, avoiding the expensive numerical integration required by adjoint-based latent SDE training [ 37 ]. When the encoder variance σ2 
+
+> φ
+
+is constrained to equal σ2 
+
+> θ
+
+∆t, Ltrans reduces to the Girsanov drift matching loss [ 37 ]; Appendix E.3 compares this special case and a naive temporal penalty against the full transition KL. 5Training objective. The decoder likelihood pθ (yt | zt) is a heteroscedastic Gaussian evaluated at target locations Tt. The final training loss augments the bound (5) with two auxiliary terms that have natural probabilistic interpretations: Lctx applies the same NLL at context locations Ct, and 
+
+Lδ = PTt=0 ∥δt∥2 can be interpreted as an ℓ2 regularizer, equivalently a zero-mean Gaussian prior on the residual correction. We further add Lprior = PTt=0 DKL 
+
+ qφ(zt | xt) ∥ N (0, I), extending the t=0 KL regularization to all time steps as an auxiliary stabilizer. The resulting objective is 
+
+LNSP = Lrec + βctx Lctx + βkl Lprior + βsde Ltrans + βδ Lδ , (7) where βkl , βsde , βctx , and βδ are weighting coefficients. We apply stop-gradient to zt when computing 
+
+Ltrans , decoupling the encoder’s spatial inference from the SDE’s temporal dynamics. 
+
+Inference. At test time, the encoder maps xt to qφ(zt | xt), a sample zt is drawn, and the decoder produces ˆyt via (2); samples yield pixel-level uncertainty estimates. The SDE is not rolled forward at inference; instead, Ltrans acts as a training-time temporal regularizer, and each hourly prediction requires only a single encoder–decoder pass without sequential SDE integration. 
+
+4.4 Spatially-structured 2D latent field 
+
+Standard Neural Processes collapse all context observations into a global z ∈ RD [23 ], losing spatial correlations and forcing all positions to share a single source of stochasticity [ 34 ]. Convolutional variants [25] retain spatial structure but employ deterministic inference without temporal dynamics. NSP instead uses a 2D latent feature map zt ∈ RD×H′×W ′
+
+, where H′ = H/r , W ′ = W/r , and r is the encoder’s downsampling ratio. The drift fθ and diffusion σθ use 3×3 convolutions on zt, so that temporal dynamics at each position are informed by its spatial neighborhood. The decoder upsamples 
+
+zt to full resolution, fusing the satellite field and elevation to predict δt and ˆσ2
+
+> y,t
+
+.
+
+## 5 Experimental Setup 
+
+Dataset. We used QPEBench (Section 3) with its four-channel input and radar evaluation reference, yielding 43,756 usable hourly samples after quality filtering. Three-fold expanding-window cross-validation (Section 3) was used to select the model with lowest validation loss. We employed the six metrics defined in Section 3 and Appendix C.1, jointly assessing gridded accuracy, gauge-level fidelity, and spatial coherence. 
+
+Baselines. We compared NSP against 13 baselines: twelve methods across three groups— geostatistical interpolation (IDW, kriging, cokriging, GWR) [ 54 , 16 , 11 ], statistical post-processing (quantile mapping, EMOS, linear regression) [ 66 , 24 ], and machine learning (XGBoost, U-Net, CNP, ConvCNP, ViT) [ 14 , 53 , 22 , 25 , 18 ]—along with raw GSMaP as an input-quality reference [ 35 ]. All machine learning baselines received four-channel input and were trained under an identical context/target protocol for fair comparison; training objectives and the ConvCNP reimplementation are detailed in Appendix D.2. We also include GSMaP GC, JAXA’s operational gauge-calibrated product that adjusts satellite-only estimates using ∼11,500 CPC gauges ( ∼26 km mean spacing over CONUS) with a three-day latency [ 42 , 35 ]. Although the total Synoptic station count available to NSP is comparable ( ∼11,900), the mean hourly availability is ∼7,300 stations ( ∼33 km spacing), making NSP’s effective input sparser. 
+
+Implementation details. NSP has 4.19M parameters ( D=64 , hidden width 128). At each training step, 50% of gauges were randomly assigned to the context set and the rest to targets, with balanced rainy/non-rainy sampling; at test time all gauges served as context. Training used AdamW with OneCycleLR (peak 3×10 −3) for 4 epochs on eight NVIDIA H200 GPUs (effective batch size 32), completing in approximately 20 minutes across all three folds. Inference required 2.64 ms per sample. Full hyperparameters are provided in Appendix D.1. 
+
+Additional regional experiment. To evaluate geographic generalizability, we conducted an addi-tional experiment over the Kyushu region of Japan with independent data sources; model and training are identical to CONUS (setup in Appendix E.1; results in Section 6). 6Table 1: Quantitative comparison of precipitation refinement methods. Values are mean ± standard deviation over three-fold time-series cross-validation. The best score in each column is in bold .
+
+Method RMSE r ↓ MAE r ↓ RMSE g ↓ MAE g ↓ rr, coll ↑ FSS R ↑
+
+Quantile mapping [66] 4.073 ±0.184 2.012 ±0.063 0.885 ±0.027 0.173 ±0.006 0.288 ±0.014 0.479 ±0.010 
+
+EMOS [24] 3.885 ±0.127 1.844 ±0.078 1.115 ±0.096 0.179 ±0.019 0.305 ±0.013 0.478 ±0.029 
+
+XGBoost [14] 3.741 ±0.129 1.827 ±0.077 1.062 ±0.088 0.179 ±0.020 0.284 ±0.016 0.487 ±0.008 
+
+GWR [11] 3.739 ±0.230 1.627 ±0.081 0.662 ±0.021 0.155 ±0.004 0.376 ±0.016 0.229 ±0.017 
+
+Cokriging [16] 3.706 ±0.121 1.789 ±0.069 1.065 ±0.081 0.220 ±0.015 0.279 ±0.016 0.461 ±0.009 
+
+GSMaP [35] 3.638 ±0.126 1.826 ±0.076 1.017 ±0.086 0.179 ±0.020 0.288 ±0.014 0.483 ±0.014 
+
+Kriging [16] 3.204 ±0.076 1.645 ±0.027 0.774 ±0.022 0.177 ±0.005 0.006 ±0.003 0.007 ±0.002 
+
+ConvCNP [25] 3.135 ±0.098 1.596 ±0.046 0.684 ±0.018 0.100 ±0.003 0.475 ±0.005 0.053 ±0.011 
+
+U-Net [53] 3.123 ±0.057 1.563 ±0.038 0.666 ±0.028 0.100 ±0.004 0.461 ±0.021 0.064 ±0.052 
+
+CNP [22] 3.115 ±0.077 1.575 ±0.056 0.699 ±0.033 0.116 ±0.006 0.340 ±0.018 0.014 ±0.011 
+
+ViT [18] 3.059 ±0.108 1.530 ±0.079 0.687 ±0.022 0.116 ±0.016 0.411 ±0.003 0.118 ±0.019 
+
+IDW [54] 2.987 ±0.070 1.474 ±0.020 0.645 ±0.018 0.145 ±0.004 0.352 ±0.010 0.157 ±0.002 
+
+Linear regression 2.967 ±0.064 1.457 ±0.020 0.709 ±0.019 0.170 ±0.005 0.299 ±0.017 0.189 ±0.012 
+
+GSMaP GC [42] 2.942 ±0.085 1.473 ±0.039 0.737 ±0.039 0.147 ±0.007 0.375 ±0.022 0.490 ±0.023 
+
+NSP (Ours) 2.818 ±0.062 1.444 ±0.026 0.393 ±0.047 0.076 ±0.013 0.478 ±0.021 0.527 ±0.022 
+
+Figure 3: Qualitative result at 03:00 UTC on March 16, 2025. NSP better matches the radar reference despite the satellite overestimation. 
+
+## 6 Results 
+
+6.1 Quantitative Comparison 
+
+Table 1 shows the comparison on CONUS. NSP achieved the best performance across all six metrics, outperforming all 13 baselines as well as JAXA’s operational gauge-calibrated product (GSMaP GC) despite sparser effective gauge input ( ∼7,300 hourly stations vs. GC’s ∼11,500; Section 5). Against the second-best method on each metric, NSP reduced RMSE r by 4.2% (2.818 vs. GSMaP GC’s 2.942), RMSE g by 39.1% (0.393 vs. IDW’s 0.645), and FSS R by 7.6% relative improvement (0.527 vs. GSMaP GC’s 0.490). U-Net, CNP, ViT, and ConvCNP achieved competitive gauge-level accuracy ( RMSE g : 0.666, 0.699, 0.687, and 0.684) but much lower FSS R (0.064, 0.014, 0.118, and 0.053), showing that these methods overfit to gauge locations at the expense of spatial structure, whereas NSP preserves spatial structure without sacrificing point-level accuracy. 7Figure 4: Regional zoom over the southeastern United States at 16:00 UTC on March 16, 2025. Table 2: Kyushu (Japan) regional results.                                              
+
+> Method RMSE r↓RMSE g↓rr, coll ↑
+> GWR [11] 1.788 0.655 0.389 CNP [22] 1.779 1.953 0.437 EMOS [24] 1.738 1.082 0.169 Cokriging [16] 1.715 1.077 0.139 Linear regression 1.688 0.768 0.356 Kriging [16] 1.640 0.973 0.114 GSMaP [35] 1.508 0.965 0.158 XGBoost [14] 1.501 0.985 0.190 ConvCNP [25] 1.363 0.645 0.525 U-Net [53] 1.324 0.679 0.532 IDW [54] 1.272 0.680 0.397 GSMaP GC [42] 1.288 0.762 0.265
+> NSP 1.119 0.485 0.553
+
+Kyushu regional results. Table 2 reports the ad-ditional experiment on the Kyushu region of Japan (Section 5), which features a different precipitation regime (East Asian monsoon) and higher gauge den-sity than CONUS. NSP achieved the best perfor-mance across all three reported metrics, reducing RMSE r by 13.1% relative to GSMaP GC (1.119 vs. 1.288) and RMSE g by 36.4% (0.485 vs. 0.762). The correlation rr, coll improved from 0.265 to 0.553, a 2.1 × gain, supporting cross-domain generalization. Among baselines, IDW achieved the second-lowest RMSE r (1.272) and ViT the second-highest rr, coll 
+
+(0.543), reflecting the same accuracy–coherence trade-off as on CONUS. FSS R is omitted (small grid); full results are in Appendix E.1. 
+
+6.2 Qualitative Results 
+
+To assess NSP’s performance under extreme conditions, we visualize predictions from the March 14–16, 2025 severe weather outbreak, the largest March tornado event on record with over 180 confirmed tornadoes and more than $10 billion in damage [ 45 ]. Fig. 3 presents a full CONUS sample: the satellite estimate overestimates precipitation across the central United States, while IDW produces scattered artifacts and GSMaP GC retains the satellite bias. NSP corrects the overestimation using gauge observations and elevation, producing a field that agrees well with the radar reference. Fig. 4 zooms into the southeastern United States: GSMaP overestimates the spatial extent of precipitation, GSMaP GC markedly attenuates the signal, while NSP recovers a narrow, well-localized precipitation band consistent with the radar reference. 
+
+6.3 Ablation Study 
+
+Table 3 isolates each component’s contribution. The full model achieved the best RMSE r , MAE r ,and FSS R; several variants improved gauge-level metrics at the cost of spatial coherence, showing that naively minimizing gauge error overfits the sparse observation network. Removing the satellite residual connection (1-iii) collapsed FSS R from 0.527 to 0.153 despite yielding the lowest RMSE g :without the satellite prior, the model degenerates into gauge interpolation and loses gridded structure. Replacing the heteroscedastic NLL with MSE (1-v) degraded RMSE r by 26.1%, showing that learned variance is essential for handling zero-inflated precipitation. Among the loss components, removing Lctx (2-iii) severely degraded gauge accuracy ( RMSE g :0.393 →0.819), showing that context reconstruction is necessary for stable training. Removing Ltrans 
+
+(2-i) or Lprior (2-ii) each increased RMSE r by 4–6%, showing that both the SDE transition and KL regularization prevent overfitting to per-time-step gauge signals. This supports the factorized posterior design in Section 4.3: although the encoder infers each hour independently, Ltrans reintroduces the temporal coupling needed for improved gridded accuracy. Appendix E.3 further shows that the full transition KL provides the most favorable trade-off relative to both a naive temporal penalty and the matched-variance special case. Appendix E.4 tracks two 12-hour fold 3 events hour by hour, where NSP outperformed the no-Ltrans ablation in 22/24 hourly steps in RMSE r and 21/24 in FSS R;Appendix E.5 shows that pure SDE rollout remains competitive only over short horizons, supporting our choice to use the SDE mainly as a training-time temporal regularizer. 8Table 3: Ablation study on CONUS. Mean ± std over three folds; best in bold .
+
+Model RMSE r ↓ MAE r ↓ RMSE g ↓ MAE g ↓ rr, coll ↑ FSS R ↑
+
+Architecture ablations 
+
+(1-i) w/o Neural SDE 2.888 ±0.039 1.487 ±0.053 0.338 ±0.066 0.062 ±0.018 0.479 ±0.020 0.509 ±0.022 
+
+(1-ii) Deterministic 2.885 ±0.080 1.492 ±0.044 0.355 ±0.147 0.060 ±0.028 0.487 ±0.033 0.495 ±0.012 
+
+(1-iii) w/o Satellite residual 3.141 ±0.089 1.613 ±0.038 0.252 ±0.024 0.041 ±0.005 0.475 ±0.018 0.153 ±0.047 
+
+(1-iv) Homoscedastic 2.932 ±0.062 1.492 ±0.020 0.260 ±0.016 0.052 ±0.003 0.471 ±0.023 0.445 ±0.012 
+
+(1-v) Log-space MSE 3.554 ±0.104 1.726 ±0.048 0.405 ±0.031 0.043 ±0.006 0.475 ±0.019 0.525 ±0.022 
+
+Loss ablations 
+
+(2-i) w/o Ltrans 2.932 ±0.069 1.524 ±0.054 0.306 ±0.008 0.053 ±0.003 0.477 ±0.020 0.517 ±0.032 
+
+(2-ii) w/o Lprior 2.969 ±0.123 1.551 ±0.050 0.278 ±0.034 0.045 ±0.007 0.475 ±0.020 0.514 ±0.019 
+
+(2-iii) w/o Lctx 2.994 ±0.025 1.610 ±0.036 0.819 ±0.040 0.154 ±0.012 0.303 ±0.017 0.479 ±0.029 
+
+NSP (Full) 2.818 ±0.062 1.444 ±0.026 0.393 ±0.047 0.076 ±0.013 0.478 ±0.021 0.527 ±0.022 
+
+Table 4: Error analysis. (a) Pixel-level RMSE by radar precipitation intensity (fold 3, 8,759 samples). 
+
+(b) Median spatial displacement (km) between predicted and radar exceedance masks, measured by the shift maximizing 2-D cross-correlation; lower is better. 
+
+(a) RMSE by intensity Intensity GSMaP GC NSP Rel. improv. (mm/h) vs. GSMaP vs. GC 
+
+0 0.592 0.377 0.308 +48.0% +18.3% 0–1 0.693 0.436 0.356 +48.6% +18.3% 1–5 4.011 2.528 2.055 +48.8% +18.7% 5–10 7.725 5.597 5.190 +32.8% +7.3% 10–25 13.684 12.250 12.152 +11.2% +0.8% 25+ 30.037 29.847 30.086 −0.2% −0.8% 
+
+(b) Spatial displacement (km) Thresh. GSMaP GC NSP Rel. improv. (mm/h) vs. GSMaP vs. GC 
+
+0.1 11 11 11 0% 0% 1.0 16 16 11 +29% +29% 5.0 40 45 31 +21% +31% 10.0 66 113 70 −7% +38% 
+
+6.4 Error Analysis 
+
+Table 4(a) presents pixel-level RMSE stratified by radar precipitation intensity. NSP outperformed raw GSMaP by 33–49% and GSMaP GC by 7–19% for intensities up to 10 mm/h; at extreme precipitation (>25 mm/h), all methods converged, indicating that heavy-rain estimation remains a shared bottleneck. Table 4(b) reports exceedance-mask displacement. NSP reduces GSMaP GC displacement by 29–38% at 1–10 mm/h, indicating better spatial alignment of rainy areas. At 10 mm/h, raw GSMaP still shows slightly smaller displacement (66 km vs. 70 km), suggesting that the remaining gap is more likely due to intensity estimation than large spatial mislocalization. Per-sample failure decomposition and extended error analysis are in Appendix E.2; see Appendix E.6 for gauge density sensitivity, which shows that NSP maintains spatial accuracy even at 10% context density. 
+
+## 7 Conclusion 
+
+We proposed NSP, a Neural Process coupled with a latent Neural SDE for satellite precipitation refinement. The model operates on a 2D spatial latent field and is trained with a simulation-free drift matching loss from Girsanov’s theorem with no SDE solver calls. We also introduced QPEBench, a five-year, hourly, CONUS-scale benchmark with an independent radar reference and six evaluation metrics. On QPEBench, NSP outperformed 13 baselines on all six metrics and surpassed JAXA’s operational gauge-calibrated product; a separate experiment on Kyushu, Japan showed consistent gains under different data sources and gauge density. 
+
+Limitations. NSP underestimates heavy rain due to the zero-inflated training distribution. QPEBench covers only CONUS; radar-sparse regions will require gauge-only evaluation. The SDE loss encourages but does not enforce temporal consistency at inference. 
+
+Future work. Future work includes intensity-aware sampling or tail-weighted losses for heavy-rain reconstruction, and broader validation in radar-sparse regions such as sub-Saharan Africa. 9References 
+
+[1] Lorenzo Alfieri, Peter Burek, Emanuel Dutra, Blazej Krzeminski, David Muraro, Jutta Thielen, and Florian Pappenberger. GloFAS–global ensemble streamflow forecasting and flood early warning. Hydrology and Earth System Sciences , 17(3):1161–1175, 2013. [2] Anna Allen, Stratis Markou, Will Tebbutt, James Requeima, Wessel P Bruinsma, Tom R Andersson, Michael Herzog, Nicholas D Lane, Matthew Chantry, J Scott Hosking, et al. End-to-end data-driven weather prediction. Nature , 641(8065):1172–1179, 2025. [3] Abdul Fatir Ansari, Alvin Heng, Andre Lim, and Harold Soh. Neural continuous-discrete state space models for irregularly-sampled time series. In Proceedings of the International Conference on Machine Learning (ICML) , volume 202, pages 926–951. PMLR, 2023. [4] Matthew Ashman, Cristiana Diaconu, Eric Langezaal, Adrian Weller, et al. Gridded transformer neural processes for spatio-temporal data. In Proceedings of the International Conference on Machine Learning (ICML) , volume 267, pages 1722–1761. PMLR, 2025. [5] Anirudhan Badrinath, Luca Delle Monache, Negin Hayatbini, Will Chapman, Forest Cannon, and Marty Ralph. Improving precipitation forecasts with convolutional neural networks. Weather and Forecasting , 38(2):291–306, 2023. [6] Faisal Baig, Luqman Ali, Muhammad Abrar Faiz, Haonan Chen, and Mohsen Sherif. From bias to accuracy: Transforming satellite precipitation data in arid regions with machine learning and topographical insights. Journal of Hydrology , 653:132801, 2025. [7] Grigory Bartosh, Dmitry Vetrov, et al. SDE matching: Scalable and simulation-free training of latent stochastic differential equations. In Proceedings of the International Conference on Machine Learning (ICML) , volume 267, pages 3054–3070. PMLR, 2025. [8] Kaifeng Bi, Lingxi Xie, Hengheng Zhang, Xin Chen, Xiaotao Gu, et al. Accurate medium-range global weather forecasting with 3D neural networks. Nature , 619:533–538, 2023. [9] Wessel Bruinsma, Stratis Markou, James Requiema, Andrew Y. K. Foong, Tom Andersson, Anna Vaughan, Anthony Buonomo, Scott Hosking, et al. Autoregressive conditional neural processes. In International Conference on Learning Representations (ICLR) , 2023. [10] Wessel P Bruinsma. Convolutional conditional neural processes. arXiv preprint arXiv:2408.09583 , 2024. [11] Chris Brunsdon, A Stewart Fotheringham, et al. Geographically weighted regression: a method for exploring spatial nonstationarity. Geographical analysis , 28(4):281–298, 1996. [12] Haonan Chen, Luyao Sun, Robert Cifelli, and Pingping Xie. Deep learning for bias correction of satellite retrievals of orographic precipitation. IEEE Transactions on Geoscience and Remote Sensing , 60:1–11, 2022. [13] Ricky TQ Chen, Yulia Rubanova, Jesse Bettencourt, et al. Neural ordinary differential equations. 
+
+Advances in Neural Information Processing Systems (NeurIPS) , 31, 2018. [14] Tianqi Chen and Carlos Guestrin. Xgboost: A scalable tree boosting system. In Proceedings of the ACM SIGKDD International Conference on Knowledge Discovery and Data Mining , pages 785–794, 2016. [15] Xuanhong Chen, Kairui Feng, Naiyuan Liu, Bingbing Ni, Yifan Lu, et al. RainNet: A large-scale imagery dataset and benchmark for spatial precipitation downscaling. In Advances in Neural Information Processing Systems , volume 35, pages 15152–15164, 2022. [16] Noel Cressie. Statistics for spatial data . John Wiley & Sons, 1993. [17] Christian Schroeder de Witt, Catherine Tong, Valentina Zantedeschi, et al. RainBench: Towards data-driven global precipitation forecasting from satellite imagery. In Proceedings of the AAAI Conference on Artificial Intelligence (AAAI) , volume 35, pages 14902–14910, 2021. 10 [18] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, et al. An image is worth 16x16 words: Transformers for image recognition at scale. In International Conference on Learning Representations (ICLR) , 2021. [19] Elizabeth E Ebert. Fuzzy verification of high-resolution gridded forecasts: a review and proposed framework. Meteorological Applications: a Journal of Forecasting, Practical Applications, Training Techniques and Modelling , 15(1):51–64, 2008. [20] Andrew Foong, Wessel Bruinsma, Jonathan Gordon, Yann Dubois, James Requeima, et al. Meta-learning stationary stochastic process prediction with convolutional neural processes. 
+
+Advances in Neural Information Processing Systems (NeurIPS) , 33:8284–8295, 2020. [21] NOAA National Centers for Environmental Information. ETOPO 2022 15 arc-second global relief model, 2022. [22] Marta Garnelo, Dan Rosenbaum, Christopher Maddison, Tiago Ramalho, David Saxton, Murray Shanahan, Yee Whye Teh, Danilo Rezende, et al. Conditional neural processes. In Proceedings of the International Conference on Machine Learning (ICML) , pages 1704–1713. PMLR, 2018. [23] Marta Garnelo, Jonathan Schwarz, Dan Rosenbaum, Fabio Viola, Danilo J Rezende, SM Eslami, and Yee Whye Teh. Neural processes. arXiv preprint arXiv:1807.01622 , 2018. [24] Tilmann Gneiting, Adrian E Raftery, Anton H Westveld III, and Tom Goldman. Calibrated probabilistic forecasting using ensemble model output statistics and minimum crps estimation. 
+
+Monthly weather review , 133(5):1098–1118, 2005. [25] Jonathan Gordon, Wessel P. Bruinsma, Andrew Y. K. Foong, James Requeima, Yann Dubois, and Richard E. Turner. Convolutional conditional neural processes. In International Conference on Learning Representations (ICLR) , 2020. [26] Hussen Abu Hamad and Dan Rosenbaum. Flow matching neural processes. Advances in Neural Information Processing Systems (NeurIPS) , pages 1–24, 2025. [27] Paula Harder, Luca Schmidt, Francis Pelletier, Nicole Ludwig, Matthew Chantry, Christian Lessig, Alex Hernandez-Garcia, and David Rolnick. RainShift: A benchmark for precipitation downscaling across geographies. arXiv preprint arXiv:2507.04930 , 2025. [28] George J Huffman, David T Bolvin, Dan Braithwaite, Kuo-Lin Hsu, Robert J Joyce, et al. Integrated multi-satellite retrievals for the global precipitation measurement (GPM) mission (IMERG). In Satellite Precipitation Measurement: Volume 1 , pages 343–353. Springer, 2020. [29] Chris Kidd and Vincenzo Levizzani. Status of satellite precipitation retrievals. Hydrology and Earth System Sciences , 15(4):1109–1116, 2011. [30] Patrick Kidger. On neural differential equations. arXiv preprint arXiv:2202.02435 , 2022. [31] Patrick Kidger, James Foster, Xuechen Chen Li, and Terry Lyons. Efficient and accurate gradients for neural sdes. Advances in Neural Information Processing Systems (NeurIPS) ,34:18747–18761, 2021. [32] Hyunjik Kim, Andriy Mnih, Jonathan Schwarz, Marta Garnelo, Ali Eslami, Dan Rosenbaum, Oriol Vinyals, and Yee Whye Teh. Attentive neural processes. In International Conference on Learning Representations (ICLR) , 2019. [33] Diederik P Kingma and Max Welling. Auto-encoding variational Bayes. arXiv preprint arXiv:1312.6114 , 2014. [34] Simon Kohl, Bernardino Romera-Paredes, Clemens Meyer, Jeffrey De Fauw, Joseph R Ledsam, Klaus Maier-Hein, SM Eslami, et al. A probabilistic u-net for segmentation of ambiguous images. Advances in Neural Information Processing Systems (NeurIPS) , 31, 2018. [35] Takuji Kubota, Kazumasa Aonashi, Tomoo Ushio, Shoichi Shige, Yukari N Takayabu, Misako Kachi, Yoriko Arai, et al. Global satellite mapping of precipitation (GSMaP) products in the GPM era. In Satellite precipitation measurement: Volume 1 , pages 355–373. Springer, 2020. 11 [36] Jussi Leinonen, Daniele Nerini, and Alexis Berne. Stochastic super-resolution for downscaling time-evolving atmospheric fields with a generative adversarial network. IEEE Transactions on Geoscience and Remote Sensing , 59(9):7211–7223, 2021. [37] Xuechen Li, Ting-Kam Leonard Wong, Ricky TQ Chen, and David Duvenaud. Scalable gradi-ents for stochastic differential equations. In International Conference on Artificial Intelligence and Statistics (AISTATS) , pages 3870–3882. PMLR, 2020. [38] Haolin Liu, Jimmy CH Fung, Alexis KH Lau, and Zhenning Li. Precipitation estima-tion with nwp model and generative diffusion model. Geophysical Research Letters ,52(7):e2024GL110625, 2025. [39] Daniel P Loucks and Eelco Van Beek. Water resource systems planning and management: An introduction to methods, models, and applications . Springer, 2017. [40] Xiaoyu Lv, Hao Guo, Yunfei Tian, Xiangchen Meng, Anming Bao, and Philippe De Maeyer. Evaluation of GSMaP version 8 precipitation products on an hourly timescale over mainland China. Remote Sensing , 16(1):210, 2024. [41] Viviana Maggioni, Patrick C Meyers, and Monique D Robinson. A review of merged high-resolution satellite precipitation product accuracy during the tropical rainfall measuring mission (trmm) era. Journal of Hydrometeorology , 17(4):1101–1117, 2016. [42] Tomoaki Mega, Tomoo Ushio, Matsuda Takahiro, Takuji Kubota, Misako Kachi, and Riko Oki. Gauge-adjusted global satellite mapping of precipitation. IEEE Transactions on Geoscience and Remote Sensing , 57(4):1928–1935, 2019. [43] Peiman Mohseni and Nick Duffield. Spectral convolutional conditional neural process. Advances in Neural Information Processing Systems (NeurIPS) , pages 1–31, 2025. [44] Juan Nathaniel, Yongquan Qu, Tung Nguyen, Sungduk Yu, Julius Busecke, et al. ChaosBench: A multi-channel, physics-based benchmark for subseasonal-to-seasonal climate prediction. 
+
+Advances in Neural Information Processing Systems (NeurIPS) , 37:43715–43729, 2024. [45] NOAA National Centers for Environmental Information. U.s. billion-dollar weather and climate disasters, 2025. [46] YongKyung Oh, Dongyoung Lim, and Sungil Kim. Stable neural stochastic differential equa-tions in analyzing irregular time series data. In International Conference on Learning Represen-tations (ICLR) , 2024. [47] Byoungwoo Park, Hyungi Lee, and Juho Lee. Amortized control of continuous state space feynman-kac model for irregular time series. In International Conference on Learning Repre-sentations (ICLR) , 2025. [48] Jaideep Pathak, Shashank Subramanian, Peter Harrington, Sanjeev Raja, Ashesh Chattopadhyay, Morteza Mardani, Thorsten Kurth, et al. Fourcastnet: A global data-driven high-resolution weather model using adaptive fourier neural operators. arXiv preprint arXiv:2202.11214 , 2022. [49] Simon Pfreundschuh, Malarvizhi Arulraj, Ali Behrangi, Linda Bogerd, Alan James Peixoto Calheiros, Daniele Casella, Neda Dolatabadi, Clement Guilloteau, et al. A benchmark dataset for satellite-based estimation and detection of rain. Scientific Data , 13(1):244, 2026. [50] Carl Edward Rasmussen and Christopher K. I. Williams. Gaussian Processes for Machine Learning . MIT Press, 2006. [51] Stephan Rasp, Stephan Hoyer, Alexander Merose, Ian Langmore, Peter Battaglia, Tyler Russell, et al. WeatherBench 2: A benchmark for the next generation of data-driven global weather models. Journal of Advances in Modeling Earth Systems , 16(6):e2023MS004019, 2024. [52] Nigel M Roberts et al. Scale-selective verification of rainfall accumulations from high-resolution forecasts of convective events. Monthly Weather Review , 136(1):78–97, 2008. 12 [53] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation. In Medical Image Computing and Computer-Assisted Inter-vention – MICCAI 2015 , pages 234–241, Cham, 2015. Springer International Publishing. [54] Donald Shepard. A two-dimensional interpolation function for irregularly-spaced data. In 
+
+Proceedings of the ACM National Conference , pages 517–524, 1968. [55] Gail Skofronick-Jackson, Walter A Petersen, Wesley Berg, Chris Kidd, Erich F Stocker, Dalia B Kirschbaum, Ramesh Kakar, et al. The global precipitation measurement (GPM) mission for science and society. Bulletin of the American Meteorological Society , 98(8):1679–1695, 2017. [56] Travis M Smith, Valliappa Lakshmanan, Gregory J Stumpf, Kiel L Ortega, Kurt Hondl, et al. Multi-radar multi-sensor (MRMS) severe weather and aviation products: Initial operating capabilities. Bulletin of the American Meteorological Society , 97(9):1617–1630, 2016. [57] Prakhar Srivastava, Ruihan Yang, Gavin Kerrigan, Gideon Dresdner, Jeremy McGibbon, Christo-pher Bretherton, et al. Precipitation downscaling with spatiotemporal video diffusion. Advances in Neural Information Processing Systems (NeurIPS) , 37:56374–56400, 2024. [58] Qiaohong Sun, Chiyuan Miao, Qingyun Duan, Hamed Ashouri, Soroosh Sorooshian, and Kuo-Lin Hsu. A review of global precipitation data sets: Data sources, estimation, and intercomparisons. Reviews of Geophysics , 56(1):79–107, 2018. [59] Synoptic Data PBC. Synoptic weather api. Data access platform, 2026. Accessed for station observations across the CONUS domain. [60] Yudong Tian, Christa D. Peters-Lidard, John B. Eylander, Robert J. Joyce, George J. Huffman, Robert F. Adler, Kuo-lin Hsu, et al. Component analysis of errors in satellite-based precipitation estimates. Journal of Geophysical Research: Atmospheres , 114(D24), 2009. [61] Kevin E Trenberth, Aiguo Dai, Roy M Rasmussen, et al. The changing character of precipitation. 
+
+Bulletin of the American Meteorological Society , 84(9):1205–1218, 2003. [62] Kevin E. Trenberth et al. Intermittency in precipitation: Duration, frequency, intensity, and amounts using hourly data. Journal of Hydrometeorology , 18(5):1393–1412, 2017. [63] Belinda Tzen and Maxim Raginsky. Neural stochastic differential equations: Deep latent gaussian models in the diffusion limit. arXiv preprint arXiv:1905.09883 , 2019. [64] Anna Vaughan, Will Tebbutt, et al. Convolutional conditional neural processes for local climate downscaling. Geoscientific Model Development , 15(1):251–268, 2022. [65] Yogesh Verma et al. ClimODE: Climate and weather forecasting with physics-informed neural ODEs. In International Conference on Learning Representations (ICLR) , 2024. [66] Andrew W Wood, Lai R Leung, Venkataramana Sridhar, and Dennis P Lettenmaier. Hydrologic implications of dynamical and statistical approaches to downscaling climate model outputs. 
+
+Climatic change , 62(1):189–216, 2004. [67] World Meteorological Organization. Atlas of mortality and economic losses from weather, climate and water-related hazards (1970–2021). https://wmo.int/publication-series/ atlas-of-mortality-and-economic-losses-from-weather-climate-and-water -related-hazards-1970-2021 , May 2023. Published 22 May 2023; accessed 2026-03-18. [68] Xiaoying Yang, Shuai Yang, Mou Leong Tan, Hengyang Pan, Hongliang Zhang, Guoqing Wang, Ruimin He, and Zimeng Wang. Correcting the bias of daily satellite precipitation estimates in tropical regions using deep neural network. Journal of Hydrology , 608:127656, 2022. [69] Shuai Zhang, Chuan Zhou, Yang Aron Liu, Peng Zhang, Xixun Lin, and Zhi-Ming Ma. Neural jump-diffusion temporal point processes. In Proceedings of the International Conference on Machine Learning (ICML) , volume 235, pages 60541–60557. PMLR, 2024. 13 A Additional Related Work 
+
+Neural Process variants. Beyond the core NP family [ 22 , 23 ], cross-attention mechanisms improve context aggregation [ 32 ], spectral convolutions capture long-range dependencies in the frequency domain [ 43 ], and autoregressive extensions model non-Gaussian predictive distributions [ 9]. NPs have been applied to climate downscaling [ 64 ] and weather forecasting [ 2 ], though the NP variants most relevant to this task still treat each time step independently. 
+
+Relationship to AR-CNP and FlowNP. AR-CNP [ 9] generates target predictions autoregressively, conditioning each new target point on previously predicted ones within a single time step. This captures inter-target dependencies in the predictive distribution but does not introduce temporal dy-namics across time steps—the axis addressed by NSP’s transition loss Ltrans . Similarly, FlowNP [ 26 ]replaces the Gaussian decoder with a conditional flow, improving single-timestep distributional quality without modeling temporal evolution. Because both methods enhance within-timestep predic-tion rather than across-timestep coherence, the most informative NP comparison for our temporal contribution is ConvCNP [ 25 ], which matches NSP’s spatial convolutional structure while lacking any temporal component (Table 1). We additionally note that both AR-CNP and FlowNP operate on explicit target-point sets; applying them directly to our 260 × 590 dense grid ( ∼153,000 target points per time step) would require sequential or chunked inference that substantially alters the original method and incurs prohibitive cost. 
+
+Neural SDE applications. Latent SDEs have been applied to irregular time series [ 46 , 47 ], continuous-discrete state filtering [ 3], and temporal point processes [ 69 ]. Physics-informed Neural ODEs such as ClimODE [ 65 ] incorporate advection principles for weather forecasting. Simulation-free variants [47, 7] avoid expensive trajectory-based training. 
+
+## B Derivation of the Variational Objective 
+
+We derive the evidence lower bound (ELBO) stated in Equation (5) of the main text, then show that the transition KL admits a closed-form, simulation-free evaluation. 
+
+B.1 ELBO decomposition 
+
+Starting from the generative model in Equation (4), the marginal log-likelihood of the observations is 
+
+log pθ (y0: T ) = log 
+
+Z
+
+pθ (y0: T , z0: T ) dz0: T . (8) Introducing the mean-field approximate posterior qφ(z0: T | x0: T ) = QTt=0 qφ(zt | xt) and applying Jensen’s inequality: 
+
+log pθ (y0: T ) = log 
+
+Z
+
+qφ(z0: T | x0: T ) pθ (y0: T , z0: T )
+
+qφ(z0: T | x0: T ) dz0: T
+
+≥ Eqφ
+
+
+
+log pθ (y0: T , z0: T )
+
+qφ(z0: T | x0: T )
+
+
+
+. (9) Substituting the factorizations of the generative model (4) and the approximate posterior: 
+
+Eqφ
+
+"
+
+log p(z0) QT −1 
+
+> t=0
+
+pθ (zt+1 | zt) QTt=0 pθ (yt | zt)
+
+QTt=0 qφ(zt | xt)
+
+#
+
+=
+
+> T
+
+X
+
+> t=0
+
+Eqφ(zt|xt)
+
+log pθ (yt | zt)| {z }
+
+> −L rec
+
+− DKL 
+
+ qφ(z0 | x0) ∥ p(z0)| {z }
+
+> Lprior
+
+− 
+
+> T−1
+
+X
+
+> t=0
+
+Eqφ(zt|xt)
+
+h
+
+DKL 
+
+ qφ(zt+1 | xt+1 ) ∥ pθ (zt+1 | zt)i| {z }
+
+> Ltrans
+
+. (10) 14 The third line follows from grouping the qφ(zt | xt) terms for t ≥ 1 with the corresponding transition 
+
+pθ (zt | zt−1) and recognizing the resulting ratio as a KL divergence. Rearranging gives the upper bound on the negative log-likelihood stated in Equation (5). The mean-field assumption qφ(z0: T | x0: T ) = Q 
+
+> t
+
+qφ(zt | xt) means the encoder processes each time step independently, with temporal coupling introduced solely through Ltrans . This avoids sequential inference at training time while still encouraging temporally consistent latent trajectories. 
+
+B.2 Simulation-free transition KL 
+
+Under the Euler–Maruyama discretization of the prior SDE (3) with step size ∆t, the transition density is Gaussian (Equation 6): 
+
+pθ (zt+1 | zt) = N zt + fθ (zt) ∆ t, diag( σθ (zt)2) ∆ t. (11) Since both qφ(zt+1 | xt+1 ) = N (μφ(xt+1 ), diag( σ2
+
+> φ
+
+(xt+1 ))) and pθ (zt+1 | zt) are diagonal Gaussians, the KL divergence in Ltrans admits the closed form: 
+
+DKL 
+
+ qφ(zt+1 | xt+1 ) ∥ pθ (zt+1 | zt)
+
+= 12
+
+> D′
+
+X
+
+> d=1
+
+"
+
+log σ2 
+
+> θ,d
+
+∆tσ2
+
+> φ,d
+
++ σ2 
+
+> φ,d
+
++ ( μφ,d − zt,d − fθ,d ∆t)2
+
+σ2 
+
+> θ,d
+
+∆t − 1
+
+#
+
+, (12) where D′ = D × H′ × W ′ is the total latent dimensionality, and subscript d indexes individual elements. This expression is computed in O(D′) with no SDE solver calls, yielding the simulation-free training stated in the main text. 
+
+B.3 Connection to Girsanov drift matching 
+
+In the special case where the encoder variance matches the SDE diffusion, i.e. σ2
+
+> φ
+
+(xt+1 ) =
+
+σθ (zt)2 ∆t, the log-ratio and variance terms in (12) cancel, and the KL reduces to 
+
+Ltrans = 12 
+
+> T−1
+
+X
+
+> t=0
+
+Eqφ(zt|xt)
+
+
+
+> D′
+
+X
+
+> d=1
+
+(μφ,d (xt+1 ) − zt,d − fθ,d (zt) ∆ t)2
+
+σθ,d (zt)2 ∆t
+
+ . (13) This is equivalent to the Girsanov-based drift matching loss of Li et al. [ 37 ], where the numerator measures the discrepancy between the observed latent transition μφ,d − zt,d and the predicted drift fθ,d ∆t. In the continuous-time limit ( ∆t → 0), this recovers the path-space KL divergence between the posterior and prior SDE measures via Girsanov’s theorem [ 37 , 7]. Our formulation (12) generalizes this by allowing the encoder to learn an independent variance σ2
+
+> φ
+
+, providing additional flexibility for the approximate posterior. 
+
+## C QPEBench Details 
+
+C.1 Metric definitions 
+
+RMSE g and MAE g quantify gauge-level error: RMSE g =
+
+vuut 1
+
+NgNg
+
+X
+
+> i=1
+
+(ˆ yi − y(g) 
+
+> i
+
+)2, MAE g = 1
+
+NgNg
+
+X
+
+> i=1
+
+|ˆyi − y(g) 
+
+> i
+
+|, (14) where ˆyi is the predicted precipitation, y(g) 
+
+> i
+
+the gauge observation, and Ng the number of gauge locations. RMSE r and MAE r are defined identically with the radar reference y(r) 
+
+> i
+
+and valid pixel count Nr .
+
+rr, coll is the Pearson correlation at collocated precipitation points: 
+
+rr, coll =
+
+P 
+
+> i∈S
+
+(ˆ yi − ¯ˆyS )( y(r) 
+
+> i
+
+− ¯y(r) 
+
+> S
+
+)
+
+qP 
+
+> i∈S
+
+(ˆ yi − ¯ˆyS )2 P 
+
+> i∈S
+
+(y(r) 
+
+> i
+
+− ¯y(r) 
+
+> S
+
+)2
+
+, (15) 15 Table 5: QPEBench dataset overview.                      
+
+> Property Value
+> Temporal coverage January 2021 – December 2025 (5 years) Total hourly steps 43,824 (43,756 after quality filtering) Grid resolution 0.1◦×0.1◦(∼11 km) Grid size 260 ×590 (153,400 pixels) Spatial extent 24 .05 ◦–49 .95 ◦N, 124 .95 ◦–66 .05 ◦WMean rainy fraction 4.6% ±2.0% of radar pixels per sample Mean gauge count 7,269 ±382 stations per hour Gauge count range 4,312 – 8,203 Gauge rain fraction 5.4% of reporting gauges
+
+Table 6: Distribution of non-zero radar precipitation across the full dataset.       
+
+> Percentile Value (mm/h)
+> P50 0.82 P90 3.55 P95 5.67 P99 14.45 Max 192.20
+
+where S = {i : y(g) 
+
+> i
+
+> τ and y(r) 
+
+> i
+
+> τ } with τ = 0 .1 mm/h. Requiring both gauge and radar to exceed τ restricts evaluation to locations where two independent sensors agree that precipitation is occurring, eliminating correlation inflation by the dominant dry class and reducing representativeness error from point–area mismatch [60]. FSS R is the Fractions Skill Score [ 52 ] averaged over four thresholds with a 20 ×20 pixel neighborhood (2◦ × 2◦): FSS (τ ) = 1 −
+
+P
+
+> i
+
+(Oi(τ ) − Mi(τ )) 2
+
+P 
+
+> i
+
+Oi(τ )2 + P 
+
+> i
+
+Mi(τ )2 , FSS R = 14
+
+X 
+
+> τ∈Θ
+
+FSS (τ ), (16) where Oi(τ ) and Mi(τ ) are the observed and predicted fractions exceeding threshold τ within the neighborhood centered at pixel i, and Θ = {1.0, 2.5, 5.0, 10 .0} mm/h. 
+
+C.2 Dataset statistics 
+
+Table 5 summarizes the QPEBench dataset used in all CONUS experiments. The five-year period encompasses diverse meteorological conditions, including Hurricanes Ida (2021), Ian (2022), Helene (2024), and Milton (2024). Missing rates are 0.00% for GSMaP and 0.16% for MRMS; the number of active gauges fluctuates hourly between 4,312 and 8,203 stations. Table 6 reports the distribution of non-zero radar precipitation, highlighting the extreme skewness typical of hourly rainfall data [ 61 ]. The zero-inflated, heavy-tailed nature of the distribution motivates the heteroscedastic Gaussian likelihood and the balanced context sampling strategy described in Appendix D.1. 
+
+C.3 Quality filtering 
+
+Four rules are applied before training: (i) gauge spike removal : gauge values exceeding 20 mm/h when both GSMaP and radar report < 1 mm/h are set to NaN; (ii) radar cap : radar values exceeding 500 mm/h are set to NaN; (iii) missing ground truth : gauge values below −900 (sentinel) are excluded from the valid mask; (iv) completeness : validation and test samples with entirely missing satellite or radar fields are discarded. 16 Table 7: Input normalization.            
+
+> Channel Transform
+> Satellite (GSMaP) log(1 + x)
+> Gauge observations log(1 + x)
+> Elevation (DEM) x / 2000
+> Context mask Binary {0,1}
+> Radar (target) None (raw mm/h)
+
+Table 8: Hyperparameters of NSP. 
+
+Hyperparameter Value 
+
+Optimizer AdamW ( β1=0 .9, β2=0 .999 )Learning rate 3 × 10 −3 (OneCycleLR) Weight decay 1.35 × 10 −3
+
+Epochs 4Batch size 4 per GPU ( ×8 = 32 effective) Mixed precision FP16 Gradient clipping 1.0 Hidden channels 128 Latent dimension D 64 Spatial downsampling ratio r 4Encoder stages / residual blocks 2 / 2 Decoder stages / residual blocks 2 / 2 Decoder hidden dimension 128 Fusion residual blocks 3SDE hidden dimension 64 SDE step size ∆t 1.0 Dropout 0.1 Log-variance range [−6.0, −0.18] 
+
+βkl 0.5 
+
+βsde 0.01 
+
+βctx 15.0 
+
+βδ 90.0 Context ratio 0.5 
+
+C.4 Input normalization 
+
+Table 7 lists the transforms applied to each input channel inside the model’s preprocessing step. The radar target is kept in the original mm/h space; losses are computed without transformation. 
+
+## D Implementation Details 
+
+D.1 Hyperparameters Context/target protocol. At each training step, 50% of gauge observations were randomly assigned to the context set Ct and the remainder to the target set Tt, using balanced sampling that maintained equal proportions of rainy ( ≥ 0.5 mm/h) and non-rainy observations in each partition. The context set was bounded between 500 and 10,000 observations, and each sample required at least 16 rainy target locations. 
+
+Loss weights. The loss weights in the total objective were set to βkl =0 .5, βsde =0 .01 , βctx =15 ,and βδ =90 .17 Table 9: Expanding-window time-series cross-validation splits over the 2021–2025 period.             
+
+> Fold Train Validation Test
+> 12021 2022 2023 22021–2022 2023 2024 32021–2023 2024 2025
+
+Architecture and training. NSP contains 3.29M parameters in the encoder, 825K in the decoder, and 82K in the Neural SDE module (4.19M total). Table 8 lists the full set of hyperparameters. 
+
+D.2 Learned baseline training objective 
+
+For all learned baselines trained from sparse gauge supervision—ViT, U-Net, CNP, and ConvCNP— we used the same weighted held-out MSE objective. The loss was evaluated only on held-out gauge targets, i.e. gauge locations not included in the context set. This keeps the supervision consistent with the context-to-target protocol used throughout the paper and avoids rewarding models for reconstructing context gauges that were already provided as input. Because held-out gauge targets are dominated by zero or weak-rain samples, a plain MSE objective tends to favor trivial low-rain solutions. To mitigate this imbalance, we upweighted held-out rainy targets by a factor of 5. Formally, for target set T ,
+
+Lbase =
+
+P 
+
+> i∈T
+
+wi (ˆ yi − yi)2
+
+P 
+
+> i∈T
+
+wi
+
+, wi =
+
+5, yi ≥ 0.5 mm /h,
+
+1, yi < 0.5 mm /h. (17) Here, ˆyi denotes the model prediction at held-out gauge location i, and yi is the corresponding gauge observation. The target-weighting scheme was shared across all learned baselines for fairness. Model-specific preprocessing, such as whether predictions were made in original or log space, followed the corresponding baseline configuration, but the supervision protocol itself—held-out targets only, with 5× weighting on rainy gauges above 0.5 mm/h—was identical. 
+
+D.3 ConvCNP implementation note 
+
+Our ConvCNP baseline is not the original official code release, but a reimplementation adapted to dense-grid precipitation refinement. The implementation preserves the key architectural idea of Gordon et al. [ 25 ]: sparse context observations are first mapped into a continuous representation by density-normalized Gaussian set convolution, and the resulting representation is then processed by a convolutional decoder to produce dense predictions. Concretely, we applied a fixed Gaussian set convolution to the context gauge value map and context mask, yielding a smoothed value field and a smoothed density field. These two fields were concate-nated with the satellite precipitation and elevation channels, and the resulting four-channel tensor was passed through a U-Net-style encoder–decoder that outputs the predictive mean and log-variance on the full grid. Thus, compared with the plain U-Net baseline, the distinguishing feature of ConvCNP is the convolutional deep-set preprocessing of sparse gauge observations rather than direct ingestion of the raw sparse context map. This adaptation was necessary because the original ConvCNP formulation is not provided as an off-the-shelf implementation for our dense 260 × 590 gridded prediction setting. Our reimplementation preserves the conditional process structure while adapting the decoder and training pipeline to dense-grid satellite precipitation refinement. 
+
+D.4 Time-series cross-validation 
+
+Table 9 details the three-fold expanding-window time-series cross-validation splits used for all CONUS experiments. The training window grows with each fold, and the validation and test years always follow the training period chronologically, preventing temporal leakage. 18 Table 10: Full quantitative comparison on the Kyushu (Japan) regional dataset. Single train/validation/test split (2020/2021/2022); best in bold .                                                                                     
+
+> Method RMSE r↓MAE r↓RMSE g↓MAE g↓rr, coll ↑
+> ViT 2.979 2.010 1.993 1.275 0.483 Quantile mapping 1.876 1.073 1.377 0.623 0.216 GWR 1.788 0.812 0.655 0.252 0.389 CNP 1.779 1.559 1.953 1.815 0.437 EMOS 1.738 0.954 1.082 0.326 0.169 Cokriging 1.715 0.951 1.077 0.384 0.139 Linear regression 1.688 0.831 0.768 0.275 0.356 Kriging 1.640 0.936 0.973 0.364 0.114 GSMaP 1.508 0.882 0.965 0.326 0.158 XGBoost 1.501 0.835 0.985 0.404 0.190 ConvCNP 1.363 0.752 0.645 0.170 0.525 U-Net 1.324 0.726 0.679 0.186 0.532 IDW 1.272 0.753 0.680 0.245 0.397 GSMaP GC 1.288 0.808 0.762 0.270 0.265
+> NSP (Ours) 1.119 0.701 0.485 0.155 0.553
+
+Table 11: Minimum useful scale: smallest neighborhood where FSS ≥ 0.5 [52 ]. Lower indicates spatially sharper predictions.                    
+
+> Threshold (mm/h) GSMaP GC NSP Note
+> 0.1 33 km (3 px) 33 km (3 px) Equal 1.0 33 km (3 px) 55 km (5 px) GC better 5.0 440 km (40 px) 220 km (20 px) NSP 2×better 10.0 not reached not reached Both below 0.5
+
+D.5 Temporal pairing 
+
+For the SDE transition loss Ltrans , consecutive hourly pairs (t, t +1) are formed. Pairs with a temporal gap exceeding one hour (due to quality filtering) are discarded. 
+
+## E Additional Experimental Results 
+
+E.1 Kyushu regional experiment Setup. The experiment covered the Kyushu region of Japan ( 31 .0–34 .5◦N, 129 .0–132 .5◦E) on an approximately 80 × 80 grid at 0.1◦ resolution. Inputs consisted of GSMaP MVK satellite precipitation [ 35 ], MERIT DEM elevation, and sparse AMeDAS rain gauge observations from approximately 100 stations; the Japan Meteorological Agency’s RadarAMeDAS composite ( 0.01 ◦,regridded to 0.1◦) served as the evaluation reference. Data covered three calendar years (2020–2022). Because only three years were available, we adopted a fixed year-based split (2020 training, 2021 validation, 2022 testing) instead of fold-based cross-validation. The regional data are subject to institutional access restrictions. 
+
+Full results. Table 10 reports the full Kyushu results with all five metrics. FSS R is omitted because the small grid size ( ∼80 × 80 ) provides too few neighborhood patches for the statistic to be discriminative. 
+
+E.2 Extended error analysis 
+
+This subsection provides extended error analysis for NSP on the CONUS test set (fold 3, 8,759 samples). 19 Table 12: Conditional intensity RMSE (cRMSE) and bias, computed only on pixels where both prediction and radar exceed the threshold.                                 
+
+> Threshold GC NSP Improv. NSP bias GC bias (mm/h) cRMSE cRMSE
+> 0.1 3.66 3.54 +3.3% −0.52 −0.34 1.0 5.41 4.87 +10.0% −0.92 −0.41 5.0 9.72 9.24 +4.9% −3.54 −2.00 10.0 13.38 11.88 +11.2% −4.20 −2.49 25.0 21.32 14.70 +31.1% −0.23 +3.40
+
+Minimum useful scale. Table 11 reports the smallest neighborhood size at which FSS reaches 0.5, indicating the minimum scale at which the prediction becomes spatially useful. At moderate intensity (τ =5 .0 mm/h), NSP becomes useful at half the scale of GSMaP GC (220 km vs. 440 km). At light rain ( τ =1 .0 mm/h), GC’s gauge-based daily adjustment provides slightly better spatial calibration. 
+
+Conditional intensity RMSE. Table 12 reports RMSE computed only on pixels where both prediction and radar exceed the threshold, isolating intensity accuracy from detection accuracy. NSP achieved lower conditional RMSE than GC at every threshold, with improvement growing from 3% to 31% as intensity increased. Both methods underestimated precipitation (negative bias), but at 
+
+τ =25 mm/h, GC overestimated ( +3.40 bias) while NSP was near-zero ( −0.23). 
+
+Why extreme precipitation remains difficult. The difficulty of extreme precipitation refinement stems from mutually reinforcing limitations at the input, resolution, training, and objective levels. 
+
+(i) Input signal degradation. Microwave brightness temperatures saturate at high rain rates, and the retrieval assumptions underlying GSMaP—raindrop size distributions, vertical hydrometeor profiles, and surface emissivity models—break down during intense convection [ 29 , 58 ]. Geolocation and parallax errors further displace convective cores by tens of kilometres in the satellite product [ 41 ]. Because NSP refines a residual on top of the satellite field, the model cannot recover structure that is absent or grossly misplaced in its input. 
+
+(ii) Resolution and scale mismatch. Convective cells typically span 1–10 km, while our grid resolution (0.1◦ ≈ 11 km) can barely resolve them. Both the radar reference and the satellite input represent area averages that smooth sub-grid peak intensities, imposing a ceiling on recoverable spatial detail. 
+
+(iii) Training distribution imbalance. Extreme events are exceedingly rare: pixels exceeding 25 mm/h constitute fewer than 0.01% of all radar pixels (Table 6). Standard minibatch sampling offers the model only a handful of extreme-intensity targets per epoch, providing insufficient gradient signal for the tail. 
+
+(iv) Bayes-optimal smoothing under Gaussian likelihood. Under MSE-based training, the Bayes-optimal prediction converges toward the conditional mean, which systematically underestimates heavy-tailed extremes. This is a mathematical property of the loss function, not a model deficiency: any method optimizing L2 loss over a zero-inflated, heavy-tailed distribution will regress toward moderate values when the input is ambiguous. The pixel-level RMSE breakdown confirms this: at 25+ mm/h, all three methods (GSMaP, GC, NSP) converge to comparable RMSE ( ∼30 mm/h), indicating that the information bottleneck lies in the input and the objective, not in model capacity. 
+
+Implications for gauge fusion. Sparse gauges can correct local bias where heavy rain is observed, but they cannot fully reconstruct a missed convective core when the satellite input already places precipitation in the wrong location or fails to detect it altogether. This limitation is amplified by point–area mismatch: gauges observe point rainfall, whereas radar and satellite products represent area averages, so disagreement grows as spatial variability increases [ 60 ]. Together with the failure case in Figure 12, these results suggest that meaningful heavy-rain improvement will require advances along multiple axes—intensity-aware sampling or tail-weighted objectives to address the training imbalance, higher-resolution inputs or multi-scale architectures to resolve convective structure, and potentially distributional outputs (e.g., quantile regression) to avoid Bayes-optimal smoothing—rather than denser gauge conditioning alone. 20 Table 13: MSE source decomposition into mutually exclusive pixel categories ( τ =0 .1 mm/h).                          
+
+> Category Definition MSE share
+> Hit bias (intensity) pred ≥0.1and radar ≥0.167.0% Miss (position) pred <0.1and radar ≥0.114.4% False alarm (position) pred ≥0.1and radar <0.118.6%
+> Intensity-related 67.0% Position-related 33.0%
+
+Table 14: Per-sample comparison conditioned on GSMaP GC accuracy (fold 3). 73 samples with missing GC data are excluded; 1 sample with GC RMSE ≥ 4 is included in Overall but omitted from bins.                          
+
+> GC accuracy NGC RMSE NSP RMSE ∆NSP wins
+> RMSE <1(accurate) 7,236 0.592 0.575 −0.017 52.7% RMSE 1–2 1,415 1.193 1.014 −0.179 81.0% RMSE 2–4 34 2.365 0.836 −1.529 100.0%
+> Overall 8,686 57.5%
+
+Table 15: Per-sample comparison with GSMaP GC and failure mode decomposition ( τ =0 .1 mm/h).            
+
+> Count Proportion
+> NSP better than GC 4,994 57.5% NSP worse than GC 3,692 42.5%
+> Dominant error in 3,692 failure cases
+> Intensity error (hit bias) 2,681 72.6% False precipitation 571 15.5% Missed precipitation 440 11.9%
+
+Table 16: Dominant error mode for all 8,759 test samples ( τ =0 .1 mm/h).         
+
+> Mode Count Proportion
+> Intensity error (hit bias) 7,125 81.3% False precipitation 930 10.6% Missed precipitation 704 8.0%
+
+MSE source decomposition. Table 13 decomposes the total MSE into mutually exclusive pixel categories following GPM conventions. Two-thirds of NSP’s total error was attributable to intensity estimation at correctly detected locations; the remaining third arose from spatial errors (missed rain and false alarms). 
+
+GSMaP GC conditional analysis. Table 14 stratifies per-sample performance by GSMaP GC’s accuracy. When GC was already accurate (RMSE < 1), NSP matched it (52.7% win rate, ∆= −0.017 ). When GC degraded (RMSE 1–2), NSP won 81% of samples with a mean RMSE improvement of 0.179. 
+
+Per-sample failure decomposition. Table 15 classifies the 8,686 test samples for which GC data are available by their dominant error source following the GPM hit-bias/miss/false-alarm decomposition (τ =0 .1 mm/h). NSP outperformed GSMaP GC in 57.5% of hourly samples. Among the 3,692 failure cases, 72.6% were dominated by intensity error at correctly detected locations, while spatial errors (false alarms and misses) accounted for the remaining 27.4%. Pixel-level MSE decomposition confirmed that 67% of total error is intensity-related. 21 Table 17: Temporal objective variants on CONUS. The matched-variance row uses the Girsanov special case σ2 
+
+> φ
+
+= σ2 
+
+> θ
+
+∆t; the naive temporal penalty replaces the KL with mean-only temporal matching. Best values are in bold .
+
+Variant RMSE r ↓ MAE r ↓ RMSE g ↓ MAE g ↓ rr, coll ↑ FSS R ↑
+
+Matched variance 2.883 ±0.139 1.489 ±0.076 0.341 ±0.062 0.063 ±0.015 0.478 ±0.021 0.522 ±0.018 
+
+Naive temporal penalty 2.853 ±0.121 1.470 ±0.089 0.366 ±0.037 0.070 ±0.011 0.478 ±0.018 0.519 ±0.042 
+
+Full transition KL 2.818 ±0.062 1.444 ±0.026 0.393 ±0.047 0.076 ±0.013 0.478 ±0.021 0.527 ±0.022 
+
+0 2 4 6 8 10 
+
+2
+
+2.5
+
+3
+
+3.5
+
+Hour 
+
+> RMSE r
+
+(a) March 15, 2025: RMSE r
+
+0 2 4 6 8 10 
+
+0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+Hour 
+
+> FSS R
+
+(b) March 15, 2025: FSS R
+
+0 2 4 6 8 10 
+
+1.5
+
+2
+
+2.5
+
+3
+
+Hour 
+
+> RMSE r
+
+(c) October 30–31, 2025: RMSE r
+
+0 2 4 6 8 10 
+
+0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+Hour 
+
+> FSS R
+
+(d) October 30–31, 2025: FSS R   
+
+> NSP NSP w/o Ltrans ConvCNP
+
+Figure 5: Hour-by-hour event tracking using the existing radar-evaluated metrics RMSE r ↓ and 
+
+FSS R ↑ on two 12-hour fold 3 events. NSP is compared against the no-Ltrans ablation and ConvCNP. In both events, removing Ltrans degrades RMSE r and usually lowers FSS R, with the effect especially pronounced in the late-October event. ConvCNP improves over naive gauge-only interpolation but still fails to preserve thresholded spatial structure, yielding consistently low FSS R under dense-grid prediction. 
+
+Failure mode across all samples. Table 16 shows the dominant error mode for all test samples. Intensity error dominated in 81% of cases; false alarms (11%) and misses (8%) were secondary contributors. 
+
+E.3 Theory-motivated temporal ablations 
+
+Table 17 compares the proposed transition KL with two theory-motivated variants: a matched-variance special case corresponding to the Girsanov reduction, and a naive temporal penalty that replaces the KL with mean-only temporal matching. The matched-variance variant achieves the lowest gauge-level errors, but the full transition KL yields the best radar-evaluated gridded accuracy (RMSE r : 2.818, MAE r : 1.444) and the highest spatial coherence ( FSS R: 0.527). The naive temporal penalty is competitive but remains weaker than the full KL on all three gridded metrics. These results support the use of the full transition KL as the best trade-off between pointwise gauge fitting and spatially coherent gridded prediction. The matched-variance constraint ties the encoder’s uncertainty budget to the SDE diffusion, which reduces the posterior’s capacity to absorb observation noise 22 Table 18: Event-wise temporal analysis on two 12-hour CONUS events in fold 3. Values are means over the 12 hourly steps; σ(RMSE r ) denotes the standard deviation of RMSE r across the event window. ConvCNP denotes a reimplementation adapted to dense-grid prediction (Appendix D.3).                                   
+
+> Event Model RMSE r↓σ(RMSE r)↓FSS R↑
+> March 15, 2025 NSP 2.770 0.392 0.707
+> March 15, 2025 NSP w/o Ltrans 2.828 0.403 0.671 March 15, 2025 ConvCNP 3.123 0.427 0.069 October 30–31, 2025 NSP 1.892 0.191 0.539
+> October 30–31, 2025 NSP w/o Ltrans 2.295 0.323 0.472 October 30–31, 2025 ConvCNP 2.166 0.249 0.035
+
+Table 19: SDE rollout analysis on the same two 12-hour fold 3 events. NSP (standard inference) denotes the deployed inference mode used throughout the paper, which re-encodes each hour inde-pendently. NSP (pure SDE rollout) propagates the latent state without re-encoding after initialization, and NSP (hybrid) linearly blends rolled-out and re-encoded latent states with α = 0 .5. Values are means over the 12 hourly steps; latency is the mean per-hour inference time within each mode.                                 
+
+> Event Mode RMSE r↓FSS R↑Mean latency (ms)
+> March 15, 2025 NSP (standard inference) 2.776 0.713 2.60 March 15, 2025 NSP (pure SDE rollout) 3.239 0.351 2.22
+> March 15, 2025 NSP (hybrid, α=0 .5)3.102 0.497 2.92 October 30–31, 2025 NSP (standard inference) 1.891 0.543 2.60 October 30–31, 2025 NSP (pure SDE rollout) 2.043 0.313 2.21
+> October 30–31, 2025 NSP (hybrid, α=0 .5)1.851 0.503 2.93
+
+independently of the dynamics; the full KL avoids this coupling and lets the encoder and the SDE each adapt their variance scales, yielding better gridded accuracy at a modest cost in gauge-level error. 
+
+E.4 Event-wise temporal analysis 
+
+To probe the effect of temporal regularization without introducing additional evaluation metrics, we tracked the existing event-level metrics RMSE r and FSS R hour by hour over two 12-hour CONUS events in the 2025 test split (fold 3): a rapidly evolving severe-weather event on March 15, 2025, and a late-October synoptic-scale precipitation event on October 30–31, 2025. We compared NSP against the no-Ltrans ablation and ConvCNP, the latter implemented as a faithful dense-grid reimplementation described in Appendix D.3 and trained with the shared weighted held-out MSE objective of Appendix D.2. Figure 5 shows the hour-by-hour trajectories, while Table 18 summarizes the event-wise means. Across the two events, NSP outperformed the no-Ltrans ablation in 22/24 hourly steps in RMSE r and 21/24 hourly steps in FSS R. The gain was especially pronounced in the late-October event, where removing Ltrans increased the event-averaged RMSE r from 1.892 to 2.295 and reduced FSS R from 0.539 to 0.472, while also increasing the hour-to-hour standard deviation of RMSE r from 0.191 to 0.323. This indicates that the transition loss improves stability over multi-hour evolution rather than only average test-set performance. ConvCNP performed markedly worse on both events. In our dense-grid setting, the ConvCNP base-line converged to smooth low-intensity fields that rarely exceeded the spatial verification thresholds, yielding very low event-averaged FSS R (0.069 on March 15 and 0.035 on October 30–31). This gap persists despite ConvCNP sharing a similar convolutional backbone and producing heteroscedastic output; the critical difference is that ConvCNP lacks a latent variable and instead relies on a deter-ministic set-convolution encoder, which collapses all context information into a single smoothed representation before decoding. NSP’s stochastic latent field allows the decoder to sample from a distribution that can represent spatially varying modes—rain versus no-rain—at each location, 23 10 25 50 75 100          
+
+> 1
+> 2
+> 3
+> Context gauge ratio (%)
+> Metric value
+> (a) Radar-evaluated metrics
+> RMSE r(↓)
+> FSS R(↑)
+> rr, coll (↑)
+> 10 25 50 75 100
+> 0.2
+> 0.4
+> 0.6
+> Context gauge ratio (%)
+> Metric value
+> (b) Gauge-evaluated metrics
+> RMSE g(↓)
+> MAE g(↓)
+
+Figure 6: Effect of the inference-time context ratio on NSP performance (fold 3, model trained with 50% context). (a) Radar-evaluated metrics are best at 10–25% context and degrade with denser input, revealing a gauge over-interpolation effect. (b) Gauge-evaluated metrics improve monotonically with denser context, as expected. whereas the deterministic ConvCNP pathway averages over this ambiguity. The result confirms that a convolutional spatial encoder alone is insufficient to preserve thresholded spatial structure under dense gridded inference, and that the stochastic latent pathway of NSP is essential. 
+
+E.5 SDE rollout analysis 
+
+To assess whether the learned SDE captures meaningful latent dynamics beyond its role as a training objective, we compared three inference modes on the same two 12-hour events: (i) standard NSP inference with per-hour re-encoding, (ii) pure SDE rollout after the initial latent state, and (iii) a hybrid mode that linearly blends re-encoded and rolled-out latent states. Table 19 summarizes the results. NSP (standard inference) is the deployed inference mode used throughout the paper and is slower than pure rollout because it re-encodes each hour, whereas pure rollout skips those encoder passes after initialization. Pure rollout remained competitive for the first few hours and retained FSS R > 0.3 for the first 6 hours in the March event and 5 hours in the late-October event, confirming that the learned SDE captures non-trivial short-horizon dynamics. Beyond that horizon, rollout quality degraded rapidly, consistent with accumulated latent drift. The hybrid mode was more stable than pure rollout and, in the late-October event, even achieved lower mean RMSE r than NSP (standard inference) (1.851 vs. 1.891) while retaining FSS R > 0.3 for 10 of 12 hours, suggesting that adaptive blending may be a promising direction for future work. These observations are consistent with the mean-field posterior assumption (Section 4.3): because the encoder produces each zt independently, the SDE’s drift fθ can only approximate the marginal transition between independently inferred latent states. Over short horizons the approximation is accurate, but errors compound because no new observational information corrects the latent trajectory. Re-encoding at each hour resets this drift and reintroduces the current observation, which is why standard inference remains the most robust strategy over longer horizons. The hybrid result nonetheless suggests that partially incorporating the SDE at inference time can recover complementary temporal information that the encoder alone does not capture, pointing toward adaptive encoder– rollout blending as a direction for future work. 
+
+E.6 Gauge density sensitivity analysis Test-time context ratio. We varied the fraction of available gauges assigned to the context set at test time from 10% to 100%, keeping the model fixed (fold 3, trained with 50% context). Figure 6 plots the results. Radar-evaluated metrics peak at 10–25% context and degrade with denser input: going from 10% to 100% worsens RMSE r by 1.8% and FSS R by 6.0%, consistent with the decoder over-interpolating toward individual gauge values at the expense of spatial coherence (Section 6). Gauge-evaluated metrics improve monotonically, as expected when context gauges overlap with the evaluation set. The most balanced operating point is 25% context ( FSS R=0 .501 , rr, coll =0 .460 ). 24 10 25 50 75         
+
+> 1
+> 2
+> Training context ratio (%)
+> Metric value
+> (a) Radar-evaluated metrics
+> RMSE r(↓)
+> FSS R(↑)
+> rr, coll (↑)
+> 10 25 50 75
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Training context ratio (%)
+> Metric value
+> (b) Gauge-evaluated metrics
+> RMSE g(↓)
+> MAE g(↓)
+
+Figure 7: Effect of the training-time context ratio on NSP performance (fold 3, seed 42). Each point retrains NSP from scratch with the indicated fixed context ratio; the 100% setting diverged and is omitted. At 75%, FSS R collapses despite a slight RMSE r improvement, confirming that dense gauge supervision during training induces overfitting to point observations.            
+
+> 10 25 50 75
+> 1
+> 2
+> 3
+> Fixed station ratio (%)
+> Metric value
+> (a) Radar-evaluated metrics
+> RMSE r(↓)
+> FSS R(↑)
+> rr, coll (↑)
+> 10 25 50 75
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> Fixed station ratio (%)
+> Metric value
+> (b) Gauge-evaluated metrics
+> RMSE g(↓)
+> MAE g(↓)
+
+Figure 8: Effect of the fixed station-network ratio on NSP performance (fold 3, fixed 50% context split within each retained station subset). Unlike the earlier context-ratio sweep, this experiment first fixes the available gauge network and then partitions only that network into context and held-out targets. (a) Radar-evaluated metrics remain stable across 10–75% retained stations. (b) Gauge-evaluated metrics are shown for completeness, but their values are not directly comparable to the earlier sweeps because the evaluated station subset changes with the retained network. Even at 10% ( ∼730 stations, ∼100 km spacing), NSP retains spatial accuracy on par with 100%, confirming robustness to sparse observation networks. 
+
+Training-time context ratio. To disentangle test-time over-interpolation from the training protocol, we retrained NSP from scratch with a fixed context ratio. Figure 7 reports the results. The 100% setting diverged; 25–50% yielded the best balance between gridded and gauge-level accuracy. At 75%, RMSE r fell to 2.693 but FSS R dropped to 0.335 and RMSE g rose to 0.825, confirming that denser gauge supervision during training also induces overfitting to point observations. 
+
+Fixed station-network ratio. A complementary protocol first retains a random fraction of the full station network, then applies the standard 50% context split within that subset. Figure 8 shows the results. Radar-evaluated metrics remain stable across 10–75% retained stations, indicating that the degradation in the context-ratio sweep stems from how densely the model conditions on a given network, not from the absolute station count. Taken together, the three sweeps isolate the source of the accuracy–coherence trade-off: it is the conditioning density relative to the decoder’s receptive field, rather than the global gauge count or the 25 Figure 9: Gauge context ablation for the widespread convective event shown in Figure 3 (03:00 UTC, March 16, 2025). Removing gauge context degrades RMSE r by 16.7%; the |∆ prediction | panel confirms that gauge corrections concentrate in active precipitation regions. 
+
+Figure 10: Gauge context ablation for a localized winter precipitation event (13:00 UTC, December 24, 2025). Removing gauge context changes RMSE r by only 1.5%; the spatial structure is predominantly satellite-driven. Table 20: Inference latency and model size. Measured on a single NVIDIA H200 GPU with batch size 1, excluding data loading and host–device transfer.                
+
+> Method Category Latency (ms) Parameters
+> GSMaP GC Operational product 0.04 —Linear regression Statistical 1.05 —IDW Interpolation 1.88 —
+> NSP Deep learning 2.64 4.19M
+
+training distribution, that governs whether the model preserves spatially coherent fields or collapses toward point-wise gauge interpolation. 
+
+E.7 Gauge context ablation 
+
+To visualize how gauge observations shape the spatial precipitation field, we compare NSP’s output with and without gauge context on two contrasting test cases. Each panel shows: the radar reference, NSP with gauge context (standard inference), NSP without gauge context (zero gauges), and the absolute difference |∆ prediction | between the two outputs. 
+
+Gauge-dependent case. Figure 9 shows the same widespread convective event as Figure 3 (03:00 UTC, March 16, 2025; 9% rain coverage, peak 50 mm/h). Removing all gauge stations degrades RMSE r by 16.7% (0.930 → 1.085 mm/h). The |∆| panel reveals that gauge corrections concentrate in active precipitation regions (mean |∆|=1 .26 mm/h in rainy pixels vs. 0.04 mm/h in dry pixels, a 31 × ratio), confirming that the model uses gauge information primarily for intensity refinement rather than spatial structure. 
+
+Satellite-driven case. Figure 10 shows a localized winter precipitation event (13:00 UTC, Decem-ber 24, 2025; 7% rain coverage, peak 22 mm/h). Despite comparable gauge availability, removing all stations degrades RMSE r by only 1.5% (0.594 → 0.603 mm/h). The |∆| panel still shows a 37 × rainy-to-dry correction ratio (0.96 vs. 0.03 mm/h), but the overall impact on accuracy is negligible—the spatial structure is almost entirely satellite-driven. 26 Table 21: Conditional DDPM baseline vs. NSP on CONUS (mean ± std over three-fold cross-validation). The DDPM performs far worse than NSP on every metric, with large cross-fold variance. All metrics follow the same protocol as Table 1.                         
+
+> Method RMSE r↓MAE r↓RMSE g↓MAE g↓rr, coll ↑FSS R↑
+> DDPM 7.482 ±2.534 6.441 ±2.365 8.178 ±2.814 7.605 ±2.555 0.361 ±0.161 0.060 ±0.039
+> NSP (Ours) 2.818 ±0.062 1.444 ±0.026 0.393 ±0.047 0.076 ±0.013 0.478 ±0.021 0.527 ±0.022
+
+Together, these two cases illustrate that NSP adaptively balances satellite and gauge information: gauge context provides meaningful intensity corrections for complex events, while the model remains robust when gauges contribute little new information. 
+
+E.8 Computational cost 
+
+Table 20 compares single-sample inference latency and model size for NSP and representative baselines (single NVIDIA H200, batch size 1, fold 3 checkpoint). NSP requires 2.64 ms per 260 ×590 
+
+grid in FP16—a single hourly CONUS field is processed in under 3 ms, well within real-time operational constraints. The overhead relative to statistical baselines (IDW, linear regression) is 1–2 ms, a negligible cost given the substantial accuracy gains reported in Section 6. NSP’s 4.19M parameters (3.29M encoder, 825K decoder, 82K SDE) are compact compared to typical U-Net or Vision Transformer architectures used in weather prediction [ 48 , 8], where parameter counts routinely exceed 100M. 
+
+E.9 Conditional DDPM baseline 
+
+We additionally explored a conditional DDPM as a generative baseline to test whether diffusion-based refinement could outperform deterministic approaches in our sparse-gauge setting. The DDPM was conditioned on the same four-channel input as all other learned baselines and trained with standard 
+
+ϵ-prediction on the held-out gauge targets following the shared protocol of Appendix D.2. Table 21 compares the DDPM against NSP. The DDPM’s mean RMSE r of 7.482 is nearly twice that of the weakest main-table baseline (Quantile mapping, 4.07), and its cross-fold standard deviation exceeds 2.5 on the error metrics ( RMSE r , RMSE g , MAE r , MAE g ), indicating that training did not converge to a stable solution across data splits. This instability likely stems from the mismatch between the diffusion training objective and the final evaluation setting: ϵ-prediction optimizes a noise-matching loss in a multi-step denoising process, but evaluation is performed on single-step rain-rate predictions at sparse held-out gauge locations. We therefore treat this DDPM experiment as a diagnostic negative result rather than a stable baseline, and did not include it in the main comparison. 
+
+## F Additional Qualitative Results 
+
+We present two additional success cases and one failure case to complement the qualitative analysis in Section 6. 
+
+Success case 1: warm-front stratiform precipitation (southeastern US). Figure 11 (top) shows a warm-front event on February 11, 2024, producing widespread stratiform precipitation from the Tennessee Valley to the mid-Atlantic coast. GSMaP overestimates the spatial extent with a broad swath of moderate intensity extending well beyond the radar-observed envelope. IDW reproduces gauge locations as isolated patches, destroying spatial coherence. GSMaP GC suppresses the satellite overestimation but introduces discontinuous patches that do not reflect the underlying frontal structure. NSP combines the satellite field with gauge corrections to recover a spatially continuous band whose morphology and intensity gradient agree with the radar reference. The regional zoom reveals the characteristic diffuse overestimation of passive microwave retrieval over stratiform systems, where the ice-scattering signal extends beyond the actual surface precipitation footprint. GSMaP GC’s daily gauge adjustment overcompensates, attenuating the core of the frontal band, whereas NSP preserves the northeast–southwest orientation and internal intensity gradient. 27 Success case 1 (13:00 UTC, February 11, 2024) 
+
+Success case 2 (13:00 UTC, April 5, 2023) 
+
+Figure 11: Two success cases, each showing a full CONUS view (top) and regional zoom (bottom). 
+
+Case 1: A warm-front system over the southeastern US—GSMaP overestimates the spatial extent; GSMaP GC attenuates but introduces discontinuities; NSP produces a coherent field matching radar and preserves the frontal band orientation. Case 2: An intense squall line from Texas to the Great Lakes—GSMaP inflates the convective core far beyond the radar boundary; NSP recovers the sharp leading edge and trailing stratiform gradient. 
+
+Success case 2: intense springtime squall line (midwestern US). Figure 11 (bottom) captures a vigorous squall line on April 5, 2023, stretching diagonally from Texas to the Great Lakes with 28 Figure 12: Failure case at 13:00 UTC on January 22, 2024. Top: Full CONUS—radar detects moderate precipitation over the upper Midwest, but the satellite input is near-zero; without a spatial prior, NSP’s residual correction cannot reconstruct the field. Bottom: Regional zoom—GSMaP fails to detect shallow warm-rain precipitation; GSMaP GC produces diffuse, incoherent patches; NSP, dependent on the satellite residual, cannot recover the missing structure. peak intensities exceeding 20 mm/h. GSMaP dramatically overestimates both the extent and intensity, spreading high values far beyond the actual convective core. GSMaP GC narrows the precipitation footprint but still produces a broad, smeared band that lacks the sharp leading edge observed by radar. NSP recovers a narrow, well-defined squall line morphology with internal intensity gradients consistent with the radar field. The regional zoom shows that the satellite retrieval inflates the mesoscale convective system several hundred kilometers beyond the radar-observed boundary. GSMaP GC corrects the bulk intensity but retains an overly smooth field that obscures the sharp leading-edge structure. NSP accurately delineates the convective line, reproducing the rapid intensity gradient from the leading edge to the trailing stratiform region—a spatial pattern critical for severe weather nowcasting. 
+
+Failure case: satellite detection failure (midwestern US). Figure 12 illustrates a fundamental limitation of residual correction methods. On January 22, 2024, radar observed moderate precipitation over the upper Midwest (Michigan–Indiana region), yet GSMaP’s passive microwave retrieval failed to detect the event, returning near-zero values over the affected area. Because NSP operates by predicting a residual correction to the satellite estimate (Eq. 2), the absence of a satellite signal leaves no spatial prior to refine: the model cannot reconstruct precipitation structure from sparse gauge observations alone. The regional zoom confirms that the radar reference shows a coherent precipitation cluster east of Lake Michigan, while the GSMaP panel is nearly blank—a characteristic failure of passive microwave retrieval for shallow, warm-rain systems whose ice-scattering signature is too weak for satellite detection [ 29 ]. GSMaP GC interpolates scattered gauge reports into diffuse low-intensity patches bearing no spatial resemblance to the radar field. NSP, constrained by the near-zero satellite input, produces minimal output. This case exposes the inherent ceiling of residual correction frameworks: when the satellite estimate lacks any spatial signal, gauge observations alone—however accurate at point locations—cannot fill the information gap needed to reconstruct a spatially coherent field. Overcoming this limitation would require an architecture capable of generating precipitation structure de novo from gauge context, a direction for future work. 29

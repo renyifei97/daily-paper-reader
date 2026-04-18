@@ -1,0 +1,560 @@
+Title: Efficient Hierarchical Implicit Flow Q-learning for Offline Goal-conditioned Reinforcement Learning
+
+URL Source: https://arxiv.org/pdf/2604.08960v1
+
+Published Time: Mon, 13 Apr 2026 00:28:38 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Efficient Hierarchical Implicit Flow Q-learning for Offline Goal-conditioned Reinforcement Learning 
+
+Zhiqiang Dong 1, Teng Pang 1, Rongjian Xu 1, and Guoqiang Wu *1 2 *Corresponding Author 
+
+1School of Software, Shandong University, Jinan, Shandong, China , zhiqiangdong12@gmail.com, silencept7@gmail.com, rongjianxu50@gmail.com, guoqiangwu90@gmail.com 
+
+2Luke EI, Jinan, China April 13, 2026 
+
+Abstract 
+
+Offline goal-conditioned reinforcement learning (GCRL) is a practical rein-forcement learning paradigm that aims to learn goal-conditioned policies from reward-free offline data. Despite recent advances in hierarchical architectures such as HIQL, long-horizon control in offline GCRL remains challenging due to the limited expressiveness of Gaussian policies and the inability of high-level poli-cies to generate effective subgoals. To address these limitations, we propose the goal-conditioned mean flow policy, which introduces an average velocity field into hierarchical policy modeling for offline GCRL. Specifically, the mean flow pol-icy captures complex target distributions for both high-level and low-level policies through a learned average velocity field, enabling efficient action generation via one-step sampling. Furthermore, considering the insufficiency of goal represen-tation, we introduce a LeJEPA loss that repels goal representation embeddings during training, thereby encouraging more discriminative representations and im-proving generalization. Experimental results show that our method achieves strong performance across both state-based and pixel-based tasks in the OGBench bench-mark. 
+
+# 1 Introduction 
+
+A prevailing trend in modern machine learning is to reduce reliance on domain-specific assumptions while scaling up data. Offline goal-conditioned reinforcement learning (GCRL) follows this paradigm by training agents to reach arbitrary goal states solely from a fixed, static, and unlabeled (i.e., reward-free) dataset, without interacting with 1
+
+> arXiv:2604.08960v1 [cs.LG] 10 Apr 2026
+
+the environment during training [1, 2, 3]. Despite its promise, offline GCRL remains fundamentally challenging in long-horizon settings. In particular, accurately estimating goal-conditioned value functions over long horizons is difficult, as naive value learning often leads to high-variance estimates and suboptimal policies [4, 5]. To mitigate these issues, Hierarchical Implicit Q-Learning (HIQL) [6], one of the state-of-the-art offline GCRL methods, introduces a hierarchical policy structure in which a high-level policy proposes subgoals and a low-level policy executes primitive actions toward these subgoals. By decomposing long-horizon decision-making into shorter segments, HIQL provides more stable learning signals for both policy levels, even when the underlying value estimates are noisy. However, despite its success in certain long-horizon environments, HIQL still exhibits notable limitations. As offline datasets grow larger and more diverse, their behavior distributions become increasingly complex and multimodal, exposing a key weakness of HIQL: its reliance on unimodal Gaussian policies, which struggle to capture such rich action distributions [7, 8]. Recent advances in generative modeling have inspired new approaches to address policy expressivity in offline RL. In particular, diffusion models [9] and flow matching methods [10] have been applied to offline RL, both for trajectory modeling [11, 12] and policy learning [13, 14, 15]. These generative policies offer significantly greater expressivity than traditional Gaussian or mixture policies. However, their practical deployment remains challenging: complex multi-step sampling procedures incur sub-stantial computational overhead, and the resulting samples are not directly amenable to standard policy optimization. To alleviate these limitations, recent work [16, 15] has explored more efficient training and inference strategies. Although there has been some progress in these works, they still cannot avoid multi-step sampling. Motivated by these developments, we propose Hierarchical Implicit Flow Q-Learning (HIFQL), a simple and effective method for offline GCRL. Inspired by mean flow in generating models [17], HIFQL extends HIQL by replacing unimodal Gaussian poli-cies with expressive mean flow policies at both the high and low levels. Specifically, we use mean flow to model the high-level policy that generates subgoals and the low-level policy that produces actions based on these subgoals, enabling expressive yet efficient one-step generation. Furthermore, in high-dimensional, pixel-based environments, the effectiveness of hierarchical policies critically hinges on learning high-quality goal representations. To address this, we incorporate a LeJEPA-based goal representation encoder that learns well-conditioned and semantically meaningful goal embeddings, further improving subgoal prediction and long-horizon performance. Extensive experiments on the OGBench benchmark demonstrate that HIFQL achieves strong performance across both state-based and pixel-based tasks, highlighting its ef-fectiveness for long-horizon offline goal-conditioned control. Our contributions are summarized as follows: • We propose efficient Hierarchical Implicit Flow Q-Learning (HIFQL), a sim-ple yet effective offline GCRL method that extends hierarchical policy learning by leveraging expressive mean flow models with one-step generation for long-horizon control. • To enhance subgoal prediction in high-dimensional environments, we incorpo-2rate a LeJEPA-based goal representation encoder that learns well-conditioned and semantically consistent goal embeddings, improving the robustness of high-level policy learning, especially in pixel-based tasks. • Experiments on the OGBench benchmark demonstrate that HIFQL achieves strong performance on both state- and pixel-based tasks. 
+
+# 2 Preliminaries and Background 
+
+2.1 Problem setting 
+
+The offline goal-conditioned reinforcement learning (GCRL) problem is defined by a Markov decision process M = ( S, A, μ, T ), where S denotes the state space, A de-notes the action space, μ(s) ∈ ∆( S) denotes the initial state distribution, T (s′ | s, a ) : 
+
+S × A → ∆( S) denotes the transition dynamics function. Here ∆( X ) denotes the set of probability distributions defined on a set X and use gray to denote placeholder vari-ables. In offline GCRL, the goal is to learn a goal-conditioned policy π(a|s, g ) : S × S → ∆( A) that maximizes the expected return J(π) = Eg∼μg (g), τ ∼pπ (τ )
+
+hPHh=0 γhr(sh, g )
+
+i
+
+,where τ = ( s0, a 0, s 1, . . . , s H ) denotes the episode, H ∈ N denotes the episode hori-zon, γ ∈ (0 , 1) denotes the discount factor. Just as in some prior work [6, 18, 19], we assume that the goal space G is the same as the state space (i.e., G = S), μg (g) ∈ ∆( S)
+
+denotes a goal distribution, pπ (τ ) denotes the trajectory-based distribution given by 
+
+pπ (τ ) = μ(s0) QH−1 
+
+> h=0
+
+π(ah | sh, g ) T (sh+1 | sh, a h), and r(s, g ) : S × S → R de-notes a goal-conditioned reward function 1. In offline scenarios, we have an unlabeled (i.e., reward-free) dataset D = {τ (n)}n∈{ 1,2,...,N } consists of N unlabeled trajecto-ries, where each trajectory τ {n} = ( s(n)0 , a (n)0 , s (n)1 , . . . , s (n) 
+
+> Hn
+
+) consists of a sequence of states and actions, and Hn is trajectory-specific horizon. 
+
+2.2 Hierarchical Implicit Q-Learning(HIQL) 
+
+A key challenge in offline GCRL is long-horizon reasoning, which is the ability to reach a goal state from an initial state via a long sequence of step [20, 5, 3]. To tackle this issue, hierarchical implicit Q-learning (HIQL) [6] adopts a hierarchical model-ing approach for training and execution. It has three components: a high-level pol-icy generating subgoals, a low-level policy producing actions, and a goal-conditioned value function trained with implicit Q-learning [21]. Specifically, HIQL trains a goal-conditioned value function VθV (s, g ) with the following loss: 
+
+LV (θV ) = E(sh,s h+1 )∼D ,g∼μg (g)
+
+Lκ
+
+> 2
+
+ r(sh, g ) + γV ¯θV (sh+1 , g ) − VθV (sh, g ) , (1) where ¯θV denotes the parameters of the target goal-conditioned value function net-work, and Lκ 
+
+> 2
+
+is the expectile loss with a parameter κ ∈ [0 .5, 1) : Lκ 
+
+> 2
+
+(x) = |κ − I(x <            
+
+> 1In this work, we define r(s, g ) = I(s=g), where Iis the indicator function, i.e., if s=g,r(s, g ) = 1 ,else r(s, g ) = 0 .
+
+3𝑉 𝜃 𝑉 𝜙 𝜃 𝑤                 
+
+> 𝑠 ℎ
+> 𝑔
+> value function and
+> goal representation encoder
+> high -level policy
+> 𝑢 𝜃 h
+> 𝑠 ℎ
+> 𝑔
+> (𝑡 ,𝑟 )
+> 𝑥 1~𝒩 (0,𝐈 𝑑
+> h)
+> 𝑢 h𝑢 tgt
+> h
+> ℒ𝜋 h
+> low -level policy
+> 𝑢 𝜃 l
+> 𝑠 ℎ
+> (𝑡 ,𝑟 )
+> 𝑥 1~𝒩 (0,𝐈 𝑑
+> l)
+> 𝑢 l𝑢 tgt
+> l
+> 𝑠 ℎ+𝑘 𝜙 𝜃 𝑤
+> ℒ𝜋 l
+> 𝑟 (𝑠 ℎ,𝑔 )+𝛾 𝑉 𝜃 𝑉 (𝑠 ℎ+1,𝑔 )
+> ℒ𝑉
+> ℒLeJEPA
+> high -level policy
+> 𝑢 𝜃 h
+> 𝑠
+> 𝑔
+> (1,0)
+> 𝑥 h
+> 1~𝒩 (0,𝐈 𝑑
+> h)
+> 𝑥 h
+> 0
+> low -level policy
+> 𝑢 𝜃 l
+> (1,0)
+> 𝑥 l
+> 1~𝒩 (0,𝐈 𝑑
+> l)
+> 𝑎
+> 𝑠
+> 𝑥 h
+> 0
+
+Training  Inference Figure 1: Overview of HIFQL. During training (left), a goal-conditioned value function and a shared goal representation encoder are jointly optimized, while high-level and low-level mean flow policies are trained via advantage-weighted regression to generate subgoals and actions, respectively. During inference (right), both policies perform one-step generation from Gaussian noise, enabling efficient hierarchical decision-making without iterative sampling. 
+
+0) |x2. For policy learning, both high-level and low-level policies are extracted using advantage-weighted regression (AWR) [22], optimized according to the following ob-jective: 
+
+Lπh (θh) = E(sh,s h+k )∼D ,g∼μg (g)
+
+exp  βA h(sh, s h+k, g ) × log πh
+
+θh (sh+k | sh, g ),
+
+Lπl (θl) = E(sh,a h,s h+1 ,s h+k )∼D 
+
+exp  βA l(sh, s h+1 , s h+k) × log πl
+
+θl (ah | sh, s h+k),
+
+(2) where β denotes the inverse temperature, sh+k represents the optimal k-step sub-goal with k ∈ N, Ah(sh, s h+k, g ) = VθV (sh+k, g )−VθV (sh, g ) and Al(sh, s h+1 , s h+k) = 
+
+VθV (sh+1 , s h+k)−VθV (sh, s h+k) denote the advantage functions of the high-level pol-icy πh and low-level policy πl, respectively. To address the infeasibility of subgoals prediction in high-dimensional domains, HIQL incorporates representation learning and presents a goal representation function ϕθw (s, g ). This hierarchical structure miti-gates the signal-to-noise ratio challenge, allowing the agent to produce reliable actions, particularly for long-horizon tasks where the goal is far away. Nevertheless, HIQL faces two unresolved challenges: 1) The Gaussian policy is inherently incapable of ef-fectively modeling complex, multi-modal target distributions, which demands a more expressive policy; 2) The goal representation function lacks the capacity to extract ad-equate and useful representations from high-dimensional domains. 
+
+2.3 Flow Matching 
+
+As a simpler generative paradigm for continuous-time normalization flows (CNF), flow matching [23, 24, 25] enables efficient sampling via deterministic ordinary differential equations (ODEs). Unlike diffusion-based approaches that rely on stochastic dynam-4ics, flow matching formulates generation as a deterministic transport process, which substantially simplifies both training and sampling. Formally, given a data distribution 
+
+pdata (x) ∈ ∆( Rd) over a d-dimensional Euclidean space, flow matching aims to train a neural network vθ (t, x ) : [0 , 1] ×Rd → Rd to parameterize a time-dependent velocity field v(t, x ). The corresponding flow ψ(t, x ) : [0 , 1] × Rd → Rd of this velocity field is the unique solution to the ODE: 
+
+ddt ψ(t, x ) = vθ (ψ(t, x )) ,
+
+This flow deterministically transforms samples from a simple base distribution q(x) ∈
+
+∆( Rd) (e.g., a standard Gaussian N (0 , Id)) at t = 1 into samples from the target data distribution pdata (x) at t = 0 .In this work, we focus on the simplest formulation of flow matching, which em-ploys linear interpolation paths and uniform sampling over time [10]. The flow match-ing loss is as follows: 
+
+LFM (θ) = Ex0∼pdata (x),x1∼q(x),t∼Unif([0 ,1]) 
+
+vθ (t, x t) − (x1 − x0) 22 ,
+
+where Unif([0 , 1]) denotes a uniform probability distribution supported on the interval 
+
+[0 , 1] , and xt = tx 1 + (1 − t)x0 is the linear interpolation between x0 and x1. For the training phase, the objective learns a vector field whose induced dynamics recover the data distribution pdata . At inference time, samples are obtained by numerically solving the ODE specified by vθ .
+
+# 3 Method 
+
+In this section, we present Hierarchical Implicit Flow Q-Learning (HIFQL) (in Fig-ure 1), a unified method for offline goal-conditioned reinforcement learning (GCRL). Our method extends HIQL by replacing unimodal Gaussian policies with expressive mean flow policies at both the high level and low level, enabling efficient one-step generation. We further introduce a LeJEPA-based goal representation encoder to im-prove subgoal prediction, particularly in high-dimensional, pixel-based environments. Together, these components yield an effective and scalable solution for long-horizon offline goal-conditioned control. 
+
+3.1 Hierarchical Goal-conditioned Mean Flow Policy 
+
+HIQL [6] provides reliable actions for long-horizon goals, but its Gaussian-based mod-eling approach constrains the expressive capacity of the two-level architecture. Based on this, we extend the modeling approach of HIQL to flow-based generative models. Following HIQL, our approach adopts a two-level architecture overall: a high-level policy that proposes subgoals (i.e., sh+k) and a low-level policy that executes prim-itive actions a toward generated subgoals sh+k. For simplicity, we use πg (x0|sh, y )
+
+5to denote both policies simultaneously: when the goal y = g, πg represents the high-level policy with x0 = sh+k, otherwise πg denotes the low-level policy with x0 = ah.Similar to previous work [15], we define the flow-based goal-conditioned policies with the instantaneous velocity field vg (xt, t, s h, y ), where xt can be obtained by a linear interpolation between the noise x1 ∼ N (0 , Ihd ) and the target x0. This velocity field transforms noise into the target action ah or subgoal sh+k via numerical integration, conditioned on the state sh and goal y. Despite using the instantaneous velocity can achieve high expressiveness, this approach suffer from significant inference latency due to multi-step sampling. To overcome this limitation, following mean flow [17], we adopt mean flow poli-cies, which learn the average velocity field over a time interval [r, t ], enabling one-step generation at inference. Formally, the average velocity field is defined as 
+
+ug (xt, r, t, s h, y ) ≜ 1
+
+t − r
+
+Z tr
+
+vg (xτ , τ, s h, y ) d τ. 
+
+It is intractable to obtain the average velocity field ug directly from above definition due to the integral term. Following mean flow, we decompose the above definition. Firstly, we multiply both sides by (t − r), and then differentiate both sides with respect to t, treating r as independent of t. This leads to: 
+
+ug (xt, r, t, s h, y ) = vg (xt, t, s h, y ) − (t − r) ddt ug (xt, r, t, s h, y ). (3) For our hierarchical goal-conditioned mean flow policy, we use a shared goal en-coder ϕθω to obtain goal representations, i.e., x0 = ϕθω (sh, s h+k) when y = g. Mean flow is then employed to model both the high-level policy, which generates subgoal rep-resentations, and the low-level policy, which produces primitive actions conditioned on these subgoals. 
+
+High-level mean flow policy. We set y = g and train the parameterized high-level policy uθh to generate subgoal representations ϕθω (sh, s h+k) via mean flow regression: 
+
+LHMF (θh) = E
+
+h
+
+uθh (xt, r, t, s h, y ) − sg( uhtgt ) 22
+
+i
+
+, (4) where (sh, s h+k) ∼ D , g ∼ μg (g), x0 = ϕθω (sh, s h+k), x1 ∼ N (0 , Ih 
+
+> d
+
+), (r, t ) ∼
+
+Unif([0 , 1]) with r < t and sg( ·) denotes the stop-gradient operator for training stabil-ity. The target average velocity is defined using Eq. (3): 
+
+uhtgt = vh − (t − r) ddt uθh (xt, r, t, s h, y ), (5) where vh = x1 − x0 = x1 − ϕθω (sh, s h+k).
+
+Low-level mean flow policy. Similarly, we set y = ϕθω (sh, s h+k) and train the parameterized low-level policy uθl to generate action ah:
+
+LLMF (θl) = E
+
+h
+
+uθl (xt, r, t, s h, y ) − sg( ultgt ) 22
+
+i
+
+, (6) 6where (sh, a h, s h+k) ∼ D , x0 = ah and x1 ∼ N (0 , Il
+
+> d
+
+). The target average velocity is 
+
+ultgt = vl − (t − r) ddt uθl (xt, r, t, s h, y ), (7) where vl = x1 − x0 = x1 − ah.In Eq. (3), the total derivative ddt ug (xt, r, t, s h, y ) is computed efficiently using Jacobian-vector product (JVP). Therefore, we can calculate uhtgt and ultgt through JVP and then train the two-level mean flow policies by minimizing Eq. (4) and Eq. (6). 
+
+3.2 LeJEPA Goal Representation Encoder 
+
+Recent work [26] shows that while HIQL can accurately execute low-level policies given short-horizon subgoals, its main challenge lies in handling the inaccuracies of the high-level policy in long-horizon scenarios. The effectiveness of the high-level policy critically depends on goal representation, particularly in pixel-based environ-ments, where inadequate or poorly structured representations severely degrade subgoal prediction. To directly address this issue and effectively extract the necessary information from the original states and goals, we introduce a goal representation encoder based on LeJEPA [27]. LeJEPA is a specialized Joint-Embedding Predictive Architectures (JEPA) [28, 29, 30] that captures semantic relationships and predicts abstractions through latent embeddings Unlike conventional JEPA approaches that require manually de-signed architectural constraints [31, 32], LeJEPA verifies that the isotropic Gaussian distribution is the optimal target distribution for JEPA embeddings and introduces an objective function, Sketch Isotropic Gaussian Regularization (SIGReg), which con-strains the learned embeddings toward the desired ideal distribution. Following LeJEPA, we first need to build a usable latent embedding that captures semantic relationships. Let zνn denote the latent goal embedding corresponding to the 
+
+ν-th view of the n-th sample, obtained by applying the shared goal encoder ϕθω (·, ·) to different transformations of the state-goal pair (s, g ). Considering that different views should capture complementary semantic information, including temporal consistency and goal invariance, which are crucial for stable high-level policy learning in offline GCRL, we employ four distinct views, defined as follows: 
+
+z1 
+
+> n
+
+= ϕ([ sh, g ]) , z2 
+
+> n
+
+= ϕ([ sh+k, g ]) ,z3 
+
+> n
+
+= ϕ([ saug  
+
+> h
+
+, g ]) , z4 
+
+> n
+
+= ϕ([ sh, g aug ]) .
+
+Here, z1 
+
+> n
+
+corresponds to the current state-goal pair, z2 
+
+> n
+
+uses a future state sh+k sam-pled from the same trajectory to encode temporal consistency, z3 
+
+> n
+
+and z4 
+
+> n
+
+are visual-augmented views constructed based on the state sh and the goal g. To encourage the above views to capture consistent semantic information in the latent space, the follow-ing prediction loss is introduced to enforce consistency among their latent representa-tions explicitly: 
+
+Lpred ({zνn}Vν=1 ) = 1
+
+V
+
+> V
+
+X
+
+> ν=1
+
+∥zνn − ¯zn∥22 ,
+
+7where ¯zn = 1
+
+> V
+
+PVν=1 zνn.While the prediction loss enforces semantic consistency across different views of the same state–goal pair, it does not impose any constraint on the global distribution or geometry of the embedding space. As a result, the learned representations may still suffer from poor conditioning or degenerate distributions, which can harm generaliza-tion and downstream policy learning. To address this limitation, we further regularize the embedding distribution using SIGReg: 
+
+SIGReg  {zνn}Nn=1 
+
+ = 1
+
+M
+
+> M
+
+X
+
+> m=1
+
+N
+
+Z
+
+| ˆφν,m (ω) − φN (ω)|2 φN (ω) d ω, 
+
+where M denotes the number of random projections (sketches) used in SIGReg, and 
+
+ω ∈ R is the Fourier-domain variable. For the m-th projection, ˆφν,m (ω) denotes the empirical characteristic function of the projected embeddings: 
+
+ˆφν,m (ω) = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+exp  i ω a ⊤
+
+> m
+
+zνn
+
+ ,
+
+where am ∈ Rd is a unit-norm random projection vector. φN (ω) = exp( −ω2/2σ2)
+
+denotes the characteristic function of an isotropic Gaussian distribution N (0 , Ih 
+
+> d
+
+).The overall LeJEPA objective is defined as a weighted combination of the predic-tion loss and the SIGReg: 
+
+LLeJEPA ({zνn}N,V n,ν =1 ) = αV
+
+> V
+
+X
+
+> ν=1
+
+SIGReg( {{ zνn}Nn=1 }) + 1 − αN
+
+> N
+
+X
+
+> n=1
+
+Lpred ({zνn}Vν=1 ).
+
+(8) where α denotes the weighting coefficient. 
+
+3.3 Training Objective and Inference 
+
+In offline GCRL, relying solely on behavior cloning is insufficient for effective explo-ration and utilization of existing behaviors. Therefore, similar to HIQL, we incorporate the value function as an evaluation signal for the two-level architecture and optimize this hierarchical policy architecture using weighted behavior cloning [22]. Specifically, we jointly train the value function VθV and the goal representation encoder ϕθω end-to-end, and optimize the hierarchical policy with a weighted mean flow objective. 
+
+Critic and goal representation learning. The goal-conditioned value function VθV (sh, ϕ θω (sh, g )) 
+
+is trained using expectile regression with Eq.(1). Concurrently, the goal representation encoder ϕθω (sh, g ) is regularized using the LeJEPA loss to enforce both semantic con-sistency across views and well-conditioned latent geometry. The overall critic objective is given by 
+
+Lcritic (θV , θ w) = LV (θV , θ w) + λLLeJEPA (θw), (9) where λ is the representation regularization coefficient. 8Policy optimization. We train both the high-level policy uθh and low-level policy uθl
+
+using the weighted mean flow objective based on goal-conditioned value function VθV .Specifically, the high-level policy is trained to generate subgoals ϕθω (sh, s h+k) by minimizing: 
+
+Lπh (θh) = E x1∼N (0 ,Ih   
+
+> d),
+> (t,r )∼Unif([0 ,1]) ,r<t,
+> (sh,s h+k)∼D ,g∼μg(g)
+
+h
+
+exp 
+
+
+
+βA h(sh, s h+k, g )
+
+
+
+× uθh (xt, r, t, s h, g ) − sg( uhtgt ) 22
+
+i
+
+, (10) where x0 = ϕθω (sh, s h+k), the target mean velocity uhtgt can be obtained with Eq.(5). Similarly, the low-level policy is trained to generate primitive actions ah with the current state sh and predicted subgoal representation ϕθω (sh, s h+k):
+
+Lπl (θl) = E x1∼N (0 ,Il  
+
+> d),
+> (t,r )∼Unif([0 ,1]) ,r<t,
+> (sh,a h,s h+1 sh+k)∼D ,g∼μg(g)
+
+h
+
+exp 
+
+
+
+βA l(sh, s h+1 , s h+k)
+
+
+
+× uθl (xt, r, t, s h, ϕ ω ([ sh, s h+k])) − sg( ultgt ) 22
+
+i
+
+, (11) where x0 = ah, the target mean velocity ultgt can be obtained with Eq.(7). 
+
+Algorithm 1 HIFQL: Training 
+
+1: Input : Offline goal-conditioned dataset D; value function VθV , the goal represen-tation encoder ϕθw , high-level average velocity model uθh and low-level average velocity model uθl ; learning rates λV , λ w, λ h, λ l, LeJEPA weight coefficient α and representation regularization coefficient λ
+
+2: Initialize VθV , ϕθw , uθh and uθh
+
+3: while not converged do 
+
+4: Sample batch {(sh, a h, s h+k)(n)}Nn=1 ∼ D , {g(n)}Nn=1 ∼ μg (g)
+
+5: θV ← θV − λV ∇θV Lcritic (θV ), θw ← θw − λw∇θw Lcritic (θw) with Eq. (9) 
+
+6: θh ← θh − λh∇θh Lπh (θh) with Eq. (10) 
+
+7: θl ← θl − λl∇θl Lπl (θl) with Eq. (11) 
+
+8: end while Algorithm 2 HIFQL: Inference 
+
+1: Input : state s, goal g
+
+2: Sample x1h ∼ N (0 , Ih 
+
+> d
+
+)
+
+3: Compute x0h = x1h − uθh (x1h, 0, 1, s, g )
+
+4: Sample x1l ∼ N (0 , Il
+
+> d
+
+)
+
+5: Compute a = x1l − uθl (x1l , 0, 1, s, x 0h)
+
+9Inference. For the inference phase, HIFQL performs hierarchical decision-making in a fully one-step manner. Given a state-goal pair (s, g ), the high-level mean flow policy generates a subgoal representation x0h in one step from Gaussian noise x1h ∼ N (0 , Ih 
+
+> d
+
+):
+
+x0h = x1h − uθh (x1h, 0, 1, s, g ). (12) Conditioned on this subgoal, the low-level mean flow policy produces the correspond-ing action a with Gaussian noise x1l ∼ N (0 , Il
+
+> d
+
+) in the same way: 
+
+a = x1l − uθl (x1l , 0, 1, s, x 0h). (13) This design eliminates iterative sampling at inference and enables efficient deployment in long-horizon settings. We present the complete training and inference processes of the HIFQL in Algo-rithms 1 and Algorithm 2. 
+
+# 4 Related Work 
+
+4.1 Offline Goal-conditioned Reinforcement Learning 
+
+Offline goal-conditioned reinforcement learning (GCRL) is a natural analogy to data-driven self-supervised learning within the field of reinforcement learning, which aims to learn a universal goal-conditioned policy capable of navigating from any arbitrary initial state to any target state within the unlabeled (i.e., reward-free) dataset via the fewest number of steps [1, 33, 3]. Existing methods in offline GCRL typically build on metric learning [34, 35], which learns distance functions to measure state or goal sim-ilarity, contrastive learning [36, 19, 37], which encourages representations that distin-guish positive state-goals pairs from negative ones, and hierarchical policy learning [6], which decomposes decision-making into multiple levels of abstraction, enabling high-level policies to guide ow-level action execution. Despite their advancements, these methods often rely on unimodal Gaussian policies, which fail to capture the complex, multi-modal action distributions inherent in offline goal-conditioned datasets. To ad-dress this limitation, we introduce HIFQL, a method specifically designed to model these complex distributions using a highly expressive mean flow policy while also incorporating an improved goal representation to extract richer information from the original data. 
+
+4.2 Diffusion-based and Flow-based Reinforcement Learning 
+
+Inspired by the recent successes of generative models such as denoising diffusion mod-els [38, 9, 39], and flow matching [23, 40], a variety of approaches have been developed to integrate these techniques into reinforcement learning effectively. Diffuser [41], De-cision Diffuser [11], and AdaptDiffuser [12] applied generative models to model trajec-tories. DiffusionQL [13] uses generative models to model policy. While these methods demonstrate superior expressivity, their reliance on multi-step sampling incurs a pro-hibitive computational overhead. This latency bottleneck is particularly acute in policy 10 learning, where the algorithm demands rapid and repeated trajectory rollouts. To im-prove the sample efficiency of policy learning in diffusion and flow models, EDP [16] leverages a value-weighted diffusion training paradigm, while FQL [15] distills the pol-icy into an efficient one-step policy. In the field of image generation, recent research has started to explore methods for training one-step generative flow models [42, 43, 44]. Mean flow, as a representative approach, achieves the strongest one-step generation on ImageNet [17]. We propose a goal-conditioned policy with high expressive capacity that incorporates mean flow to model the policy and enables one-step target generation. 
+
+# 5 Experiments 
+
+5.1 Experiment setup 
+
+Benchmark. We evaluate our method on OGBench [3], a recently introduced offline goal-conditioned reinforcement learning (GCRL) benchmark designed to assess long-horizon decision-making with specified goals. OGBench comprises a suite of Maze-based control tasks that pose challenging long-horizon planning problems under sparse reward supervision. In these tasks, an agent must navigate from an initial state to a specified goal location, potentially re-quiring non-trivial exploration, temporal abstraction, and trajectory composition. The Maze environments are categorized by agent type, including PointMaze (2-DoF), AntMaze (8-DoF), and HumanoidMaze (21-DoF), with increasing state and action dimensional-ity. Beyond standard navigation tasks, OGBench also includes stitching tasks, which require the agent to compose behaviors across disconnected trajectory segments, fur-ther amplifying the difficulty of long-horizon reasoning in offline settings. Following the OGBench evaluation protocol, we consider a total of 13 state-based sparse-reward tasks spanning both navigation and stitching scenarios, as well as 4 pixel-based sparse-reward navigation tasks. 
+
+Baselines. We compare our method against six representative offline GCRL baselines included in OGBench, covering imitation-based, value-based, metric-based, contrastive, and hierarchical approaches. • Goal-conditioned behavioral cloning ( GCBC ) [18] is a simple imitation learning baseline that directly learns a goal-conditioned policy by mimicking actions from the offline dataset. • Goal-conditioned implicit V-learning ( GCIVL ) and goal-conditioned implicit Q-learning ( GCIQL ) [21, 6] estimate the goal-conditioned optimal value func-tion using IQL-style expectile regression. Policies are then extracted using advantage-weighted regression (AWR) [22] for GCIVL and behavior-regularized deep de-terministic policy gradient (DDPG+BC) [45] for GCIQL, respectively. • Quasimetric RL ( QRL ) [34] learns a quasimetric value function that estimates the undiscounted temporal distance between states and goals, and derives a pol-icy using DDPG+BC. 11 Table 1: Results on state-based tasks. We evaluate all methods on three Maze environment fam-ilies—PointMaze, AntMaze, and HumanoidMaze—covering navigation, stitching, and teleport variants with increasing state dimensionality and horizon length. A total of 13 sparse-reward tasks are included. We report the average success rate and standard deviation over 5 random seeds for each algorithm. The best result for each task is shown in bold .                                                                                                                                                                                                                                                                                          
+
+> Environment Dataset GCBC GCIVL GCIQL QRL CRL HIQL HIFQL (ours)
+> pointmaze
+> pointmaze-medium-navigate-v0 9.8±6.773 .8±5.653 .5±3.986 .2±4.234 .7±5.674 .6±3.399.5 ±0.9
+> pointmaze-large-navigate-v0 27 .3±7.049 .8±8.031 .6±3.285 .8±10 .135 .5±13 .355 .9±8.180.5 ±2.9
+> pointmaze-giant-navigate-v0 4.5±7.00±00±064 .7±13 .921 .1±10 .354 .7±10 .074.4 ±5.9
+> pointmaze-teleport-navigate-v0 26 .9±2.945 .6±2.923 .8±4.14.2±5.226 .4±6.712 .0±5.039.8 ±6.9
+> pointmaze-medium-stitch-v0 27 .6±14 .580 .6±1.619 .9±11 .183 .3±6.70±179 .0±11 .397.0 ±3.2
+> pointmaze-large-stitch-v0 4.0±8.014 .0±7.327 .8±2.776 .7±8.90±014 .3±3.025.4 ±9.9
+> pointmaze-teleport-stitch-v0 26 .7±3.441 .8±3.627 .7±5.713 .8±10 .03.2±2.830 .7±3.450.4 ±2.1 antmaze
+> antmaze-medium-navigate-v0 29 ±472 .9±6.469 .7±5.987 .0±2.995 ±196.1 ±0.9 93 .4±1.8
+> antmaze-large-navigate-v0 23 .3±2.720 .4±3.636 .2±4.478 .4±2.784 .4±3.690.7 ±2.2 87 .1±3.5
+> antmaze-giant-navigate-v0 0±00±00±013 .0±2.717 .7±5.070.4 ±2.1 64 .7±2.7
+> antmaze-teleport-navigate-v0 26 ±338 .9±3.432 .8±6.534 .8±3.852 .5±2.642 ±348.5 ±2.8 humanoidmaze humanoidmaze-medium-navigate-v0 8.3±1.027 .9±5.527 .4±1.610 .8±8.857 .5±3.988.9 ±2.5 37 .1±10 .8
+> humanoidmaze-large-navigate-v0 1.0±0.71.8±0.32.3±0.96.1±1.817 .3±2.848.6 ±5.4 28 .8±7.9
+
+Table 2: Results on pixel-based tasks. We evaluate all methods on four sparse-reward visual AntMaze tasks, where observations are high-dimensional pixel inputs and long-horizon planning is required to reach the specified goal. All results report the average success rate and standard deviation over 5 random seeds. 
+
+Environment Dataset GCBC GCIVL GCIQL QRL CRL HIQL HIFQL (ours) 
+
+visual-antmaze 
+
+visual-antmaze-medium-navigate-v0 6.5 ± 1.4 14 .2 ± 3.8 5.8 ± 1.8 0 ± 0 94.3 ± 1.3 87 .9 ± 2.6 93 .3 ± 2.8
+
+visual-antmaze-large-navigate-v0 1.4 ± 1.1 3.1 ± 1.4 1.8 ± 0.6 0 ± 0 82.6 ± 1.6 52 .9 ± 5.6 74 .8 ± 1.9
+
+visual-antmaze-giant-navigate-v0 0 ± 0 0.5 ± 0.3 0.1 ± 0.2 0 ± 0 32.7 ± 4.2 3.5 ± 3.0 30 .2 ± 4.1
+
+visual-antmaze-teleport-navigate-v0 8.6 ± 2.3 11 .9 ± 3.1 11 .3 ± 1.0 9.2 ± 4.0 46 .7 ± 3.5 47.0 ± 3.8 43 .0 ± 2.6
+
+• Contrastive RL ( CRL ) [19] approximates the Q-function via contrastive learning between state–action pairs and future states sampled from the same trajectory, and also extracts a policy using DDPG+BC. • HIQL [6] constructs a two-level hierarchical policy by extracting both a high-level subgoal policy and a low-level action policy from a single GCIVL value function. 
+
+5.2 Results on state-based tasks 
+
+We evaluate all methods on three Maze environment families—PointMaze, AntMaze, and HumanoidMaze—covering navigation, stitching, and teleport variants with in-creasing state dimensionality and planning horizon (Table 1). HIFQL achieves substan-tial improvements on PointMaze tasks, especially in large-scale and stitching settings where long-horizon planning and multimodal behavior are critical, consistently out-performing HIQL and other baselines. In contrast, on AntMaze and HumanoidMaze tasks, HIFQL does not consistently surpass HIQL, suggesting that when performance is dominated by low-level locomotion and contact-rich dynamics, gains from increased policy expressivity become less pronounced. 12 0 1 2 3 4 5 
+
+> Steps ×10 5
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Success Rate / Return
+
+visual-antmaze-large       
+
+> = 0
+> = 1
+> = 5
+> = 10
+> 012345
+> Steps ×10 5
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> Success Rate / Return
+
+visual-antmaze-giant Figure 2: Ablation study on the representation regularization coefficient λ in visual AntMaze tasks. 
+
+5.3 Results on pixel-based tasks 
+
+Consistent with the state-based results, Table 2 further evaluates HIFQL in pixel-based Visual AntMaze tasks, where high-dimensional observations place greater demands on goal representation quality. HIFQL achieves strong performance on the medium and large navigation tasks, outperforming HIQL, which highlights the benefit of improved goal representation in visual, long-horizon tasks. However, on the teleport navigation tasks, HIFQL performs comparably to, but does not surpass HIQL, suggesting reduced gains in the most challenging pixel-based environments. This is left for future work. 13 5.4 Ablation study on representation regularization 
+
+To verify the performance of representation regularization, we design ablation experi-ments with different regularization coefficients λ. Figure 2 shows that without goal rep-resentation regularization (i.e., λ = 0 ) leads to consistently low success rates and unsta-ble learning on both visual AntMaze tasks. In contrast, introducing a non-zero λ yields substantially higher final performance. This gap highlights that explicit goal represen-tation regularization is critical for effective hierarchical planning in high-dimensional, pixel-based environments. 
+
+# 6 Conclusion and Discussion 
+
+In this paper, we propose Hierarchical Implicit Flow Q-Learning (HIFQL), an offline goal-conditioned reinforcement learning (GCRL) method that enhances hierarchical policy learning with expressive mean flow policies and improved goal representations. By replacing unimodal Gaussian policies in HIQL with mean flow models at both hier-archical levels, HIFQL enables efficient one-step inference while better capturing mul-timodal behaviors. Experiments on OGBench show that HIFQL achieves clear gains on PointMaze tasks, particularly in large-scale and stitching tasks where long-horizon planning and behavioral diversity are critical. On AntMaze and HumanoidMaze tasks, HIFQL does not consistently outperform HIQL and underperforms it in several cases, indicating that when task performance is primarily constrained by low-level locomo-tion and contact-rich dynamics, gains from increased high-level policy expressivity are limited. These results highlight the effectiveness of flow-based hierarchical policies for long-horizon planning, while also pointing to future opportunities in combining expressive high-level planning with stronger low-level control mechanisms. 
+
+# References 
+
+[1] Leslie Pack Kaelbling. Learning to achieve goals. In IJCAI , volume 2, pages 1094–8, 1993. [2] Sergey Levine, Aviral Kumar, George Tucker, and Justin Fu. Offline reinforce-ment learning: Tutorial, review, and perspectives on open problems. arXiv preprint arXiv:2005.01643 , 2020. [3] Seohong Park, Kevin Frans, Benjamin Eysenbach, and Sergey Levine. Ogbench: Benchmarking offline goal-conditioned rl. arXiv preprint arXiv:2410.20092 ,2024. [4] Shubham Pateria, Budhitama Subagdja, Ah-hwee Tan, and Chai Quek. Hierarchi-cal reinforcement learning: A comprehensive survey. ACM Computing Surveys (CSUR) , 54(5):1–35, 2021. [5] Junsu Kim, Younggyo Seo, and Jinwoo Shin. Landmark-guided subgoal gen-eration in hierarchical reinforcement learning. Advances in neural information processing systems , 34:28336–28349, 2021. 14 [6] Seohong Park, Dibya Ghosh, Benjamin Eysenbach, and Sergey Levine. Hiql: Offline goal-conditioned rl with latent states as actions. Advances in Neural In-formation Processing Systems , 36:34866–34891, 2023. [7] Ajay Mandlekar, Danfei Xu, Josiah Wong, Soroush Nasiriany, Chen Wang, Ro-hun Kulkarni, Li Fei-Fei, Silvio Savarese, Yuke Zhu, and Roberto Mart´ ın-Mart´ ın. What matters in learning from offline human demonstrations for robot manipula-tion. arXiv preprint arXiv:2108.03298 , 2021. [8] Abby O’Neill, Abdul Rehman, Abhiram Maddukuri, Abhishek Gupta, Abhishek Padalkar, Abraham Lee, Acorn Pooley, Agrim Gupta, Ajay Mandlekar, Ajinkya Jain, et al. Open x-embodiment: Robotic learning datasets and rt-x models: Open x-embodiment collaboration 0. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 6892–6903. IEEE, 2024. [9] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in neural information processing systems , 33:6840–6851, 2020. [10] Yaron Lipman, Marton Havasi, Peter Holderrieth, Neta Shaul, Matt Le, Brian Karrer, Ricky TQ Chen, David Lopez-Paz, Heli Ben-Hamu, and Itai Gat. Flow matching guide and code. arXiv preprint arXiv:2412.06264 , 2024. [11] Anurag Ajay, Yilun Du, Abhi Gupta, Joshua Tenenbaum, Tommi Jaakkola, and Pulkit Agrawal. Is conditional generative modeling all you need for decision-making? arXiv preprint arXiv:2211.15657 , 2022. [12] Zhixuan Liang, Yao Mu, Mingyu Ding, Fei Ni, Masayoshi Tomizuka, and Ping Luo. Adaptdiffuser: Diffusion models as adaptive self-evolving planners. arXiv preprint arXiv:2302.01877 , 2023. [13] Zhendong Wang, Jonathan J Hunt, and Mingyuan Zhou. Diffusion policies as an expressive policy class for offline reinforcement learning. arXiv preprint arXiv:2208.06193 , 2022. [14] Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake, and Shuran Song. Diffusion policy: Visuomotor pol-icy learning via action diffusion. The International Journal of Robotics Research ,44(10-11):1684–1704, 2025. [15] Seohong Park, Qiyang Li, and Sergey Levine. Flow q-learning. arXiv preprint arXiv:2502.02538 , 2025. [16] Bingyi Kang, Xiao Ma, Chao Du, Tianyu Pang, and Shuicheng Yan. Efficient diffusion policies for offline reinforcement learning. Advances in Neural Infor-mation Processing Systems , 36:67195–67212, 2023. [17] Zhengyang Geng, Mingyang Deng, Xingjian Bai, J Zico Kolter, and Kaiming He. Mean flows for one-step generative modeling. arXiv preprint arXiv:2505.13447 ,2025. 15 [18] Dibya Ghosh, Abhishek Gupta, Ashwin Reddy, Justin Fu, Coline Devin, Ben-jamin Eysenbach, and Sergey Levine. Learning to reach goals via iterated super-vised learning. arXiv preprint arXiv:1912.06088 , 2019. [19] Benjamin Eysenbach, Tianjun Zhang, Sergey Levine, and Russ R Salakhutdinov. Contrastive learning as goal-conditioned reinforcement learning. Advances in Neural Information Processing Systems , 35:35603–35620, 2022. [20] Zhiao Huang, Fangchen Liu, and Hao Su. Mapping state space using landmarks for universal goal reaching. Advances in Neural Information Processing Systems ,32, 2019. [21] Ilya Kostrikov, Ashvin Nair, and Sergey Levine. Offline reinforcement learning with implicit q-learning. arXiv preprint arXiv:2110.06169 , 2021. [22] Xue Bin Peng, Aviral Kumar, Grace Zhang, and Sergey Levine. Advantage-weighted regression: Simple and scalable off-policy reinforcement learning. 
+
+arXiv preprint arXiv:1910.00177 , 2019. [23] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 ,2022. [24] Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. arXiv preprint arXiv:2209.03003 ,2022. [25] Michael S Albergo and Eric Vanden-Eijnden. Building normalizing flows with stochastic interpolants. arXiv preprint arXiv:2209.15571 , 2022. [26] Hongjoon Ahn, Heewoong Choi, Jisu Han, and Taesup Moon. Option-aware temporally abstracted value for offline goal-conditioned reinforcement learning. 
+
+arXiv preprint arXiv:2505.12737 , 2025. [27] Randall Balestriero and Yann LeCun. Lejepa: Provable and scalable self-supervised learning without the heuristics. arXiv preprint arXiv:2511.08544 ,2025. [28] Jane Bromley, Isabelle Guyon, Yann LeCun, Eduard S¨ ackinger, and Roopak Shah. Signature verification using a” siamese” time delay neural network. Ad-vances in neural information processing systems , 6, 1993. [29] Yann LeCun. A path towards autonomous machine intelligence version 0.9. 2, 2022-06-27. Open Review , 62(1):1–62, 2022. [30] Mehdi Monemi, Maryam Chinipardaz, Mehdi Rasti, Mehdi Bennis, and Matti Latva-Aho. Tutorial on joint embedding predictive architectures (jepa): Founda-tions, applications, and future directions. Authorea Preprints , 2025. 16 [31] Ting Chen, Simon Kornblith, Mohammad Norouzi, and Geoffrey Hinton. A sim-ple framework for contrastive learning of visual representations. In International conference on machine learning , pages 1597–1607. PmLR, 2020. [32] Xinlei Chen, Saining Xie, and Kaiming He. An empirical study of training self-supervised vision transformers. In Proceedings of the IEEE/CVF international conference on computer vision , pages 9640–9649, 2021. [33] Minghuan Liu, Menghui Zhu, and Weinan Zhang. Goal-conditioned reinforce-ment learning: Problems and solutions. arXiv preprint arXiv:2201.08299 , 2022. [34] Tongzhou Wang, Antonio Torralba, Phillip Isola, and Amy Zhang. Optimal goal-reaching reinforcement learning via quasimetric learning. In International Con-ference on Machine Learning , pages 36411–36430. PMLR, 2023. [35] Vivek Myers, Chongyi Zheng, Anca Dragan, Sergey Levine, and Benjamin Ey-senbach. Learning temporal distances: Contrastive successor features can provide a metric structure for decision-making. arXiv preprint arXiv:2406.17098 , 2024. [36] Yecheng Jason Ma, Shagun Sodhani, Dinesh Jayaraman, Osbert Bastani, Vikash Kumar, and Amy Zhang. Vip: Towards universal visual reward and representation via value-implicit pre-training. arXiv preprint arXiv:2210.00030 , 2022. [37] Grace Liu, Michael Tang, and Benjamin Eysenbach. A single goal is all you need: Skills and exploration emerge from contrastive rl without rewards, demon-strations, or subgoals. arXiv preprint arXiv:2408.05804 , 2024. [38] Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan, and Surya Ganguli. Deep unsupervised learning using nonequilibrium thermodynamics. In Interna-tional conference on machine learning , pages 2256–2265. pmlr, 2015. [39] Prafulla Dhariwal and Alexander Nichol. Diffusion models beat gans on image synthesis. Advances in neural information processing systems , 34:8780–8794, 2021. [40] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim Entezari, Jonas M¨ uller, Harry Saini, Yam Levi, Dominik Lorenz, Axel Sauer, Frederic Boesel, et al. Scal-ing rectified flow transformers for high-resolution image synthesis. In Forty-first international conference on machine learning , 2024. [41] Michael Janner, Yilun Du, Joshua B Tenenbaum, and Sergey Levine. Planning with diffusion for flexible behavior synthesis. arXiv preprint arXiv:2205.09991 ,2022. [42] Yang Song, Prafulla Dhariwal, Mark Chen, and Ilya Sutskever. Consistency mod-els. 2023. [43] Cheng Lu and Yang Song. Simplifying, stabilizing and scaling continuous-time consistency models. arXiv preprint arXiv:2410.11081 , 2024. 17 [44] Zhengyang Geng, Ashwini Pokle, William Luo, Justin Lin, and J Zico Kolter. Consistency models made easy. arXiv preprint arXiv:2406.14548 , 2024. [45] Scott Fujimoto and Shixiang Shane Gu. A minimalist approach to offline reinforcement learning. Advances in neural information processing systems ,34:20132–20145, 2021. 18
