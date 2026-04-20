@@ -6,61 +6,73 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-04-19
-- 运行时间：2026-04-19 20:26:32 UTC
+- 最新运行日期：2026-04-20
+- 运行时间：2026-04-20 20:47:41 UTC
 - 运行状态：成功
-- 本次总论文数：13
-- 精读区：1
+- 本次总论文数：17
+- 精读区：5
 - 速读区：12
 
 ### 今日简报（AI）
-今日深度解析时空交通预测新框架 FAST，并速览多智能体轨迹预测与时间序列大模型等 13 项前沿进展。
-重点关注 Attention 与状态空间模型（SSM）协同带来的预测增益，以及小波增强 MoE 在时序基础模型中的性能突破。
-建议优先研读 FAST 框架以掌握时空建模新范式，并关注多智能体协同在复杂出行场景中的落地应用。
-- 详情：[/202604/19/README](/202604/19/README)
+今日深挖 17 篇交通与时空预测前沿，重点攻克时空预测框架与城市公交线网设计。
+满分推荐结合注意力机制与状态空间模型的 FAST 框架，其在时空交通预测中展现了卓越的协同效应。
+建议关注小波增强 MoE 模型与多智能体协商技术，探索其在复杂出行决策中的落地潜力。
+- 详情：[/202604/20/README](/202604/20/README)
 
 ### 精读区论文标签
-1. [FAST: A Synergistic Framework of Attention and State-space Models for Spatiotemporal Traffic Prediction](/202604/19/2604.13453v1-fast-a-synergistic-framework-of-attention-and-state-space-models-for-spatiotemporal-traffic-prediction)  
-   标签：评分：9.0/10、query:urt-pf
-   evidence：利用注意力和状态空间模型进行时空交通预测，捕捉短期和长期动态
+1. [FAST: A Synergistic Framework of Attention and State-space Models for Spatiotemporal Traffic Prediction](/202604/20/2604.13453v1-fast-a-synergistic-framework-of-attention-and-state-space-models-for-spatiotemporal-traffic-prediction)  
+   标签：评分：10.0/10、query:urt-pf
+   evidence：结合注意力机制与状态空间模型的时空交通预测
+2. [Urban transit network design using spanning tree: A case study of Canberra transit network](/202604/20/2604.15754v1-urban-transit-network-design-using-spanning-tree-a-case-study-of-canberra-transit-network)  
+   标签：评分：9.0/10、query:urt-c
+   evidence：城市公交网络设计与乘客效用优化
+3. [Sheaf Diffusion with Adaptive Local Structure for Spatio-Temporal Forecasting](/202604/20/2604.11275v1-sheaf-diffusion-with-adaptive-local-structure-for-spatio-temporal-forecasting)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：将时空预测重新表述为在局部结构化空间上学习信息流
+4. [Reversible Residual Normalization Alleviates Spatio-Temporal Distribution Shift](/202604/20/2604.15838v1-reversible-residual-normalization-alleviates-spatio-temporal-distribution-shift)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：深度预测模型中的时空分布偏移
+5. [Unveiling Stochasticity: Universal Multi-modal Probabilistic Modeling for Traffic Forecasting](/202604/20/2604.16084v1-unveiling-stochasticity-universal-multi-modal-probabilistic-modeling-for-traffic-forecasting)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：用于时空交通预测的通用概率建模
 
 ### 速读区论文标签
-1. [MAVEN-T: Multi-Agent enVironment-aware Enhanced Neural Trajectory predictor with Reinforcement Learning](/202604/19/2604.10169v1-maven-t-multi-agent-environment-aware-enhanced-neural-trajectory-predictor-with-reinforcement-learning)  
-   标签：评分：7.0/10、query:urt-pf
-   evidence：结合强化学习的多智能体轨迹预测
-2. [PEMANT: Persona-Enriched Multi-Agent Negotiation for Travel](/202604/19/2604.10475v1-pemant-persona-enriched-multi-agent-negotiation-for-travel)  
+1. [PEMANT: Persona-Enriched Multi-Agent Negotiation for Travel](/202604/20/2604.10475v1-pemant-persona-enriched-multi-agent-negotiation-for-travel)  
    标签：评分：7.0/10、query:urt-pf
    evidence：为需求预测和城市系统规划建模家庭层面的出行生成
-3. [WaveMoE: A Wavelet-Enhanced Mixture-of-Experts Foundation Model for Time Series Forecasting](/202604/19/2604.10544v1-wavemoe-a-wavelet-enhanced-mixture-of-experts-foundation-model-for-time-series-forecasting)  
+2. [WaveMoE: A Wavelet-Enhanced Mixture-of-Experts Foundation Model for Time Series Forecasting](/202604/20/2604.10544v1-wavemoe-a-wavelet-enhanced-mixture-of-experts-foundation-model-for-time-series-forecasting)  
    标签：评分：7.0/10、query:urt-pf
    evidence：用于通用时间序列预测的小波增强基础模型
-4. [Robust Information Design with Heterogeneous Beliefs in Bayesian Congestion Games](/202604/19/2604.10831v1-robust-information-design-with-heterogeneous-beliefs-in-bayesian-congestion-games)  
+3. [Preference-Agile Multi-Objective Optimization for Real-time Vehicle Dispatching](/202604/20/2604.10664v1-preference-agile-multi-objective-optimization-for-real-time-vehicle-dispatching)  
    标签：评分：7.0/10、query:urt-c
-   evidence：交通管理拥塞博弈中的信息设计与信令
-5. [Ozone: A Unified Platform for Transportation Research](/202604/19/2604.10959v1-ozone-a-unified-platform-for-transportation-research)  
+   evidence：实时车辆调度与多目标优化
+4. [Towards Situation-aware State Modeling for Air Traffic Flow Prediction](/202604/20/2604.11198v1-towards-situation-aware-state-modeling-for-air-traffic-flow-prediction)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：交通研究与轨迹数据基准测试的统一平台
-6. [MAFIG: Multi-agent Driven Formal Instruction Generation Framework](/202604/19/2604.10989v1-mafig-multi-agent-driven-formal-instruction-generation-framework)  
-   标签：评分：7.0/10、query:urt-c
-   evidence：用于应急调度和指令生成的智能体框架
-7. [Graph-RHO: Critical-path-aware Heterogeneous Graph Network for Long-Horizon Flexible Job-Shop Scheduling](/202604/19/2604.10073v1-graph-rho-critical-path-aware-heterogeneous-graph-network-for-long-horizon-flexible-job-shop-scheduling)  
+   evidence：用于航空交通流预测的直接状态到流量建模框架
+5. [From Time Series to State: Situation-Aware Modeling for Air Traffic Flow Prediction](/202604/20/2604.11198v3-from-time-series-to-state-situation-aware-modeling-for-air-traffic-flow-prediction)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：受限空间内交通预测的状态到流量建模
+6. [Beyond Weather Correlation: A Comparative Study of Static and Temporal Neural Architectures for Fine-Grained Residential Energy Consumption Forecasting in Melbourne, Australia](/202604/20/2604.12304v1-beyond-weather-correlation-a-comparative-study-of-static-and-temporal-neural-architectures-for-fine-grained-residential-energy-consumption-forecasting-in-melbourne-australia)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：使用LSTM和MLP进行短期时间序列预测
+7. [Ozone: A Unified Platform for Transportation Research](/202604/20/2604.10959v1-ozone-a-unified-platform-for-transportation-research)  
    标签：评分：6.0/10、query:urt-c
-   evidence：长周期调度与滚动时域优化
-8. [Virtual Smart Metering in District Heating Networks via Heterogeneous Spatial-Temporal Graph Neural Networks](/202604/19/2604.10166v1-virtual-smart-metering-in-district-heating-networks-via-heterogeneous-spatial-temporal-graph-neural-networks)  
-   标签：评分：6.0/10、query:urt-pf
-   evidence：用于网络预测优化的异构时空图神经网络
-9. [Hub location problems with asymmetric allocation](/202604/19/2604.10307v1-hub-location-problems-with-asymmetric-allocation)  
+   evidence：交通研究和智能交通系统的统一平台
+8. [MAFIG: Multi-agent Driven Formal Instruction Generation Framework](/202604/20/2604.10989v1-mafig-multi-agent-driven-formal-instruction-generation-framework)  
    标签：评分：6.0/10、query:urt-c
-   evidence：通过枢纽选址和流量整合优化运输网络
-10. [A Diffusion-Contrastive Graph Neural Network with Virtual Nodes for Wind Nowcasting in Unobserved Regions](/202604/19/2604.10328v1-a-diffusion-contrastive-graph-neural-network-with-virtual-nodes-for-wind-nowcasting-in-unobserved-regions)  
+   evidence：应急调度与重调度策略
+9. [Towards Situation-aware State Modeling for Air Traffic Flow Prediction](/202604/20/2604.11198v2-towards-situation-aware-state-modeling-for-air-traffic-flow-prediction)  
    标签：评分：6.0/10、query:urt-pf
-   evidence：用于未观测区域临近预报的时空图神经网络
-11. [Towards Situation-aware State Modeling for Air Traffic Flow Prediction](/202604/19/2604.11198v1-towards-situation-aware-state-modeling-for-air-traffic-flow-prediction)  
+   evidence：交通预测的状态到流量建模
+10. [End-to-end differentiable network traffic simulation with dynamic route choice](/202604/20/2604.11380v1-end-to-end-differentiable-network-traffic-simulation-with-dynamic-route-choice)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：用于优化的可微网络交通流模拟器
+11. [Deep Learning for Sequential Decision Making under Uncertainty: Foundations, Frameworks, and Frontiers](/202604/20/2604.11507v1-deep-learning-for-sequential-decision-making-under-uncertainty-foundations-frameworks-and-frontiers)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：深度学习与强化学习在运筹学序贯决策中的应用
+12. [TempusBench: An Evaluation Framework for Time-Series Forecasting](/202604/20/2604.11529v1-tempusbench-an-evaluation-framework-for-time-series-forecasting)  
    标签：评分：6.0/10、query:urt-pf
-   evidence：交通流预测的状态到流量建模框架
-12. [From Time Series to State: Situation-Aware Modeling for Air Traffic Flow Prediction](/202604/19/2604.11198v3-from-time-series-to-state-situation-aware-modeling-for-air-traffic-flow-prediction)  
-   标签：评分：6.0/10、query:urt-pf
-   evidence：用于流量预测的状态到流量建模，利用动态航空器状态
+   evidence：时间序列预测基础模型的评估框架
 
 
 <div class="dpr-home-promo-card">
