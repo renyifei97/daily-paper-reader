@@ -1,0 +1,1129 @@
+Title: End-to-end differentiable network traffic simulation with dynamic route choice
+
+URL Source: https://arxiv.org/pdf/2604.11380v1
+
+Published Time: Tue, 14 Apr 2026 02:11:36 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+# End-to-end differentiable network traffic simulation with dynamic route choice 
+
+Toru Seo ∗
+
+April 14, 2026 
+
+Abstract 
+
+Optimization using network traffic flow models require computing gradients of objective functions with respect to model parameters. Conventional approaches rely on numerical differentiation or derivative-free methods that does not scale well with the parameter dimension, or on adjoint methods that require manual derivation for each specific model. This study proposes a novel end-to-end differentiable network traffic flow simulator based on the Link Transmission Model (LTM), incorporating general node models and a dynamic user optimum (DUO) route choice model. We observe that the LTM operates on continuous aggregate state variables (cumulative vehicle counts) through piecewise-linear min /max operations, which admit subgradients almost everywhere and thus require no smooth relaxation for automatic differentiation (AD). We incorporate the DUO route choice model and its logit extension to explicitly consider endogenous dynamic route choice of travelers while preserving differentiability, because the diverge ratios are continuous functions of per-destination vehicle counts. The resulting simulator computes exact gradients via reverse-mode AD in a single backward pass regardless of the parameter dimension. In order to demonstrate the capability of the proposed model, we solved a dynamic congestion toll optimization problem on Chicago-Sketch dataset with around 2500 links and 1 million vehicles with 15 000 decision variables. The proposed model successfully derived a high quality solution with 10 000 iterations that took about 2 hours, meaning that 1 simulation run and gradient derivation took 0.8 second. The simulator, implemented in Python and JAX, is released as an open-source software named UNsim (https://github.com/toruseo/UNsim ). 
+
+# 1 Introduction 
+
+Network traffic flow models and simulation tools are fundamental to a wide range of traffic engineering and science tasks, from demand estimation and parameter calibration to network design optimization and real-time traffic control. In general, these tasks share a common computational need: evaluating how simulation outputs (e.g., total travel time, link volumes, queue lengths) respond to changes in the simulation inputs (e.g., origin-destination demand, fundamental diagram parameters, toll, traffic signal configuration). Efficient computation of this input–output sensitivity is therefore a central methodological challenge, particularly as the network scale and the dimension of the decision space grow. To the author’s knowledge, direct analytical derivation of these derivatives for dynamic network traffic simulation have not been done. 
+
+> ∗
+
+Institute of Science Tokyo; seo.t.aa@m.titech.ac.jp; The corresponding author 
+
+1
+
+> arXiv:2604.11380v1 [eess.SY] 13 Apr 2026
+
+Instead, conventional approaches treat the simulator as a black box and employ derivative-free methods such as SPSA (Spall, 1998) and genetic algorithms (Goldberg, 1989). These methods are not very computationally efficient when the parameter dimension is large. Surrogate-model or metamodel approaches can accelerate the search by approximating the derivatives by data-driven approaches, but may introduce approximation error or physical inconsistency (e.g., Osorio and Chong, 2015; Dantsuji, 2024). An alternative is the adjoint method, which computes exact gradients analytically (Reilly et al., 2015). However, the adjoint equations must be derived manually for each specific model, making the approach labor-intensive and difficult to maintain as the model evolves. 
+
+Differentiable simulation offers a way to combine the exactness of adjoint gradients with the generality of automatic differentiation (AD) . In this approach, the simulator is written as a composition of differentiable operations, and the AD framework derives the gradient automatically (see Appendix A for a brief overview of AD). This paradigm has been applied successfully in other domains (Hu et al., 2020; Chen et al., 2018). In the traffic flow domain, Poole and Kotsialos (2016) applied AD to the METANET second-order macroscopic model for parameter calibration, and Son et al. (2022) proposed a differentiable hybrid simulator combining macroscopic and microscopic models. However, these works have been limited to either single-link or simplified network settings, without endogenous route choice, which is essential for network-scale transportation analysis. Extending differentiable simulation to the network scale with route choice has a specific challenge: route decisions are inherently discrete (a vehicle either takes path A or path B), and discrete operations break the differentiability of the computation graph (see Appendix A for a brief overview of computation graph). Andelfinger (2023) and Makinoshima et al. (2026) addressed this for agent-based simulators by replacing discrete branching with smooth approximations, but these relaxations alter the model behavior and may affect gradient quality, and they do not explicitly consider endogenous route choice as well. This study proposes a simple yet effective approach. We observe that macroscopic traffic flow models based on the kinematic wave theory (Lighthill and Whitham, 1955; Richards, 1956; Newell, 1993a) operate on continuous aggregate state variables (cumulative vehicle counts), and that the piecewise-linear operations arising from demand–supply constraints and node models admit subgradients almost everywhere. 1 Furthermore, thanks to the elegant nature of cumulative vehicle counts, they yield not only macroscopic states but also microscopic vehicle trajectories virtually (Makigami et al., 1971). Based on this observation, we formulate an end-to-end differentiable network traffic flow simulator based on the Link Transmission Model (LTM) (Kuwahara and Akamatsu, 2001; Yperman et al., 2006; Yperman, 2007), incorporating general node models (Fl¨ otter¨ od and Rohde, 2011) and a Dynamic User Optimum (DUO) route choice model (Ran et al., 1993; Kuwahara and Akamatsu, 2001), without introducing significant smoothing relaxation that compromise the models’ properties. The DUO diverge ratios are continuous functions of the per-destination vehicle counts, and the gradient propagates through the standard model without modification. The resulting simulator computes exact gradients via AD in a single backward pass, enabling efficient calibration and optimization of large-scale networks. We numerically evaluate the proposed method by applying it to a dynamic congestion pricing optimization problem based on large-scale, realistic network called Chicago-Sketch dataset. The developed simulator, named UNsim , is implemented in Python (Python Software Foundation, 2022) with JAX (Bradbury et al., 2018) and released as open-source software.              
+
+> 1Note that “almost everywhere” is a mathematical technical term with rigorous definition. For example, “ f(x)is differentiable almost everywhere” means that, if value of xwas chosen completely randomly, fis differentiable with probability 1. However, there may exist non-differentiable points in fwith zero measure. A typical example is the ReLU function max {0, x }(Nair and Hinton, 2010), which is differentiable almost everywhere, but non-differentiable only at x= 0 .
+
+2The remainder of this paper is organized as follows. Section 2 reviews the related literature. Section 3 describes the simulation model and the differentiable formulation. Section 4 presents numerical experiments that demonstrate the capability of the proposed model. Section 5 concludes the paper. 
+
+# 2 Literature review 
+
+2.1 Macroscopic traffic flow models and network extensions 
+
+The kinematic wave theory of Lighthill and Whitham (1955) and Richards (1956) established the first-order macroscopic traffic flow model (LWR model). Newell (1993a,b,c) reformulated the LWR model under a triangular fundamental diagram (FD) using cumulative vehicle count curves N (t, x ),avoiding explicit shock tracking. Based on this formulation, Kuwahara and Akamatsu (2001) developed a network-level dynamic traffic assignment (DTA) model with demand–supply functions, and Yperman et al. (2006); Yperman (2007) systematically proposed the discrete-time LTM. 2 The LTM provides an exact numerical solution to the LWR model and is computationally more efficient than the Cell Transmission Model (CTM) (Daganzo, 1994) owing to its coarser spatial discretization. Subsequent work has extended the LTM to continuous-time formulations (Jin, 2015) and iterative algorithms that relax the CFL timestep constraint (Himpe et al., 2016). Node models govern flow transfer at junctions. Daganzo (1995) proposed node models consistent to CTM. Lebacque (1996) introduced the demand–supply framework for boundary conditions. Tamp` ere et al. (2011) established seven requirements that any first-order node model must satisfy and defined the generic class of node Models. Fl¨ otter¨ od and Rohde (2011) proposed the Incremental Node Model (INM) for general multi-leg intersections, and Smits et al. (2015) unified several node model families. 
+
+2.2 Dynamic route choice 
+
+Static traffic assignment is based on Wardrop’s user equilibrium principle (Wardrop, 1952), under which no traveler can reduce their travel time by unilaterally switching routes. Extending this principle to the time-varying, dynamic setting leads to the Dynamic User Equilibrium (DUE) (Szeto and Lo, 2006). Friesz et al. (1993) formulated DUE as a variational inequality, where travelers experience equal and minimal actual travel times on all used routes for a given departure time. Meanwhile, since DUE is computationally very challenging, its tractable proxy termed Dynamic User Optimum (DUO) is also widely utilized (Iryo, 2013). For example, Ran et al. (1993) proposed an instantaneous DUO model in which travelers choose routes based on travel times prevailing at the moment of departure, a reactive approach that is computationally simpler than the experienced-travel-time formulation. Combining DUO with macroscopic network loading models yields a physically consistent DTA. For example, Kuwahara and Akamatsu (2001) integrated DUO route choice with the LWR model to capture queue formation and spillback in many-to-many OD networks. In the context of differentiable simulation, incorporating an endogenous route choice model is more challenging than using fixed turning rates, because the shortest path computation involves discrete decisions, and it depends on the simulation states. To the author’s knowledge, no prior work 
+
+> In practice, such measure-zero singularities cause no difficulty in gradient-based optimization, and ReLU is extensively used in machine learning.
+> 2In fact, these two models (i.e., Kuwahara and Akamatsu (2001) and Yperman et al. (2006)) are almost equivalent. For the details, see Wada and Jin (2017)
+
+3has formulated a differentiable traffic simulator with an endogenous route choice model including DUO. 
+
+2.3 Calibration and optimization of traffic simulation models 
+
+Calibration of DTA models has traditionally relied on derivative-free methods. Spall (2002, 1998) proposed the SPSA algorithm, which estimates the gradient using only two function evaluations regardless of the parameter dimension. SPSA and its variants have been widely applied to DTA calibration (Balakrishna et al., 2007; Lu et al., 2015). Other approaches include generalized least squares estimation of OD matrices (Cascetta, 1984) and metamodel-based simulation optimization (Osorio and Chong, 2015). These methods treat the simulator as a black box. While effective for moderate-dimensional problems, their convergence slows as the number of parameters grows, motivating the search for gradient-based alternatives. Adjoint methods are also utilized for traffic flow optimization. The adjoint method provides an analytical route to computing gradients of objective functions with respect to control parameters in PDE-constrained optimization. Reilly et al. (2015) derived the discrete adjoint for networks of scalar conservation laws (LWR model) discretized by the Godunov scheme and applied it to coordinated ramp metering. Goatin et al. (2026) extended the approach to multiclass traffic flow models with merges, diverges, and spillback. These methods require manual derivation of the adjoint equations for each specific model formulation, which is labor-intensive and error-prone when the model is modified. 
+
+2.4 Differentiable simulation 
+
+Differentiable simulation has emerged as a paradigm in which the entire simulation is formulated as a composition of differentiable operations, enabling automatic differentiation (AD) frameworks to compute gradients without manual derivation. Griewank and Walther (2008) is the standard reference for the theory and implementation of algorithmic differentiation. Baydin et al. (2018) provides a comprehensive survey of AD in machine learning. In the broader scientific computing context, Hu et al. (2020) developed a differentiable programming language for physical simulation, and Chen et al. (2018) introduced neural ordinary differential equations with adjoint-based gradient computation at constant memory cost. In the traffic domain, Poole and Kotsialos (2016) incorporated the ADOL-C automatic differentiation library into the METANET second-order macroscopic model and calibrated FD parameters using resilient backpropagation. This appears to be the earliest application of AD to a macroscopic traffic flow model. Son et al. (2022) proposed the first differentiable traffic simulator supporting both macroscopic and microscopic models, with applications to signal control. Son et al. (2025) developed a parallelized differentiable simulator based on the Intelligent Driver Model, scaling to two million vehicles. Andelfinger (2023) and Makinoshima et al. (2026) addressed the differentiability of agent-based simulations by replacing discrete branching with smooth approximations. However, existing differentiable traffic simulators have focused on either microscopic (car-following) models or simplified macroscopic settings. To the author’s knowledge, no prior work has formulated a differentiable traffic flow models and an endogenous route choice model for network-scale applications. The present study addresses this gap. 43 Methodology 
+
+In this section, we present the formulation of an end-to-end differentiable macroscopic traffic flow simulator. The simulator is based on the Link Transmission Model (LTM), combined with Dynamic User Optimum (DUO)-type endogenous route choice model, and it is formulated such that every operation is differentiable with respect to the model parameters. We first describe the parameters and state variables of the proposed model, and the meaning of differentiable simulator in the traffic simulation context (Section 3.1). Then. we explain the link model (Section 3.2), the node models (Section 3.3), the route choice model (Section 3.4), which are based on the existing works. Then, we show the differentiable formulation of these models (Section 3.5), which are the key contribution of this work. Figure 1 illustrates the conceptual framework of the proposed model. 
+
+Figure 1: The simulation framework combining LTM traffic flow model and DUO route choice. 
+
+3.1 Parameters and state variables, and what the differentiable simulator means 
+
+A road network is represented as a directed graph G = ( N , L), where N denotes a set of nodes and 
+
+L denotes a set of directed links. Each link l ∈ L connects an upstream (start) node to a downstream (end) node. For each node ν ∈ N , we define Lin  
+
+> ν
+
+and Lout  
+
+> ν
+
+as the sets of incoming and outgoing links, respectively. The simulation is governed by a parameter vector θ and produces state variables that evolve over time. The parameter vector θ consists of: 
+
+• For each link l: free-flow speed ul, jam density κl, backward wave speed wl, inflow capacity 
+
+¯qin  
+
+> l
+
+, and outflow capacity ¯qout  
+
+> l
+
+;
+
+• For each node ν: merge priorities αl (for each inlink l); 
+
+• OD demand: flow rate qrs (t) from origin r to destination s at time t.The diverge ratios βνo (t) and turning fractions blo (t) at each node are not exogenous parameters but are determined endogenously by the route choice model (Section 3.4). In the fixed turning rate mode, they reduce to time-invariant parameters that are also differentiable. The primary state variables are the cumulative vehicle counts at the upstream and downstream boundaries of each link: Nl,U (t) and Nl,D (t), respectively. Under the DUO route choice model, per-destination cumulative counts N sl,U (t) and N sl,D (t) are additionally maintained. The simulation 5proceeds in discrete timesteps of width ∆t. The simulation duration is Tmax , and the total number of timesteps is TS = Tmax /∆t. The time index t refers to the t-th timestep (i.e., t · ∆t seconds). In the proposed model, any differentiable function of the state variables is differentiable with respect to a parameter almost everywhere. For example, traffic volume of a link for a certain duration can be defined as 
+
+n = Nl,D (t + ∆ t) − Nl,D (t) (1) Then, by using AD, we can directly compute values of ∂n/∂u l, ∂n/∂q rs (t), and so on by just computing the simulation. No additional operations such as numerical differentiation are required. Similarly, we can also define total travel time T T T based on the state variables. Partial derivatives such as ∂T T T /∂u l and ∂T T T /∂q rs (t) can be also computed easily. 
+
+3.2 Link Transmission Model 
+
+The link model is based on the Link Transmission Model (Kuwahara and Akamatsu, 2001; Yperman et al., 2006; Yperman, 2007), which provides an exact numerical solution to the LWR model (Lighthill and Whitham, 1955; Richards, 1956) under a triangular FD. 
+
+3.2.1 Triangular fundamental diagram 
+
+Each link l is characterized by a triangular FD (Fig. 2) with three parameters: free-flow speed ul, traffic capacity q∗ 
+
+> l
+
+, and jam density κl. The flow–density relation is 
+
+Ql(k) = 
+
+ ulk if k ≤ k∗ 
+
+> l
+
+, (2) 
+
+wl(κl − k) if k > k ∗ 
+
+> l
+
+, (3) where k denotes the traffic density, k∗ 
+
+> l
+
+= q∗ 
+
+> l
+
+/u is the critical density, and wl = q∗ 
+
+> l
+
+/(κl − k∗ 
+
+> l
+
+) is the backward wave speed. The corresponding speed–density relation is 
+
+Vl(k) = Ql(k)/k =
+
+ ul if k ≤ k∗ 
+
+> l
+
+, (4) 
+
+wl(κl − k)/k if k > k ∗ 
+
+> l
+
+. (5) 
+
+3.2.2 Newell’s simplified kinematic wave theory 
+
+The LTM is derived from Newell’s simplified kinematic wave (KW) theory (Newell, 1993a,b,c), which determines the cumulative vehicle count at any time–space point (t, x ) within a link as 
+
+Nl(t, x ) = min 
+
+
+
+Nl,U 
+
+
+
+t − xul
+
+
+
+, N l,D 
+
+
+
+t − dl − xwl
+
+
+
++ κl(dl − x)
+
+
+
+, (6) where dl is the length of link l, and x is the distance from the upstream boundary. The first argument corresponds to the free-flow characteristic, and the second to the congestion characteristic. 6Figure 2: Triangular FD. 
+
+3.2.3 Demand and supply 
+
+At each timestep t, the LTM computes the demand Dl(t) and supply Sl(t) of each link. The demand represents the maximum flow rate that can depart from the downstream boundary, while the supply represents the maximum flow rate that the link can accept at its upstream boundary. They are computed as 
+
+Dl(t) = min 
+
+ Nl,U (t + ∆ t − dl/u l) − Nl,D (t)∆t , q ∗ 
+
+> l
+
+, ¯qout 
+
+> l
+
+
+
+, (7) 
+
+Sl(t) = min 
+
+ Nl,D (t + ∆ t − dl/w l) + κldl − Nl,U (t)∆t , q ∗ 
+
+> l
+
+, ¯qin 
+
+> l
+
+
+
+, (8) where ¯qout  
+
+> l
+
+and ¯qin  
+
+> l
+
+are optional outflow and inflow capacity constraints, respectively. The non-negativity constraint Dl(t) ≥ 0 and Sl(t) ≥ 0 is also enforced. The timestep width must satisfy ∆t ≤ dl/u l for all links to ensure numerical stability, which is the Courant–Friedrichs–Lewy (CFL) condition for the LTM (Yperman, 2007). However, this width is generally significantly larger than other models such as CTM and microscopic car-following models. 
+
+3.2.4 Cumulative count update 
+
+After the node model determines the flow rates (described in the next section), the cumulative counts are updated as 
+
+Nl,U (t + ∆ t) = Nl,U (t) + ∆ t · f in  
+
+> l
+
+(t), (9) 
+
+Nl,D (t + ∆ t) = Nl,D (t) + ∆ t · f out  
+
+> l
+
+(t), (10) where f in  
+
+> l
+
+(t) and f out  
+
+> l
+
+(t) denote the inflow and outflow rates of link l at timestep t, as determined by the node models at the link’s upstream and downstream nodes, respectively. 
+
+3.2.5 Virtual vehicle trajectories 
+
+A notable property of the cumulative count representation is that it yields not only macroscopic traffic states but also individual vehicle trajectories (Makigami et al., 1971). Since the cumulative count 7Nl,U (t) records the total number of vehicles that have entered link l by time t, a vehicle entering at time tenter is assigned the index N = Nl,U (tenter ). Under the first-in first-out (FIFO) assumption, this vehicle is also the N -th vehicle to exit the link; therefore, its exit time is determined by the time at which the downstream cumulative count reaches the same value: 
+
+texit = max 
+
+
+
+tenter + dl
+
+ul
+
+, N −1
+
+> l,D
+
+(N )
+
+
+
+, (11) where N −1
+
+> l,D
+
+(N ) denotes the time at which Nl,D (t) = N . The first argument represents the free-flow constraint (the vehicle cannot traverse the link faster than ul), and the second represents the queuing constraint (the vehicle must wait for preceding vehicles to depart). Figure 3 illustrates the relation between vehicle trajectories and cumulative counts. 
+
+Figure 3: Vehicle trajectories and cumulative counts (adapted from Seo (2023)). Regarding network-level trajectories, for a path P = ( l1, l 2, . . . , l P ), the travel time of a virtual vehicle departing at time t0 is obtained by chaining Eq. (11) over successive links: 
+
+tp = max 
+
+
+
+tp−1 + dlp
+
+ulp
+
+, N −1
+
+> lp,D
+
+ Nlp,U (tp−1)
+
+, p = 1 , . . . , P, (12) where tp denotes the exit time from the p-th link. The total travel time is tP − t0.The path P itself can be determined by a time-dependent shortest path algorithm, following the DUO route choice model explained later. Since the LTM satisfies the FIFO property on every link (a vehicle entering earlier always exits earlier), Dijkstra’s algorithm is applicable with the actual congestion-dependent link exit time (Eq. (11)) as the edge cost. Starting from the origin at time t0, the algorithm expands nodes in order of earliest arrival time, using texit computed from the simulation’s cumulative counts to evaluate each edge. The resulting path is optimal in the sense that no other path yields an earlier arrival at the destination for the given departure time. 8This formulation provides microscopic trip-level information (individual travel times and paths) from a macroscopic simulation, without tracking individual vehicles explicitly. 
+
+3.3 Node models 
+
+The node models determine the flow transfer at each node by solving a constrained flow maximization problem subject to demand and supply constraints of connected links (Tamp` ere et al., 2011). Nodes are classified into six types based on their link topology: origin , destination , dummy (single inlink and single outlink), merge (multiple inlinks, single outlink), diverge (single inlink, multiple outlinks), and general (multiple inlinks and multiple outlinks); examples are illustrated in Fig. 4. Note that the general node literally generalizes all of these node types. However, since the general node model is computationally costly (especially for differentiable one), we employ the other node types as well. The flow rates determined by the node models must satisfy the following conditions: (i) non-negativity, (ii) demand constraint f out  
+
+> l
+
+(t) ≤ Dl(t), (iii) supply constraint f in  
+
+> o
+
+(t) ≤ So(t), and (iv) maximization of total flow through the node. 
+
+Figure 4: Node types. 
+
+3.3.1 Origin and destination nodes 
+
+An origin node r has no incoming links and one or more outgoing links. The total external demand at origin r is dr(t) = P 
+
+> s
+
+qrs (t), which enters the network through a vertical queue . The vertical queue length rr(t) evolves as 
+
+rr(t + ∆ t) = max {rr(t) + ( dr(t) − fr(t)) ∆ t, 0} , (13) where fr(t) is the flow rate entering the network, computed as 
+
+fr(t) = min 
+
+
+
+dr(t) + rr(t)∆t , min 
+
+> o∈L out
+> r
+
+So(t)
+
+βro 
+
+
+
+, (14) subject to an optional node flow capacity constraint. The inflow rate to each outgoing link is f in  
+
+> o
+
+(t) = 
+
+βro ·fr(t). When there is only one outgoing link, the diverge constraint reduces to fr(t) = min {dr(t)+ 
+
+rr(t)/∆t, S o(t)}.A destination node accepts all incoming demand: f out  
+
+> l
+
+(t) = Dl(t) for all l ∈ L in  
+
+> ν
+
+.93.3.2 Dummy node 
+
+A dummy node connects a single inlink l to a single outlink o, optionally absorbing a fraction γν of the flow (representing intermediate destinations): 
+
+f out  
+
+> l
+
+(t) = min 
+
+
+
+Dl(t), So(t)1 − γν
+
+
+
+, (15) 
+
+f in  
+
+> o
+
+(t) = (1 − γν ) · f out  
+
+> l
+
+(t).
+
+Dummy node are necessary to represent heterogeneity within a single physical link, such as bottlenecks. 
+
+3.3.3 Diverge node 
+
+A diverge node has a single inlink l and multiple outlinks o ∈ L out  
+
+> ν
+
+. We employ Daganzo (1995)’s model. The flow is split according to diverge ratios βνo with P 
+
+> o
+
+βνo = 1 . The outflow from the inlink is 
+
+f out  
+
+> l
+
+(t) = min 
+
+
+
+Dl(t), min 
+
+> o∈L out
+> ν
+
+So(t)
+
+βνo 
+
+
+
+, (16) and the inflow to each outlink is f in  
+
+> o
+
+(t) = βνo · f out  
+
+> l
+
+(t). This formulation captures the FIFO principle: congestion in any downstream link constrains the entire upstream flow proportionally. 
+
+3.3.4 Merge node 
+
+A merge node has multiple inlinks l ∈ L in  
+
+> ν
+
+and a single outlink o. We employ Daganzo (1995)’s model as well. If total demand does not exceed supply ( Dl1 + Dl2 ≤ So), all demand is served: 
+
+f out  
+
+> l1
+
+= Dl1 , f out  
+
+> l2
+
+= Dl2 . (17) Otherwise, the supply is allocated using the merge priority ratios αl1 and αl2 (with αl1 + αl2 = 1 ) via the mid-value formula: 
+
+f out  
+
+> l1
+
+= mid {Dl1 , S o − Dl2 , α l1 So} , (18) 
+
+f out  
+
+> l2
+
+= mid {Dl2 , S o − Dl1 , α l2 So} ,
+
+where mid {a, b, c } returns the median of the three values. The inflow to the outlink is f in  
+
+> o
+
+= f out  
+
+> l1
+
++f out  
+
+> l2
+
+.
+
+3.3.5 General node: Incremental Node Model 
+
+For general nodes with |L in  
+
+> ν
+
+| ≥ 2 and |L out  
+
+> ν
+
+| ≥ 2, we employ the Incremental Node Model (INM) (Fl¨ otter¨ od and Rohde, 2011). The INM determines flows through an iterative procedure that incrementally allocates flow along a priority-weighted direction until a demand or supply constraint is reached. Let Bν = [ blo ] denote the turning fraction matrix, where blo is the fraction of outflow from inlink 
+
+l directed to outlink o, and let αl denote the merge priority of inlink l. The INM initializes inflow allocations ˆql = 0 for all l and outflow allocations ˆqo = 0 for all o, then iterates as follows: 
+
+1. Identify the set of active inlinks D↑: inlinks l where ˆql < D l and no outlink o with blo > 0 is at capacity ( ˆqo < S o). 10 2. Identify the set of active outlinks D↓: outlinks o where ˆqo < S o and at least one active inlink feeds them. 
+
+3. If D↑ = ∅, terminate. 
+
+4. Compute the priority-weighted direction: ϕin  
+
+> l
+
+= αl for l ∈ D ↑ (0 otherwise), and ϕout  
+
+> o
+
+=P 
+
+> l
+
+blo ϕin  
+
+> l
+
+.
+
+5. Compute the maximum step size: 
+
+θ = min 
+
+
+
+min 
+
+> l∈D ↑
+
+Dl − ˆql
+
+ϕin 
+
+> l
+
+, min 
+
+> o∈D ↓
+
+So − ˆqo
+
+ϕout 
+
+> o
+
+
+
+. (19) 
+
+6. Update: ˆql ← ˆql + θϕ in  
+
+> l
+
+and ˆqo ← ˆqo + θϕ out  
+
+> o
+
+.The procedure terminates in at most |L in  
+
+> ν
+
+| + |L out  
+
+> ν
+
+| + 1 iterations, as at least one constraint becomes binding at each step. The final values ˆql and ˆqo are the allocated outflow and inflow rates, respectively. 
+
+3.4 Route choice model 
+
+The node models in the previous section require diverge ratios βνo (or turning fractions blo ) as exogenous inputs. These ratios can be specified as fixed parameters, or they can be determined endogenously by a route choice model. We support four modes: dynamic user optimum (DUO), all-or-nothing (AoN) assignment, and fixed turning rates. The DUO model is the main route choice mode, whereas the rest are computationally efficient alternatives for specific tasks. 
+
+3.4.1 Dynamic user optimum 
+
+Under the DUO assumption, vehicles at each node select the outgoing link that lies on the instantaneous shortest path to their destination, approximating equilibrium routing. This requires tracking per-destination flows and computing shortest paths at some route choice update interval. We provide two methods for computing the instantaneous link travel time, which differ in their treatment of within-link traffic heterogeneity. The first method computes a single average density for the entire link from the boundary cumulative counts: 
+
+¯kl(t) = Nl,U (t) − Nl,D (t)
+
+dl
+
+. (20) The corresponding speed is ¯vl(t) = Vl(¯kl(t)) (Eqs. (4) and (5)), and the travel time is 
+
+τl(t) = dl
+
+Vl(¯kl(t)) . (21) This method is computationally inexpensive, as it requires only the boundary values that are already maintained by the LTM. However, it assumes uniform density along the link and thus cannot distinguish, for example, a link that is half congested from one with uniformly moderate density. The second method captures within-link heterogeneity by dividing the link into M equally spaced segments of width ∆x = dl/M . For each segment i = 1 , . . . , M with boundaries xi−1 = ( i−1)∆ x
+
+and xi = i ∆x, the segment density is computed from the Newell N -curves (Eq. (6)) at the boundaries: 
+
+k(i) 
+
+> l
+
+(t) = Nl(t, x i−1) − Nl(t, x i)∆x . (22) 11 The segment speed is v(i) 
+
+> l
+
+(t) = Vl(k(i) 
+
+> l
+
+(t)) (Eqs. (4) and (5)), and the instantaneous travel time is the sum of the segment traversal times: 
+
+τl(t) = 
+
+> M
+
+X
+
+> i=1
+
+∆xVl(k(i) 
+
+> l
+
+(t)) . (23) This method evaluates the Newell N -curve at interior points of the link, thereby resolving the spatial distribution of congestion (e.g., a queue occupying only the downstream portion of the link). It is more computationally expensive than the average-density method, as it requires 2M evaluations of Eq. (6) per link. Given the link travel times {τl(t)}, the shortest path tree from each destination s is computed by a reverse Bellman–Ford algorithm (Ford, 1956; Bellman, 1958). For each node ν, let πsν denote the next link on the shortest path toward destination s. The shortest paths are recomputed periodically (every 
+
+∆troute timesteps, where ∆troute denotes the route update interval) rather than at every timestep, balancing accuracy and computational cost. The diverge ratios at each node are then determined by aggregating the per-destination shortest path indicators, weighted by the current per-destination traffic volume. Let nsl (t) = N sl,U (t) − N sl,D (t)
+
+denote the number of destination-s vehicles on link l at time t. For each node ν and outlink o ∈ L out  
+
+> ν
+
+,the diverge ratio is 
+
+βνo (t) = 
+
+P 
+
+> s
+
+ωsν (t) · 1[πsν = o]
+
+P 
+
+> s
+
+ωsν (t) , (24) where ωsν (t) = P 
+
+> l∈L in
+> ν
+
+nsl (t) for intermediate nodes, and ωsν (t) = qrs (t) (the OD demand rate from origin r = ν) for origin nodes. In words, the fraction of flow directed to outlink o equals the fraction of vehicles (across all destinations) whose shortest path passes through o.In order to evaluate Eq. (24), the DUO model maintains per-destination cumulative counts N sl,U (t)
+
+and N sl,D (t) for each link and destination. At the upstream boundary, the per-destination inflow is determined by the routing decision (Eq. (24)). At the downstream boundary, the per-destination outflow follows the FIFO principle: 
+
+f out  
+
+> l,s
+
+(t) = f out  
+
+> l
+
+(t) · N sl,U (t)
+
+Nl,U (t) , (25) where f out  
+
+> l,s
+
+(t) denotes the outflow rate of destination-s vehicles from link l. This allocates the aggregate outflow proportionally to the destination composition of cumulative arrivals. 
+
+3.4.2 All-or-nothing assignment and fixed turning rates 
+
+As computationally easier route choice models, the following alternatives are also employed. The AoN mode is a special case of the DUO in which the shortest paths are computed once from free-flow travel times and remain fixed. In the fixed turning rate mode, βνo is specified as an exogenous parameter and used throughout the simulation. 
+
+3.5 End-to-end differentiable formulation 
+
+This section describes how the LTM and DUO simulation described above is formulated as an end-to-end differentiable program, enabling exact gradient computation via automatic differentiation (AD). For code implementation, we use Python and JAX. 12 3.5.1 Why the LTM is suitable for AD-based network traffic simulation 
+
+Agent-based (Lagrangian) traffic simulators track individual vehicles through inherently discrete events (e.g., route decisions) that break the differentiability of the simulation mapping. Obtaining gradients from such models requires variance-prone estimators such as policy gradients or the straight-through estimator (Makinoshima et al., 2026). The LTM, in contrast, operates on continuous aggregate state variables, namely the cumulative vehicle counts Nl,U (t) and Nl,D (t), and all operations reduce to arithmetic and piecewise-linear 
+
+min /max functions. Since min and max are differentiable almost everywhere (with standard subgradients at kink points), the entire LTM computation graph admits AD without approximation. The key requirement is that all conditional logic (demand vs. supply binding, free-flow vs. congestion) must be expressed through min /max rather than if-else branches, so that the computation graph remains connected regardless of the traffic regime. An alternative to AD is the numerical difference method (e.g., finite-difference), which requires 
+
+O(|θ|) forward simulations per gradient. This becomes impractical for high-dimensional parameter vectors such as network-scale parameters. By contrast, reverse-mode AD computes the full gradient in a single backward pass regardless of |θ|.The LTM has a further advantage for AD, namely, its coarse temporal discretization. The CFL condition for the LTM is ∆t ≤ min l dl/u l, where dl is the link length. For a typical urban network with link lengths of 100–1000 m and free-flow speeds of 10–20 m/s, the maximum timestep is on the order of 5–100 s. In contrast, the cell-based simulation methods (e.g., CTM, METANET) discretizes each link into cells with very small length to ensure high accuracy, resulting in timesteps that are shorter by a factor proportional to the number of cells per link. Microscopic simulators typically use second or sub-second timesteps. Since reverse-mode AD must back-propagate through each timestep sequentially, the computational and memory cost of gradient computation scales linearly with the number of timesteps TS . The LTM’s large timestep means that a given simulation duration requires far fewer steps (e.g., TS = O(10 2)–O(10 3)) compared to the CTM ( O(10 3)–O(10 5)) or microscopic models (O(10 5)–O(10 6)), yielding proportionally faster and more memory-efficient gradient computation. Furthermore, despite being a macroscopic model, the LTM’s cumulative count representation allows the recovery of individual vehicle trajectories and travel times through the virtual vehicle formulation, as explained in Section 3.2.5. This means that trip-level objectives, such as the travel time of a specific OD pair departing at a given time (e.g., data from probe vehicles and connected vehicles), can also be differentiated with respect to the model parameters, bridging the gap between macroscopic simulation efficiency and microscopic output granularity. 
+
+3.5.2 Differentiable LTM 
+
+We describe three implementation choices needed to express the LTM in a form compatible with AD. In the LTM formula, the demand and supply computations (Eqs. (7) and (8)) evaluate cumulative counts at fractional timestep indices τ = t + 1 − dl/(ul∆t). We use linear interpolation 
+
+Nl,U (τ ) = (1 − δ) · Nl,U (⌊τ ⌋) + δ · Nl,U (⌊τ ⌋ + 1) , δ = τ − ⌊ τ ⌋, (26) which is differentiable with respect to both the stored cumulative count values and the index τ itself. Since τ depends on the FD parameters ul and wl, perturbations to these parameters alter the temporal offset at which past cumulative counts influence the current demand or supply, and the gradient correctly captures this coupling. 13 The virtual vehicle travel time (Eqs. (11) and (12)) requires inverting the downstream cumulative count, i.e., finding the time t at which Nl,D (t) = N for a given N . Since Nl,D is stored as a discrete array and is monotonically non-decreasing, the inversion is implemented in two steps: first, the segment [⌊t⌋, ⌊t⌋ + 1] containing the target value is identified by binary search; second, the fractional index within the segment is obtained by the same linear interpolation as Eq. (26), applied in reverse. The segment selection is a discrete operation (non-differentiable), but the subsequent interpolation is differentiable with respect to the cumulative count values. Combined with the max operation in Eq. (11), the resulting travel time function is piecewise differentiable with respect to the simulation parameters, enabling gradient-based optimization of trip-level objectives. The time-dependent shortest path computation described in Section 3.2.5 involves Dijkstra’s algorithm, which is inherently discrete and not differentiable. In the implementation, the path is therefore computed outside the AD computation graph and injected as a fixed sequence of link indices into the differentiable travel time function (Eq. (12)). The gradient flows through the cumulative counts and FD parameters along the given path, but not through the path selection itself. This is analogous to the treatment of the Bellman–Ford algorithm in the DUO model (Section 3.5.4), where the shortest path tree is treated as a piecewise-constant function of the parameters. 
+
+3.5.3 Differentiable INM 
+
+The INM described in Section 3.3.5 is an iterative algorithm whose number of iterations depends on the current demand and supply values. AD requires a static computation graph, so the variable-length iteration must be reformulated. We express the INM as a fixed-length scan of K = |L in  
+
+> ν
+
+| + |L out  
+
+> ν
+
+| + 1 
+
+iterations, where each iteration is a closed-form update involving only arithmetic and min /max .Consider node ν with inlinks l = 1 , . . . , I , outlinks o = 1 , . . . , J , turning fraction matrix B = [ blo ],and merge priorities αl. Let ˆq(k) 
+
+> l
+
+and ˆq(k) 
+
+> o
+
+denote the accumulated inflow and outflow allocations at iteration k, initialized as ˆq(0)  
+
+> l
+
+= 0 and ˆq(0)  
+
+> o
+
+= 0 . Each iteration proceeds as follows. First, the active set indicators are computed. An inlink l is active if its allocation has not reached its demand and none of its target outlinks is saturated: 
+
+δ↑ 
+
+> l
+
+= 1ˆq(k) 
+
+> l
+
+< D l
+
+ · Y 
+
+> o:blo >0
+
+1ˆq(k) 
+
+> o
+
+< S o
+
+, (27) where 1[·] denotes the indicator function. An outlink o is active if it has remaining supply and at least one active inlink feeds it: 
+
+δ↓ 
+
+> o
+
+= 1ˆq(k) 
+
+> o
+
+< S o
+
+ · 1 P   
+
+> l:blo >0
+
+δ↑ 
+
+> l
+
+> 0. (28) Second, the priority-weighted direction is computed: 
+
+ϕl = δ↑ 
+
+> l
+
+· αl, ϕo =
+
+> I
+
+X
+
+> l=1
+
+blo ϕl. (29) Third, the step size θ is determined as the largest increment that does not violate any constraint: 
+
+θ = min 
+
+(
+
+min   
+
+> l:δ↑
+> l=1
+
+Dl − ˆq(k)
+
+> l
+
+ϕl
+
+, min   
+
+> o:δ↓
+> o=1
+
+So − ˆq(k)
+
+> o
+
+ϕo
+
+)
+
+. (30) 14 Algorithm 1 Fixed-length differentiable INM at node ν
+
+Require: Demands Dl, supplies So, turning fractions B = [ blo ], priorities αl
+
+Ensure: Inflow allocations ˆql, outflow allocations ˆqo 
+
+> 1:
+
+ˆql ← 0 for l = 1 , . . . , I ; ˆqo ← 0 for o = 1 , . . . , J  
+
+> 2:
+
+for k = 1 , . . . , K do ▷ K = I + J + 1 ; fixed length  
+
+> 3:
+
+δ↑ 
+
+> l
+
+← 1[ˆ ql < D l] · Q  
+
+> o:blo >0
+
+1[ˆ qo < S o] for each l ▷ Active inlinks  
+
+> 4:
+
+δ↓ 
+
+> o
+
+← 1[ˆ qo < S o] · 1[P  
+
+> l:blo >0
+
+δ↑ 
+
+> l
+
+> 0] for each o ▷ Active outlinks  
+
+> 5:
+
+ϕl ← δ↑ 
+
+> l
+
+· αl; ϕo ← P 
+
+> l
+
+blo ϕl ▷ Direction (Eq. (29))  
+
+> 6:
+
+θ ← min  min l: ϕl>0(Dl − ˆql)/ϕ l, min o: ϕo>0(So − ˆqo)/ϕ o ▷ Step size (Eq. (30))  
+
+> 7:
+
+ˆql ← ˆql + θ ϕ l; ˆqo ← ˆqo + θ ϕ o ▷ Update (Eq. (31))  
+
+> 8:
+
+end for  
+
+> 9:
+
+return ˆql, ˆqo
+
+At each iteration, θ drives at least one constraint to its bound, so the algorithm converges in at most 
+
+K = I + J + 1 iterations. Finally, the allocations are updated: 
+
+ˆq(k+1)  
+
+> l
+
+= ˆ q(k) 
+
+> l
+
++ θ ϕ l, ˆq(k+1)  
+
+> o
+
+= ˆ q(k) 
+
+> o
+
++ θ ϕ o. (31) After convergence (when no inlink is active), ϕl = 0 for all l, and thus θ = 0 regardless of the remaining capacity. Subsequent iterations apply the identity ˆq(k+1) = ˆ q(k), contributing neither to the forward output nor to the backward gradient. The procedure is summarized in Algorithm 1. The key property for AD is that each iteration (Eq. (27)–Eq. (31)) is expressed as arithmetic and 
+
+min /max operations on the continuous variables Dl, So, αl, and blo . The indicator functions are implemented as comparisons that select between two continuous paths (e.g., ϕl = αl or ϕl = 0 ), so the gradient with respect to αl and blo flows through the active constraints at each iteration. The fixed iteration count K ensures a static computation graph, and the natural zero-padding ( θ = 0 
+
+post-convergence) avoids any approximation. 
+
+3.5.4 Differentiable DUO with logit model-based smoothing 
+
+The DUO model (Section 3.4.1) introduces three additional components that must be handled within the AD framework: instantaneous travel time computation, shortest path-based routing, and dealing with zero gradient of any route choice pattern. The instantaneous travel time (Eqs. (21) and (23)) is computed by evaluating the cumulative curve N (t, x ). The required operations are composed of subtraction (Eq. (20)), linear interpolation (Eq. (26)), min (from Newell’s formula), arithmetic, and min /max (from the FD). Consequently, the travel time τl(t) is differentiable with respect to all state variables and FD parameters by the same mechanisms described in Section 3.5.2. The Bellman–Ford algorithm produces a shortest path tree {πsν } that is a discrete (integer-valued) function of the link travel times. This discrete mapping is not differentiable in the classical sense. However, the diverge ratios (Eq. (24)) that are actually used by the node models are continuous functions of the per-destination vehicle counts ωsν (t), which are themselves differentiable state variables. Aperturbation to θ that does not change the shortest path tree leaves the route indicator 1[πsν =
+
+o] unchanged; the gradient flows through the weights ωsν (t) in the numerator and denominator of 15 Eq. (24). When a perturbation is large enough to change the shortest path tree, the diverge ratios shift discontinuously; however, this is a measure-zero event analogous to the min /max kink points in the LTM. In practice, gradient-based optimizers handle these discontinuities without difficulty, because the diverge ratios are piecewise smooth and the subgradients from the Bellman–Ford provide valid descent directions. The per-destination outflow (Eq. (25)) is a ratio of differentiable cumulative counts. Division by 
+
+Nl,U (t) is protected by a small constant to avoid division by zero; the gradient is well-defined whenever traffic is present on the link. However, this deterministic DUO model has a significant limitation for particular applications. That is, although this model is continuous and differentiable almost everywhere, the gradient of the shortest path with respect to link cost is zero almost everywhere (i.e., step function). This is because small change in link cost usually does not change the path at all; and when the change is sufficiently large, the shortest path switches discontinuously. In order to relax this limitation, we introduce a route choice model using the logit model (Ben-Akiva and Bierlaire, 1999). For traffic with destination s that arrives node ν on time t, the turning probability to link l is defined as 
+
+p(l, ν ; s, t ) = exp ( −μCost( l; s, t )) 
+
+P 
+
+> o∈L out
+> ν
+
+exp ( −μCost( o; s, t )) , (32) where μ is the logit scale parameter and Cost( l; s, t ) is the shortest path cost from link l to destination 
+
+s on time t, which is simultaneously obtained by the aforementioned Bellman–Ford algorithm along with πsν . Figure 5 illustrates relation between DUO and logit-DUO. In fact, this can be considered as a common approach to model route choice. By summing up p(l, ν ; s, t ) of the traffic to each destination, the total turning rate can be computed. 
+
+Figure 5: Conceptual illustration of logit-DUO. In summary, the DUO and logit-DUO models preserve end-to-end differentiability: the gradient flows from the objective through the per-destination cumulative counts, through the diverge ratio computation, through the node models, and back to the FD and demand parameters. Furthermore, the logit-DUO typically has non-zero gradient with respect to link or path cost. The use of physically 16 Algorithm 2 Differentiable LTM: compilation and differentiation 
+
+Require: Parameter vector θ; network G; scalar objective J
+
+Ensure: Gradient ∇θJ or Jacobian-vector product 
+
+— Compilation (once) —  
+
+> 1:
+
+Define one-step transition g(xt, t ; θ): ▷ Piecewise differentiable Demand/supply via min /max (Eqs. (7) and (8)) with linear interpolation (Eq. (26)) Travel time τl from N -curves (Eq. (23)); shortest paths via Bellman–Ford; diverge ratios βνo from per-destination weights (Eq. (24)) Node models via min /max (Eq. (14)–Eq. (16)) fixed-K INM (Algorithm 1) Per-destination flow split by FIFO (Eq. (25)) Cumulative count update (Eqs. (9) and (10)) and queue update  
+
+> 2:
+
+Define F (θ) = Scan (g, x0, [0 , . . . , T S −1]; θ) ▷ Forward simulation  
+
+> 3:
+
+Define L(θ) = J(F (θ); θ) ▷ Scalar loss  
+
+> 4:
+
+JIT-compile L ▷ Trace computation graph; fuse operations 
+
+— Differentiation mode (per call) — 
+
+Option A: Reverse mode (for |θ| ≫ 1, scalar J) ▷ O (TS ) time, O(√TS nx) memory  
+
+> 5:
+
+∇θJ ← Grad (L)( θ) ▷ Backprop through Scan with checkpointing 
+
+Option B: Forward mode (for per-parameter sensitivity) ▷ O (TS ) time per direction  
+
+> 6:
+
+∂J/∂θ i ← Jvp (L, θ, ei) ▷ Propagate unit tangent ei through Scan 
+
+grounded route choice models, rather than a differentiable surrogate model, ensures that the simulator produces traffic-theoretically consistent user optimum flows while maintaining gradient access. 
+
+3.5.5 Simulation algorithm 
+
+The complete simulation procedure is summarized in this section. The simulation state xt consists of the cumulative count arrays {Nl,U (t), N l,D (t)}l∈L , origin demand queues {rν (t)}, and absorbed vehicle counts at the destination nodes. Each timestep applies the transition function g:
+
+xt+1 = g(xt, t ; θ), (33) where g is the composition of demand/supply computation, node model evaluation, and cumulative count update. Algorithm 2 summarizes the differentiation pipeline. The one-step transition g encapsulates the LTM computations (Sections 3.2 and 3.3), expressed through arithmetic and min /max so that the composition is piecewise differentiable. In the pseudocode, Scan denotes a sequential fold that iteratively applies g over all timesteps starting from the initial state x0 (i.e., cumulative counts, queues, and absorbed counts at t = 0 , typically all zeros). Grad denotes the reverse-mode gradient operator, 
+
+Jvp denotes the forward-mode Jacobian-vector product, and ei is the i-th standard basis vector in parameter space, and JIT refers to just-in-time compilation that traces and fuses the computation graph. These correspond to the JAX primitives jax.lax.scan , jax.grad , jax.jvp , and jax.jit ,respectively. Since the entire computation graph is differentiable, both reverse-mode and forward-mode AD are applicable. Reverse-mode AD computes the full gradient ∇θJ in a single backward pass by backpropagation through the Scan , which is mathematically equivalent to the discrete adjoint method 17 (Pontryagin et al., 1962) but derived automatically. This mode is efficient when the objective is scalar and |θ| is large (e.g., OD demand calibration), as the cost is independent of the parameter dimension. Forward-mode AD, conversely, propagates a tangent vector through the Scan in a single forward pass, computing the directional derivative ∂J/∂θ i for one parameter at a time. This mode is efficient when |θ| is small or when the Jacobian-vector product (rather than the full gradient) is needed, as it requires no additional memory beyond the forward simulation state. Higher-order derivatives (e.g., Hessian-vector products) are also available by composing the two modes. Two additional technical strategies are implemented to enhance computational efficiency. First, the node model evaluation within each timestep is vectorized across all nodes: the transfer logic for each node type is computed simultaneously via batched array operations, and the appropriate result for each node is selected through element-wise conditionals, enabling data-parallel execution on accelerator hardware such as Graphics Processing Unit (GPU). Second, the Scan carry state is restricted to a sliding window of recent cumulative counts whose width is determined by the maximum free-flow travel time and is thus sufficient for all demand and supply lookups, while per-step incremental flows are emitted as auxiliary scan outputs The full cumulative count trajectories are then reconstructed by summation after the scan completes, reducing the per-step carry dimension and the associated memory overhead of reverse-mode differentiation. They allow us to compute large-scale simulation scenario very fast using GPU (see Section 4.2 for an example). 
+
+3.5.6 Differentiable parameters and computational cost 
+
+The differentiable parameters span all physically meaningful inputs: FD parameters ( ul, κ l, w l), OD demand ( qrs (t)), and merge priorities ( αl). In the fixed turning rate mode, diverge ratios ( βνo ) and turning fractions ( blo ) are additionally differentiable. The cost of the backward pass is proportional to that of the forward simulation (typically 2–5×) and is independent of the parameter dimension |θ|.
+
+3.6 Summary 
+
+The proposed simulator, named UNsim , combines the LTM for link dynamics, a suite of node models (origin/destination, dummy, diverge, merge, and the INM for general nodes), and an end-to-end differentiable formulation. The simulation computes the N -curve (cumulative vehicle count) as the primary state variable, as opposed to the vehicle trajectory X used by Lagrangian (agent-based) simulators such as UXsim (Seo, 2025), hence the name. The entire mapping from parameters to objective functions is differentiable almost everywhere without significant approximations , enabling exact gradient computation for calibration, sensitivity analysis, and optimization tasks. Furthermore, the end-to-end differentiable implementation provides a natural foundation for integrating neural network modules with the physical simulator, potentially enabling physics-informed hybrid models in future work. The computation code is implemented using Python and JAX (with GPU-acceleration), and released as an open-source Python package. 
+
+# 4 Numerical examples 
+
+Two numerical examples are presented. First, in Section 4.1, we investigate whether the values of AD-based partial derivatives of the proposed model are reasonable or not. We use a small toy network for interpretable analysis. Second, in Section 4.2, we apply the proposed model to dynamic congestion 18 Table 1: Network parameters for the Y-shaped merge example. Link d (m) u (m/s) q∗ (veh/s) κ (veh/m) α
+
+1 (orig1 → merge) 1000 20 0.8 0.2 12 (orig2 → merge) 1000 20 0.8 0.2 13 (merge → dest) 1000 20 0.8 0.2 –pricing optimization problem in large-scale, realistic network called Chicago-Sketch dataset and solves a differentiable simulation-based traffic optimization problem. 
+
+4.1 Partial derivatives in simple toy network 
+
+In order to verify that the partial derivatives computed by the differentiable simulator are qualitatively reasonable, we use a simple Y-shaped merge network. The network consists of four nodes (two origins, one merge, one destination) and three links, as illustrated in Fig. 6. Table 1 summarizes the network parameters. All links have identical FD parameters: u = 20 m/s, q∗ = 0 .8 veh/s, κ = 0 .2 veh/m, and 
+
+d = 1000 m. The merge priority weights are equal for both incoming links ( α1 = α2 = 1 ). Origin 1 generates demand at a rate of q1 = 0 .45 veh/s during t ∈ [0 , 1000] s, and origin 2 generates demand at 
+
+q2 = 0 .6 veh/s during t ∈ [400 , 1000] s. The combined demand ( 0.45 + 0 .6 = 1 .05 veh/s) exceeds the downstream link capacity ( 0.8 veh/s) during the overlap period, causing congestion queue at the merge. The simulation uses a timestep of ∆t = 5 s and a duration of Tmax = 2000 s. Forward simulation results are visualized in Figs. 7 and 8; congestion due to merging was clearly observed. 
+
+Figure 6: Merging network First, we define the total travel time (TTT) as an objective function: 
+
+JTTT = X 
+
+> l∈L
+> TS−1
+
+X
+
+> t=0
+
+max {Nl,U (t) − Nl,D (t), 0} · ∆t + X 
+
+> ν∈N orig
+> TS−1
+
+X
+
+> t=0
+
+rν (t) · ∆t, (34) where Norig denotes the set of origin nodes. The first term accounts for vehicles on links, and the second term accounts for vehicles in vertical queues at origins. Once the forward simulation under the particular parameter vector θ is completed, the partial derivative of JTTT with respect to any element of θ is obtained by a single backward pass. For example, the partial derivatives of TTT with respect to the demand rates are computed as 
+
+∂J TTT 
+
+∂q 1
+
+= 405975 .46 , ∂J TTT 
+
+∂q 2
+
+= 435501 .84 , (35) 19 (a) t = 300 s: Free-flowing (b) t = 800 s: Congestion started 
+
+Figure 7: Network speed (normalized by free-flow speed). The width represents the density at the segment.    
+
+> (a) Link 1
+> (b) Link 2
+> (c) Link 3
+
+Figure 8: Time-space diagrams of density (normalized by jam density). Note that these values are obtained by numerically differentiating N for visualization purposes, and thus some numerical noises exist. 20 where q1 and q2 denote the demand rates at origin 1 and origin 2, respectively. Both values are positive, indicating that an increase in demand from either origin increases the TTT—a reasonable result. It would be worth emphasizing again that this is not a numerical difference, a finite difference, or any other approximation. With respect to FD parameter, the following values are obtained: 
+
+∂J TTT 
+
+∂u 1
+
+= −1275 .47 , ∂J TTT 
+
+∂u 2
+
+= −638 .90 , ∂J TTT 
+
+∂u 3
+
+= −4317 .14 . (36) All values are negative, meaning that increasing free-flow speed of each link speed decreases TTT. Furthermore, the magnitude is largest for link 3, which is used by all traffic after merge. Now let us look at individual link state: 
+
+∂J TTTlink1 
+
+∂α 1
+
+= −7087 .50 , ∂J TTTlink2 
+
+∂α 1
+
+= 7087 .50 , (37) where JTTTlink l denotes TTT on link l only, defined similarly to Eq. (34). They mean that TTT on link 1 decreases if the merging priority of link 1 increases; and contrary, TTT on link 2 increases if the merging priority of link 1 increases. The effect is completely symmetric. Finally, we see some individual vehicle trajectories. Let JTT (t, r, s ) be the travel time of a vehicle that depart origin r on time t and travel to destination s. As explained in Section 3.2.5, this value can be directly computed from the LTM by using the cumulative count. We obtain the following values: 
+
+∂J TT (100 , orig1 , dest) 
+
+∂α 1
+
+= 0 .00 , ∂J TT (500 , orig1 , dest) 
+
+∂α 1
+
+= −56 .25 , (38) 
+
+∂J TT (100 , orig2 , dest) 
+
+∂α 1
+
+= 0 .00 , ∂J TT (500 , orig2 , dest) 
+
+∂α 1
+
+= 28 .12 . (39) Around t = 100 (s), there are no congestion. Therefore, the merging priority ratio does not have any impact on vehicles. Around t = 500 (s), congestion exists due to the merge. Therefore, increasing the merging priority ratio of link 1 decreases the travel time of vehicles depart origin 1, and increases that using origin 2. All of these results are qualitatively reasonable, suggesting that the partial derivative values computed by one forward run of the proposed model are also reasonable. 
+
+4.2 Dynamic congestion pricing optimization in Chicago-Sketch network 
+
+Now, we apply the proposed model to a dynamic congestion pricing optimization problem in a large network. This is a suitable problem to investigate the unique capabilities of the model: endogenous dynamic route choice and scalability for large scenarios. 
+
+4.2.1 Optimization problem formulation 
+
+Consider a situation where a time-varying toll is charged to each link in a network. The toll on link l
+
+is determined by a step function: 
+
+Tl(t) = T il t ∈ [i∆ttoll , (i + 1)∆ ttoll ), ∀i, (40) where T il is a constant toll for time period i, and ∆ttoll is the period duration. Our problem is to determine the values of T il for all link l and time period i.21 The optimization problem is defined as 
+
+min   
+
+> Til,∀l,i
+
+J = JT T T + λ X
+
+> l,i
+
+ T il
+
+2 , (41) 
+
+s.t. T il ≥ 0, ∀l, i, (42) where the first term in the objective function is the total travel time defined by Eq. (34), and the second term is a L2 regularization term to prevent excessively large toll and potentially negative effects of tolls that does not have any impact to traffic (e.g., toll charged to no traffic links). Parameter λ = 0 .001 is a small weight parameter for L2 regularization. For optimization, we employ Adam (Kingma and Ba, 2015), one of the standard gradient-based optimization algorithm. The gradient ∇T J is computed by reverse-mode AD through the entire DUO simulation, including the dynamic shortest-path routing and per-destination flow tracking. We also use a gradient clipping that shrinks gradient vector if its L2 norm exceeds 10 6 and a projection T il ≥ 0
+
+for the non-negative constraints. The other hyperparameters are as follows: learning rate η = 5 .0,momentum parameters β1 = 0 .9 and β2 = 0 .999 .
+
+4.2.2 Network and simulation setting 
+
+We use Chicago-Sketch dataset published by Transportation Networks for Research Core Team (2021), which is a common dataset for this kind of analysis. It contains 927 nodes, 2 557 links, 17 963 OD pairs, and approximately 1 million vehicles; note that the network data is slightly adjusted in order to fit technical requirements for the proposed model. Demand data is also modified in order to make it suitable for dynamic pricing problem for 3 hours peak time congestion. The original demand pattern is assumed to continue 1 hour. Then, the time periods are equally divided into three, and the flow rate in the second period is multiplied by 1.5, mimicking a peak time. The total number of vehicles was 1 165 433. The number of decision variables ( T il ) was 15 320 (383 congested link × 40 time periods). Fig. 9 shows a simulated results without pricing. You can see a severe downtown congestion. Model parameter settings are as follows. LTM’s timestep size ∆t was 33.3 sec. DUO’s route choice interval ∆troute and pricing update time ∆ttoll was 300 sec. We use logit-DUO with scale parameter 
+
+μ = 10 (i.e, near deterministic choice). For the link FD and demand settings, we mostly adopt the configuration of the original dataset; readers are referred to https://github.com/toruseo/UNsim 
+
+for the specifications as they are too detailed to describe here. For computation, a cloud server with GPU was used. The detailed specification is as follows: 1x NVIDIA GH200 (VRAM 96GB), 64x vCPUs (ARM Neoverse-V2 2.0GHz), 432 GB RAM. Thanks to GPU-accelerated parallel computation implemented into the proposed model, the simulation speed itself is very fast. One evaluation (forward simulation and gradient calculation) took around 0.8 sec on average. 
+
+4.2.3 Results 
+
+The total number of iterations was set to 10 000 without a convergence check. The computation time was 8 527 seconds, corresponding to 0.85 seconds per iteration. The TTT without pricing was 1 120 159 veh-hr, and that with optimal pricing was 496 366 veh-hr, representing a 55.7% reduction. The average pricing per link was equivalent to 4 minutes of travel time, which roughly corresponds to 1.6 USD. 22 Figure 9: Simulated average link delay in the Chicago-Sketch data scenario without pricing. “Delay” is the ratio of the excess of the average link travel time over the free-flow travel time. Figure 10 shows network average state in the best pricing case. By comparing with no-toll case (Fig. 9), we can clearly see that severe congestion in downtown was mitigated significantly. Figure 11 summarizes the convergence process over the iteration. You can see that the objective function (with L2 regularization term) and TTT were decreased stably and almost converged around 500th iteration. The norm of gradient behaved reasonably: the gradient is very large at the beginning, and then it stayed some range ( 10 6–10 8) later. 3 No significant instabilities were observed, thanks to the analytical differentiation. Spatial distribution of toll is shown in Fig. 12. Most of the toll was charged inside of and around the downtown congested area. It appears that toll pattern similar to perimeter control might have learned by the model. Figure 13 shows the dynamics of toll and traffic state in the best pricing solution. Toll in Fig. 13a  
+
+> 3These gradients are always larger than the aforementioned threshold of gradient clipping. This means that the clipping threshold was actually too strict, which negated the adaptive capability of Adam. This was not a significant issue as the solution converged to an appropriate value; however, proper hyperparameter tuning would further accelerate the convergence speed.
+
+23 Figure 10: Average link delay with the best pricing. has a clear peak. Vehicle counts in Fig. 13b also show similar peak patterns. They suggest that, as the number of vehicles increased, higher tolls were likely imposed to guide their route choices. As a result, speed dynamics (Fig. 13c) 4 were very different between with and without toll scenario. With toll, congestion was avoided or mitigated, resulting in a significant improvement in speed. Additionally, in Fig. 14, traffic dynamics are analyzed by using Macroscopic Fundamental Diagram (MFD) (Mahmassani et al., 1984; Geroliminis and Daganzo, 2007). The results are highly interpretable. In no-toll scenario, the network state entered the congested regime of MFD, and caused significant hysteresis phenomenon (Geroliminis and Sun, 2011a,b), leading to very inefficient situation. On the other hand, in with-toll scenario, network traffic was routed in an efficient manner. It even increased maximum throughput, in addition to avoid entering congested regime or hysteresis. These results suggest that the derived optimal pricing was very efficient.     
+
+> 4Note that Fig. 13c contains some anomalies (i.e., visually unusual but non-essential phenomena), such as sudden increases and decreases in speed at the initial stage ( <0.1h) in the both scenarios and high speed around 80 km/h after
+> t > 1.5h in the with-toll scenario. Although these patterns are visually noticeable, the number of vehicles during these time periods is very small, as shown in Fig. 13b. Therefore, these patterns do not represent the overall characteristics of the network traffic.
+
+24 Figure 11: Convergence of the objective function, toll, and gradient. 
+
+# 5 Conclusion 
+
+In this study, an end-to-end differentiable framework based on automatic differentiation for dynamic network simulation is presented. The model is based on Link Transmission Model and Dynamic User Optimum route choice model, which can be considered as standard and reasonable models in transportation research. By leveraging the nature of these models, the proposed framework is formulated as differentiable almost everywhere without significant approximations; this is a significant advantage compared with existing differentiable traffic simulation models. The performance of the proposed model was evaluated by using a simple toy network and dynamic congestion pricing optimization on Chicago-Sketch network. The proposed simulator, UNsim , is implemented using Python and JAX and released as an open-source software at GitHub ( https://github.com/toruseo/UNsim ). All codes that reproduce the presented results are also published at the same GitHub repository. For future research, the following directions worth considering. First, there is room for improvement in the model and algorithms to facilitate numerical applications. During this study’s numerical experiments, it was found that the proposed model produces zero gradient frequently. This is a theoretically reasonable behavior: the information flow in the LWR model with triangular FD is quite asymmetric (e.g., information in free-flowing traffic only propagates downstream; traffic capacity in free-flowing traffic does not have any impact on traffic), and the proposed differentiable model accurately and exactly reproduces these behaviors. However, such zero gradient is sometimes troublesome for gradient-based optimization algorithms as it may create a large plateau on the 25 Figure 12: Average link toll in network. objective function. The development of tailored optimization algorithms or the introduction of artificial smoothing or viscosity methods might be worth considering for numerical convenience. In addition, computation cost and memory consumption can be further improved by employing existing techniques in automatic differentiation. Second, application of the proposed framework to other tasks is important. Since the primary contribution of this study is the development of the differentiable simulation model, the numerical examples focused on dynamic congestion pricing as a representative application. Nevertheless, the same gradient-based approach is directly applicable to a broader set of transportation engineering tasks, such as OD demand estimation (e.g., by minimizing the difference between observed and simulated flow with an assumed demand), FD parameter calibration (e.g., similar to OD estimation), network design optimization (e.g., by adding link capacity decision variables and budget constraints), and other traffic control and optimization (e.g., by adding traffic signal configuration or ramp-metering capacity as decision variables and adjusting the node model to account for them). The proposed model can 26 (a) Average toll   
+
+> (b) Total vehicle count
+> (c) Average speed
+
+Figure 13: Dynamics of network features directly incorporate these problems. Third, direct integration with deep learning would be interesting. Since the simulator is end-to-end differentiable, neural network components can be embedded directly into the computation graph and trained jointly with the physical model parameters via the same gradient pipeline, as demonstrated in other transportation studies0 (Sifringer et al., 2020; Shi et al., 2022; Liu et al., 2023). In order to exploit this capability, physics-informed deep learning integration is a promising direction: for example, parameterizing spatiotemporal OD demand patterns or fundamental diagram functions by neural networks while retaining the LTM and DUO as the physical backbone. Such hybrid models 27 Figure 14: Macroscopic Fundamental Diagram. would combine data-driven flexibility with the traffic-theoretical consistency guaranteed by the network traffic flow thory. 
+
+# Acknowledgements 
+
+Part of this work is financially supported by JSPS KAKENHI Grant-in-Aid 24K01002 and 25H00751. The author would also like to thank Mr. Zhengyou Han, Prof. Masaki Ito, and Makinoshima et al. (2026) for providing significant inspiration for differentiable traffic flow simulations, as well as the participants of the “Workshop: AI and Transportation Research” held at the University of Tokyo (especially the organizer, Prof. Takamasa Iryo) for motivating this approach. 
+
+# A Automatic differentiation and computation graphs 
+
+This appendix provides a brief overview of automatic differentiation (AD) and its important concept 
+
+computation graphs , and explains why AD is beneficial for traffic simulation. For a comprehensive treatment, see Griewank and Walther (2008) and Baydin et al. (2018). A computer program that evaluates a function J(θ) can be decomposed into a sequence of elementary operations (addition, multiplication, min , exp , etc.). This decomposition is represented as a computation graph : a directed acyclic graph in which each node corresponds to an intermediate variable and each edge represents a dependency. AD computes derivatives of J by systematically applying the chain rule along this graph. As a minimal example, consider the function J = ( ax + b)2 with parameters θ = ( a, b ) and a fixed input x. The computation can be decomposed into three elementary operations: 
+
+v1 = ax, v2 = v1 + b, J = v22 . (43) This can be represented as a computation graph shown in Fig. 15. 28 Figure 15: Computation graph for J = ( ax + b)2.In forward mode , one propagates tangent values from inputs to output. For instance, setting ˙a = 1 
+
+and ˙b = 0 yields ˙v1 = x, ˙v2 = x, and ˙J = 2 v2x = 2( ax + b)x, which is ∂J/∂a . A second pass with 
+
+˙a = 0 , ˙b = 1 gives ∂J/∂b = 2( ax + b). In reverse mode , one propagates adjoints from output to inputs in a single pass: starting with ¯J = 1 , one obtains ¯v2 = 2 v2, then ¯v1 = ¯ v2 = 2 v2 and ¯b = ¯ v2 = 2 v2,and finally ¯a = ¯ v1 · x = 2 v2x. Both derivatives are obtained simultaneously, regardless of the number of parameters. More generally, in forward mode, the graph is traversed from inputs to outputs, propagating a tangent vector ˙θ to obtain the directional derivative ˙J = ( ∂J/∂ θ) ˙θ. The cost is proportional to one forward evaluation per input direction, so computing the full gradient with respect to P parameters requires P passes. In reverse mode, the graph is traversed from outputs to inputs, propagating an adjoint backward to obtain the full gradient ∂J/∂ θ ∈ RP in a single pass, regardless of P . This is the same mechanism as backpropagation in neural networks. The distinction between forward and reverse mode has a direct practical consequence for traffic simulation. A conventional (non-differentiable) simulator treats J as a black box; sensitivity analysis requires the finite-difference method, which perturbs each parameter individually, namely 
+
+d∂J ∂a = J(a + ∆ a) − J(a)∆a (44) for a particular parameter a. In order to obtain all of partial derivatives, it costs O(P ) simulation runs. In contrast, a differentiable simulator exposes the computation graph to an AD framework. Reverse-mode AD then computes the exact gradient at a cost that is a small constant multiple ( 2–5×)of one forward simulation, regardless of P . This makes gradient-based optimization feasible even for high-dimensional problems such as the time-dependent and link-dependent congestion pricing across a large network. The gradient itself is also a useful output for sensitivity analysis, as it reveals which parameters have the greatest influence on the objective. For a traffic simulation with TS timesteps, the computation graph is the sequential composition 
+
+x0 → x1 → · · · → xTS , where each transition xt+1 = g(xt, t ; θ) contributes a subgraph. Reverse-mode AD traverses this chain backward, accumulating ∂J/∂ θ in O(TS ) time. Two requirements must be met: (i) every operation in g must be (sub)differentiable, and (ii) the graph structure must be static independent of the parameter values, so that the AD framework can trace it once and reuse the trace. How the proposed simulator satisfies both requirements is described in Section 3.5. The example in Fig. 15 involves only three operations, but the principle scales without modification. 29 A traffic simulation comprising thousands of timesteps, each with demand/supply computations, node models, route choice, and cumulative count updates, forms a computation graph with millions of nodes when properly modeled and implemented. As long as every elementary operation in the graph is (sub)differentiable, the AD framework applies the chain rule automatically across the entire graph, and the user need not derive any gradient formula by hand or applying numerical differentiation. This is the fundamental advantage of the differentiable simulation approach adopted in this study. 
+
+# References 
+
+Andelfinger, P., 2023. Towards differentiable agent-based simulation. ACM Transactions on Modeling and Computer Simulation 33 (1–2), 1–26. Balakrishna, R., Ben-Akiva, M., Koutsopoulos, H. N., 2007. Offline calibration of dynamic traffic assignment: Simultaneous demand-and-supply estimation. Transportation Research Record 2003, 50–58. Baydin, A. G., Pearlmutter, B. A., Radul, A. A., Siskind, J. M., 2018. Automatic differentiation in machine learning: a survey. Journal of Machine Learning Research 18 (153), 1–43. Bellman, R., 1958. On a routing problem. Quarterly of applied mathematics 16 (1), 87–90. Ben-Akiva, M., Bierlaire, M., 1999. Discrete choice methods and their applications to short term travel decisions. In: Hall, R. (Ed.), Handbook of Transportation Science. Springer, pp. 5–33. Bradbury, J., Frostig, R., Hawkins, P., Johnson, M. J., Leary, C., Maclaurin, D., Necula, G., Paszke, A., VanderPlas, J., Wanderman-Milne, S., Zhang, Q., 2018. JAX: composable transformations of Python+NumPy programs. http://github.com/jax-ml/jax .Cascetta, E., 1984. Estimation of trip matrices from traffic counts and survey data: A generalized least squares estimator. Transportation Research Part B: Methodological 18 (4–5), 289–299. Chen, R. T. Q., Rubanova, Y., Bettencourt, J., Duvenaud, D., 2018. Neural ordinary differential equations. In: Advances in Neural Information Processing Systems (NeurIPS). Daganzo, C. F., 1994. The cell transmission model: A dynamic representation of highway traffic consistent with the hydrodynamic theory. Transportation Research Part B: Methodological 28 (4), 269–287. Daganzo, C. F., 1995. The cell transmission model, part II: Network traffic. Transportation Research Part B: Methodological 29 (2), 79–93. Dantsuji, T., 2024. A hybrid neural network for real-time OD calibration. In: Transportation, Logistics and Urban Hub’s Research Workshop, the University of Tokyo. Fl¨ otter¨ od, G., Rohde, J., 2011. Operational macroscopic modeling of complex urban road intersections. Transportation Research Part B: Methodological 45 (6), 903–922. Ford, L. R., 1956. Network flow theory. RAND Corporation Paper, Santa Monica, 1956. Friesz, T. L., Bernstein, D., Smith, T. E., Tobin, R. L., Wie, B.-W., 1993. A variational inequality formulation of the dynamic network user equilibrium problem. Operations Research 41 (1), 179–191. Geroliminis, N., Daganzo, C. F., 2007. Macroscopic modeling of traffic in cities. In: Transportation Research Board 86th Annual Meeting. Geroliminis, N., Sun, J., 2011a. Hysteresis phenomena of a macroscopic fundamental diagram in freeway networks. Transportation Research Part A: Policy and Practice 45 (9), 966–979. Geroliminis, N., Sun, J., 2011b. Properties of a well-defined macroscopic fundamental diagram for urban traffic. Transportation Research Part B: Methodological 45 (3), 605–617. Goatin, P., Klar, A., Mezquita-Nieto, C., 2026. Discrete adjoint gradient computation for multiclass traffic flow models on road networks. arXiv preprint arXiv:2604.00670. Goldberg, D. E., 1989. Genetic Algorithms in Search, Optimization, and Machine Learning. Addison-Wesley. Griewank, A., Walther, A., 2008. Evaluating Derivatives: Principles and Techniques of Algorithmic Differentiation, 2nd Edition. SIAM. Himpe, W., Corthout, R., Tampere, C. M. J., 2016. An efficient iterative link transmission model. Transportation Research Part B: Methodological 92, 170–190. 
+
+30 Hu, Y., Anderson, L., Li, T.-M., Sun, Q., Carr, N., Ragan-Kelley, J., Durand, F., 2020. DiffTaichi: Differentiable programming for physical simulation. In: International Conference on Learning Representations (ICLR). Iryo, T., 2013. Properties of dynamic user equilibrium solution: existence, uniqueness, stability, and robust solution methodology. Transportmetrica B: Transport Dynamics 1 (1), 52–67. Jin, W.-L., 2015. Continuous formulations and analytical properties of the link transmission model. Transportation Research Part B: Methodological 74, 88–103. Kingma, D. P., Ba, J., 2015. Adam: A method for stochastic optimization. In: International Conference on Learning Representations (ICLR). Kuwahara, M., Akamatsu, T., 2001. Dynamic user optimal assignment with physical queues for a many-to-many OD pattern. Transportation Research Part B: Methodological 35 (5), 461–479. Lebacque, J. P., 1996. The Godunov scheme and what it means for first order traffic flow models. In: Lesort, J. B. (Ed.), Proceedings of the 13th International Symposium on Transportation and Traffic Theory. Elsevier, pp. 647–677. Lighthill, M. J., Whitham, G. B., 1955. On kinematic waves. II. a theory of traffic flow on long crowded roads. Proceedings of the Royal Society of London. Series A. Mathematical and Physical Sciences 229 (1178), 317–345. Liu, Z., Yin, Y., Bai, F., Grimm, D. K., 2023. End-to-end learning of user equilibrium with implicit neural networks. Transportation Research Part C: Emerging Technologies 150, 104085. Lu, L., Xu, Y., Antoniou, C., Ben-Akiva, M., 2015. An enhanced SPSA algorithm for the calibration of dynamic traffic assignment models. Transportation Research Part C: Emerging Technologies 51, 149–166. Mahmassani, H. S., Williams, J. C., Herman, R., 1984. Investigation of network-level traffic flow relationships: some simulation results. Transportation Research Record 971, 121–130. Makigami, Y., Newell, G. F., Rothery, R., 1971. Three-dimensional representation of traffic flow. Transportation Science 5 (3), 302–313. Makinoshima, F., Yamaguchi, Y., Segawa, E., Niinuma, K., Qian, S., 2026. Ultra-fast traffic nowcasting and control via differentiable agent-based simulation. arXiv preprint arXiv: 2603.25068. Nair, V., Hinton, G. E., 2010. Rectified linear units improve restricted boltzmann machines. In: Proceedings of the 27th international conference on machine learning. pp. 807–814. Newell, G. F., 1993a. A simplified theory of kinematic waves in highway traffic, part I: General theory. Transportation Research Part B: Methodological 27 (4), 281–287. Newell, G. F., 1993b. A simplified theory of kinematic waves in highway traffic, part II: Queueing at freeway bottlenecks. Transportation Research Part B: Methodological 27 (4), 289–303. Newell, G. F., 1993c. A simplified theory of kinematic waves in highway traffic, part III: Multi-destination flows. Transportation Research Part B: Methodological 27 (4), 305–313. Osorio, C., Chong, L., 2015. A computationally efficient simulation-based optimization algorithm for large-scale urban transportation problems. Transportation Science 49 (3), 623–636. Pontryagin, L. S., Boltyanskii, V. G., Gamkrelidze, R. V., Mishchenko, E. F., 1962. The mathematical theory of optimal processes. Interscience Publishers, New York. Poole, A., Kotsialos, A., 2016. Second order macroscopic traffic flow model validation using automatic differentiation with resilient backpropagation and particle swarm optimisation algorithms. Transportation Research Part C: Emerging Technologies 71, 356–381. Python Software Foundation, 2022. The Python Language Reference. Ran, B., Boyce, D. E., LeBlanc, L. J., 1993. A new class of instantaneous dynamic user-optimal traffic assignment models. Operations Research 41 (1), 192–202. Reilly, J., Samaranayake, S., Delle Monache, M. L., Krichene, W., Goatin, P., Bayen, A. M., 2015. Adjoint-based optimization on a network of discretized scalar conservation laws with applications to coordinated ramp metering. Journal of optimization theory and applications 167 (2), 733–760. Richards, P. I., 1956. Shock waves on the highway. Operations Research 4 (1), 42–51. Seo, T., 2023. Macroscopic Traffic Flow Simulation: Fundamental Mathematical Theory and Python Implementation. Corona Publishing Co., Ltd., (in Japanese). Seo, T., 2025. UXsim: lightweight mesoscopic traffic flow simulator in pure Python. Journal of Open Source Software 10 (106), 7617. 
+
+31 Shi, R., Mo, Z., Huang, K., Di, X., Du, Q., 2022. A physics-informed deep learning paradigm for traffic state and fundamental diagram estimation. IEEE Transactions on Intelligent Transportation Systems 23 (8), 11688–11698. Sifringer, B., Lurkin, V., Alahi, A., 2020. Enhancing discrete choice models with representation learning. Transportation Research Part B: Methodological 140, 236–261. Smits, E.-S., Bliemer, M. C. J., Pel, A. J., van Arem, B., 2015. A family of macroscopic node models. Transportation Research Part B: Methodological 74, 20–39. Son, S., Qiao, Y., Sewall, J., Lin, M. C., 2022. Differentiable hybrid traffic simulation. ACM Transactions on Graphics 41 (6), 1–14. Son, S., Zheng, L., Clipp, B., Greenwell, C., Philip, S., Lin, M. C., 2025. Gradient-based trajectory optimization with parallelized differentiable traffic simulation. In: 2025 IEEE International Conference on Robotics and Automation. pp. 14497–14504. Spall, J. C., 1998. Implementation of the simultaneous perturbation algorithm for stochastic optimization. IEEE Transactions on Aerospace and Electronic Systems 34 (3), 817–823. Spall, J. C., 2002. Multivariate stochastic approximation using a simultaneous perturbation gradient approximation. IEEE transactions on automatic control 37 (3), 332–341. Szeto, W. Y., Lo, H. K., 2006. Dynamic traffic assignment: properties and extensions. Transportmetrica 2 (1), 31–52. Tamp` ere, C. M. J., Corthout, R., Cattrysse, D., Immers, L. H., 2011. A generic class of first order node models for dynamic macroscopic simulation of traffic flows. Transportation Research Part B: Methodological 45 (1), 289–309. Transportation Networks for Research Core Team, 2021. Transportation networks for researchAccessed 2021-10-01. Wada, K., Jin, W., 2017. A short note on the link transmission model. Working Paper on ResearchGate. Wardrop, J. G., 1952. Some theoretical aspects of road traffic research. Proceedings of the Institution of Civil Engineers 1 (3), 325–362. Yperman, I., 2007. The link transmission model for dynamic network loading. Ph.D. thesis, Katholieke Universiteit Leuven. Yperman, I., Logghe, S., Tampere, C. M., Immers, B., 2006. The multicommodity link transmission model for dynamic network loading. In: Transportation Research Board 85th Annual Meeting. 
+
+32
