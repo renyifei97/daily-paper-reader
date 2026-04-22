@@ -6,79 +6,79 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-04-21
-- 运行时间：2026-04-21 20:49:09 UTC
+- 最新运行日期：2026-04-22
+- 运行时间：2026-04-22 20:07:47 UTC
 - 运行状态：成功
 - 本次总论文数：19
 - 精读区：7
 - 速读区：12
 
 ### 今日简报（AI）
-今日深度研读19篇交通AI前沿论文，重点攻克公交线路规划精确算法与多模态流量预测难题。
-核心突破在于兼顾运营成本与乘客需求的公交线网优化，以及利用概率建模揭示交通流的随机性规律。
-建议优先关注高分算法框架，并探索时空分布偏移与多源数据融合在城市治理中的实战价值。
-- 详情：[/202604/21/README](/202604/21/README)
+今日深度研读 19 篇交通前沿论文，重点聚焦公共交通线路规划与城市线网设计的精确优化。
+满分论文通过精确算法完美平衡了乘客成本与运营效率，结合生成树模型的堪培拉案例为线网设计提供了实证新范式。
+建议关注时空神经网络与多源数据融合技术，以应对城市交通流量预测中的分布偏移挑战。
+- 详情：[/202604/22/README](/202604/22/README)
 
 ### 精读区论文标签
-1. [An Exact Algorithm for Public Transport Line Planning Considering Passenger and Operational Costs and Lost Demand](/202604/21/2604.18013v1-an-exact-algorithm-for-public-transport-line-planning-considering-passenger-and-operational-costs-and-lost-demand)  
+1. [An Exact Algorithm for Public Transport Line Planning Considering Passenger and Operational Costs and Lost Demand](/202604/22/2604.18013v1-an-exact-algorithm-for-public-transport-line-planning-considering-passenger-and-operational-costs-and-lost-demand)  
    标签：评分：10.0/10、query:urt-c
-   evidence：公共交通线路规划与频率设置算法
-2. [Unveiling Stochasticity: Universal Multi-modal Probabilistic Modeling for Traffic Forecasting](/202604/21/2604.16084v1-unveiling-stochasticity-universal-multi-modal-probabilistic-modeling-for-traffic-forecasting)  
+   evidence：公共交通线路规划与频率设置
+2. [Urban transit network design using spanning tree: A case study of Canberra transit network](/202604/22/2604.15754v1-urban-transit-network-design-using-spanning-tree-a-case-study-of-canberra-transit-network)  
+   标签：评分：9.0/10、query:urt-c
+   evidence：最小化客公里数的城市交通网络设计
+3. [FedLLM: A Privacy-Preserving Federated Large Language Model for Explainable Traffic Flow Prediction](/202604/22/2604.16612v1-fedllm-a-privacy-preserving-federated-large-language-model-for-explainable-traffic-flow-prediction)  
    标签：评分：9.0/10、query:urt-pf
-   evidence：时空交通预测的概率建模
-3. [FedLLM: A Privacy-Preserving Federated Large Language Model for Explainable Traffic Flow Prediction](/202604/21/2604.16612v1-fedllm-a-privacy-preserving-federated-large-language-model-for-explainable-traffic-flow-prediction)  
+   evidence：使用联邦大语言模型的可解释交通流预测
+4. [GAMMA-Net: Adaptive Long-Horizon Traffic Spatio-Temporal Forecasting Model based on Interleaved Graph Attention and Multi-Axis Mamba](/202604/22/2604.16859v1-gamma-net-adaptive-long-horizon-traffic-spatio-temporal-forecasting-model-based-on-interleaved-graph-attention-and-multi-axis-mamba)  
    标签：评分：9.0/10、query:urt-pf
-   evidence：用于可解释多步交通流预测的联邦大语言模型
-4. [Urban transit network design using spanning tree: A case study of Canberra transit network](/202604/21/2604.15754v1-urban-transit-network-design-using-spanning-tree-a-case-study-of-canberra-transit-network)  
-   标签：评分：8.5/10、query:urt-c
-   evidence：最小化客公里数的公交网络设计
-5. [Sheaf Diffusion with Adaptive Local Structure for Spatio-Temporal Forecasting](/202604/21/2604.11275v1-sheaf-diffusion-with-adaptive-local-structure-for-spatio-temporal-forecasting)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：用于局部异质性下预测的时空束扩散图神经网络
-6. [TimeSAF: Towards LLM-Guided Semantic Asynchronous Fusion for Time Series Forecasting](/202604/21/2604.12648v1-timesaf-towards-llm-guided-semantic-asynchronous-fusion-for-time-series-forecasting)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：大语言模型引导的时间序列预测语义异步融合
-7. [TrafficClaw: Generalizable Urban Traffic Control via Unified Physical Environment Modeling](/202604/21/2604.17456v1-trafficclaw-generalizable-urban-traffic-control-via-unified-physical-environment-modeling)  
-   标签：评分：8.0/10、query:urt-c
-   evidence：包含公共交通的城市交通控制统一物理环境建模
+   evidence：使用图注意力网络和Mamba进行时空交通预测
+5. [TrafficClaw: Generalizable Urban Traffic Control via Unified Physical Environment Modeling](/202604/22/2604.17456v1-trafficclaw-generalizable-urban-traffic-control-via-unified-physical-environment-modeling)  
+   标签：评分：9.0/10、query:urt-c
+   evidence：包含公共交通在内的城市交通控制统一物理环境建模
+6. [FAST: A Synergistic Framework of Attention and State-space Models for Spatiotemporal Traffic Prediction](/202604/22/2604.13453v1-fast-a-synergistic-framework-of-attention-and-state-space-models-for-spatiotemporal-traffic-prediction)  
+   标签：评分：8.5/10、query:urt-pf
+   evidence：利用注意力和状态空间模型进行时空交通预测
+7. [Unveiling Stochasticity: Universal Multi-modal Probabilistic Modeling for Traffic Forecasting](/202604/22/2604.16084v1-unveiling-stochasticity-universal-multi-modal-probabilistic-modeling-for-traffic-forecasting)  
+   标签：评分：8.5/10、query:urt-pf
+   evidence：使用GMM层的通用交通预测概率建模
 
 ### 速读区论文标签
-1. [FAST: A Synergistic Framework of Attention and State-space Models for Spatiotemporal Traffic Prediction](/202604/21/2604.13453v1-fast-a-synergistic-framework-of-attention-and-state-space-models-for-spatiotemporal-traffic-prediction)  
+1. [Modern Structure-Aware Simplicial Spatiotemporal Neural Network](/202604/22/2604.15833v1-modern-structure-aware-simplicial-spatiotemporal-neural-network)  
    标签：评分：8.0/10、query:urt-pf
-   evidence：利用注意力和状态空间模型进行时空交通预测
-2. [Fusing Cellular Network Data and Tollbooth Counts for Urban Traffic Flow Estimation](/202604/21/2604.15782v1-fusing-cellular-network-data-and-tollbooth-counts-for-urban-traffic-flow-estimation)  
+   evidence：用于结构化时间序列分析的单纯复形时空神经网络
+2. [Reversible Residual Normalization Alleviates Spatio-Temporal Distribution Shift](/202604/22/2604.15838v1-reversible-residual-normalization-alleviates-spatio-temporal-distribution-shift)  
    标签：评分：8.0/10、query:urt-pf
-   evidence：利用时空特征进行城市交通流估算
-3. [Reversible Residual Normalization Alleviates Spatio-Temporal Distribution Shift](/202604/21/2604.15838v1-reversible-residual-normalization-alleviates-spatio-temporal-distribution-shift)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：缓解图上深度预测模型的时空分布偏移
-4. [GAMMA-Net: Adaptive Long-Horizon Traffic Spatio-Temporal Forecasting Model based on Interleaved Graph Attention and Multi-Axis Mamba](/202604/21/2604.16859v1-gamma-net-adaptive-long-horizon-traffic-spatio-temporal-forecasting-model-based-on-interleaved-graph-attention-and-multi-axis-mamba)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：使用图注意力与Mamba进行长周期交通时空预测
-5. [Convolutionally Low-Rank Models with Modified Quantile Regression for Interval Time Series Forecasting](/202604/21/2604.15791v1-convolutionally-low-rank-models-with-modified-quantile-regression-for-interval-time-series-forecasting)  
+   evidence：图深度预测模型中的时空分布偏移
+3. [Fusing Cellular Network Data and Tollbooth Counts for Urban Traffic Flow Estimation](/202604/22/2604.15782v1-fusing-cellular-network-data-and-tollbooth-counts-for-urban-traffic-flow-estimation)  
    标签：评分：7.5/10、query:urt-pf
-   evidence：多步预测的区间时间序列预测方法
-6. [From Time Series to State: Situation-Aware Modeling for Air Traffic Flow Prediction](/202604/21/2604.11198v3-from-time-series-to-state-situation-aware-modeling-for-air-traffic-flow-prediction)  
+   evidence：利用蜂窝数据和公交路线进行城市交通流估算
+4. [CAARL: In-Context Learning for Interpretable Co-Evolving Time Series Forecasting](/202604/22/2604.18305v1-caarl-in-context-learning-for-interpretable-co-evolving-time-series-forecasting)  
+   标签：评分：7.5/10、query:urt-pf
+   evidence：使用大语言模型和依赖图的可解释协同演化时间序列预测
+5. [Forecasting the Past: Gradient-Based Distribution Shift Detection in Trajectory Prediction](/202604/22/2604.12425v1-forecasting-the-past-gradient-based-distribution-shift-detection-in-trajectory-prediction)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：利用动态状态集进行交通流预测的状态到流量建模
-7. [Dynamic Sheaf Diffusion Networks with Adaptive Local Structure for Heterogeneous Spatio-Temporal Graph Learning](/202604/21/2604.11275v2-dynamic-sheaf-diffusion-networks-with-adaptive-local-structure-for-heterogeneous-spatio-temporal-graph-learning)  
+   evidence：轨迹预测中的分布偏移检测
+6. [TimeSAF: Towards LLM-Guided Semantic Asynchronous Fusion for Time Series Forecasting](/202604/22/2604.12648v1-timesaf-towards-llm-guided-semantic-asynchronous-fusion-for-time-series-forecasting)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：使用图神经网络进行信息流的时空预测
-8. [End-to-end differentiable network traffic simulation with dynamic route choice](/202604/21/2604.11380v1-end-to-end-differentiable-network-traffic-simulation-with-dynamic-route-choice)  
+   evidence：大语言模型引导的语义异步融合时间序列预测
+7. [Integrated Routing and Intersection Control for Mixed Traffic](/202604/22/2604.13424v1-integrated-routing-and-intersection-control-for-mixed-traffic)  
+   标签：评分：7.0/10、query:urt-c
+   evidence：混合交通环境下的集成路由与交叉口控制
+8. [Outperforming Self-Attention Mechanisms in Solar Irradiance Forecasting via Physics-Guided Neural Networks](/202604/22/2604.13455v1-outperforming-self-attention-mechanisms-in-solar-irradiance-forecasting-via-physics-guided-neural-networks)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：具有动态路径选择的可微网络交通流仿真
-9. [Outperforming Self-Attention Mechanisms in Solar Irradiance Forecasting via Physics-Guided Neural Networks](/202604/21/2604.13455v2-outperforming-self-attention-mechanisms-in-solar-irradiance-forecasting-via-physics-guided-neural-networks)  
-   标签：评分：6.5/10、query:urt-pf
    evidence：用于空间特征提取和时间依赖性的混合CNN-BiLSTM模型
-10. [A Comparative Study of Dynamic Programming and Reinforcement Learning in Finite Horizon Dynamic Pricing](/202604/21/2604.14059v1-a-comparative-study-of-dynamic-programming-and-reinforcement-learning-in-finite-horizon-dynamic-pricing)  
+9. [Beyond Conservative Automated Driving in Multi-Agent Scenarios via Coupled Model Predictive Control and Deep Reinforcement Learning](/202604/22/2604.13891v1-beyond-conservative-automated-driving-in-multi-agent-scenarios-via-coupled-model-predictive-control-and-deep-reinforcement-learning)  
    标签：评分：6.5/10、query:urt-c
-   evidence：动态定价中动态规划与强化学习的对比，涉及跨时约束
-11. [Enabling Safety-Critical Wireless Communications via Safe Reinforcement Learning](/202604/21/2604.17032v1-enabling-safety-critical-wireless-communications-via-safe-reinforcement-learning)  
+   evidence：集成MPC与深度强化学习，用于多智能体交通导航与安全
+10. [Bayesian Node-Level Outlier Detection for Graph Signals](/202604/22/2604.14517v1-bayesian-node-level-outlier-detection-for-graph-signals)  
+   标签：评分：6.5/10、query:urt-pf
+   evidence：图信号和关系依赖的贝叶斯异常检测
+11. [Multi-view Crowd Tracking Transformer with View-Ground Interactions Under Large Real-World Scenes](/202604/22/2604.19318v1-multi-view-crowd-tracking-transformer-with-view-ground-interactions-under-large-real-world-scenes)  
    标签：评分：6.5/10、query:urt-c
-   evidence：用于资源分配和约束处理的安全深度Q学习
-12. [Hypergraph Neural Diffusion: A PDE-Inspired Framework for Hypergraph Message Passing](/202604/21/2604.10955v1-hypergraph-neural-diffusion-a-pde-inspired-framework-for-hypergraph-message-passing)  
-   标签：评分：6.0/10、query:urt-pf
-   evidence：用于建模复杂结构中高阶关系的超图神经扩散
+   evidence：基于Transformer的大规模真实场景多视角人群追踪
+12. [Intelligent ROI-Based Vehicle Counting Framework for Automated Traffic Monitoring](/202604/22/2604.12470v1-intelligent-roi-based-vehicle-counting-framework-for-automated-traffic-monitoring)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：自动化交通监控和车辆计数框架
 
 
 <div class="dpr-home-promo-card">
