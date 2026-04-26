@@ -1,0 +1,1000 @@
+Title: In-Context Learning Under Regime Change
+
+URL Source: https://arxiv.org/pdf/2604.16988v1
+
+Published Time: Tue, 21 Apr 2026 00:46:44 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# In-Context Learning Under Regime Change 
+
+Carson Dudley 1,∗ Yutong Bi 2,∗ Xiaofeng Liu 3 Samet Oymak 2 
+
+> 1
+
+Department of Mathematics, University of Michigan  
+
+> 2
+
+Department of Electrical Engineering and Computer Science, University of Michigan  
+
+> 3
+
+Michigan Institute for AI and Data in Society, University of Michigan  
+
+> ∗
+
+Equal contribution 
+
+{cdud, yutongb, xiaofliu, oymak}@umich.edu 
+
+Abstract 
+
+Non-stationary sequences arise naturally in control, forecasting, and decision-making. The data-generating process shifts at unknown times, and models must detect the change, discard or downweight obsolete evidence, and adapt to new dynamics on the fly. Transformer-based foundation models increasingly rely on in-context learning for time series forecasting, tabular prediction, and continuous control. As these models are deployed in non-stationary environments, understanding their ability to detect and adapt to regime shifts is important. We formalize this as an in-context change-point detection problem and formally establish the existence of transformer models that solve this problem. Our construction demonstrates that model complexity, in layers and parameters, depends on the level of information available about the change-point location, from no knowledge to knowing exact timing. We validate our results with experiments on synthetic linear regression and linear dynamical systems, where trained transformers match the performance of optimal baselines across information levels. We also show that encoding and incorporating changepoint knowledge indeed improves the real-world performance of a pretrained foundation models on infectious disease forecasting and on financial volatility forecasting around Federal Open Market Committee (FOMC) announcements without retraining, demonstrating practical applicability to real-world regime changes. 
+
+# 1 Introduction 
+
+Non-stationary environments are the norm rather than the exception in real-world sequential estimation. In control systems, component failures or environmental changes cause abrupt shifts in plant dynamics [ 1 , 2]. In the Markov jump linear system (MJLS) framework [ 3 ], such regime switches are modeled as transitions of a discrete mode variable, and estimation quality depends critically on what is known about the switching signal. In financial markets, earnings reports and federal policy announcements can abruptly shift volatility regimes [ 4, 5 ]. In epidemiology, policy interventions alter disease transmission dynamics mid-outbreak [ 6 ]. A common theme is a change-point detection and adaptation problem: the data-generating process shifts at an unknown time, and any estimator must identify the change, discard obsolete evidence, and adapt to new dynamics on the fly. Classical approaches to change-point detection are well-studied. CUSUM procedures [ 7] and their extensions [ 8] provide sequential tests with known optimality properties. Bayesian online change-point detection [ 9] maintains a posterior over run lengths, enabling principled adaptation to regime shifts. These methods, however, typically require explicit specification of the model class and change-point prior, and are designed for a single detection task. 1
+
+> arXiv:2604.16988v1 [cs.LG] 18 Apr 2026
+
+A parallel development in machine learning has demonstrated that transformers can solve estimation problems in-context, adapting to new tasks purely from prompt examples without any parameter updates [ 10 , 11 , 12 ]. Theoretical work has shown that transformer forward passes can implement gradient descent [ 13 ], least-squares and ridge regression [ 14 , 15 ], and Bayesian model averaging [ 16 ], with recent analyses of training dynamics toward such solutions [ 17 ]. Transformer-based foundation models now underpin deployed systems for time series forecasting [ 18 , 19 ], tabular prediction [ 20 ], and other sequential tasks where non-stationarity is pervasive. Yet nearly all in-context learning theory assumes stationary prompts drawn from a single task. The most closely related work is [ 21 ], which studies heterogeneous prompts using gated linear attention but without temporal sequential regime change. This stationarity assumption is increasingly at odds with practice. As foundation models are deployed in settings where regime shifts are common, understanding their ability to detect and adapt to abrupt changes becomes important—not only from a machine learning perspective, but from the classical estimation perspective of what information structure the estimator requires. 
+
+Contributions. We formalize in-context change-point detection as a framework for studying transformers’ ability to adapt to non-stationary sequences. Our contributions are: 1. Problem formulation. We define a family of piecewise-linear in-context learning problems in which the data-generating process switches at an unknown change point. We consider a hierarchy of information levels—from no knowledge of the change-point location to exact timing—and study how positional encoding can communicate this side information to the model. 2. Constructive theory. We provide explicit transformer constructions that solve the in-context change-point detection and adaptation problem. Our constructions demonstrate that the required model complexity (depth and width) depends on the level of side information available about the change point, establishing a capability-complexity tradeoff for non-stationary in-context learning. 3. Synthetic validation. We train GPT-2 style transformers on piecewise-linear regression and piecewise-linear dynamical system tasks with stochastic change points. Across both settings, trained transformers match the performance of theoretically optimal baselines, confirming that the models learn to perform implicit change-point detection and adaptation in-context. 4. Real-world validation. We demonstrate that our positional encoding methods improve the performance of a pretrained time series foundation model on infectious disease forecasting and financial volatility forecasting around Federal Open Market Committee (FOMC) an-nouncements, without any retraining. This confirms that our methods offer practical value for deployed foundation models. 
+
+Related work. Our work lies at the intersection of change-point detection and in-context learning theory. Classical methods such as Bayesian online change-point detection [ 9 ] provide optimal procedures under explicit models, but do not address adaptation within learned models or in-context computation. On the in-context learning side, prior work has shown that transformers implement implicit learning algorithms, including gradient-based updates and least-squares regression [12 , 13 , 14 ], with recent results establishing approximation and training dynamics toward such solutions [ 15 , 17 ]. However, these works assume stationary prompts drawn from a single task. The most closely related work is [ 21 ], which studies heterogeneous prompts, but without temporal structure or sequential regime change. In contrast, we study non-stationary sequences with an 2unknown change point and give constructive transformer architectures for in-context detection and adaptation, with complexity depending on the level of change-point information. 
+
+Figure 1: Piecewise-linear regression results. Mean squared error averaged over 5,000 test trajectories as a function of time step t, with the change point at n∗ 
+
+> 1
+
+= 12 (vertical dashed line). (a) Comparison of all four information levels on a log scale. Before the change point, the known-in-advance variant achieves the lowest error by isolating pre-change data. All variants spike at the transition; the no-information and support-known variants recover more slowly than the informed variants. (b) The known-in-advance transformer closely matches the oracle least-squares baseline, which knows the true change point and fits only on data from the active regime. (c) Under a transfer task where 
+
+w2 = −w1 + ε, the known-in-advance transformer matches a transfer ridge regression baseline that leverages pre-change data through the prior, demonstrating that the model learns to exploit the relationship between regimes rather than simply discarding old data. (d) The support-known transformer closely tracks the Bayesian model averaging baseline, confirming that transformers with partial change-point information learn to perform approximate posterior averaging over candidate change-point locations in-context. 
+
+# 2 Transformers Can Implement Bayesian Change-Point Adapta-tion 
+
+We show that a causal transformer can approximate the Bayesian model-averaged (BMA) predictor for the piecewise-linear change-point problem defined in (1) , and characterize how model complexity depends on available side information. We present the construction and proof sketches here; complete proofs appear in the extended version [22]. 
+
+2.1 Problem Setup 
+
+We observe N input-label pairs {(xi, y i)}Ni=1 generated by two linear regression tasks separated by an unknown change point n∗
+
+> 1
+
+:
+
+yi =
+
+> {
+
+⟨w1, x i⟩ + εi, i ≤ n∗
+
+> 1
+
+,
+
+⟨w2, x i⟩ + εi, i > n ∗
+
+> 1
+
+. (1) We assume bounded inputs: ∥xi∥ ≤ Bx and |yi| ≤ By for known constants. The noise is Gaussian, 
+
+εi ∼ N (0 , σ 2), and we place a Gaussian prior w1, w 2 ∼ N (0 , λ −1Id) on the regression weights. The change point satisfies n∗ 
+
+> 1
+
+∈ K t ⊆ { 1, . . . , t −1}, where Kt is the set of admissible change-point locations at time t, with |K t| ≤ R. We assign a uniform prior πk = 1 /|K t| over candidates. 32.2 Main Result 
+
+BMA is the optimal prediction strategy under squared error loss when the true model lies within the hypothesis class [ 23 , 24 ]. Recent work has shown that transformers implicitly implement BMA for stationary in-context learning [ 16 ]; our construction extends this to the non-stationary setting with an unknown change point. The BMA predictor maintains a posterior over change-point hypotheses and combines their predictions: 
+
+ˆyBMA  
+
+> t
+
+= ∑
+
+> k∈K t
+
+αk(t) mk(t), (2) where mk(t) = x⊤ 
+
+> t
+
+μk is the posterior predictive mean under hypothesis k and αk(t) ∝ πk p(Z<t | k)
+
+is the posterior change-point weight. Under the Gaussian prior and noise model, both quantities depend on the sufficient statistics Ak(t) = ∑t−1 
+
+> i=k+1
+
+xix⊤ 
+
+> i
+
+, bk(t) = ∑t−1 
+
+> i=k+1
+
+xiyi, and ck(t) = ∑t−1 
+
+> i=k+1
+
+y2
+
+> i
+
+for the post-change segment under hypothesis k.Our construction shows that a causal transformer can compute these quantities and approxi-mate (2): 1. Cumulative statistics (Layer 1): A causal attention head can be configured to produce uniform weights over the causal prefix, computing running averages of [ vec (xix⊤ 
+
+> i
+
+); xiyi; y2 
+
+> i
+
+]. A subsequent MLP, given access to the position index via positional encoding, approximates multiplication by t to recover cumulative prefix sums P xx j , P xy j , P yy j .2. Segment isolation (Layer 2): At the prediction position t, multi-head attention retrieves prefix sums at each candidate split k ∈ K t, and an MLP forms segment statistics via subtraction: 
+
+Ak(t) = P xx t−1 − P xx k , and similarly for bk and ck.3. Posterior computation and prediction (Layers 3–4): MLPs approximate the posterior parame-ters μk, Σk, the log-marginal likelihoods log p(Z<t | k), and the posterior weights αk(t), then form the weighted prediction (2). All computation from Layer 2 onward occurs at the prediction token, so causality is preserved without backward information flow. 
+
+Theorem 1 (Approximation of Change-Point BMA) . Consider the piecewise-linear model (1) with bounded inputs and the Gaussian prior and noise model specified above. For every ϵ > 0, there exists a causal transformer Tϵ such that 
+
+> ∣∣
+
+Tϵ(Z<t , x t) − ˆyBMA  
+
+> t
+> ∣∣
+
+≤ ϵ (3) 
+
+for all t = 1 , . . . , N and all input sequences satisfying the boundedness assumptions. The number of layers is constant for fixed ϵ, and the number of attention heads and hidden dimension scale with 
+
+|K t| and d.Proof sketch. The proof proceeds in three parts: showing that the transformer can causally assemble sufficient statistics, that these statistics determine the posterior predictive means mk(t) and weights 
+
+αk(t) via continuous maps, and that the resulting BMA predictor can be approximated. 
+
+Part 1: Causal assembly of sufficient statistics. At each context position j, the token embedding includes vec (xj x⊤ 
+
+> j
+
+), xj yj , and y2 
+
+> j
+
+. A single attention head with zero query and key projections produces uniform weights αti = 1 /t , yielding the running average ¯St = 1 
+
+> t
+> ∑ti=1
+
+Sraw  
+
+> i
+
+where Sraw  
+
+> i
+
+=[ vec (xix⊤ 
+
+> i
+
+); xiyi; y2 
+
+> i
+
+]. A subsequent MLP, given access to the position index t through the positional encoding, approximates the product t · ¯St to recover cumulative prefix sums P xx j = ∑ji=1 xix⊤ 
+
+> i
+
+,4P xy j = ∑ji=1 xiyi, P yy j = ∑ji=1 y2 
+
+> i
+
+. This is the first role of PE in the construction: without access to the position index, the MLP cannot convert running averages into cumulative sums. At the prediction position t, the transformer must retrieve these prefix sums at each candidate change-point index k ∈ K t. The candidate set Kt is determined by the side information communicated through positional encoding. When the PE encodes only the support [L, U ] of the change point, the transformer configures |K t| = U − L + 1 attention heads, each with query-key projections over the positional features designed to produce high attention weight at the corresponding candidate index k. When no side information is provided, Kt = {1, . . . , t −1} and O(t) heads are required in principle. When the change point is known exactly, |K t| = 1 and a single head suffices. This is the second and primary role of PE: it determines the size of the candidate set and thereby controls the number of attention heads needed for retrieval. An MLP then computes segment statistics via subtraction: Ak(t) = P xx t−1 − P xx k , bk(t) = P xy t−1 − P xy k , ck(t) = P yy t−1 − P yy k . After this stage, the prediction token’s representation contains (Ak, b k, c k) for every candidate k ∈ K t.
+
+Part 2: From sufficient statistics to mk(t) and αk(t). After Part 1, the prediction token’s residual stream contains the segment statistics (Ak, b k, c k) for every candidate k ∈ K t, along with the query input xt. All remaining computation is local to this single token and is performed by MLP layers. First, the predictive means. Under the Gaussian prior and noise model, the posterior over the post-change weight given hypothesis k is w | Z<t , k ∼ N (μk, Σk) with Σk = ( λI + σ−2Ak)−1 and 
+
+μk = σ−2Σk bk. The predictive mean under hypothesis k is mk(t) = x⊤ 
+
+> t
+
+μk. Computing μk requires inverting λI + σ−2Ak, which is continuous on the bounded domain since λ > 0 ensures uniform positive definiteness. An MLP can therefore approximate the map (Ak, b k, x t) 7 → mk(t) for each candidate. Second, the posterior weights. The weight of hypothesis k is αk(t) ∝ πk p(Z<t | k), where the log-marginal likelihood under the Gaussian model is: 
+
+log p(Z<t | k) = − nk 
+
+> 2
+
+log(2 πσ 2) − 12 log det( λ−1Ak + I) − 12σ2
+
+> (
+
+ck − σ−2b⊤ 
+
+> k
+
+Σk bk 
+
+> )
+
+(4) up to pre-change terms that cancel in the normalization. Here nk = |{ i : k < i < t }| is the post-change sample size under hypothesis k. Every term in (4) —including the log-determinant and the quadratic form b⊤ 
+
+> k
+
+Σk bk—is a continuous function of the sufficient statistics (Ak, b k, c k) on the bounded domain. Note that ck is essential: without it, one can compute the predictive means mk
+
+but not the marginal likelihoods needed to weight them. Finally, the MLP computes the posterior weights αk(t) = softmax k( log p(Z<t | k)) and forms the weighted prediction ˆyBMA  
+
+> t
+
+= ∑ 
+
+> k
+
+αk(t) mk(t).
+
+Part 3: Approximation. The entire computation from sufficient statistics to final prediction is a composition of continuous maps on a compact domain: (Ak, b k, x t) 7 → mk(t), then (Ak, b k, c k) 7 →
+
+log p(Z<t | k), then softmax normalization to obtain αk(t), and finally the weighted sum ˆyBMA  
+
+> t
+
+= 
+
+> ∑
+> k
+
+αk(t) mk(t). Since all |K t| candidates reside in the residual stream of a single token, this composition is executed entirely at the prediction position. By universal approximation results for multilayer networks on compact domains, the MLP blocks can approximate this map to within 
+
+ϵ.
+
+Remark 1 (Detection as a consequence) . Theorem 1 is an approximation guarantee for BMA, not a change-point recovery result. However, when the task separation ∆ = ∥w1 − w2∥ is large relative to noise, the BMA posterior concentrates on the true change point, so that (2) reduces to prediction using only post-change data. Under the Gaussian model, incorrect hypotheses are exponentially downweighted by their excess log-likelihood. 
+
+5Corollary 2 (Known Change Point) . If n∗ 
+
+> 1
+
+is known to the transformer via positional encoding, the candidate set reduces to Kt = {n∗
+
+> 1
+
+}. A causal transformer with O(1) layers (for fixed ϵ), hidden dimension O(d2), and O(1) attention heads achieves 
+
+> ∣∣
+
+Tϵ(Z<t , x t) − x⊤ 
+
+> t
+
+μn∗ 
+
+> 1
+> ∣∣
+
+≤ ϵ, t > n ∗
+
+> 1
+
+,
+
+where μn∗ 
+
+> 1
+
+is the Bayesian posterior mean using only post-change data. The construction simplifies in two ways. First, a single attention head with positional masking suffices to accumulate post-change statistics, eliminating the O(|K t|)-head retrieval layer and the MLP layers devoted to log-marginal likelihood evaluation and posterior weighting. Second, the prediction target itself improves: instead of approximating BMA, which hedges across hypotheses, the transformer directly approximates the oracle posterior mean under the true segmentation. 
+
+This corollary corresponds to the oracle baseline in our experiments and highlights the complexity– information tradeoff: knowing the change point reduces |K t| to 1, reducing the required number of attention heads from O(R) to O(1) .
+
+# 3 Synthetic Experiments 
+
+We evaluate our theoretical framework in two synthetic settings: piecewise-linear regression and piecewise-linear dynamical systems. Both settings are designed to isolate the core challenge of in-context regime adaptation in a controlled setting where we can calculate the ideal behavior. In addition, many recent works have shown that when transformers are trained on large volumes of synthetic tasks, they can generalize well to real-world tasks without retraining [ 20 , 25 , 26 , 27 ]. A sequence is generated by one linear process up to an unknown change point and by a different linear process afterward. The transformer must detect the transition from context and quickly adapt its predictions to the new regime. Across both settings, we train GPT-2 style causal transformers under stochastic change-point locations and compare them to ideal baselines matched to the information available to the model. Our goal is not only to test whether transformers benefit from additional change-point information, but also whether they approach the best possible in-context strategy under each information regime. 
+
+3.1 Encoding Change-Point Information 
+
+We use positional encoding (PE) to provide side information about the change point. This lets us vary the amount of information available to the model without changing the architecture or training objective. We consider three PE schemes—no PE, sinusoidal PE, and linear PE—under four information levels: 1. No information: the model receives no explicit signal about the change point. 2. Support known: the model is told only the interval in which the change point lies. 3. Known in advance: the exact change point is encoded before the transition occurs. 4. Known afterward: the model is informed only after the transition has occurred. This hierarchy allows us to study how side information changes the difficulty of in-context adaptation. 63.2 Piecewise-Linear Regression 
+
+Setup We first consider a piecewise-linear regression task. Each prompt consists of N = 30 
+
+data-label pairs generated by one linear predictor before the change point and a different linear predictor afterward. During training, the change point is drawn uniformly from {10 , . . . , 20 }. At test time, we fix the change point to n1 = 12 so that performance cannot be explained by a simple bias toward the midpoint of the training distribution. Note that because the change point is always drawn from {10 , . . . , 20 } during training, the no-information variant can implicitly learn this support from the training distribution, making it functionally equivalent to the support-known variant in this experiment. 
+
+Baselines We compare transformer performance to three ideal baselines. 
+
+• Oracle ridge regression: for settings where the model knows the change point, we compare against an oracle that knows the regime boundaries and performs ridge regression using only samples from the active regime. 
+
+• Transfer ridge regression: for the correlated-task setting where w2 = −w1 + εη with 
+
+η ∼ N (0 , I ), simply discarding pre-change data is suboptimal because the task 1 samples carry information about w2. This baseline first estimates w1 via ridge regression on the pre-change data, obtaining the posterior w1 | X1, Y 1 ∼ N ( ˆw1, Σ1). Propagating through the known relationship gives an informative prior w2 ∼ N (− ˆw1, Σ1 + ε2I) on the post-change weights, which is then updated via ridge regression as task 2 samples arrive. 
+
+• Bayesian model averaging (BMA): for settings in which the model is not given the change point, we compare against a Bayesian baseline that maintains a posterior over all candidate change-point locations and combines the corresponding ridge regression predictors according to their posterior weights. These baselines represent the ideal prediction strategies with and without change-point information, respectively. 
+
+Evaluation We report mean squared error (MSE) at each time step, averaged over 5,000 test trajectories. This lets us directly measure detection lag, post-change adaptation, and the benefit of side information. 
+
+Results Figure 1 shows the per-step MSE for the piecewise-linear regression task, averaged over 5,000 test trajectories with the change point fixed at n∗ 
+
+> 1
+
+= 12 . Panel (a) compares all four information levels on a log scale. Before the change point, the known-in-advance variant achieves lower error than the other three variants. This is because the uninformed variants must begin hedging before the change point to avoid catastrophic misprediction if a regime shift occurs, sacrificing pre-change accuracy for robustness. The known-in-advance variant, which knows the transition will not occur until t = 12 , can commit fully to the pre-change task and make the best possible prediction at every step. At the transition, all variants spike, but with different magnitudes. The known-in-advance variant returns to roughly baseline error levels: it knows the old regime has ended and does not mispredict with stale dynamics, but has no observations from the new regime yet and must predict from an uninformed prior. The other three variants, still relying on the old dynamics, produce catastrophic errors that exceed baseline levels by almost an order of magnitude. After one step of this catastrophic misprediction, the known-afterward variant receives the change-point 7signal and immediately matches the known-in-advance error, since both now condition on the correct segmentation. The no-information and support-known variants, lacking exact change-point timing, require several additional post-change observations to implicitly detect the regime shift and downweight obsolete data. The similar recovery profiles of the no-information and support-known variants are expected: since the training distribution always draws change points from {10 , . . . , 20 },the no-information model implicitly learns this support, rendering the two variants functionally equivalent. Panels (b)–(d) compare individual transformer variants to their corresponding ideal baselines. The known-in-advance transformer closely matches the oracle least-squares baseline (panel b), which knows the true segmentation and fits only on data from the active regime. This validates Corollary 2 in the regression setting: when the change point is provided, the transformer learns the oracle strategy. Panel (c) tests a more challenging transfer variant in which the post-change weights are anticor-related with the pre-change weights: w2 = −w1 + ε for small ε. Here the ideal strategy is not to discard pre-change data, but to leverage it through a Bayesian transfer prior that reflects the known relationship between regimes [ 21 ]. The known-in-advance transformer closely matches this Bayesian transfer baseline, demonstrating that the model learns to exploit inter-regime structure rather than simply discarding pre-change observations. This goes beyond our theoretical construction, which assumes independent priors on w1 and w2, and suggests that trained transformers can discover richer adaptation strategies than the ones we prove exist. Panel (d) shows that the support-known transformer closely tracks the BMA baseline, which maintains a posterior over all candidate change-point locations within the known support and averages predictions accordingly. This confirms that when partial information narrows the candidate set Kt but does not resolve the change point exactly, transformers learn to perform the corresponding hypothesis averaging in-context, consistent with Theorem 1. 
+
+3.3 Piecewise-Linear Dynamical Systems 
+
+Setup We next consider a piecewise-linear dynamical system (LDS) setting. Here the prompt is a trajectory of N = 40 states, generated by one stable linear dynamical system before the change point and another afterward. The two system matrices are drawn independently for each trajectory. During training, the change point is sampled uniformly from {15 , . . . , 25 }, and at test time we fix it to n1 = 17 .This setting is more challenging than the regression setting because the observations are temporally dependent. The model must not only infer that a regime change has occurred, but also rapidly identify the new system dynamics from a small number of post-change transitions. 
+
+Baselines We again compare against two ideal baselines, now adapted to online system identifica-tion. The LDS prediction task xt+1 = Ax t + εt can be viewed as d parallel linear regressions, one per row of A, with xt as the shared covariate. We place a Gaussian prior on each row, ar ∼ N (0 , τ 2Id),matching the distribution used to generate the system matrices. The posterior mean of A given a segment of transitions is then the Bayesian ridge regression estimate with regularization λ = 1 /τ 2,the matrix analogue of the posterior mean μk = σ−2Σkbk in the regression setting. 
+
+• Oracle segmented ridge regression: for informed settings, we compare against a baseline that knows the true change point but not the system matrices. At each time t, it accumulates transitions from the correct regime only and predicts with the corresponding ridge estimate of 
+
+A. This is the analogue of the oracle regression baseline. 8• Bayesian changepoint averaging: for uninformed settings, we compare against a baseline that maintains a posterior over candidate change points k ∈ { 15 , . . . , 25 }, initialized uniformly. Each hypothesis defines its own segmentation and ridge estimate of A; the mixture prediction averages these, weighted by sequentially updated posterior probabilities. Predictive uncertainty is incorporated so that hypotheses with few segment observations are penalized less for large errors, preventing premature elimination early in a segment. Both baselines are Bayes-optimal under the known prior and noise model. Even the informed oracle must estimate the system matrices from data, and the ridge regularization is essential in the post-change period when the number of available transitions may be smaller than the state dimension. 
+
+Evaluation As in the regression experiments, we report per-step MSE averaged over 5,000 test trajectories. In this setting, we are especially interested in the post-change transient, since adaptation requires identifying a new dynamical system rather than simply switching to a new regression weight vector. 
+
+Figure 2: Piecewise-linear dynamical system results. Mean squared error (aggregated over 5,000 test trajectories) as a function of time step t, with the change point at n∗ 
+
+> 1
+
+= 17 (dashed red line). 
+
+(a) Comparison of transformer variants: no positional encoding, positional encoding revealed after the change point, and positional encoding available for the whole sequence. All variants spike at the regime transition; the whole-time variant recovers fastest. (b) The no-PE transformer closely tracks the Bayesian changepoint averaging baseline, confirming that the uninformed model learns to implement approximate posterior averaging over change-point hypotheses in-context. (c) The whole-time PE transformer closely matches the oracle segmented least-squares baseline, which knows the true change point but must still estimate system dynamics from data. This validates the known-change-point construction (Corollary 2). 
+
+Results Figure 2 shows per-step MSE averaged over 5,000 test trajectories with n∗ 
+
+> 1
+
+= 17 . All variants spike at the change point, but the whole-time PE variant recovers fastest: its error reflects only prior uncertainty over the new system, whereas the no-PE and known-after variants initially mispredict by extrapolating stale dynamics. The known-after variant matches whole-time PE as soon as it receives the change-point signal. The no-PE variant requires several additional steps to implicitly detect the shift. Panels (b) and (c) show that the no-PE transformer closely tracks Bayesian changepoint averaging, while the whole-time PE transformer matches the oracle segmented least-squares baseline. These results confirm that the complexity-information tradeoff from our 9theory carries over to temporally dependent settings, and that trained transformers learn to match the optimal baseline corresponding to their information level. 
+
+# 4 Real-world experiments 
+
+4.1 Forecasting Infectious Diseases with Policy Changes 
+
+Recent advances in infectious disease forecasting have introduced foundation models that aim to generalize across diseases, regions, and surveillance settings without retraining. Models such as Mantis [ 28 ] learn from large-scale synthetic or historical data and can produce accurate forecasts across a wide range of infectious diseases. More general time series foundation models have also been applied in epidemiological settings with promising results [ 29 ]. However, a key limitation remains. When the underlying disease dynamics undergo a regime shift—for example, due to a change in government policy or intervention strategy—these models often fail to rapidly adapt, as they assume continuity in the data-generating process. From a control perspective, policy changes act as external interventions that alter the system dynamics governing disease spread. After such a change, past data may no longer be predictive, and the model must rapidly adapt by reweighting or discarding obsolete information. In practice, we often have advance knowledge that a policy change will occur, even if its exact effect is unknown. This raises a key question: how should this change-point information be communicated to a foundation model to adapt its forecasts without retraining? To study this, we use infectious disease data from Thailand spanning 1980–2021, a period with multiple government-driven regime shifts. This provides a realistic testbed for non-stationarity in epidemiological time series. We evaluate whether encoding change-point information enables a pretrained forecasting model to adjust its predictions at inference time, translating the principles from our synthetic setting to real-world, policy-driven dynamics. 
+
+Setup We construct a collection of disease-policy episodes from Thai infectious disease data, where each episode consists of a window around a known policy change.. In each evaluation run, we perform leave-one-sequence-out evaluation: one episode is designated as the target sequence, while the remaining episodes are used as context. Context sequences are not restricted to the same disease family, allowing the model to draw on regime-shift patterns across diseases. Following the tabular forecasting formulation of TabPFN-TS [ 30 ], we convert each episode into a tabular dataset with one row per time step. Each row includes the relative time index within the window, z-score normalized observation value, a binary direction indicator specifying whether the policy change is expected to produce an upward or downward shift, and a positional-encoding feature. We compare three variants of this final feature: no positional encoding, linear positional encoding based on distance to the change point, and sinusoidal positional encoding. Each episode has length 30. For the target sequence, the change point is fixed at t = 12 . For context sequences, the change point is sampled uniformly from {10 , . . . , 20 }, so that the model cannot rely on a fixed transition time and must instead use the positional signal when it is available. At evaluation time t, we provide the model with all rows from the context episodes together with the observed prefix of the target episode up to time t.
+
+Evaluation We evaluate all time points t in the target sequence. At each t, the model produces recursive forecasts for the next three observations, and we compute the mean absolute error over this horizon. We then average these errors across all target episodes. Our primary comparison is between 10 the no-PE, linear-PE, and sinusoidal-PE settings. Improvements from the positional-encoding variants indicate that explicitly providing change-point information helps a pretrained foundation model adapt to policy-driven regime shifts without retraining. 
+
+Figure 3: Mean absolute error for infectious disease forecasting as a function of forecast origin time relative to the policy change point. Each forecast is a recursive three-step-ahead prediction, so forecasts originating shortly before the change point span the regime transition. Both linear and sinusoidal positional encodings reduce MAE by approximately 25% at the forecast origins most affected by the regime shift, compared to the no-PE baseline. 
+
+Results Figure 3 shows the MAE as a function of forecast origin time relative to the change point. The largest performance gap between PE variants and the no-PE baseline occurs at origin times shortly before the change point, where the best PE variant reduces error by approximately 25%. This timing is explained by the multi-step forecast horizon: because each prediction covers three steps ahead, forecasts originating just before the change point must predict across the regime transition. Without positional information, the model extrapolates pre-change dynamics into the new regime; with PE, the model can anticipate the upcoming shift and adjust its predictions accordingly. After the change point, all methods improve as post-change observations accumulate in the conditioning window, and the advantage of positional encoding gradually diminishes as the model can infer the new regime directly from recent data. Overall, these results demonstrate that encoding change-point information enables a pretrained foundation model to adapt to policy-driven regime shifts at inference time, with the largest gains precisely where the forecasting task spans a regime boundary. 
+
+4.2 Forecasting Financial Series with Monetary Policy Events 
+
+Scheduled monetary policy announcements can introduce abrupt changes in financial time series, making forecasting more difficult around event dates. In particular, Federal Open Market Committee (FOMC) announcements can influence both short-term interest rates and broader asset-market behavior [ 31 , 32 ]. Because the timing of these events is known in advance, they provide a natural setting for testing whether explicit event-time information helps a pretrained model improve its forecasts. 
+
+Setup We study two daily financial series from FRED: the effective federal funds rate and the S&P 500 index [ 33 , 34 ]. These are paired with FOMC statement dates from the Federal Reserve’s 11 historical records [ 35 ]. For each business day t, the prediction target is the next-day value, yielding a direct one-step-ahead forecasting task. Each observation is represented in tabular form using the current series value together with standard time-series covariates: lags 1–10, the first difference, a 5-day rolling mean, and a 5-day rolling standard deviation. On top of these baseline features, we compare three event-aware variants. The no-PE baseline uses only the time-series covariates. The linear-PE variant adds the signed business-day distance to the nearest FOMC event, so that negative values indicate days before the event and positive values indicate days after it. The sinusoidal-PE variant instead adds sine and cosine encodings of the signed distance. Evaluation is performed with walk-forward forecasting. Each training window contains roughly three years of business-day observations and is capped at that size, while testing is carried out on successive 21-business-day blocks. For each split, a TabPFN regressor is trained on the current window and evaluated on the next block. 
+
+Evaluation We report overall MAE across all walk-forward predictions. Our primary comparison is between the no-PE, linear-PE, and sinusoidal-PE variants for each financial series. Improvements from the positional-encoding models indicate that supplying explicit information about policy-event timing helps the pretrained model adapt to event-related changes in financial dynamics. 
+
+Results Figure 4 shows the same overall ordering across the three variants. In both cases, linear positional encoding achieves the lowest MAE, sinusoidal positional encoding is slightly higher, and the no-PE baseline has the largest error. (a)  (b) 
+
+Figure 4: Mean absolute error for federal funds rate (a) and S&P 500 index (b) forecasting and under three feature settings: no positional encoding, linear positional encoding based on signed business-day distance to the nearest Federal Open Market Committee (FOMC) statement day, and sinusoidal positional encoding. Error bars show the standard error. 
+
+# 5 Discussion 
+
+We have shown that transformers can approximate the Bayesian model-averaged predictor for in-context change-point detection, with model complexity governed by the amount of side information available about the change point. Our synthetic experiments confirm that trained transformers match the performance of optimal baselines—BMA when uninformed and oracle least squares when informed—across both regression and dynamical system settings. Our real-world experiments demonstrate that positional encoding of change-point information improves the forecasts of a pretrained foundation model on infectious disease and financial data without any retraining. 12 Limitations Our theoretical analysis assumes a single change point and a linear task. Extension to multiple change points would require increasing the required depth or width. Extension to nonlinear tasks would require different sufficient statistics and is an open question. However, our real-world experiments suggest these limitations may be more theoretical than practical: both real-world tasks involve multiple regime shifts and nonlinear dynamics, yet the same strategy yields consistent improvements. This suggests the core mechanism transfers beyond the setting our theory covers. Our construction demonstrates existence of suitable transformer weights but does not address whether gradient descent finds them during training; the synthetic experiments suggest it does, but a formal analysis remains future work. 
+
+Broader implications Foundation models for time series and tabular prediction are increasingly deployed in settings where regime shifts are common, yet their architectures and training procedures are designed for stationary prompts. Our results suggest a simple, practical intervention: encoding change-point information through positional features at inference time, without retraining. More broadly, the framework demonstrates a natural connection between classical sequential detection and modern in-context learning. The BMA predictor our transformer approximates is closely related to Bayesian online change-point detection [ 9 ], and the known-change-point construction mirrors adaptive control strategies that discard pre-fault data after a detected switch [ 2 ]. As foundation models are deployed for forecasting, control, and decision-making in non-stationary environments, the extensive toolkit developed by the control and detection communities becomes directly relevant, not as competing methods, but as the algorithmic targets that these models must learn to implement in-context. 
+
+# References 
+
+[1] A. Willsky and H. Jones. A generalized likelihood ratio approach to the detection and estimation of jumps in linear systems. IEEE Transactions on Automatic Control , 21(1):108–112, 1976. [2] Michèle Basseville and Igor V. Nikiforov. Detection of Abrupt Changes: Theory and Application .1993. [3] O. L. V. Costa, M. D. Fragoso, and R. P. Marques. Discrete-Time Markov Jump Linear Systems . Probability and Its Applications. Springer-Verlag, 2005. [4] James D. Hamilton. A new approach to the economic analysis of nonstationary time series and the business cycle. Econometrica , 57(2):357–384, 1989. [5] Andrew Ang and Allan Timmermann. Regime changes and financial markets. Working paper, National Bureau of Economic Research, June 2011. [6] Carson Dudley et al. From sparse data to smart decisions: Region-specific policy evaluation via simulation. medRxiv , 2025. [7] E. S. Page. Continuous inspection schemes. Biometrika , 41, 1954. [8] Tze Leung Lai. Sequential changepoint detection in quality control and dynamical systems. 
+
+Journal of the Royal Statistical Society: Series B , 57(4), 1995. [9] Ryan Prescott Adams and David J. C. MacKay. Bayesian online changepoint detection, 2007. [10] Ashish Vaswani, Noam Shazeer, et al. Attention is all you need, 2023. 13 [11] Tom B. Brown et al. Language models are few-shot learners, 2020. [12] Shivam Garg et al. What can transformers learn in-context? a case study of simple function classes, 2023. [13] Johannes von Oswald et al. Transformers learn in-context by gradient descent, 2023. [14] Ekin Akyürek et al. What learning algorithm is in-context learning? investigations with linear models, 2023. [15] Yingcong Li, M. Emrullah Ildiz, Dimitris Papailiopoulos, and Samet Oymak. Transformers as algorithms: Generalization and stability in in-context learning, 2023. [16] Yufeng Zhang, Fengzhuo Zhang, Zhuoran Yang, and Zhaoran Wang. What and how does in-context learning learn? bayesian model averaging, parameterization, and generalization, 2023. [17] Ruiqi Zhang, Spencer Frei, and Peter L. Bartlett. Trained transformers learn linear models in-context, 2023. [18] Abhimanyu Das, Weihao Kong, Rajat Sen, and Yichen Zhou. A decoder-only foundation model for time-series forecasting, 2024. [19] Abdul Fatir Ansari et al. Chronos: Transformer-based language models for time-series forecast-ing, 2024. [20] Noah Hollmann, Samuel Müller, et al. Accurate predictions on small data with a tabular foundation model. Nature , 637:319–326, 2025. [21] Yingcong Li et al. Gating is weighting: Understanding gated linear attention through in-context learning, 2025. [22] Carson Dudley, Yutong Bi, Xiaofeng Liu, and Samet Oymak. Transformers as adaptive estimators: In-context learning under regime change, 2026. Technical Report. [23] Chung-ki Min and Arnold Zellner. Bayesian and non-Bayesian methods for combining models and forecasts with applications to forecasting international growth rates. Journal of Economet-rics , 56(1-2):89–118, 1993. [24] Jennifer A. Hoeting, David Madigan, Adrian E. Raftery, and Chris T. Volinsky. Bayesian model averaging: A tutorial. Statistical Science , 14(4):382–417, 1999. [25] Carson Dudley et al. Simulation as supervision: Mechanistic pretraining for scientific discovery. 
+
+arXiv preprint arXiv:2507.08977 , 2025. [26] Ege Onur Taga, M. Emrullah Ildiz, and Samet Oymak. TimePFN: Effective multivariate time series forecasting with synthetic data. In Proceedings of the AAAI Conference on Artificial Intelligence , 2025. [27] Carson Dudley and Marisa Eisenberg. Learning from simulators: A theory of simulation-grounded learning. arXiv preprint arXiv:2509.18990 , 2025. [28] Carson Dudley et al. Mantis: A foundation model for mechanistic disease forecasting. arXiv preprint arXiv:2508.12260 , n/a, 2025. 14 [29] Suprabhath Kalahasti et al. Foundation time series models for forecasting and policy evaluation in infectious disease epidemics. medRxiv , February 2025. [30] Shi Bin Hoo, Samuel Müller, David Salinas, and Frank Hutter. From tables to time: Extending tabpfn-v2 to time series forecasting, 2026. [31] Kenneth N. Kuttner. Monetary policy surprises and interest rates: Evidence from the fed funds futures market. Journal of Monetary Economics , 47(3):523–544, 2001. [32] Ben S. Bernanke and Kenneth N. Kuttner. What explains the stock market’s reaction to federal reserve policy? The Journal of Finance , 60(3):1221–1257, 2005. [33] Board of Governors of the Federal Reserve System (US). Federal funds effective rate [dff]. 
+
+https://fred.stlouisfed.org/series/DFF , 2026. Retrieved from FRED, Federal Reserve Bank of St. Louis. [34] S&P Dow Jones Indices LLC. S&p 500 [sp500]. https://fred.stlouisfed.org/series/ SP500 , 2026. Retrieved from FRED, Federal Reserve Bank of St. Louis. [35] Board of Governors of the Federal Reserve System. Federal open market committee historical materials by year. https://www.federalreserve.gov/monetarypolicy/fomc_historical_ year.htm , 2026. 
+
+# A Full Proofs 
+
+This appendix provides complete proofs of the results stated in Section 2. We first discuss prelimi-naries and give the full proof of Theorem 1 (Appendix A.1) and Corollary 2 (Appendix A.2). 
+
+A.1 Proof of Theorem 1 
+
+A.1.1 Notation and Assumptions 
+
+We restate the model first. We observe N input-label pairs generated by the piecewise-linear model 
+
+yi =
+
+> {
+
+⟨w1, x i⟩ + εi, i ≤ n∗
+
+> 1
+
+,
+
+⟨w2, x i⟩ + εi, i > n ∗
+
+> 1
+
+, (1) with inputs xi ∈ Rd satisfying ∥xi∥ ≤ Bx, labels satisfying |yi| ≤ By, noise εi ∼ N (0 , σ 2), and prior 
+
+w1, w 2 iid 
+
+∼ N (0 , λ −1Id). The change point n∗ 
+
+> 1
+
+∈ K t ⊆ { 1, . . . , t −1} has uniform prior πk = 1 /|K t| and candidate set size |K t| ≤ R.
+
+Sufficient statistics. For each candidate change point k ∈ K t, define the post-change sufficient statistics 
+
+Ak(t) = 
+
+> t−1∑
+> i=k+1
+
+xix⊤ 
+
+> i
+
+, bk(t) = 
+
+> t−1∑
+> i=k+1
+
+xiyi, ck(t) = 
+
+> t−1∑
+> i=k+1
+
+y2 
+
+> i
+
+. (5) We also define the cumulative prefix sums 
+
+P xx j =
+
+> j∑
+> i=1
+
+xix⊤ 
+
+> i
+
+, P xy j =
+
+> j∑
+> i=1
+
+xiyi, P yy j =
+
+> j∑
+> i=1
+
+y2 
+
+> i
+
+, (6) so that the segment statistics can be recovered by subtraction: 
+
+Ak(t) = P xx t−1 − P xx k , bk(t) = P xy t−1 − P xy k , ck(t) = P yy t−1 − P yy k .
+
+15 Posterior under a fixed hypothesis. For a fixed candidate k, the posterior over the post-change parameter w is Gaussian: 
+
+w | Z<t , k ∼ N (μk, Σk),
+
+where 
+
+Σk = ( λI + σ−2Ak)−1, μk = σ−2Σk bk. (7) The corresponding posterior predictive mean is 
+
+mk(t) = x⊤ 
+
+> t
+
+μk, (8) aka the ridge regression predictor computed on the post-change segment. 
+
+Bayesian model averaging (BMA). The BMA predictor maintains a posterior over candidate change points and forms a weighted prediction: 
+
+ˆyBMA  
+
+> t
+
+= ∑
+
+> k∈K t
+
+αk(t) mk(t), (9) where the posterior weights satisfy 
+
+αk(t) ∝ πk p(Z<t | k), ∑
+
+> k
+
+αk(t) = 1 ,
+
+and p(Z<t | k) denotes the marginal likelihood under hypothesis k.
+
+Bounded domain. All quantities (Ak, b k, x t) lie in a bounded set determined by Bx, B y, and N ,which ensures that the maps defined below are continuous on a compact domain. 
+
+A.1.2 Restatement of Theorem 1 
+
+We restate the main approximation result in the notation introduced above. 
+
+Theorem 3 (Transformer approximation of change-point BMA) . Consider the piecewise-linear model (1) with bounded inputs and the Gaussian prior and noise model specified above. Let ˆyBMA 
+
+> t
+
+denote the Bayesian model-averaged predictor defined in (9) .For any ϵ > 0, there exists a causal transformer Tϵ such that, for all t = 1 , . . . , N and all valid input sequences, ∣∣Tϵ(Z<t , x t) − ˆyBMA  
+
+> t
+> ∣∣
+
+≤ ϵ. (10) 
+
+Moreover, the construction has the following properties: 
+
+• The number of layers is O(1) for fixed ϵ and problem parameters. 
+
+• The number of attention heads scales as O(|K t|).
+
+• The hidden dimension scales as O(|K t| · d2).
+
+The proof proceeds by constructing a transformer that (i) computes prefix sufficient statistics, (ii) isolates segment statistics for each candidate k, and (iii) approximates the BMA predictor (9) using MLP layers. 16 A.1.3 Token Embedding 
+
+The initial representation of token j is 
+
+h(0)  
+
+> j
+
+= [xj ; yj ; vec( xj x⊤ 
+
+> j
+
+); xj yj ; y2 
+
+> j
+
+; PE( j); 0] ∈ RD, (11) where PE (j) is a positional encoding vector and 0 denotes unused coordinates reserved for interme-diate computations in subsequent layers. The hidden dimension satisfies D ≥ d + 1 + d2 + d + 1 + 
+
+|PE | + Dwork , where Dwork is the working space for intermediate computations. We prove the theorem by explicit construction of a four-layer causal transformer that approxi-mates the BMA predictor (2) to within ϵ on all valid input sequences. The construction proceeds layer by layer. We track approximation errors introduced at each stage and show that, by choosing MLP widths sufficiently large, the total error can be made smaller than any prescribed ϵ > 0.
+
+Layer 1: Computing Cumulative Prefix Sums Step 1a: Uniform causal averaging. We configure a single attention head with WQ = 0 and 
+
+WK = 0 . Since all query-key inner products equal zero, the softmax attention weights reduce to the uniform distribution over the causal prefix: 
+
+αji = 1
+
+j , i = 1 , . . . , j. (12) Setting WV to be a projection onto the coordinates of h(0)  
+
+> i
+
+containing Sraw  
+
+> i
+
+:= [ vec (xix⊤ 
+
+> i
+
+); xiyi; y2 
+
+> i
+
+]
+
+(which are included in the token embedding), the attention output at position j is the running average 
+
+¯Sj = 1
+
+j
+
+> j∑
+> i=1
+
+Sraw  
+
+> i
+
+. (13) After the residual connection, the representation at position j contains both ¯Sj and PE( j).
+
+Step 1b: Recovering prefix sums via the MLP. The cumulative prefix sum at position j is 
+
+Pj = j · ¯Sj . Since ¯Sj and the positional encoding PE (j) are both available in the residual stream, the MLP must approximate the map 
+
+( ¯Sj , PE( j)) 7 → j · ¯Sj = Pj . (14) When PE (j) = j (linear positional encoding), this is multiplication of two bounded scalars (applied entrywise), which is a continuous function on the compact domain {( ¯s, p ) : |¯s| ≤ B2 
+
+> x
+
++BxBy +B2 
+
+> y
+
+, p ∈{1, . . . , N }} . When PE is sinusoidal, the map j 7 → PE (j) is injective on {1, . . . , N }. Thus there exists a function g defined on its image such that g( PE (j)) = j. The map ( ¯Sj , PE (j)) 7 → g( PE (j)) · ¯Sj
+
+is continuous on a bounded domain, and hence can be uniformly approximated by an MLP. By the universal approximation theorem, for any ϵ1 > 0, there exists an MLP such that 
+
+sup 
+
+> j=1 ,...,N
+
+∥ ˆPj − Pj ∥∞ ≤ ϵ1.
+
+The result is written to reserved coordinates in h(1)  
+
+> j
+
+via the residual connection. After Layer 1, the representation at each position j contains ˆPj ≈ Pj (the approximate prefix sums), the raw input (xj , y j ), the positional encoding PE( j), and the quadratic features Sraw  
+
+> j
+
+.17 Layer 2: Segment Isolation via Retrieval 
+
+At time step t, the transformer must retrieve the prefix sums ˆPk at each candidate change-point index k ∈ K t and form segment statistics by subtraction: 
+
+ˆAk(t) = ˆP xx t−1 − ˆP xx k , ˆbk(t) = ˆP xy t−1 − ˆP xy k , ˆck(t) = ˆP yy t−1 − ˆP yy k . (15) 
+
+Step 2a: Multi-head retrieval of prefix sums. For each candidate k ∈ K t, we assign a dedicated attention head h with index h = h(k). The number of heads required is |K t| + 1 (one per candidate plus one head to retrieve ˆPt−1). We configure head h(k) so that, at the prediction position t, it attends strongly to position k.The query-key projections are designed over the positional encoding coordinates: 
+
+W (h) 
+
+> Q
+
+h(1)  
+
+> t
+
+= ϕ(PE target (k)) , W (h) 
+
+> K
+
+h(1)  
+
+> j
+
+= ϕ(PE( j)) , (16) where ϕ is chosen so that the vectors {ϕ(PE (j)) }Nj=1 are distinct and can be separated by inner products, i.e., for each k,
+
+⟨ϕ(PE( k)) , ϕ (PE( k)) ⟩ > ⟨ϕ(PE( k)) , ϕ (PE( j)) ⟩ for all j̸ = k. 
+
+The mechanism depends on how the candidate set Kt is communicated: 
+
+• Support known (Kt = {L, . . . , U }): The PE encodes the boundaries L, U . We configure 
+
+R = U − L + 1 heads, with head h having a query projection that targets position L + h − 1.Because positional encodings are distinct across positions, the query-key inner product can be made to peak at the target position. More concretely, for linear PE where PE (j) = j, we set W (h) 
+
+> Q
+
+= [0; . . . ; 1; . . . ; 0] selecting the coordinate encoding target position kh, and W (h)
+
+> K
+
+selecting the PE coordinate of h(1)  
+
+> j
+
+. Scaling these projections by a large constant C makes the attention weights α(h) 
+
+> t,j
+
+approximate 1[j = kh] as C → ∞ , so the head retrieves ˆPkh up to softmax leakage that is exponentially small in C.
+
+• Known exactly (Kt = {n∗
+
+> 1
+
+}): A single head suffices, with the query keyed to the PE encoding of n∗
+
+> 1
+
+.
+
+• No information (Kt = {1, . . . , t −1}): In principle, O(t) heads are required. In practice, the training distribution restricts the effective support (e.g., n∗ 
+
+> 1
+
+∈ { N/ 2 − R, . . . , N/ 2 + R}), so 
+
+O(R) heads suffice for the model to implicitly learn the support. The value projection W (h) 
+
+> V
+
+selects the coordinates of h(1)  
+
+> j
+
+containing ˆPj . After the multi-head attention, the residual stream at position t contains approximate copies of ˆPk for each k ∈ K t, as well as ˆPt−1 (from either a dedicated retrieval head or the self-retrieval at position t − 1 via the residual). 
+
+Retrieval accuracy. Let α(h) 
+
+> t,j
+
+denote the attention weights of head h at position t. With query-key scaling C, the weight on the target position kh satisfies 
+
+α(h) 
+
+> t,k h
+
+= exp( C)exp( C) + ∑  
+
+> j̸=kh
+
+exp( sj ) ≥ 1 − (t − 1) e−C+Smax , (17) where sj are the non-target scores and Smax = max j̸ =kh sj . Choosing C large enough (dependent on N and ϵ but not on the data), the retrieved value satisfies ∥Attn (h)(t) − ˆPkh ∥ ≤ ϵret for any prescribed ϵret > 0.18 Step 2b: Forming segment statistics. The Layer 2 MLP receives ˆPt−1 and the retrieved values ˆPk for k ∈ K t, and computes segment statistics by subtraction (15) . Subtraction is a linear operation implemented exactly by the MLP (or even by a linear layer). The approximation error in the segment statistics inherits from the prefix sum errors and retrieval error: 
+
+∥ ˆAk(t) − Ak(t)∥F ≤ 2ϵ1 + ϵret , (18) and similarly for ˆbk and ˆck. Define ϵ2 := 2 ϵ1 + ϵret .After Layer 2, the residual stream at the prediction position t contains ( ˆAk, ˆbk, ˆck) for every 
+
+k ∈ K t, the query input xt, and the positional encoding. All subsequent computation occurs only at position t, involving no further attention across positions. This ensures causality without backward information flow. 
+
+Layers 3–4: Posterior Computation and Prediction Step 3: Predictive means. Define the domain 
+
+S := 
+
+> {
+
+(A, b, x ) : A ⪰ 0, ∥A∥F ≤ N B 2
+
+> x
+
+, ∥b∥ ≤ N B xBy, ∥x∥ ≤ Bx
+
+> }
+
+.
+
+For each candidate k ∈ K t, the posterior predictive mean under the Gaussian model is Ridge regression, i.e., 
+
+mk(t) = x⊤ 
+
+> t
+
+μk, where μk = σ−2(λI + σ−2Ak)−1bk. (19) The map ψm : ( Ak, b k, x t) 7 → mk(t) is continuous on the compact domain S. In fact, ψm is Lipschitz on S. To see this, note that (λI + σ−2A)−1 is Lipschitz in A on the set {A ⪰ 0 : ∥A∥F ≤ N B 2
+
+> x
+
+}
+
+because 
+
+∥M −11 − M −12 ∥ ≤ ∥ M −11 ∥ · ∥ M −12 ∥ · ∥ M1 − M2∥ ≤ λ−2∥M1 − M2∥ (20) for Mi = λI + σ−2Ai ⪰ λI . The remaining operations (matrix-vector products, inner products) are bilinear and hence Lipschitz on bounded domains. Composing, there exists a constant Lm
+
+depending on Bx, B y, λ, σ, N, d such that 
+
+|mk(t; ˆAk, ˆbk) − mk(t; Ak, b k)| ≤ Lm · ϵ2. (21) By the universal approximation theorem, an MLP with two hidden layers can approximate ψm
+
+on S to within any ϵ3 > 0, using width that depends on ϵ3, d, and the constants Bx, B y, λ, σ . The MLP computes all |K t| maps in parallel by using |K t| independent subnetworks within its width. The total error in the predictive mean for candidate k is at most Lmϵ2 + ϵ3.
+
+Step 4a: Log-marginal likelihoods. The log-marginal likelihood under hypothesis k is: 
+
+ℓk := log p(Z<t | k) = − nk 
+
+> 2
+
+log(2 πσ 2) − 12 log det( λ−1Ak + I) − 12σ2
+
+> (
+
+ck − σ−2b⊤ 
+
+> k
+
+Σkbk
+
+> )
+
+, (22) where Σk = ( λI + σ−2Ak)−1 and nk = t − 1 − k is the number of post-change samples under hypothesis k. The first term depends only on nk (which is determined by k and t, both available through the positional encoding and the position in the sequence). The second and third terms are continuous functions of (Ak, b k, c k) on S by Lemma ?? (ii). The map ψℓ : ( Ak, b k, c k, n k) 7 → ℓk is again Lipschitz on S, with Lipschitz constant Lℓ depending on the problem parameters. In particular: 19 • The log-determinant satisfies | log det (M1) − log det (M2)| ≤ d · ∥ M −11 ∥ · ∥ M1 − M2∥ for nearby positive definite matrices M1, M 2 ⪰ I, so the log-determinant term is Lipschitz in Ak with constant depending on d.
+
+• The quadratic form b⊤ 
+
+> k
+
+Σkbk is Lipschitz in (Ak, b k) by the same argument as (20) combined with bilinearity. 
+
+• The term ck enters linearly. Therefore |ℓk( ˆAk, ˆbk, ˆck) − ℓk(Ak, b k, c k)| ≤ Lℓ · ϵ2.An MLP approximates ψℓ on S to within ϵ4 > 0 for each of the |K t| candidates. Total error in each log-marginal likelihood: Lℓϵ2 + ϵ4.
+
+Step 4b: Posterior weights and weighted prediction. The posterior weights are αk(t) = softmax k(ℓ1, . . . , ℓ |K t|). The softmax function is Lipschitz on bounded domains: for ℓ, ℓ ′ ∈ [−M, M ]R,
+
+∥softmax( ℓ) − softmax( ℓ′)∥1 ≤ 2∥ℓ − ℓ′∥∞. (23) (This follows from the fact that each partial derivative of softmax is bounded by 1.) Let ˆℓk denote the MLP’s approximation to ℓk. The error in ˆℓk is at most Lℓϵ2 + ϵ4, so the posterior weight error is bounded by 
+
+∥ˆα − α∥1 ≤ 2( Lℓϵ2 + ϵ4). (24) Finally, the BMA prediction is the weighted sum ˆyBMA  
+
+> t
+
+= ∑ 
+
+> k
+
+αkmk. The MLP computes 
+
+ˆyt = ∑ 
+
+> k
+
+ˆαk ˆmk. The total error decomposes as 
+
+∣∣ˆyt − ˆyBMA 
+
+> t
+
+∣∣ =
+
+∣∣∣∣∑
+
+> k
+
+ˆαk ˆmk − ∑
+
+> k
+
+αkmk
+
+∣∣∣∣
+
+≤
+
+∣∣∣∣∑
+
+> k
+
+(ˆ αk − αk) ˆ mk
+
+∣∣∣∣ +
+
+∣∣∣∣∑
+
+> k
+
+αk( ˆ mk − mk)
+
+∣∣∣∣
+
+≤ ∥ ˆα − α∥1 · max  
+
+> k
+
+| ˆmk| + max  
+
+> k
+
+| ˆmk − mk|, (25) where we used ∑ 
+
+> k
+
+|αk| = 1 and ∑ 
+
+> k
+
+|ˆαk − αk| = ∥ˆα − α∥1. The predictive means are bounded: |mk| ≤ 
+
+Bx · ∥ μk∥ ≤ Bxλ−1σ−2N B xBy =: Mm, and the approximate means satisfy | ˆmk| ≤ Mm + Lmϵ2 + ϵ3.Combining all error terms: 
+
+∣∣ˆyt − ˆyBMA 
+
+> t
+
+∣∣ ≤ 2( Lℓϵ2 + ϵ4)( Mm + Lmϵ2 + ϵ3) + ( Lmϵ2 + ϵ3). (26) 
+
+Choosing tolerances. Given ϵ > 0, we choose: 1. ϵ1 (prefix sum MLP error) small enough, 2. ϵret (retrieval accuracy, controlled by the query-key scaling C) small enough, 3. ϵ3 (predictive mean MLP error) small enough, 4. ϵ4 (log-marginal likelihood MLP error) small enough, such that ϵ2 = 2 ϵ1 + ϵret and the total error (26) is at most ϵ. Since (26) is a polynomial in 
+
+(ϵ1, ϵ ret , ϵ 3, ϵ 4) with no constant term, this can always be achieved by choosing each tolerance suffi-ciently small (with the required smallness depending on the problem parameters Bx, B y, λ, σ, N, d ). 20 Resource accounting. The construction uses: 
+
+• Layers: 4 (one for prefix sums, one for retrieval and subtraction, two for posterior computation). The number of layers is O(1) for fixed ϵ and problem parameters. 
+
+• Attention heads: Layer 1 uses 1 head (uniform averaging). Layer 2 uses |K t| + 1 ≤ R + 1 
+
+heads. Layers 3–4 require no attention (MLP-only computation at the prediction token). Total: O(R) heads. 
+
+• Hidden dimension: Must accommodate d2 + d + 1 coordinates for each of the |K t| candidates’ sufficient statistics, plus d coordinates for xt, plus working space for the MLP computations. Total: O(R · d2 + DMLP ), where DMLP depends on ϵ through the MLP width needed for universal approximation. This completes the proof. 
+
+A.2 Proof of Corollary 2 
+
+When n∗ 
+
+> 1
+
+is known to the transformer via positional encoding, the candidate set reduces to Kt = {n∗
+
+> 1
+
+}
+
+for t > n ∗
+
+> 1
+
+. The BMA predictor (2) collapses to a single term: 
+
+ˆyBMA  
+
+> t
+
+= mn∗ 
+
+> 1
+
+(t) = x⊤ 
+
+> t
+
+μn∗ 
+
+> 1
+
+,
+
+since αn∗ 
+
+> 1
+
+(t) = 1 . The construction from Theorem 1 simplifies as follows. 
+
+Layer 1 (accumulation). Instead of computing prefix sums at every position and retrieving later, the transformer can directly accumulate only post-change statistics. A single attention head uses positional masking: the query-key projection is configured so that position t attends only to positions 
+
+j > n ∗
+
+> 1
+
+, which is achievable because n∗ 
+
+> 1
+
+is encoded in the positional features. Concretely, with linear PE and the change-point index appended to each token’s representation, the key projection at position j can encode 1[j > n ∗
+
+> 1
+
+] as a large positive or negative bias, effectively masking pre-change tokens. This produces: 
+
+Attn( t) ≈ 1
+
+t − n∗ 
+
+> 1
+
+− 1 
+
+> t−1∑
+> i=n∗
+> 1+1
+
+Sraw  
+
+> i
+
+,
+
+which, after multiplication by (t − n∗ 
+
+> 1
+
+− 1) via the MLP (using the PE), yields the segment statistics 
+
+An∗ 
+
+> 1
+
+(t), b n∗ 
+
+> 1
+
+(t), c n∗ 
+
+> 1
+
+(t) directly. 
+
+Layer 2 (posterior mean). An MLP approximates 
+
+(An∗ 
+
+> 1
+
+, b n∗ 
+
+> 1
+
+, x t) 7 → x⊤ 
+
+> t
+
+(λI + σ−2An∗ 
+
+> 1
+
+)−1σ−2bn∗
+
+> 1
+
+by the same argument as in Theorem 1, Step 3. 
+
+No posterior weighting needed. Since |K t| = 1 , there is no need to compute log-marginal likelihoods, perform softmax normalization, or form weighted averages. The MLP layers devoted to these computations in the full construction are eliminated entirely. 
+
+Resources. The known-change-point construction requires O(1) layers, O(1) attention heads, and hidden dimension O(d2) (to store a single set of sufficient statistics), with MLP width depending on 
+
+ϵ and the problem parameters. 21

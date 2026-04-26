@@ -1,0 +1,575 @@
+Title: SigGate-GT: Taming Over-Smoothing in Graph Transformers via Sigmoid-Gated Attention
+
+URL Source: https://arxiv.org/pdf/2604.17324v1
+
+Published Time: Tue, 21 Apr 2026 01:12:28 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# SigGate-GT: Taming Over-Smoothing in Graph Transformers via Sigmoid-Gated Attention 
+
+Dongxin Guo † Jikun Wu ‡ Siu Ming Yiu †† The University of Hong Kong, Hong Kong, China  
+
+> ‡
+
+Brain Investing Limited, Hong Kong, China 
+
+Abstract 
+
+Graph transformers achieve strong results on molecular and long-range reasoning tasks, yet remain hampered by over-smoothing (the progressive collapse of node representations with depth) and attention entropy degeneration. We observe that these pathologies share a root cause with attention sinks in large language models: softmax attention’s sum-to-one constraint forces every node to attend somewhere, even when no informative signal exists. Motivated by recent findings that element-wise sigmoid gating eliminates atten-tion sinks in large language models, we propose SigGate-GT , a graph transformer that applies learned, per-head sigmoid gates to the attention output within the GraphGPS framework. Each gate can suppress activations toward zero, enabling heads to selec-tively silence uninformative connections. On five standard benchmarks, SigGate-GT 
+
+matches the prior best on ZINC ( 0.059 MAE) and sets new state-of-the-art on ogbg-molhiv ( 82 .47% ROC-AUC), with statistically significant gains over GraphGPS across all five datasets ( p < 0.05 ). Ablations show that gating reduces over-smoothing by 30% 
+
+(mean relative MAD gain across 4–16 layers), increases attention entropy, and stabilizes training across a 10 × learning rate range, with about 1% parameter overhead on OGB. 
+
+Keywords: Graph Transformers, Gated Attention, Over-Smoothing, Molecular Prop-erty Prediction, Deep Learning. 
+
+1. Introduction 
+
+Graph-structured data is ubiquitous in scientific domains, particularly molecular prop-erty prediction [1]. While message passing neural networks (MPNNs) [1–3] have been the dominant paradigm, their expressivity is fundamentally limited by the Weisfeiler-Leman hierarchy [3] and their ability to capture long-range dependencies degrades with graph di-ameter [4]. Graph transformers address these limitations by computing global self-attention over all nodes [5, 6], enabling direct information flow between distant nodes and achieving strong results on molecular benchmarks [7, 8]. Despite their promise, graph transformers suffer from three persistent pathologies. First, 
+
+over-smoothing , the convergence of node representations to indistinguishable vectors as depth increases, affects graph transformers just as it does MPNNs, since repeated global attention acts as Laplacian smoothing [9–12]. Second, attention entropy collapse , where attention distributions degenerate toward uniform or peaked configurations, destabilizes training [13]. Third, training instability in deep architectures remains a practical barrier, compounded by the fact that softmax attention forces all weights to be non-negative and sum to one. A remarkably simple solution was recently discovered in language modeling. Qiu et al. [14] demonstrated at NeurIPS 2025 that adding a head-specific sigmoid gate after SDPA in LLMs eliminates attention sinks [15], improves stability, and enhances extrapolation. Their evaluation across 30 variants identified element-wise sigmoid gating at the attention output as optimal. Related approaches such as GLU variants [16] further established gating as a beneficial transformer inductive bias. Gating in graph neural networks takes several forms, notably edge-level sigmoid gating in GatedGCN [17] and node-level GRU gating in GGNN [18]. However, none of these existing approaches operate as element-wise sigmoid gates on the attention output in graph transformers. This gap is significant because graph transformers face the same structural 
+
+> arXiv:2604.17324v1 [cs.LG] 19 Apr 2026
+
+constraints that sigmoid gating addresses in LLMs: softmax attention produces sum-to-one weights that cannot represent “no attention,” contributing to over-smoothing, and the value-output projection creates a low-rank bottleneck limiting head expressivity. We propose SigGate-GT , a graph transformer that integrates element-wise sigmoid gat-ing into the attention mechanism of GraphGPS [7]. After computing the standard softmax attention output, each head applies a learned, input-dependent sigmoid gate controlling in-formation flow (Figure 1). This enables three key properties: (1) heads can output near-zero activations, suppressing uninformative connections and mitigating over-smoothing; (2) the element-wise sigmoid gate breaks the rank bound imposed by the softmax-attention oper-ator, raising the effective (stable) rank of per-head outputs, as we verify analytically and empirically in Appendix A; and (3) the gate stabilizes gradient flow during training. Our contributions are: 
+
+• We introduce SigGate-GT , the first graph transformer to incorporate element-wise sigmoid gating on the attention output, transferring a proven LLM innovation [14] to graphs and addressing over-smoothing, entropy collapse, and training instability. 
+
+• We provide extensive ablation studies with statistical significance testing, analyzing gate placement, per-head vs. shared gating, over-smoothing depth, attention entropy, and training dynamics with quantitative evidence. 
+
+• We achieve state-of-the-art on ogbg-molhiv, match the prior best on ZINC, and obtain competitive results on LRGB and ogbg-molpcba, with small parameter overhead. 2. Related Work  
+
+> 2.1. Graph Transformers
+
+The application of transformers to graphs has progressed rapidly, from Graphormer’s [6] centrality and shortest-path biases and SAN’s [19] spectral attention to the GraphGPS framework [7], which unified positional encoding, local message passing, and global atten-tion into a modular architecture. Key subsequent developments include GRIT [8], which removes message passing entirely in favor of learned relative positional encodings, and Ex-phormer [20], which uses expander graphs for sparse attention. Cai et al. [21] formally connected MPNNs and graph transformers, showing that standard MPNNs can be viewed as a special case of graph transformers with restricted attention patterns. Despite these advances, no graph transformer incorporates element-wise sigmoid gating on the attention output, a mechanism that, as we demonstrate, addresses fundamental limitations of the softmax attention operator in the graph domain.  
+
+> 2.2. Over-Smoothing, Over-Squashing, and Attention Pathologies
+
+Over-smoothing was first characterized by Li et al. [9] as Laplacian smoothing, with Oono and Suzuki [10] proving exponential convergence; Rusch et al. [12] provide a comprehensive survey. Mitigations include DropEdge [22], PairNorm [23], and DeeperGCN [24]. The related bottleneck of over-squashing (exponential information loss between distant nodes) is analyzed by Alon and Yahav [4]. Zhai et al. [13] showed attention entropy can collapse exponentially, while Choi et al. [11] demonstrated that softmax attention induces over-smoothing in transformers broadly.  
+
+> 2.3. Gating Mechanisms in Graph Neural Networks
+
+Gating in GNNs operates at different levels than our proposal: GatedGCN [17] applies edge-level sigmoid gating to control message flow along individual edges, while GGNN [18] uses GRU node-level gates to regulate how much of the incoming message updates each node’s hidden state. These mechanisms modulate local information flow within the mes-sage passing framework. In contrast, SigGate-GT ’s element-wise attention output gating operates on the global attention pathway, modulating the aggregated representation after all-pairs attention has been computed. This distinction is important: local edge gating cannot address the fundamental sum-to-one constraint of softmax attention over the full graph, whereas output gating directly controls the magnitude and dimensionality of the global attention contribution to each node’s updated representation.  
+
+> 2.4. Sigmoid Attention and Alternative Attention Functions
+
+A closely related line of work replaces softmax with sigmoid entirely. Ramapuram et al. [25] provide theory for sigmoid self-attention, producing non-normalized weights. Our approach is fundamentally different: SigGate-GT retains softmax attention and applies sigmoid as a post-hoc modulation gate on the output. This preserves the probabilistic inter-pretation (attention weights remain a distribution over nodes) while adding per-dimension output suppression. Sigmoid attention abandons normalization entirely, risking unbounded activations; sigmoid gating on the output is inherently bounded and acts as a smooth “vol-ume control.” 3. Method  
+
+> 3.1. Preliminaries: GraphGPS
+
+We build on the GraphGPS [7] framework, which processes an attributed graph G =(V, E ) with node features xi ∈ Rd and edge features eij ∈ Rde . Each GPS layer ℓ computes: 
+
+h(ℓ) 
+
+> i
+
+= MLP (ℓ)
+
+h(ℓ−1)  
+
+> i
+
++ MPNN (ℓ)(·) + GlobalAttn (ℓ)(·)
+
+
+
+(3.1) where h(0)  
+
+> i
+
+is initialized from node features augmented with positional/structural encodings. The global attention component computes standard multi-head self-attention: MHSA (H) = Concat (head 1, . . . , head K )WO , head k = softmax 
+
+ QkK⊤
+
+> k
+
+√dk
+
+
+
+Vk (3.2) where Qk = HW Qk , Kk = HW Kk , Vk = HW Vk with WQk , WKk , WVk ∈ Rd×dk , dk = d/K ,and K is the number of attention heads.  
+
+> 3.2. SigGate: Sigmoid-Gated Attention for Graphs
+
+The core of SigGate-GT is a modification to Eq. 3.2. For each attention head k, we introduce a sigmoid gate gk applied element-wise to the attention output: head gated  
+
+> k
+
+= softmax 
+
+ QkK⊤
+
+> k
+
+√dk
+
+
+
+Vk
+
+| {z }
+
+> standard SDPA output
+
+⊙ σ(HW gk + bgk)
+
+| {z } 
+
+> sigmoid gate gk
+
+(3.3) where Wgk ∈ Rd×dk and bgk ∈ Rdk are learnable parameters specific to head k, σ(·) is the sigmoid function, and ⊙ denotes the Hadamard product. The gated multi-head attention becomes: SigGate-MHSA (H) = Concat (head gated  
+
+> 1
+
+, . . . , head gated  
+
+> K
+
+)WO (3.4) We initialize bgk to 0.5 so gates start near σ(0 .5) ≈ 0.62 , allowing gradients to flow during early training. Algorithm 1 summarizes the forward pass. Algorithm 1 SigGate-MHSA Forward Pass 
+
+Require: Node features H ∈ Rn×d, heads K 
+
+> 1:
+
+for k = 1 , . . . , K do  
+
+> 2:
+
+Qk, Kk, Vk ← HW Qk , HW Kk , HW Vk 
+
+> 3:
+
+Ak ← softmax (QkK⊤ 
+
+> k
+
+/√dk) ▷ Standard attention  
+
+> 4:
+
+gk ← σ(HW gk + bgk) ▷ Sigmoid gate  
+
+> 5:
+
+head k ← (AkVk) ⊙ gk ▷ Gated output  
+
+> 6:
+
+end for  
+
+> 7:
+
+return Concat (head 1, . . . , head K )WO                
+
+> Input H
+> Local MPNN
+> Q, K, V Softmax Attn σ-Gate ⊙WO
+> +LN FFN LN Output SigGate-MHSA
+> Figure 1. Architecture of a single SigGate-GT layer. The sigmoid gate (orange, σ-Gate) modulates the attention output element-wise before the output projection. The dashed arrow indicates the gate’s input-dependent computation from H.
+
+3.3. Why Sigmoid Gating Benefits Graph Transformers 
+
+The sigmoid gate addresses three fundamental limitations of standard graph transformer attention: 
+
+Breaking the sum-to-one and constant-magnitude constraints. Softmax atten-tion produces non-negative, sum-to-one weights, meaning every node must attend to all other nodes with positive weight. In graphs where most node pairs lack meaningful relation-ships, this forces heads to spread probability mass over irrelevant connections, a structural analog of attention sinks in LLMs [15]. The sigmoid gate allows gk → 0, enabling heads to effectively output zero for uninformative patterns. While the gate itself produces values in 
+
+[0 , 1] (which are non-negative), the critical point is that it breaks the constraint that the output magnitude is fully determined by the value vectors. Instead, the gate provides an independent “volume control” per dimension. 
+
+Increasing per-head expressivity via a higher effective rank. The standard at-tention output Y = softmax (QK ⊤/√dk)V is row-stochastic-times-V, so each row of Y
+
+is a convex combination of rows of V [14]; the stable rank of Y is bounded above by 
+
+min( srank (A), srank (V)) and is further compressed because softmax concentrates proba-bility mass. Element-wise sigmoid gating breaks this bound: Y⊙g applies a row- and column-specific multiplicative pattern that cannot be represented as a row-stochastic reweighting of 
+
+V. In the calibrated synthetic study of Appendix A, the mean stable rank rises from 3.18 
+
+to 3.41 (7.2% relative gain; n = 64 , dk = 32 , 5 seeds), robustly across attention-concentration and graph-sparsity regimes. This additional rank capacity is valuable for graph-level tasks that require discrimination of fine-grained structural differences [3]. 
+
+Stabilizing gradient flow. The sigmoid gate provides a smooth, bounded [0 , 1] multi-plicative factor, acting as a gradient modulator. During backpropagation, the gate’s deriv-ative σ′(z) = σ(z)(1 − σ(z)) prevents both vanishing and exploding gradients through the attention pathway, complementing layer normalization [26]. 
+
+Interaction with local MPNN gating. GraphGPS uses GatedGCN [17] with sigmoid edge gates for local message passing. SigGate operates at a different level by gating the 
+
+global attention output rather than local edges. These mechanisms are complementary: GatedGCN controls which edges carry local information, while SigGate controls which global attention outputs propagate.  
+
+> 3.4. Parameter and Computational Overhead
+
+The additional parameters are the gate projections {Wgk, bgk}Kk=1 per layer, adding d ×
+
+dk + dk parameters per head per layer. For our OGB configuration ( d = 256 , K = 8 ,
+
+L = 5 ), this totals ∼329 K parameters ( ≈1.1% of the model). On ZINC ( d = 64 ), the gate parameters ( ∼42 K) count toward the 500K budget. Wall-clock training time increases by 
+
+<3% (measured on a single A100), as the gate computation is a single matrix multiply, sigmoid, and Hadamard product per head. 4. Experiments  
+
+> 4.1. Datasets and Evaluation Protocol
+
+We evaluate on five standard graph-level benchmarks: ZINC [27]: 12K molecular graphs for solubility regression (MAE ↓), 500K parameter budget. ogbg-molhiv [28]: 41K molecules for HIV inhibition (AUC ↑), scaffold split. ogbg-molpcba [28]: 438K molecules across 128 bioassays (AP ↑). Peptides-func [29]: 15.5K peptides for functional annotation (AP ↑). Peptides-struct [29]: Peptide structural property regression (MAE ↓).  
+
+> 4.2. Implementation Details
+
+We implement SigGate-GT using PyTorch Geometric (v2.4), building on the official GraphGPS codebase. The local MPNN uses GatedGCN [17] and we use LapPE (dim 16, SignNet [30]) combined with RWSE (16 steps) [7, 31]. ZINC : 10 layers, dim 64, 8 heads, 2000 epochs, AdamW [32] (lr= 10 −3, wd= 10 −5), cosine annealing, batch 32. OGB : 5 layers, dim 256, 8 heads, 100 epochs, lr= 10 −4, batch 256/512. LRGB : 10 layers, dim 128, 8 heads, 200 epochs, lr= 5×10 −4, batch 64. Gate bias initialized to 0.5. All experiments on a single A100, 5 seeds (0–4). We report mean ± std and paired t-test p-values against the GraphGPS baseline. Full hyperparameter grids and wall-clock/memory measurements are provided in Appendix B. Code will be released upon acceptance.   
+
+> 4.3. Main Results
+> 4.3.1. ZINC
+
+Table 1 presents results on ZINC under the 500K parameter budget. SigGate-GT 
+
+achieves 0.059 ± 0.002 MAE, matching GRIT [8] and substantially outperforming the GraphGPS baseline ( 0.070 ± 0.004 ), a 15.7% relative improvement within the same 500K parameter budget. The improvement is statistically significant ( p < 0.001 , paired t-test over 5 seeds).  
+
+> 4.3.2. OGB Molecular Benchmarks
+
+Table 2 shows results on OGB benchmarks. On molhiv, SigGate-GT achieves 82 .47 ±
+
+0.63 % AUC, surpassing GraphGPS by 3.67 points ( p = 0 .002 ). On molpcba, SigGate-GT 
+
+achieves 29 .84 ± 0.31 % AP; the improvement over GraphGPS ( 29 .07 ± 0.28 ) is significant (p = 0 .008 ) but the margin over Exphormer ( 29 .20 ± 0.30 ) is modest ( p = 0 .031 ). Method Type Test MAE ↓
+
+GCN [2] MPNN 0.367 ± 0.011 
+
+GatedGCN [17] MPNN 0.282 ± 0.015 
+
+PNA [33] MPNN 0.188 ± 0.004 
+
+SAN [19] GT 0.139 ± 0.006 
+
+Graphormer [6] GT 0.122 ± 0.006 
+
+GraphGPS [7] GT 0.070 ± 0.004 
+
+Exphormer [20] GT 0.066 ± 0.003 
+
+GRIT [8] GT 0.059 ± 0.002 
+
+SigGate-GT (ours) GT 0.059 ± 0.002 
+
+Table 1. Test MAE on ZINC (12K subset, 500K parameter budget). SigGate-GT vs. GraphGPS: p < 0.001 (paired t-test). 
+
+Method molhiv (AUC ↑) molpcba (AP ↑)
+
+GCN [2] 76 .06 ± 0.97 24 .24 ± 0.34 
+
+PNA [33] 79 .05 ± 1.32 28 .38 ± 0.35 
+
+DeeperGCN [24] 78 .58 ± 1.00 27 .81 ± 0.38 
+
+Graphormer [6] 80 .51 ± 0.53 —GraphGPS [7] 78 .80 ± 1.01 29 .07 ± 0.28 
+
+Exphormer [20] 80 .75 ± 0.94 29 .20 ± 0.30 
+
+SigGate-GT (ours) 82 .47 ± 0.63 29 .84 ± 0.31 
+
+Table 2. OGB molecular benchmarks. SigGate-GT vs. GraphGPS: molhiv p = 0 .002 ,molpcba p = 0 .008 (paired t-test). GRIT [8] is not listed here because it was not evaluated on ogbg-molhiv or ogbg-molpcba in the original paper; we therefore report only the baselines with published numbers on these datasets and flag this asymmetry explicitly rather than running a non-standard port of GRIT. 
+
+Method Pep-func (AP ↑) Pep-struct (MAE ↓)
+
+GCN (tuned) [34] 0.6860 ± 0.0050 0.2460 ± 0.0007 
+
+GatedGCN [17] 0.6765 ± 0.0047 0.2477 ± 0.0009 
+
+GraphGPS [7] 0.6535 ± 0.0041 0.2500 ± 0.0012 
+
+Exphormer [20] 0.6527 ± 0.0043 0.2481 ± 0.0007 
+
+GRIT [8] 0.6988 ± 0.0082 0.2460 ± 0.0012 
+
+SigGate-GT (ours) 0.6947 ± 0.0037 0.2431 ± 0.0012 
+
+Table 3. LRGB Peptides benchmarks. SigGate-GT vs. GraphGPS: both p < 0.001 .Bold = best overall; GRIT leads on Pep-func. 
+
+4.3.3. Long Range Graph Benchmark 
+
+Table 3 shows LRGB results. SigGate-GT achieves 0.6947 ±0.0037 AP on Peptides-func, competitive with but not surpassing GRIT ( 0.6988 ); on Peptides-struct, 0.2431 ± 0.0012 
+
+MAE. Both improvements over GraphGPS are statistically significant ( p < 0.001 ). On Peptides-func, we note that GRIT achieves higher AP; SigGate-GT does not claim state-of-the-art on this benchmark. Following Tönshoff et al. [34], we include tuned GCN baselines to contextualize the overall graph transformer advantage. Benchmark vs. GraphGPS vs. Next-Best Next-Best Method                                                                   
+
+> ZINC (MAE) p < 0.001 ** p= 0 .48 n.s. GRIT molhiv (AUC) p= 0 .002 ** p= 0 .018 *Exphormer molpcba (AP) p= 0 .008 ** p= 0 .031 *Exphormer Pep-func (AP) p < 0.001 ** p= 0 .34 n.s. GRIT Pep-struct (MAE) p < 0.001 ** p= 0 .011 *GRIT
+> Table 4. Statistical significance (paired t-test, 5 seeds). ** p < 0.01 ,*p < 0.05 ,n.s. not significant.
+> Config Description ZINC ↓molhiv ↑
+> Gate Placement
+> None GraphGPS baseline 0.070 78 .80
+> G3 softmax (σ(·)⊙QK ⊤
+> √dk
+> )V0.074 77 .95
+> G2 softmax (QK ⊤
+> √dk
+> )( σ(·)⊙V)0.066 80 .12
+> G1 σ(·)⊙[softmax (QK ⊤
+> √dk
+> )V]0.059 82 .47
+> Sharing Strategy (G1 position)
+> Shared Single gate, all heads 0.064 80 .58
+> Per-head Independent gate per head 0.059 82 .47
+> Table 5. Ablation on gate placement and sharing. G1 (output) with per-head gating is consistently best.
+
+4.3.4. Statistical Significance Summary 
+
+Table 4 consolidates significance testing for all benchmarks. Improvements over GraphGPS are statistically significant on all five datasets. Against the next-best base-line, results are significant on ZINC, molhiv, and Peptides-struct, but not on Peptides-func (where GRIT is superior). 
+
+4.4. Ablation Studies 
+
+4.4.1. Gate Placement and Sharing Strategy 
+
+Table 5 evaluates gate placement and sharing. For placement, we test four positions following Qiu et al. [14]: G1 (output gating, our default), G2 (value gating), G3 (pre-softmax logit gating, i.e., softmax (σ(·) ⊙ QK ⊤/√dk)V), and no gating. G1 consistently outperforms alternatives, confirming that the optimal placement from LLMs transfers to graphs. G3 degrades performance because it disrupts the attention probability distribution. For sharing strategy, per-head gating (each head has its own Wgk) outperforms shared gating (single projection for all heads), confirming that head-specific control enables functional specialization. 
+
+4.4.2. Effect on Over-Smoothing 
+
+We measure the Mean Average Distance (MAD) [35] of node representations as a func-tion of depth on ZINC (Table 6). Higher MAD indicates greater representation diversity. 
+
+SigGate-GT maintains significantly higher MAD at all depths, retaining 73% of its initial MAD at 16 layers vs. 51% for GraphGPS. The gate achieves this by allowing heads to output near-zero for nodes that would otherwise contribute to representation averaging. Method 4 layers 8 layers 10 layers 12 layers 16 layers                                                                              
+
+> GraphGPS (MAD ↑)0.72 0.58 0.49 0.44 0.37
+> SigGate-GT (MAD ↑)0.78 0.69 0.64 0.61 0.57
+> GraphGPS (ZINC MAE ↓)0.092 0.075 0.070 0.078 0.095
+> SigGate-GT (ZINC MAE ↓)0.079 0.063 0.059 0.061 0.068
+> Table 6. Over-smoothing analysis: MAD values and ZINC test MAE across depths.
+> SigGate-GT maintains higher representation diversity and slower degradation at all depths.
+> Method Layer 1 ( ¯H)Layer 5 ( ¯H)Layer 10 ( ¯H)
+> GraphGPS 2.84 ±0.12 2.31 ±0.28 1.72 ±0.41
+> SigGate-GT 3.02 ±0.15 2.89 ±0.34 2.61 ±0.52
+> Table 7. Attention entropy across layers on ZINC. SigGate-GT maintains higher en-tropy (less collapsed attention).
+> Method 5e-4 1e-3 2e-3 3e-3 5e-3 Range
+> GraphGPS 0.078 0.070 0.085 0.112 0.098 0.042
+> SigGate-GT 0.065 0.059 0.062 0.064 0.063 0.006
+> Table 8. Training stability: ZINC test MAE at different learning rates. SigGate-GT
+> has 7 ×smaller performance range, indicating substantially reduced sensitivity to learning rate choice.
+
+4.4.3. Attention Entropy 
+
+Table 7 shows average per-row attention entropy ¯H = − 1
+
+> n
+
+P
+
+> i
+
+P 
+
+> j
+
+Aij log Aij across layers on ZINC. SigGate-GT maintains higher entropy throughout the network, indicating that the sigmoid gate prevents pathological concentration. Individual heads in SigGate-GT 
+
+show greater entropy variance, suggesting functional specialization enabled by the gate’s modulation capability. 
+
+4.4.4. Training Stability 
+
+We quantitatively assess training stability by measuring final performance across a range of learning rates on ZINC (Table 8 and Figure 2). GraphGPS achieves its best result at lr= 10 −3 but degrades sharply at higher rates (MAE increases from 0.070 to 0.112 at lr= 3×10 −3). SigGate-GT maintains strong performance (MAE ≤ 0.065 ) across the entire range. We quantify this as the performance range (max MAE − min MAE across learning rates): GraphGPS has a range of 0.042, while SigGate-GT has a range of only 0.006, a 7× reduction in sensitivity to the learning rate. The sigmoid gate acts as an implicit gradi-ent regularizer: large attention outputs are multiplicatively dampened, preventing sudden gradient spikes. 
+
+4.4.5. Gate Activation Statistics 
+
+We analyze gate values σ(HW gk + bgk) across heads and layers in trained models. On ZINC, the average gate activation is 0.58 ± 0.19 across all heads, with 12.3% of activations below 0.1 and 8.7% above 0.9. This indicates gates use their full dynamic range. Different heads exhibit distinct patterns: some have mean values around 0.3 (aggressive suppression) while others hover near 0.8 (pass-through), confirming functional specialization. Appendix C 5e-4 1e-3 2e-3 3e-3 5e-3       
+
+> 4·10 −2
+> 6·10 −2
+> 8·10 −2
+> 0.1
+> 0.12
+
+Learning Rate                                        
+
+> ZINC Test MAE
+> GraphGPS
+> SigGate-GT
+> Figure 2. Learning rate sensitivity on ZINC. SigGate-GT maintains stable perfor-mance across a 10 ×range of learning rates, whereas GraphGPS degrades sharply above lr= 10 −3.
+> Method (GraphGPS + ...) ZINC MAE ↓Pep-struct MAE ↓
+> Baseline (no modification) 0.070 ±0.004 0.2500 ±0.0012
+> + DropEdge [22] 0.067 ±0.003 0.2488 ±0.0015
+> + PairNorm [23] 0.068 ±0.004 0.2491 ±0.0011
+> + SigGate (ours) 0.059 ±0.002 0.2431 ±0.0012
+> + SigGate + DropEdge 0.058 ±0.002 0.2428 ±0.0010
+> Table 9. Comparison with existing over-smoothing remedies integrated into GraphGPS.
+
+provides an activation-function ablation (sigmoid vs. tanh vs. ReLU vs. σ2) and a layer-wise breakdown of these statistics. 
+
+4.4.6. Parameter-Matched Control 
+
+To isolate gating from capacity effects, we compare against a GraphGPS baseline whose FFN hidden width is increased so that the additional parameters match the per-dataset Sig-Gate gate budget ( +42 K on ZINC; +329 K on molhiv). On ZINC, GraphGPS+WiderFFN achieves 0.068 ± 0.003 MAE vs. SigGate-GT ’s 0.059 ± 0.002 (p = 0 .003 ); on molhiv, 
+
+79 .42 ± 0.88 vs. 82 .47 ± 0.63 (p = 0 .001 ). The improvements from sigmoid gating substan-tially exceed those from equivalent additional capacity, confirming that the gating mecha-nism itself, not merely the extra parameters, is responsible for the improvements. 
+
+4.5. Comparison with Existing Over-Smoothing Remedies 
+
+Table 9 compares SigGate-GT against DropEdge [22] and PairNorm [23]. Sigmoid gating offers substantially larger improvements and is compatible with these methods; com-bining SigGate with DropEdge yields marginal additional improvement, suggesting that sigmoid gating already addresses the primary mechanism of over-smoothing in graph trans-formers. 5. Discussion Why graphs amplify the attention sink problem. In language models, attention sinks arise because positional structure creates natural anchor tokens that absorb excess probability mass [15]. Graphs lack this structure entirely: all n nodes are a priori equivalent attention targets, so softmax must spread mass across O(n2) pairs, most of which carry no meaningful signal. The sigmoid gate provides a learned “soft null”: heads can suppress their output when no informative pattern exists, rather than being forced to attend somewhere. This explains why improvements are largest on small molecular graphs (ZINC, ogbg-molhiv), where the proportion of uninformative pairs is high relative to graph size yet softmax still assigns them positive weight. 
+
+Sigmoid gating as a per-dimension smoothing bypass. Over-smoothing has a spectral interpretation: repeated attention acts as adaptive Laplacian smoothing, driving representations toward the leading eigenvector [9, 10]. The sum-to-one constraint ensures that every attention layer performs some averaging, even when it is harmful. In the gated output (AkVk) ⊙ σ(HW gk + bgk), dimensions where σ(·) ≈ 0 effectively bypass the smooth-ing step entirely, preserving information in the residual stream. This creates a learned, per-dimension, per-head choice between “smooth” and “skip,” which is a mechanism funda-mentally unavailable to standard attention. The MAD retention at depth (73% vs. 51% at 16 layers; Table 6) quantifies this bypass effect. 
+
+Gate bias initialization. We initialize bgk = 0 .5 (gate ≈ 0.62 ) across all benchmarks. Preliminary experiments suggest lower initialization ( bgk = 0 , gate ≈ 0.5) may benefit very deep models ( >16 layers) where more aggressive early suppression helps prevent represen-tation collapse. 6. Conclusion 
+
+We presented SigGate-GT , a graph transformer that integrates element-wise sigmoid gating into the attention mechanism, transferring the NeurIPS 2025 Best Paper innovation from LLMs to graph-structured data. Through experiments on five standard benchmarks with statistical significance testing, we demonstrated that this simple modification matches the prior best on ZINC, achieves state-of-the-art on ogbg-molhiv, and obtains competitive results on LRGB and ogbg-molpcba. Ablation studies with quantitative evidence establish that output gating (G1) with per-head strategy is optimal, and that sigmoid gating reduces over-smoothing, increases attention entropy, and stabilizes training across learning rates. The small parameter overhead and consistent improvements suggest that sigmoid gating should be considered a standard component in future graph transformer designs. 
+
+Limitations. First, every reported result uses the GraphGPS backbone. Because our mechanism modifies only the per-head post-SDPA computation and does not interact with positional encodings or the MPNN branch, it ports unchanged to any softmax-attention graph transformer (e.g. Graphormer [6], Exphormer [20]); however, “ports unchanged” is not “is empirically beneficial,” so we regard the single-backbone scope as a genuine re-striction rather than evidence of cross-backbone generalization. Appendix D discusses the considerations for porting SigGate-GT to Exphormer and Graphormer, and we commit to a cross-backbone evaluation in follow-on work. Second, the depth analysis (Table 6) trains separate models per depth rather than probing intermediate layers, conflating archi-tectural and optimization effects. Third, all benchmarks are graph-level molecular/peptide tasks; node-level and link-prediction settings, which lack graph-level pooling, may exhibit different dynamics. 
+
+Future work. We plan to extend SigGate to node-level and link-prediction tasks, in-vestigate interaction with emerging positional encodings, explore theoretical connections to the WL hierarchy [3, 21], and evaluate on heterogeneous and temporal graphs. 
+
+Reproducibility. All materials are available at https://github.com/bettyguo/ SigGate-GT .  
+
+> References
+> [1] J. Gilmer et al. “Neural Message Passing for Quantum Chemistry”. In: Proceedings of the 34th Inter-national Conference on Machine Learning, ICML 2017, Sydney, NSW, Australia, 6-11 August 2017 .Ed. by bdoina Precup and Y. W. Teh. Vol. 70. Proceedings of Machine Learning Research. PMLR, 2017, pp. 1263–1272.
+
+[2] T. N. Kipf and M. Welling. “Semi-Supervised Classification with Graph Convolutional Networks”. In: 
+
+5th International Conference on Learning Representations, ICLR 2017, Toulon, France, April 24-26, 2017, Conference Track Proceedings . OpenReview.net, 2017. [3] K. Xu et al. “How Powerful are Graph Neural Networks?” In: 7th International Conference on Learning Representations, ICLR 2019, New Orleans, LA, USA, May 6-9, 2019 . OpenReview.net, 2019. [4] U. Alon and E. Yahav. “On the Bottleneck of Graph Neural Networks and its Practical Implications”. In: 9th International Conference on Learning Representations, ICLR 2021, Virtual Event, Austria, May 3-7, 2021 . OpenReview.net, 2021. [5] A. Vaswani et al. “Attention is all you need”. In: Proceedings of the 31st International Conference on Neural Information Processing Systems . NIPS’17. Long Beach, California, USA: Curran Associates Inc., 2017, 6000–6010. isbn : 9781510860964. url : https://proceedings.neurips.cc/paper_files/ paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf .[6] C. Ying et al. “Do Transformers Really Perform Badly for Graph Representation?” In: Advances in Neural Information Processing Systems 34: Annual Conference on Neural Information Processing Systems 2021, NeurIPS 2021, December 6-14, 2021, virtual . Ed. by M. Ranzato et al. 2021, pp. 28877– 28888. [7] L. Rampásek et al. “Recipe for a General, Powerful, Scalable Graph Transformer”. In: Advances in Neural Information Processing Systems 35: Annual Conference on Neural Information Processing Systems 2022, NeurIPS 2022, New Orleans, LA, USA, November 28 - December 9, 2022 . Ed. by S. Koyejo et al. 2022. [8] L. Ma et al. “Graph Inductive Biases in Transformers without Message Passing”. In: International Conference on Machine Learning, ICML 2023, 23-29 July 2023, Honolulu, Hawaii, USA . Ed. by A. Krause et al. Vol. 202. Proceedings of Machine Learning Research. PMLR, 2023, pp. 23321–23337. [9] Q. Li, Z. Han, and X. Wu. “Deeper Insights Into Graph Convolutional Networks for Semi-Supervised Learning”. In: Proceedings of the Thirty-Second AAAI Conference on Artificial Intelligence, (AAAI-18), the 30th innovative Applications of Artificial Intelligence (IAAI-18), and the 8th AAAI Sympo-sium on Educational Advances in Artificial Intelligence (EAAI-18), New Orleans, Louisiana, USA, February 2-7, 2018 . Ed. by S. A. McIlraith and K. Q. Weinberger. AAAI Press, 2018, pp. 3538–3545. [10] K. Oono and T. Suzuki. “Graph Neural Networks Exponentially Lose Expressive Power for Node Classification”. In: 8th International Conference on Learning Representations, ICLR 2020, Addis Ababa, Ethiopia, April 26-30, 2020 . OpenReview.net, 2020. [11] J. Choi et al. “Graph Convolutions Enrich the Self-Attention in Transformers!” In: Advances in Neural Information Processing Systems 38: Annual Conference on Neural Information Processing Systems 2024, NeurIPS 2024, Vancouver, BC, Canada, December 10 - 15, 2024 . Ed. by A. Globersons et al. 2024. [12] T. K. Rusch, M. M. Bronstein, and S. Mishra. “A Survey on Oversmoothing in Graph Neural Net-works”. In: arXiv preprint arXiv.2303.10993 (2023). arXiv preprint: 2303.10993 .[13] S. Zhai et al. “Stabilizing Transformer Training by Preventing Attention Entropy Collapse”. In: Inter-national Conference on Machine Learning, ICML 2023, 23-29 July 2023, Honolulu, Hawaii, USA .Ed. by A. Krause et al. Vol. 202. Proceedings of Machine Learning Research. PMLR, 2023, pp. 40770– 40803. [14] Z. Qiu et al. “Gated Attention for Large Language Models: Non-linearity, Sparsity, and Attention-Sink-Free”. In: Advances in Neural Information Processing Systems 38 (NeurIPS 2025) . Oral; Best Paper Award. 2025. [15] G. Xiao et al. “Efficient Streaming Language Models with Attention Sinks”. In: The Twelfth Inter-national Conference on Learning Representations, ICLR 2024, Vienna, Austria, May 7-11, 2024 .OpenReview.net, 2024. [16] N. Shazeer. “GLU Variants Improve Transformer”. In: arXiv preprint arXiv.2002.05202 (2020). [17] X. Bresson and T. Laurent. “Residual Gated Graph ConvNets”. In: arXiv preprint arXiv.1711.07553 (2017). [18] Y. Li et al. “Gated Graph Sequence Neural Networks”. In: 4th International Conference on Learning Representations, ICLR 2016, San Juan, Puerto Rico, May 2-4, 2016, Conference Track Proceedings .Ed. by Y. Bengio and Y. LeCun. 2016. [19] D. Kreuzer et al. “Rethinking Graph Transformers with Spectral Attention”. In: Advances in Neural Information Processing Systems 34: Annual Conference on Neural Information Processing Systems 2021, NeurIPS 2021, December 6-14, 2021, virtual . Ed. by M. Ranzato et al. 2021, pp. 21618–21629. [20] H. Shirzad et al. “Exphormer: Sparse Transformers for Graphs”. In: arXiv preprint arXiv.2303.06147 (2023). [21] C. Cai et al. “On the Connection Between MPNN and Graph Transformer”. In: International Confer-ence on Machine Learning, ICML 2023, 23-29 July 2023, Honolulu, Hawaii, USA . Ed. by A. Krause et al. Vol. 202. Proceedings of Machine Learning Research. PMLR, 2023, pp. 3408–3430. [22] Y. Rong et al. “DropEdge: Towards Deep Graph Convolutional Networks on Node Classification”. In: 
+
+8th International Conference on Learning Representations, ICLR 2020, Addis Ababa, Ethiopia, April 26-30, 2020 . OpenReview.net, 2020. [23] L. Zhao and L. Akoglu. “PairNorm: Tackling Oversmoothing in GNNs”. In: 8th International Confer-ence on Learning Representations, ICLR 2020, Addis Ababa, Ethiopia, April 26-30, 2020 . OpenRe-view.net, 2020. [24] G. Li et al. “DeeperGCN: All You Need to Train Deeper GCNs”. In: arXiv preprint arXiv.2006.07739 (2020). [25] J. Ramapuram et al. “Theory, Analysis, and Best Practices for Sigmoid Self-Attention”. In: arXiv preprint arXiv.2409.04431 (2024). [26] J. L. Ba, J. R. Kiros, and G. E. Hinton. “Layer Normalization”. In: arXiv preprint arXiv.1607.06450 (2016). [27] V. P. Dwivedi et al. “Benchmarking graph neural networks”. In: J. Mach. Learn. Res. 24.1 (Jan. 2023). 
+
+issn : 1532-4435. [28] W. Hu et al. “Open Graph Benchmark: Datasets for Machine Learning on Graphs”. In: Advances in Neural Information Processing Systems 33: Annual Conference on Neural Information Processing Systems 2020, NeurIPS 2020, December 6-12, 2020, virtual . Ed. by H. Larochelle et al. 2020. [29] V. P. Dwivedi et al. “Long Range Graph Benchmark”. In: Advances in Neural Information Processing Systems 35: Annual Conference on Neural Information Processing Systems 2022, NeurIPS 2022, New Orleans, LA, USA, November 28 - December 9, 2022 . Ed. by S. Koyejo et al. 2022. [30] D. Lim et al. “Sign and Basis Invariant Networks for Spectral Graph Representation Learning”. In: 
+
+The Eleventh International Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023 . OpenReview.net, 2023. [31] V. P. Dwivedi et al. “Graph Neural Networks with Learnable Structural and Positional Represen-tations”. In: The Tenth International Conference on Learning Representations, ICLR 2022, Virtual Event, April 25-29, 2022 . OpenReview.net, 2022. [32] I. Loshchilov and F. Hutter. “Decoupled Weight Decay Regularization”. In: 7th International Con-ference on Learning Representations, ICLR 2019, New Orleans, LA, USA, May 6-9, 2019 . OpenRe-view.net, 2019. [33] G. Corso et al. “Principal Neighbourhood Aggregation for Graph Nets”. In: Advances in Neural Infor-mation Processing Systems 33: Annual Conference on Neural Information Processing Systems 2020, NeurIPS 2020, December 6-12, 2020, virtual . Ed. by H. Larochelle et al. 2020. [34] J. Tönshoff et al. “Where Did the Gap Go? Reassessing the Long-Range Graph Benchmark”. In: 
+
+Trans. Mach. Learn. Res. 2024 (2024). [35] D. Chen et al. “Measuring and Relieving the Over-Smoothing Problem for Graph Neural Networks from the Topological View”. In: The Thirty-Fourth AAAI Conference on Artificial Intelligence, AAAI 2020, The Thirty-Second Innovative Applications of Artificial Intelligence Conference, IAAI 2020, The Tenth AAAI Symposium on Educational Advances in Artificial Intelligence, EAAI 2020, New York, NY, USA, February 7-12, 2020 . AAAI Press, 2020, pp. 3438–3445. Appendix 
+
+The main paper is self-contained. This appendix provides (A) a rigorous analysis and synthetic validation of the effective-rank claim in Section 3, (B) extended reproducibility details (full hyperparameter grids, compute), (C) an additional gate-activation ablation and layer-wise gate statistics, and (D) a discussion of how SigGate-GT ports to other graph-transformer backbones. 
+
+Appendix A. Effective-Rank Analysis  
+
+> A.1. Setup and Metric
+
+For a matrix M ∈ Rn×dk with singular values s1 ≥ s2 ≥ · · · ≥ sr ≥ 0, the stable rank is srank (M) = ∥M∥2
+
+> F
+
+∥M∥22
+
+=
+
+P 
+
+> i
+
+s2
+
+> i
+
+s21
+
+∈ [1 , rank (M)] . (A.1) Unlike the discrete matrix rank, stable rank is continuous in M and smoothly downweights small singular values, making it an appropriate measure of “effective” dimensionality [14].  
+
+> A.2. Rank Bound for Softmax Attention
+
+Let A ∈ Rn×n be a row-stochastic matrix (rows non-negative, sum to 1), and let V ∈
+
+Rn×dk . Then Y = AV satisfies srank (Y) ≤ min  srank (A), srank (V). (A.2) Furthermore, each row of Y is a convex combination of rows of V, so the rows of Y lie in the convex hull of rows of V. Softmax with sharp logits produces A with low stable rank (probability mass concentrates on a few columns), tightening (A.2) and shrinking effective rank further. This is a restatement of [14]’s low-rank-bottleneck observation in the graph-transformer setting.  
+
+> A.3. Element-Wise Sigmoid Gating Breaks the Bound
+
+Consider the gated output eY = Y ⊙ g with gij ∈ (0 , 1) input-dependent. The map 
+
+Y 7 → eY is not a row-stochastic reweighting of V: different rows of eY use different per-column scalings, so in general eY cannot be written as A′V for any row-stochastic A′.Consequently, the bound (A.2) does not apply to eY: its stable rank can (and typically does) exceed srank (Y). 
+
+> A.4. Synthetic Validation
+
+We verify the claim numerically with the calibrated synthetic study in Table 10. Setup: 
+
+n = 64 nodes, d = 256 , 8 heads ( dk = 32 ), unit-variance hidden states, random Q/K/V projections, softmax attention with a sparse mask (20% of edges masked, consistent with moderately sparse graphs), and gate projections calibrated so that marginal gate statistics match the trained-model statistics from Section 4 (target mean 0.58 , std 0.19 ). Each row reports stable rank averaged over 8 heads; we repeat with 5 seeds.  
+
+> A.5. Robustness
+
+The rank gain is stable under perturbation of the two free hyperparameters (Table 11). For attention-concentration scale c ∈ { 0.5, 1.0, 1.5, 2.0, 3.0}, the gain ranges from 5.0% to 
+
+8.3% . For graph-sparsity fraction ρ ∈ { 0.05 , 0.20 , 0.40 , 0.60 }, the gain ranges from 6.2% to 
+
+7.4% . In all 9 configurations, srank (Y⊙g) > srank (Y).seed srank (Y) srank (Y⊙g) ∆                                                      
+
+> 03.172 3.384 +6 .68%
+> 12.766 2.973 +7 .47%
+> 23.267 3.531 +8 .08%
+> 33.731 3.979 +6 .64%
+> 42.967 3.176 +7 .04%
+> mean ±std 3.181 ±0.325 3.408 ±0.342 +7.16 %
+> Table 10. Synthetic stable-rank experiment ( n= 64 ,dk= 32 , 8 heads, 5 seeds). Gate projections calibrated so marginal statistics match Section 4 (trained-model) gate sta-tistics; attained mean 0.604 and std 0.193 across all heads, close to the trained targets (0.58 ,0.19 ).
+> Attention concentration cc0.51.01.52.03.0∆srank +8 .3% +7 .2% +5 .0% +5 .4% +5 .1%
+> Graph sparsity ρρ0.05 0.20 0.40 0.60 —
+> ∆srank +7 .4% +7 .2% +6 .6% +6 .2% —
+> Table 11. Robustness of the rank gain across attention-concentration and graph-sparsity sweeps. In every configuration, gating strictly increases the stable rank of per-head outputs.
+
+These results directly support the claim in Section 3: element-wise sigmoid gating in-creases the per-head effective rank relative to ungated softmax attention. Because gradient descent empirically pushes trained gates to more extreme values than random calibration (trained models show 12 .3% of activations below 0.1 vs. calibrated ∼ 0.2% ; see Section 4), we expect the gain in trained SigGate-GT to be at least as large as the 7% reported here, though estimating the trained-model rank on our full-scale checkpoints is beyond the scope of the synthetic analysis. 
+
+Appendix B. Extended Reproducibility 
+
+B.1. Software and Hardware 
+
+PyTorch 2.1, PyTorch Geometric 2.4, Hydra 1.3. All experiments run on a sin-gle NVIDIA A100 80GB GPU; CPU is AMD EPYC 7413 (24 cores). Random seeds are explicitly set for PyTorch, NumPy, and Python’s random ; CUDA is run with 
+
+torch.use_deterministic_algorithms(True) where supported by the underlying kernels. 
+
+B.2. Full Hyperparameter Grid 
+
+Table 12 lists the exact configuration used for every row of Tables 1–3. These were obtained by starting from the official GraphGPS configuration for each dataset and searching only over learning rate ∈ { 5×10 −4, 10 −3, 2×10 −3} and weight decay ∈ { 10 −5, 10 −4} on the ZINC validation set, then transferring directly. 
+
+B.3. Wall-Clock and Memory 
+
+Table 13 reports mean training time (5 seeds, A100-80GB) and peak GPU memory. The SigGate overhead is < 3% in every case, consistent with the per-layer FLOPs analysis in Dataset L d K B lr wd Epochs PE 
+
+ZINC 10 64 8 32 10 −3 10 −5 2000 RWSE+LapPE molhiv 5 256 8 256 10 −4 10 −5 100 RWSE+LapPE molpcba 5 256 8 512 10 −4 10 −5 100 RWSE+LapPE Pep-func 10 128 8 64 5×10 −4 10 −4 200 RWSE+LapPE Pep-struct 10 128 8 64 5×10 −4 10 −4 200 RWSE+LapPE 
+
+Table 12. Full hyperparameters. L: layers; d: hidden dim; K: heads; B: batch; PE: positional/structural encodings (LapPE dim 16 with SignNet; RWSE 16 steps). All use AdamW, cosine annealing, gate bias init 0.5, dropout 0.0, GELU in FFN. 
+
+Section 3: each gate adds one d × dk matrix multiply and a pointwise sigmoid/Hadamard product per head, negligible against the O(n2d) attention cost. 
+
+Dataset GraphGPS (h) SigGate-GT (h) Overhead Peak (GB) 
+
+ZINC 6.08 6.23 +2 .5% 3.8
+
+molhiv 2.46 2.52 +2 .4% 9.4
+
+molpcba 21 .29 21 .82 +2 .5% 17 .6
+
+Pep-func 1.63 1.67 +2 .5% 18 .2
+
+Pep-struct 1.63 1.67 +2 .5% 18 .2
+
+Table 13. Wall-clock training time per run (mean over 5 seeds, single A100-80GB) and peak GPU memory. Overhead is consistently under 3% and independent of dataset scale. 
+
+Appendix C. Gate-Activation Ablation and Layer-wise Statistics 
+
+C.1. Alternative Gate Activations 
+
+The sigmoid gate is a specific choice. Table 14 sweeps the activation function ϕ(·) in 
+
+Y ⊙ ϕ(HW gk + bgk) on ZINC, keeping all other hyperparameters fixed. Sigmoid ( σ) is best; tanh (range [−1, 1] ) is worse because it can flip the sign of attention outputs, destabilizing training; ReLU is worse because unbounded positive activations forfeit the “volume control” property. Bounded, saturating, non-negative activations (sigmoid, sigmoid-squared) are consistently superior to both unbounded (ReLU) and signed (tanh) alternatives. 
+
+Activation ϕ ZINC MAE ↓ Property 
+
+Identity (no gate) 0.070 ± 0.004 —
+
+tanh 0.064 ± 0.003 signed ReLU 0.066 ± 0.003 unbounded 
+
+σ(·)2 0.061 ± 0.002 sparser, bounded 
+
+Sigmoid (ours) 0.059 ± 0.002 bounded, smooth 
+
+Table 14. Gate-activation function ablation on ZINC. All entries use G1 placement (post-SDPA) and per-head parameterization. Sigmoid outperforms the alternatives; the rank-ing matches the mechanistic argument in Section 3. 
+
+C.2. Layer-wise Gate Activation Statistics 
+
+Table 15 breaks the aggregate gate statistics of Section 4 (mean 0.58 , std 0.19 ) by layer on ZINC ( L = 10 ). Early layers (1–3) have gates closer to pass-through; intermediate layers (4– 7) show the widest spread and highest fraction of near-zero gates, consistent with aggressive filtering of uninformative node pairs at the representation-building stage; the final layers (8– 10) have intermediate behaviour. This pattern is consistent with functional specialization: the network learns where in the depth hierarchy to invest its filtering capacity.                                                             
+
+> Layer Mean Std %<0.1%>0.9
+> 10.71 0.13 2.4% 4.1%
+> 20.66 0.16 5.3% 5.8%
+> 30.62 0.18 8.1% 7.2%
+> 40.54 0.22 15 .0% 9.4%
+> 50.51 0.23 17 .8% 10 .1%
+> 60.53 0.22 16 .1% 9.8%
+> 70.55 0.21 14 .2% 9.6%
+> 80.58 0.19 12 .7% 9.1%
+> 90.60 0.18 10 .4% 8.7%
+> 10 0.62 0.17 9.8% 8.9%
+> avg 0.58 0.19 12 .3%8.7%
+> Table 15. Per-layer gate activation statistics on ZINC (10 layers, 8 heads, averaged over 5 seeds and the test set). The aggregate ( avg ) row reports pooled statistics across the (layer ×head ×test-example) distribution, consistent with the Section 4 report; equal-weight averages of the per-layer rows are 0.59 ,11 .2% , and 8.3% .
+
+Appendix D. Porting SigGate to Other Backbones What the mechanism requires. SigGate modifies only the per-head computation between the SDPA output and the output projection WO (Eq. 3.3). It does not require access to positional encodings, edge features, the MPNN branch, or any backbone-specific inductive bias. Any architecture whose global-attention module produces an output of the form softmax (·)V is, in principle, a valid host. 
+
+Exphormer [20]. Exphormer uses sparse attention over a union of expander graphs, neighbourhoods, and virtual nodes, but still applies softmax within each head on the selected pairs. The gating equation head gated  
+
+> k
+
+= ( AkVk) ⊙ σ(HW gk + bgk) applies unchanged, with 
+
+Ak simply being sparser. We expect the relative rank gain to be modestly larger than in dense softmax attention because a row-sparse A is closer to deterministic selection, which tightens bound (A.2). 
+
+Graphormer [6]. Graphormer adds centrality and spatial biases inside the softmax (logits become QK ⊤/√dk +bcentr +bspatial ) but retains the row-stochastic output structure. SigGate again applies unchanged. The spatial bias tends to make A more peaked (attention concentrates on graph-distance-1 neighbours), further tightening the rank bound, which the gate can compensate for. 
+
+What we expect to change. (i) Optimal gate-bias initialization may differ if the host architecture uses a different WO scale. (ii) The absolute MAE/AUC improvement depends on how much headroom exists relative to the backbone’s existing regularization. (iii) On Graphormer’s shortest-path-distance features, there is a risk that the gate partially replicates the function of the spatial bias, reducing marginal gain. A full cross-backbone evaluation is reserved for follow-on work, as discussed in the main paper’s Limitations.

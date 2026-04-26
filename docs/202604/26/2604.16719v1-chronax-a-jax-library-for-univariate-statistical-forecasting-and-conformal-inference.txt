@@ -1,0 +1,501 @@
+Title: Chronax: A Jax Library for Univariate Statistical Forecasting and Conformal Inference
+
+URL Source: https://arxiv.org/pdf/2604.16719v1
+
+Published Time: Tue, 21 Apr 2026 00:24:02 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# CHRONAX : A J AX LIBRARY FOR UNIVARIATE STATISTICAL 
+
+# FORECASTING AND CONFORMAL INFERENCE 
+
+Xan Carey ∗ Yash Deshmukh ∗ Aileen Huang ∗ Sunit Jadhav ∗ Omkar Tekawade ∗ Lorraine Yang ∗
+
+Anvesha Tiwary Gerardo Riano Amy Greenwald 
+
+Simulacrum 
+
+New York City, NY, USA 
+
+Denizalp Goktas 
+
+## ABSTRACT 
+
+Time-series forecasting is central to many scientific and industrial domains, such as energy systems, climate modeling, finance, and retail. While forecasting methods have evolved from classical sta-tistical models to automated, and neural approaches, the surrounding software ecosystem remains anchored to the traditional Python numerical stack. Existing libraries rely on interpreter-driven execu-tion and object-oriented abstractions, limiting composability, large-scale parallelism, and integration with modern differentiable and accelerator-oriented workflows. Meanwhile, today’s forecasting increasingly involves large collections of heterogeneous time series data, irregular covariates, and frequent retraining, placing new demands on scalability and execution efficiency. JAX offers an alternative paradigm to traditional stateful numerical computation frameworks based on pure func-tions and program transformations such as just-in-time compilation and automatic vectorization, enabling end-to-end optimization across CPUs, GPUs, and TPUs. However, this modern paradigm has not yet been fully incorporated into the design of forecasting systems. We introduce Chronax , a JAX-native time-series forecasting library that rethinks forecasting abstractions around functional purity, composable transformations, and accelerator-ready execution. By representing preprocessing, modeling, and multi-horizon prediction as pure JAX functions, Chronax enables scalable multi-series forecasting, model-agnostic conformal uncertainty quantification, and seamless integration with modern machine learning and scientific computing pipelines. We provide access to our code on GitHub: https://github.com/Smlcrm/Chronax .
+
+## 1 Introduction 
+
+Time-series forecasting plays a crucial role in a wide range of scientific research and industrial and operational domains, including energy management (e.g. [Uremovic et al., 2022; Chou and Tran, 2018]), climate modeling (e.g. [Ray et al., 2021; Adedotun et al., 2020]), finance (e.g. [Dingli and Fournier, 2017; Nasir et al., 2025]), infrastructure (e.g. [Adekunle et al., 2021; El-Kenawy et al., 2025]) and retail (e.g. [Oliveira and Ramos, 2024; Haque et al., 2023]). Over the past decade, the field has progressed through multiple methodological transitions. Early work was dominated by classical statistical forecasting models (e.g., ARIMA [Niknam et al., 2025]), which rely on strong stationarity and linearity assumptions [Makridakis et al., 2023; Montero-Manso and Hyndman, 2021]. As forecasting problems grew in scale and complexity, these approaches expanded into machine-learning-based methods, including tree-based models, regression-based approaches, and ensemble techniques that leverage feature engineering and cross-series information to model nonlinear relationships and incorporate exogenous variables [Lim et al., 2021; Zhou et al., 2021]. More recently, the field has further evolved toward deep-learning-based forecasting methods, such as recurrent neural networks, temporal convolutional networks, and transformer-based architectures, which aim to learn shared temporal representations directly from data and scale to large collections of heterogeneous time series [Makridakis et al., 2023]. 
+
+> ∗
+
+Equal contribution. 
+
+> arXiv:2604.16719v1 [cs.LG] 17 Apr 2026
+
+Simulacrum 
+
+Despite this evolution, many practitioners still resort to statistical forecasting methods as a first resort when approaching forecasting tasks, and much of the tooling that practitioners rely on remains anchored to a traditional numerical stack. Libraries such as StatsForecast [Garza et al., 2022] demonstrate that NumPy, Numba, and compilation-based extensions can accelerate classical forecasting models by reducing interpreter overhead and enabling fast batch training and inference across large numbers of time series. However, the nature and scale of forecasting applications is changing. This change is driven by the increasing availability of high-frequency and large-scale time-series, as well as the growing integration of forecasting models into operational, planning, and automated decision-making systems that require frequent retraining and low-latency execution [Montero-Manso and Hyndman, 2021; Makridakis et al., 2023]. Many of today’s forecasting systems require modeling collections of time series—often thousands at once—with heterogeneous behaviors, irregular covariates, and frequent retraining cycles. Existing forecasting libraries inherit several structural constraints of a past era, including their fundamentally interpreter-driven execution models, limited support for parallel, fully compositional, and differentiable workflows, and design assumptions centered on single-series or small-batch forecasting, which limit their scalability in modern large-scale forecasting settings [Makridakis et al., 2023; Montero-Manso and Hyndman, 2021]. Existing statistical forecasting libraries suffer from three major shortcomings. First, they struggle to efficiently forecast large collections of time series simultaneously, an increasingly common requirement in scientific and industrial applications. This limitation arises because many libraries provide limited support for parallelized computing, making it difficult to exploit parallel execution across thousands of independent series [Meisenbacher et al., 2022]. Second, most forecasting pipelines offer limited support for scalable, hardware-efficient execution. Most implementations remain structured around Python interpreter-driven control flow and CPU-centric numerical routines; this reliance on interpreter-driven semantics restricts the application of compiler-guided optimizations and accelerator-backed execution [Siebert et al., 2021]. Third, integrating statistical forecasting libraries into modern differentiable and compositional machine learning workflows remains challenging. Existing tools frequently rely on object-oriented interfaces, which complicate functional composition and hinder seamless integration with differentiable or accelerator-oriented systems [Olivares et al., 2022]. Fundamentally, these problems stem from the limitations of the numerical computing libraries on top of which these statistical libraries are built. In contrast to other numerical computing libraries, JAX offers a fundamentally different lens for constructing numerical software in Python—a transformation-oriented framework. JAX expresses computation as pure functions and transforms them using mechanisms such as jit (compilation), vmap (automatic vectorization), 
+
+lax.scan (loop fusion), and jax.grad (automatic differentiation), thereby facilitating effortless parallelization and autodifferentiation through the entire training pipeline. enabling the same Python code to target CPU, GPU, or TPU backends. This model has reshaped workflows in reinforcement learning, optimization, and scientific simulation by allowing entire pipelines, not just isolated kernels, to be optimized through program transformations. Time-series forecasting, however, has not yet fully incorporated these paradigms into its foundational design. To address the aforementioned issues with existing we introduce Chronax, a JAX-native forecasting library designed to explore what a forecasting system looks like when built from first principles around functional purity, composable transformations, and accelerator-ready execution. Rather than porting existing CPU-oriented forecasting code, Chronax rethinks the structure and interface of forecasting itself. In Chronax, preprocessing operations, model computations, and multi-step prediction routines are represented as pure functions, enabling them to be transformed, compiled, vectorized, or composed without altering their semantics. Thus, Chronax provides a clean computational foundation for scalable forecasting workflows that align with modern machine learning and numerical computing practices. 
+
+1.1 Related Work 
+
+Recent forecasting libraries reflect a growing emphasis on scalability and modularity in time series forecasting. HierarchicalForecast [Olivares et al., 2022] is designed to generate coherent forecasts across hierarchies, meaning methods that enforce reconciliation constraints so that forecasts produced at lower levels aggregate to higher-level forecasts. By correcting independently generated predictions to satisfy summation or grouping relationships, these approaches ensure coherence across all levels of the hierarchy. ForeTiS [Eiglsperger et al., 2023] proposes an extensible experimental and benchmarking environment that supports both classical and machine learning forecasting models, enabling systematic exploration of design choices. Tsururu [Kostromina et al., 2025] introduces a modular architecture that combines preprocessing operations, forecasting strategies, and model families, and supports global and multivariate approaches for industrial applications. Although these systems broaden the modeling landscape, they remain built on the standard Python/NumPy paradigm, meaning their abstractions, execution models, and performance characteristics are ultimately shaped by the Python interpreter rather than by compiler-guided numerical transformations. 2Chronax: A Jax Library for Univariate Statistical Forecasting and Conformal Inference 
+
+1.2 Contributions 
+
+This work introduce Chronax, a JAX-native times-series forecasting library, and thereby makes the following key contributions: 1. A functional forecasting framework: Chronax is built around pure functions to be compatible with JAX’s transformation system. This stateless design enables effortless parallelization across devices, unlocking JAX’s computational speed, while also ensuring transparent computation, clearer data flow, and seamless integration with differentiable workflows and scientific machine-learning pipelines. 2. A unified abstraction for scalable multi-series forecasting: Chronax structures forecasting routines to be automatically vectorizable across large collections of time series using vmap . This eliminates the need for multiprocessing, Python loops, or hand-engineered batching logic, offering a general abstraction suitable for modern large-scale forecasting tasks. 3. An end-to-end differentiable pipeline: All components—including preprocessing, model evaluation, feature transformations, and multi-horizon prediction—are implemented as JAX-compatible functions. This not only ensures that JAX transformations can be applied consistently throughout the forecasting workflow, it further enables end-to-end autodifferentiation, allowing gradients to be propagated through the entire pipeline for optimization, learning, and hypergradient-based optimization extensions. 4. Model-agnostic conformal prediction integrated into the forecasting process: Chronax incorporates conformal inference methods in a manner consistent with JAX’s functional semantics, enabling uncertainty quantification to benefit directly from the same transformation and compilation tools. 5. A modern reinterpretation of classical forecasting abstractions: By departing from mixed Python–Numba–C++ implementations and embracing a unified JAX-based architecture, Chronax provides a cleaner and more maintainable foundation for extensibility and experimentation. 
+
+## 2 Background 
+
+2.1 Time-series Forecasting 
+
+A (time-series) forecasting task T .
+
+= ( T, h, n, m, (Xj )j∈[n], (Yi)i∈[m], X , Y ) comprises a context length T ∈ N, a 
+
+forecast horizon h ∈ N, m ∈ N target time-series Y = ( y1, . . . , ym)T , where for each variate i ∈ [m], entries of yi ∈ Y Ti take values yit , for t ∈ [T ], from a set of target values Yi ⊆ R, and n ∈ N covariate time-series 
+
+X = ( x1, . . . , xn)T , where for each covariate j ∈ [n], xj ∈ X T +hj takes values xjt , for t ∈ [T + h], from a set of covariate values Xj ⊆ R. We denote the joint set of covariate values by X T +h .
+
+=×j∈[n] X T +hj and the joint set of target variate values by YT .
+
+=×i∈[m] YTi . A forecasting task T is said to be univariate (resp. multivariate ) iff m = 1 
+
+(m > 1). A forecasting task T is said to be unconditional (resp. conditional ) iff n = 0 (resp. n > 0). Given a forecasting task T, a (point) forecast is a matrix bY .
+
+= ( by1, . . . , bym)T s.t. for all target variates i ∈ [m],
+
+byi ∈ Y hi represents forecasted values of variate i for h time steps. A (point) forecasting model is a mapping 
+
+F : X T +h × Y T → Y h whose output is a forecast for T: i.e., F (X , Y ) .
+
+= ( f1(X , Y ), . . . , fm(X , Y )) T = bY .More generally, a probabilistic forecasting model is a mapping π : X T +h × Y T → ∆( Yh) s.t. π(X , Y )[ bY ] denotes the realization probability of bY ∈ Y h.
+
+2.2 Conformal Prediction for Time Series 
+
+Conformal prediction provides a distribution-free framework for constructing valid prediction intervals from empirical prediction errors computed on a held-out validation set [Shafer and Vovk, 2008]. Chronax provides two interval construction methods that differ in how they use the conformity scores: the conformal distribution method, which computes conformity scores using absolute residuals to produce symmetric intervals; and the conformal signed method, which retains error direction to produce asymmetric intervals. 
+
+Conformity Scores via Conformal Validation. We describe the construction of conformity scores for a single target variate i ∈ [m]; this same construction applies independently to each variate. Given T observations yi1, . . . , y iT 
+
+and a forecast horizon h, we compute conformity scores using conformal validation , which can be understood as “walk-forward" cross validation: 3Simulacrum 
+
+1. Partition the series into K calibration windows. We divide the time series into K train-calibration splits, called calibration windows , each of which respects the temporal ordering. The calibration windows are formed by partitioning the data, working backwards from the end. The final 
+
+hK observations are partitioned into K consecutive, non-overlapping calibration blocks of size h. Each window’s training set then contains all observations preceding its calibration block, so yi1, . . . , y i,t w , with 
+
+w ∈ [K] and tw = T − (K + 1 − w) · h, and the calibration set contains the subsequent h observations 
+
+yi,t w +1 , . . . , y i,t w +h. Each successive training set grows by exactly h observations, and all observations preceding the first calibration block are included in every window’s training set. 
+
+◦ ◦ × × × ×
+
+◦ ◦ ◦ ◦ ◦ ◦ × × × ×
+
+◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ × × × ×
+
+
+
+
+
+Figure 1: Conformal validation assuming T = 14 , K = 3 , and h = 4 . For w = 1 , tw = 2 ; for w = 2 , tw = 6 ; for 
+
+w = 3 , tw = 10 . Circles ( ◦) denote training observations; Xs ( ×) denote the h calibration steps used for conformal scoring. Each successive calibration window’s training set grows by h observations. 2. Generate forecasts for each window. For each calibration window w, we fit the forecasting model fi on the training data and produce forecasts for the next h time steps byi,t w +1 , . . . , byi,t w +h. As these time steps are defined relative to a calibration window w, we refer to them as “calibration steps." We repeat this process across multiple windows, with the intent of capturing the model’s error distribution across time. 3. Compute conformity scores. We record the signed residuals as conformity scores: 
+
+sw,τ 
+
+.
+
+= yi,t w +τ − byi,t w +τ , τ = 1 , . . . , h. (1) This procedure yields a K × h conformity score matrix S, where rows index calibration windows and columns index forecast steps τ = 1 , . . . , h .
+
+(Symmetric) Conformal Prediction Method. We use conformity scores to compute prediction intervals. Given a point forecast byi,T +τ produced on the full observed context yi, 1, . . . , y iT , we construct a prediction interval at future step τ = 1 , . . . , h from the absolute conformity scores |s1,τ |, . . . , |sK,τ |.We then form an empirical distribution Pτ from the set of plausible realizations at τ as follows: 
+
+Pτ
+
+.
+
+= byi,T +τ ± | sw,τ | : w ∈ [K] . (2) This set contains 2K perturbed values of the point forecast byi,T +τ , obtained by perturbing byi,T +τ by observed error magnitudes at calibration step τ . Finally, a (1 − α) prediction interval Cα,τ is obtained by taking quantiles of the empirical distribution Pτ , as follows: 
+
+Cα,τ = Qα/ 2(Pτ ) , Q 1−α/ 2(Pτ ) , (3) where Qp(·) denotes the p-th quantile, for p ∈ [0 , 1] . Because Pτ is symmetric around byi,T +τ by construction, the resulting interval is likewise symmetric. 
+
+Exchangeability of Conformity Scores. A sequence of random variables Y1, . . . , Y T is exchangeable if the joint distribution of the random variables is invariant under permutations. Assuming exchangeability, the ranks of the entries in a set of conformal scores are uniformly distributed. As a result, given a tail probability (or error rate) α ∈ (0 , 1) ,conformal prediction intervals achieve (1 − α)-coverage, meaning 
+
+P (Yτ ∈ C α,τ ) ≥ 1 − α. (4) The smallest nonzero tail probability that can be represented by a set of N exchangeable conformal scores is of order 
+
+> 1
+
+/N , because each discrete score contributes mass 1/N to the empirical distribution. Therefore, conformal prediction can only provide finite-sample guarantees for coverage levels 1 − α, when α ≳ 1/N .Typical conformal scores produced from time-series data violate the exchangeability assumption for various reasons, such as temporal dependence (the future depends on the past) and non-stationarity. Nonetheless, Barber et al. [2023] show that coverage loss can be bounded by the total variation distance between the true (non-exchangeable) score distribution and the nearest exchangeable one. 4Chronax: A Jax Library for Univariate Statistical Forecasting and Conformal Inference 
+
+Signed Conformal Prediction Method. The symmetric conformal prediction method is based on the absolute values of the residuals, and thus discards error direction. When a forecaster exhibits systematic bias, it can be useful to retain signed residuals, and produce intervals that reflect this asymmetry. Define the set of K signed plausible realizations at horizon τ as follows: 
+
+Psigned 
+
+> τ
+
+.
+
+= byi,T +τ + sw,τ : w ∈ [K] . (5) Given this “signed" set of values, the conformal signed method uses prediction intervals constructed analogously to (3) :
+
+Qα/ 2
+
+ Psigned 
+
+> τ
+
+ , Q 1−α/ 2
+
+ Psigned 
+
+> τ
+
+ . (6) When the signed scores are not centered at zero, the α/ 2 and 1 − α/ 2 quantiles of Psigned  
+
+> τ
+
+are not equidistant from the point forecast byi,T +τ , yielding asymmetric intervals. The signed method builds its empirical distribution using K values. These values are split into two tails, each with roughly K/2 points, so that the mass covered by each point is 1/(K/2) = 2/K, which implies that the minimum coverage level of the signed method is approximately 1 − 2/K. In contrast, since the conformal prediction method uses 2K values, the mass covered by each point is only 1/K, which implies that the minimum coverage level of the unsigned method is approximately 1 − 1/K. Therefore, the finite-sample coverage guarantee degrades faster for the signed method. 
+
+Efficient Implementation via vmap . A naive implementation of walk-forward cross validation requires K sequential model fits. Chronax parallelizes this computation using jax.vmap to vectorize all K windows simultaneously, yielding significant speedups on GPU/TPU hardware. 
+
+## 3 Design Principles 
+
+3.1 Library Architecture 
+
+The overarching goal in building Chronax was to create a JAX-native forecasting library whose numerical routines, array operations, and compilation pathways work naturally with JAX. Chronax exposes a class-based forecasting interface built around shared estimator methods such as fit() , predict() , forecast() , and forward() ,while delegating much of the numerical computation to JAX-compatible kernels and tensor operations. Chronax employs a lightweight mixed package structure that prioritizes direct access to public models while grouping larger model families into dedicated subpackages. Smaller forecasters are implemented as standalone modules, whereas larger families such as ARIMA, ETS, TBATS, Theta, and MFLES reside in dedicated subdirectories. This organization keeps the public API compact while localizing model-specific internals. 
+
+3.1.1 Directory Organization 
+
+• Model modules and family packages : Public forecasting classes are exposed from chronax.models .The implementation uses both standalone modules (for example, holt.py , holt_winters.py ,
+
+naive.py , garch.py ) and family subpackages (for example, chronax/models/arima/ ,
+
+chronax/models/ets/ , chronax/models/tbats/ , chronax/models/theta/ , and 
+
+chronax/models/mfles/ ). Typical imports follow the packaged interface: e.g., 
+
+from chronax.models import HoltWinters .• Core infrastructure :
+
+– chronax/models/base_forecaster.py : abstract base class defining the shared estimator inter-face and conformal-interval utilities 
+
+– chronax/utils/conformal_intervals.py : configuration container for conformal interval parameters 
+
+– chronax/utils/loss_functions.py : deterministic and probabilistic forecast metrics imple-mented with JAX arrays 
+
+– chronax/utils/utils.py : shared numerical helpers used across forecasting models 
+
+3.1.2 Architectural Principles 
+
+1. Unified estimator interface : Public forecasting models inherit from BaseForecaster and implement a common interface centered on fit() , predict() , and forecast() . The base class also provides default behavior for forward() , conformity score computation, and conformal interval post-processing. 5Simulacrum 
+
+2. JAX-oriented numerical implementation : Chronax relies heavily on JAX arrays and transformations such as jax.numpy , jax.jit , jax.vmap , and jax.lax to express model fitting, forecasting, and batch evaluation in hardware-accelerated form. The degree of compilation and vectorization varies by model, but JAX arrays and transformations (e.g., jax.numpy , jax.jit , jax.lax , jax.vmap ) are used by every forecasting model in the library. 3. Minimal inheritance hierarchy : Most public forecasters inherit directly from BaseForecaster rather than from deeper family-specific abstract layers. Family-level complexity is typically handled within model modules or subpackages instead of through a large inheritance tree. 4. Compilation-aware API design : Chronax is designed to work well with JAX compilation, using a mix of the 
+
+@jax.jit decorator and static_argnums and static_argnames , depending on the model. 
+
+3.2 Models Implemented 
+
+Chronax currently exposes 28 public forecasting model classes through chronax.models , spanning eight model families. This count excludes non-forecasting helper exports such as BatchedForecaster as well as private helper functions (for example, names prefixed by an underscore). Table 1 summarizes the current model collection and its public forecasting capabilities. Table 1: Chronax model capabilities by family. Model Point Forecast Probabilistic Forecast In-sample Fitted Values Probabilistic Fitted Values Exogenous Features 
+
+Automatic Forecasting 
+
+AutoARIMA ✓ ✓ ✓ ✓ ✓
+
+AutoETS ✓ ✓ ✓ ✓
+
+AutoTheta ✓ ✓ ✓ ✓
+
+AutoMFLES ✓ ✓ ✓ ✓
+
+AutoTBATS ✓ ✓ ✓ ✓
+
+AutoCES ✓ ✓ ✓
+
+ARIMA Family 
+
+ARIMA ✓ ✓ ✓ ✓ ✓
+
+Theta Family 
+
+Theta ✓ ✓ ✓ ✓
+
+Multiple Seasonalities & Decomposition 
+
+MFLES ✓ ✓ ✓ ✓
+
+TBATS ✓ ✓ ✓ ✓
+
+MSTL ✓ ✓ ✓ ✓
+
+STL ✓ ✓ ✓ ✓
+
+Volatility Models 
+
+GARCH ✓ ✓ ✓ ✓
+
+Baseline Models 
+
+Hist. Avg. ✓ ✓ ✓ ✓
+
+Naive ✓ ✓ ✓ ✓
+
+Seasonal Naive ✓ ✓ ✓ ✓
+
+Window Avg. ✓ ✓
+
+Seasonal Window Avg. 
+
+✓ ✓
+
+RWD ✓ ✓ ✓ ✓
+
+Exponential Smoothing 
+
+ETS ✓ ✓ ✓ ✓
+
+Holt ✓ ✓ ✓ ✓
+
+6Chronax: A Jax Library for Univariate Statistical Forecasting and Conformal Inference Model Point Forecast Probabilistic Forecast In-sample Fitted Values Probabilistic Fitted Values Exogenous Features Holt–Winters ✓ ✓ ✓ ✓
+
+SES ✓ ✓ ✓
+
+Seasonal ES ✓ ✓ ✓
+
+Sparse / Intermittent Demand 
+
+ADIDA ✓ ✓ ✓ ✓
+
+CrostonClassic ✓ ✓ ✓ ✓
+
+IMAPA ✓ ✓ ✓ ✓
+
+TSB ✓ ✓ ✓ ✓
+
+Notes. A checkmark indicates that the corresponding capability is exposed by the current public Chronax model API. “Probabilistic forecast” and “probabilistic fitted values” may arise from native analytical intervals, Monte Carlo procedures, Gaussian approxima-tions, conformal intervals, or combinations thereof, depending on the model. Here, “probabilistic fitted values” means that the model exposes uncertainty bounds for an in-sample fitted or reconstructed series through its public API. “Exogenous features” indicates that the public interface accepts aligned regressors at fit time and, where applicable, future covariates at prediction time. The forecaster classes summarized above inherit from BaseForecaster , which defines the core forecasting interface: 
+
+Listing 1: BaseForecaster interface 
+
+class BaseForecaster: # Core forecasting methods def fit(self, y, X=None) -> self def predict(self, h, X_future=None, level=None) -> dict def forecast(self, y, h, X=None, X_future=None, level=None, fitted=False) -> dict def forward(self, y, h, X=None, X_future=None, level=None, fitted=False) -> dict 
+
+This interface follows the scikit-learn-style fit /predict estimator API, while accommodating forecasting-specific methods and interval utilities. The key methods are: • fit(y, X) : fits the model to training data, stores the learned model parameters in model_ , and returns self . For convenience, the learned parameters are saved in the model class, but if the user prefers a fully stateless execution, fit() 
+
+also returns a copy of model with the learned parameters. • predict(h, X, level) : generates h-step forecasts from an already fitted model, optionally returning interval bounds when supported by the model and requested through level .• forecast(y, h, ...) : performs fit-plus-predict in one call (without retaining model state). • forward(y, h, ...) : by default, this method is the same as forecast(y, h, ...) . But some models override the default to forecast from a new history y reusing an earlier fitted model. Details differ by model. A typical Chronax workflow looks as follows: 
+
+Listing 2: Typical Chronax workflow 
+
+from chronax.models import HoltWinters from chronax.utils.conformal_intervals import ConformalIntervals # Initialize model with conformal intervals model = HoltWinters( season_length=12, error_type=’M’, season_type=’A’, conformal_params=ConformalIntervals(n_windows=5, h=12) )# Fit stores the Holt-Winters learned parameters for y_train on the model object. If conformal_params is specified, it stores the conformity scores in model. model.fit(y_train) # Predict runs a stored model to produce h-step forecasts as well as confidence intervals if level is specified. 
+
+7Simulacrum 
+
+result = model.predict(h=12, level=[80, 95]) # Forecast is an alias for first fitting a model and then returning a forecast (with confidence intervals if level is specified). (This fit is not saved in the model object, so this method is stateless.) result = model.forecast(y_train, h=12, level=[80, 95]) # Forward runs a model that was previously fit on y_train on y_new (with confidence intervals if level is specified). result = model.forward(y_new, h=12, level=[80, 95]) 
+
+## 4 Experiments 
+
+To rigorously assess the performance and scalability of the Chronax forecasting framework relative to the StatsForecast baseline, we designed a comprehensive evaluation procedure. This procedure is designed to ensure a fair, "neutral ground" comparison by controlling for data generation, hardware states, and execution overheads across both the JAX-based (Chronax) and Numba-compiled (StatsForecast) environments. Chronax’ evaluation framework uses a multi-environment architecture, meaning multiple isolated setups, to avoid conflicts between JAX and Numba dependencies. A central orchestrator spawns each model as an isolated worker process, ensuring a clean execution environment. Our experiments comprise head-to-head comparisons between candidate models in Chronax (e.g., WindowAverage , ETS , TSB ), and their algorithmic equivalents in StatsForecast. All experiments were conducted using a unified fit_predict interface wrapped around both libraries. Data transfer times (e.g., moving NumPy arrays to JAX DeviceArrays) are handled prior to the timing loop to isolate inference speed. 
+
+4.1 Metrics 
+
+We collect six primary metrics to evaluate both computational efficiency and predictive performance: 1. Cold Start Time ( Tcold ): Measures the total time for the first execution, capturing the one-time costs of JIT compilation (XLA for JAX, LLVM for Numba) and initialization. 
+
+Tcold = tend ,0 − tstart ,0
+
+2. Warm Start Time ( Twarm ): Represents the steady-state throughput of the model. After the initial cold start, the model is executed for N = 5 iterations. The average duration is recorded. Crucially, for JAX models, we enforce explicit synchronization via .block_until_ready() to measure actual GPU computation time rather than asynchronous dispatch time. 
+
+Twarm = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+(tend ,i − tstart ,i )
+
+3. MAPE : To verify that performance optimizations do not degrade predictive quality, we calculate the Mean Absolute Percentage Error on a holdout test set of length H = 24 .MAPE = 100% 
+
+H
+
+> H
+
+X
+
+> t=1
+
+y(t) 
+
+> true
+
+− y(t)
+
+> pred
+
+y(t)
+
+> true
+
+4. MAE : Evaluates the mean absolute error, providing a linear penalty for forecast deviations. It maintains the original scale of the data, offering a highly interpretable measure of the average error magnitude. MAE = 1
+
+H
+
+> H
+
+X
+
+> t=1
+
+y(t) 
+
+> true
+
+− y(t)
+
+> pred
+
+5. RMSE : Calculates the root mean squared error. By squaring the deviations before averaging, this metric disproportionately penalizes larger forecasting errors, making it particularly sensitive to outliers and high-variance periods in stochastic datasets. RMSE =
+
+vuut 1
+
+H
+
+> H
+
+X
+
+> t=1
+
+
+
+y(t) 
+
+> true
+
+− y(t)
+
+> pred
+
+2
+
+8Chronax: A Jax Library for Univariate Statistical Forecasting and Conformal Inference Table 2: Datasets Airline Passengers Daily Female Births Room Temperatures Domain Travel Health Physics Variable Name month date datetime number of passengers number of births number of #hourly_temp Variable Units yyyy-mm yyyy-mm yyyy-mm-dd hh:mm:ss 3-digit integers 2-digit integers real numbers Number of Observations 144 observations 365 observations 7056 observations 
+
+6. MASE : Measures the mean absolute scaled error to provide a scale-independent evaluation across differing data-generating processes. To strictly align with our evaluation framework’s execution, the model’s MAE is scaled by the mean absolute error of a one-step-ahead naive forecast computed directly over the holdout test set. MASE =
+
+> 1
+> H
+
+PHt=1 y(t) 
+
+> true
+
+− y(t)
+
+> pred
+> 1
+> H−1
+
+PHt=2 y(t) 
+
+> true
+
+− y(t−1) 
+
+> true
+
+4.2 Datasets 
+
+We evaluate the performance of our models on three real-world time series datasets with different ranges: 1. Airline Passengers Dataset [Milleanno, 2024]: This dataset is the smallest among our three selected datasets, recording only 144 observations. It includes monthly US airline passengers from 1949 to 1960 with two columns: month and number of passengers. The month column starts in January 1949 and ends in December 1960, formatted as yyyy-mm. The number of passengers is recorded as 3-digit integers, with minimum 104 and maximum 622. 2. Daily Female Births Dataset [Cresswell, 2018]: With 365 observations documented, this dataset is an example of mid-size time-series data. It records the total number of female births in California, USA during 1959 in two columns: date and number of births. The date column starts on January 1st, 1959, and ends on December 31st, 1959, with values increasing by one day in each row. The date column is formatted as yyyy-mm-dd. The number of births is recorded as 2-digit integers, with minimum 23 and maximum 73. 3. Room Temperatures Dataset [Madhane, 2022]: This dataset includes 7056 observations. It lists room air temperatures recorded using an IOT device. In order to fit this dataset with our models, we removed the index column. After this modification, this dataset has two columns: datetime (date and hour at which each datum was recorded) and the 
+
+#hourly_temp (the temperature of the air supplied to a room). The datetime column starts on January 4th, 2022 12 a.m. and ends on October 24th, 2022 11 p.m., with formatting as yyyy-mm-dd hh:mm:ss. This column increases by one hour with each row. The #hourly_temp column records real numbers up to three significant digits, with a minimum of 5.35 and maximum of 36.5. 
+
+4.3 Results: Speed and Accuracy Analysis 
+
+To evaluate the performance of Chronax relative to that of StatsForecast, we ran all models on these three datasets, collecting prediction qualities as determined by the aforementioned suite of metrics (MAPE, MAE, RMSE, and MASE; see Section 4.1). In addition to this accuracy comparison, we also compare execution latency, measuring both cold start initialization and warm start execution times. 
+
+4.3.1 Ratio Analysis 
+
+Table 3 reports summary statistics collected from our experiments. 2 These statistics are ratios, computed as the value achieved by Chronax divided by that of Statsforecast. For latency metrics, values < 1.0× indicate Chronax is faster. For accuracy metrics, values 
+
+< 1.0× indicate Chronax achieved lower error. Because the mean is subject to distortion by extreme values, we report two statistics: • Mean average value of all calculated model ratios • Median median value of all calculated model ratios 
+
+> 2
+
+For comprehensive model-specific head-to-head comparisons and error metrics, see Section A. 
+
+9Simulacrum 
+
+Figure 2: Distribution of Chronax/Statsforecast performance ratios for three datasets and six metrics. Columns show datasets (Airline Passengers, Daily Female Births, Room Temperature), and rows show metrics. Histograms display model counts per logarithmic bin. The dashed line marks parity (1.0 ×), while red and green lines indicate mean and median. Values below 1.0 × indicate lower latency or error for Chronax. As per Table 3, all median and parity lines overlap, with Chronax’s mean error metrics higher on the small dataset and lower on the bigger one. 10 Chronax: A Jax Library for Univariate Statistical Forecasting and Conformal Inference Table 3: Chronax / Statsforecast Ratios for all three datasets. 
+
+Airline Passengers Daily Female Births Room Temperature Metric Mean Median Mean Median Mean Median 
+
+MAPE 1.11 × 1.00 × 1.01 × 1.00 × 0.95 × 1.00 ×
+
+MAE 1.10 × 1.00 × 1.01 × 1.00 × 0.94 × 1.00 ×
+
+RMSE 1.09 × 1.00 × 1.02 × 1.00 × 0.94 × 1.00 ×
+
+MASE 1.10 × 1.00 × 1.01 × 1.00 × 0.94 × 1.00 ×
+
+Cold Start Initialization 44.54 × 10.19 × 19.32 × 9.23 × 5.82 × 1.77 ×
+
+Warm Start Execution 0.76 × 0.053 × 0.62 × 0.040 × 0.16 × 0.074 ×
+
+4.3.2 Latency and Architectural Trade-offs 
+
+With respect to forecasting accuracy, Chronax performs competitively across all three datasets, demonstrating improved performance as dataset size increases, and performing best on the largest evaluated dataset. For cold start initialization, StatsForecast generally exhibits lower initialization latency. Chronax, by contrast, incurs a higher initialization cost due to JIT compilation, along with lightweight model initialization steps such as parameter setup within the compiled framework. While Chronax’s cold start latency is higher, we do not observe significant variability across models; rather, the initialization cost is consistently higher due to the compilation process itself. On the other hand, this upfront cost enables improved performance during warm start execution; once initialized, Chronax consistently demonstrates lower inference latency. With respect to dataset size, Chronax’s cold start initialization remains slower than StatsForecast’s, although the relative difference decreases as dataset size increases (only approximately 6× slower on average for the largest dataset). In contrast, warm start execution is substantially faster, with Chronax requiring only about 16% of the execution time of StatsForecast on average for the largest dataset. These findings reflect a deliberate architectural trade-off common in execution-optimized frameworks that invest more work upfront to improve downstream efficiency. 
+
+## 5 Conclusion 
+
+This paper introduces Chronax, a JAX-native forecasting library that restructures univariate statistical forecasting and conformal inference around pure functions, composable transformations, and accelerator-ready execution. By representing preprocessing, model evaluation, and multi-horizon prediction as JAX functions transformed via jit , vmap , and lax.scan , Chronax enables scalable multi-series forecasting, end-to-end differentiability, and transparent, hardware-efficient computation. This design allows gradients to propagate through entire sequential pipelines, supporting differentiable hyperparameter tuning and seamless integration with modern machine learning workflows. Compared to existing libraries such as StatsForecast, HierarchicalForecast, ForeTiS, and Tsururu, Chronax directly addresses three key limitations: limited parallelism over large collections of series, CPU-bound interpreter-centric execution, and object-oriented abstractions that resist differentiable, accelerator-oriented usage. Chronax’s XLA-compiled kernels introduce a deliberate architectural trade-off, resulting in slower initialization for certain classical statistical models, but this upfront investment enables more efficient execution during repeated inference calls. During warm execution, Chronax’s functional folds and vectorized evaluation achieve lower inference latency, operating substantially faster than interpreter-bound alternatives. Furthermore, rather than merely preserving predictive accuracy, Chronax achieves lower error rates on a variety of metrics, with its accuracy advantage scaling on larger datasets. Future directions include extending the current univariate, classical model zoo to multivariate and deep learning-based forecasters that share the same functional JAX interface, enabling hybrid pipelines that combine statistical and neural models within a unified framework. Additionally, the conformal inference layer can be further developed to support hierarchical forecasting and improve robustness to distribution shift. Finally, deeper coupling with the broader JAX ecosystem, e.g., differentiable hyperparameter tuning, integration with scientific simulators, and the joint optimization of forecasting components, such as preprocessing filters, latent state representations, and model-agnostic uncertainty wrappers, would position Chronax as a foundation for next-generation forecasting systems. 
+
+## References 
+
+AF Adedotun, T Latunde, and OA Odusanya. Modelling and forecasting climate time series with state-space model. Journal of the Nigerian Society of Physical Sciences , pages 149–159, 2020. (Cited on page 1.) Bolaji Iyanu Adekunle, Ezinne C Chukwuma-Eke, Emmanuel Damilare Balogun, and Kolade Olusola Ogunsola. Predictive analytics for demand forecasting: Enhancing business resource allocation through time series models. Journal of Frontiers in Multidisciplinary Research , 2(01):32–42, 2021. (Cited on page 1.) 
+
+11 Simulacrum 
+
+Rina Foygel Barber, Emmanuel J. Candès, Aaditya Ramdas, and Ryan J. Tibshirani. Conformal prediction beyond exchangeability. 
+
+Annals of Statistics , 51(2):816–845, 2023. doi: 10.1214/23-AOS2276. (Cited on page 4.) Jui-Sheng Chou and Duc-Son Tran. Forecasting energy consumption time series using machine learning techniques based on usage patterns of residential householders. Energy , 165:709–726, 2018. (Cited on page 1.) Doug Cresswell. Daily total female births in california, 1959, 2018. URL https://www.kaggle.com/datasets/ dougcresswell/daily-total-female-births-in-california-1959 . Accessed: 2026-01-08. (Cited on page 9.) Alexiei Dingli and Karl Sant Fournier. Financial time series forecasting-a machine learning approach. Machine Learning and Applications: An International Journal , 4(1/2):3, 2017. (Cited on page 1.) Josef Eiglsperger, Florian Haselbeck, and Dominik G Grimm. Foretis: A comprehensive time series forecasting framework in python. 
+
+Machine Learning with Applications , 12:100467, 2023. (Cited on page 2.) El-Sayed M El-Kenawy, Abdelhameed Ibrahim, Amel Ali Alhussan, Doaa Sami Khafaga, Ayman EM Ahmed, and Marwa M Eid. Smart city electricity load forecasting using greylag goose optimization-enhanced time series analysis. Arabian Journal for Science and Engineering , pages 1–19, 2025. (Cited on page 1.) Azul Garza, Max Mergenthaler, Cristian Challu, and Kin Olivares. Statsforecast: Lightning fast forecasting with statistical and econo-metric models. PyCon Salt Lake City, Utah, US 2022, 2022. URL https://github.com/Nixtla/statsforecast .(Cited on page 2.) Md Sabbirul Haque, Md Shahedul Amin, and Jonayet Miah. Retail demand forecasting: a comparative study for multivariate time series. arXiv preprint arXiv:2308.11939 , 2023. (Cited on page 1.) Alina Kostromina, Kseniia Kuvshinova, Aleksandr Yugay, Andrey Savchenko, and Dmitry Simakov. Tsururu: A python-based time series forecasting strategies library. arXiv preprint arXiv:2509.15843 , 2025. (Cited on page 2.) Bryan Lim, Sercan Arik, Nicolas Loeff, and Tomas Pfister. Temporal fusion transformers for interpretable multi-horizon time series forecasting. International journal of forecasting , 37(4):1748–1764, 2021. (Cited on page 1.) Vitthal Madhane. Time series room temperature data, 2022. URL https://www.kaggle.com/datasets/ vitthalmadane/ts-temp-1 . Accessed: 2026-01-08. (Cited on page 9.) Spyros Makridakis, Evangelos Spiliotis, Vassilios Assimakopoulos, Artemios-Anargyros Semenoglou, Gary Mulder, and Konstanti-nos Nikolopoulos. Statistical, machine learning and deep learning forecasting methods: Comparisons and ways forward. Journal of the Operational Research Society , 74(3):840–859, 2023. (Cited on pages 1 and 2.) Stefan Meisenbacher, Marian Turowski, Kaleb Phipps, Martin Rätz, Dirk Müller, Veit Hagenmeyer, and Ralf Mikut. Review of automated time series forecasting pipelines. Wiley Interdisciplinary Reviews: Data Mining and Knowledge Discovery , 12(6): e1475, 2022. (Cited on page 2.) Bryan Milleanno. Air passengers dataset, 2024. URL https://www.kaggle.com/datasets/brmil07/ air-passengers-dataset . Accessed: 2026-01-05. (Cited on page 9.) Pablo Montero-Manso and Rob J Hyndman. Principles and algorithms for forecasting groups of time series: Locality and globality. 
+
+International Journal of Forecasting , 37(4):1632–1653, 2021. (Cited on pages 1 and 2.) Jawaria Nasir, Hasnain Iftikhar, Muhammad Aamir, Hasnain Iftikhar, Paulo Canas Rodrigues, and Mohd Ziaur Rehman. A hybrid lmd–arima–machine learning framework for enhanced forecasting of financial time series: Evidence from the nasdaq composite index. Mathematics , 13(15):2389, 2025. (Cited on page 1.) Amir Reza R Niknam, Maryam Sabaghzadeh, Ali Barzkar, and Davood Shishebori. Comparing arima and various deep learning models for long-term water quality index forecasting in dez river, iran. Environmental Science and Pollution Research , 32(16): 10206–10222, 2025. (Cited on page 1.) Kin G Olivares, Azul Garza, David Luo, Cristian Challú, Max Mergenthaler, Souhaib Ben Taieb, Shanika L Wickramasuriya, and Artur Dubrawski. Hierarchicalforecast: A reference framework for hierarchical forecasting in python. arXiv preprint arXiv:2207.03517 , 2022. (Cited on page 2.) José Manuel Oliveira and Patrícia Ramos. Evaluating the effectiveness of time series transformers for demand forecasting in retail. 
+
+Mathematics , 12(17):2728, 2024. (Cited on page 1.) Soumik Ray, Soumitra Sankar Das, Pradeep Mishra, and Abdullah Mohammad Ghazi Al Khatib. Time series sarima modelling and forecasting of monthly rainfall and temperature in the south asian countries. Earth Systems and Environment , 5(3):531–546, 2021. (Cited on page 1.) Glenn Shafer and Vladimir Vovk. A tutorial on conformal prediction. Journal of Machine Learning Research , 9:371–421, 2008. (Cited on page 3.) Julien Siebert, Janek Groß, and Christof Schroth. A systematic review of python packages for time series analysis. arXiv preprint arXiv:2104.07406 , 2021. (Cited on page 2.) Niko Uremovic, Marko Bizjak, Primoz Sukic, Gorazd Stumberger, Borut Zalik, and Niko Lukac. A new framework for multivariate time series forecasting in energy management system. IEEE Transactions on Smart Grid , 14(4):2934–2947, 2022. (Cited on page 1.) 
+
+12 Chronax: A Jax Library for Univariate Statistical Forecasting and Conformal Inference 
+
+Haoyi Zhou, Shanghang Zhang, Jieqi Peng, Shuai Zhang, Jianxin Li, Hui Xiong, and Wancai Zhang. Informer: Beyond efficient transformer for long sequence time-series forecasting. In Proceedings of the AAAI conference on artificial intelligence , volume 35, pages 11106–11115, 2021. (Cited on page 1.) 
+
+13 Simulacrum 
+
+## A Additional Experimental Results 
+
+The detailed benchmark results tables in this appendix depict results for three datasets—Airline Passengers, Daily Female Births, and Room Temperature. We report model-wise performance across both Chronax and StatsForecast libraries, including latency metrics (cold start and warm start execution times) and forecasting accuracy metrics (MAPE, MAE, RMSE, and MASE). 
+
+Table 4: Benchmark Results Rows corresponding to the Chronax framework are highlighted. 
+
+Dataset Library Model Length. Cold Start Time (s) Warm Start Time (s) Time Interval (s) MAPE MAE RMSE MASE 
+
+Air Passengers Chronax ADIDA 120 0.3804 0.0004 0.0004 17.77 88.87 113.87 1.97 Air Passengers Statsforecast ADIDA 120 0.6639 0.0036 0.0055 17.81 89.04 114.04 1.97 Air Passengers Chronax ARIMA 120 1.7718 0.0019 0.0019 11.45 57.68 82.13 1.28 Air Passengers Statsforecast ARIMA 120 0.0170 0.0164 0.0151 18.70 93.23 118.03 2.07 Air Passengers Chronax AutoARIMA 120 13.7041 0.0172 0.0007 15.19 69.75 75.45 1.55 Air Passengers Statsforecast AutoARIMA 120 0.7421 0.7404 0.7605 10.49 51.91 72.02 1.15 Air Passengers Chronax AutoCES 120 1.2726 4.17e-05 3.35e-05 22.70 111.36 136.18 2.47 Air Passengers Statsforecast AutoCES 120 22.2269 0.0372 1.2677 12.71 61.06 70.88 1.35 Air Passengers Chronax AutoETS 120 12.6266 0.0057 0.0026 12.91 59.37 66.82 1.32 Air Passengers Statsforecast AutoETS 120 0.1495 0.1484 0.1528 5.32 24.79 29.22 0.55 Air Passengers Chronax AutoMFLES 120 5.9434 0.0079 0.0075 2.97 13.71 17.72 0.30 Air Passengers Statsforecast AutoMFLES 120 7.8437 0.0729 0.1417 3.60 15.57 19.68 0.35 Air Passengers Chronax AutoTBATS 120 3.0986 0.0130 0.0151 14.15 66.61 75.56 1.48 Air Passengers Statsforecast AutoTBATS 120 19.0901 4.2171 4.1656 7.70 36.49 44.60 0.81 Air Passengers Chronax AutoTheta 120 5.2890 0.0085 0.0087 18.85 93.61 117.42 2.07 Air Passengers Statsforecast AutoTheta 120 0.0125 0.0103 0.0117 18.90 93.85 117.63 2.08 Air Passengers Chronax CrostonClassic 120 0.3320 4.46e-05 3.77e-05 16.67 83.56 108.63 1.85 Air Passengers Statsforecast CrostonClassic 120 0.4511 0.0032 0.0043 16.67 83.56 108.63 1.85 Air Passengers Chronax GARCH 120 6.4052 0.0057 0.0054 44.23 206.34 219.44 4.57 Air Passengers Statsforecast GARCH 120 2.0853 0.0279 0.0267 101.00 458.24 478.31 10.15 Air Passengers Chronax HistoricAverage 120 0.0876 2.14e-05 1.34e-05 44.23 206.34 219.44 4.57 Air Passengers Statsforecast HistoricAverage 120 0.0048 0.0031 0.0036 44.23 206.34 219.44 4.57 Air Passengers Chronax Holt 120 0.8623 0.0023 0.0024 17.95 89.53 113.91 1.98 Air Passengers Statsforecast Holt 120 0.0150 0.0059 0.0062 18.41 91.63 115.72 2.03 Air Passengers Chronax HoltWinters 120 1.8030 0.0102 0.0100 13.06 63.72 75.90 1.41 Air Passengers Statsforecast HoltWinters 120 0.0418 0.0369 0.0365 6.90 34.46 47.01 0.76 Air Passengers Chronax IMAPA 120 1.0266 0.0022 0.0021 15.86 79.70 104.95 1.77 Air Passengers Statsforecast IMAPA 120 0.6133 0.0035 0.0049 17.81 89.04 114.04 1.97 Air Passengers Chronax MFLES 120 1.5763 0.1064 0.0083 2.97 13.71 17.72 0.30 Air Passengers Statsforecast MFLES 120 2.5072 0.0068 0.0097 4.01 18.91 23.30 0.42 Air Passengers Chronax MSTL 120 0.7887 0.0012 0.0011 16.89 83.34 102.05 1.85 Air Passengers Statsforecast MSTL 120 0.0235 0.0175 0.0182 16.73 80.46 93.32 1.78 Air Passengers Chronax Naive 120 0.1480 3.15e-05 3.24e-05 23.58 115.25 137.33 2.55 Air Passengers Statsforecast Naive 120 0.0122 0.0031 0.0035 23.58 115.25 137.33 2.55 Air Passengers Chronax RandWalkW/Drift 120 0.0944 3.73e-05 2.31e-05 18.41 91.62 115.70 2.03 Air Passengers Statsforecast RandWalkW/Drift 120 0.0052 0.0031 0.0035 18.41 91.62 115.70 2.03 Air Passengers Chronax SeasonalExpSmoothing 120 0.2007 3.93e-05 1.96e-05 41.93 190.59 194.39 4.22 Air Passengers Statsforecast SeasonalExpSmoothing 120 0.4573 0.0032 0.0043 41.93 190.59 194.39 4.22 Air Passengers Chronax SeasonalNaive 120 0.2229 0.0007 0.0007 16.95 77.54 81.35 1.72 Air Passengers Statsforecast SeasonalNaive 120 0.0047 0.0032 0.0037 16.95 77.54 81.35 1.72 Air Passengers Chronax SeasonalWinAvg 120 0.0524 1.92e-05 1.62e-05 32.52 147.99 151.28 3.28 Air Passengers Statsforecast SeasonalWinAvg 120 0.0050 0.0031 0.0042 32.52 147.99 151.28 3.28 Air Passengers Chronax SimpleExpSmoothing 120 0.0960 2.57e-05 1.81e-05 17.81 89.04 114.04 1.97 Air Passengers Statsforecast SimpleExpSmoothing 120 1.2436 0.0032 0.0042 17.81 89.04 114.04 1.97 Air Passengers Chronax TBATS 120 3.3839 0.0199 0.0204 6.83 32.62 40.46 0.72 Air Passengers Statsforecast TBATS 120 6.8049 0.0537 0.0516 7.70 36.49 44.60 0.81 Air Passengers Chronax TSB 120 0.1212 3.98e-05 2.12e-05 17.81 89.04 114.04 1.97 Air Passengers Statsforecast TSB 120 0.4506 0.0031 0.0045 17.81 89.04 114.04 1.97 Air Passengers Chronax Theta 120 1.7820 0.0036 0.0033 20.22 99.91 123.03 2.21 Air Passengers Statsforecast Theta 120 0.0066 0.0052 0.0073 20.22 99.91 123.03 2.21 Air Passengers Chronax WindowAverage 120 0.0483 2.05e-05 1.30e-05 16.46 82.55 107.65 1.83 Air Passengers Statsforecast WindowAverage 120 0.0049 0.0033 0.0079 16.46 82.55 107.65 1.83 Daily Female Births Chronax ADIDA 341 0.3832 0.0004 0.0004 12.08 5.44 6.64 0.86 Daily Female Births Statsforecast ADIDA 341 0.6016 0.0044 0.0049 12.07 5.43 6.62 0.86 Daily Female Births Chronax ARIMA 341 1.6892 0.0019 0.0019 18.73 7.36 8.73 1.17 Daily Female Births Statsforecast ARIMA 341 0.0228 0.0201 0.0203 12.16 5.40 6.50 0.86 Daily Female Births Chronax AutoARIMA 341 10.2693 0.0139 0.0015 16.89 8.01 9.88 1.27 Daily Female Births Statsforecast AutoARIMA 341 0.3486 0.3577 0.3462 12.31 5.40 6.41 0.86 Daily Female Births Chronax AutoCES 341 1.2754 3.92e-05 3.09e-05 12.50 5.43 6.43 0.86 Daily Female Births Statsforecast AutoCES 341 22.4988 0.1753 1.4675 13.07 5.72 6.73 0.91 Daily Female Births Chronax AutoETS 341 10.3837 0.0074 0.0021 12.17 5.38 6.43 0.85 Daily Female Births Statsforecast AutoETS 341 0.3446 0.3482 0.3427 12.29 5.38 6.37 0.85 Daily Female Births Chronax AutoMFLES 341 6.1227 0.0140 0.0140 17.05 8.18 10.45 1.30 Daily Female Births Statsforecast AutoMFLES 341 5.3699 0.1081 0.2129 13.32 6.00 7.18 0.95 Daily Female Births Chronax AutoTBATS 341 2.9946 0.0117 0.0117 13.54 5.95 6.74 0.94 Continued on next page 
+
+14 Chronax: A Jax Library for Univariate Statistical Forecasting and Conformal Inference 
+
+Table 4 – continued from previous page Dataset Library Model Length. Cold Start Time (s) Warm Start Time (s) Time Interval (s) MAPE MAE RMSE MASE 
+
+Daily Female Births Statsforecast AutoTBATS 341 12.5437 2.5173 2.5228 13.18 5.83 6.70 0.92 Daily Female Births Chronax AutoTheta 341 5.3434 0.0148 0.0147 12.06 5.41 6.58 0.86 Daily Female Births Statsforecast AutoTheta 341 0.0815 0.0705 0.0736 12.05 5.40 6.56 0.86 Daily Female Births Chronax CrostonClassic 341 0.3242 0.0001 4.55e-05 12.07 5.43 6.62 0.86 Daily Female Births Statsforecast CrostonClassic 341 0.4434 0.0032 0.0044 12.07 5.43 6.62 0.86 Daily Female Births Chronax GARCH 341 7.5769 0.0086 0.0074 12.05 5.40 6.56 0.86 Daily Female Births Statsforecast GARCH 341 1.8201 0.0267 0.0263 101.51 43.95 44.59 6.97 Daily Female Births Chronax HistoricAverage 341 0.0771 0.0001 0.0001 12.05 5.40 6.56 0.86 Daily Female Births Statsforecast HistoricAverage 341 0.0052 0.0031 0.0035 12.05 5.40 6.56 0.86 Daily Female Births Chronax Holt 341 0.8256 0.0041 0.0045 12.24 5.68 7.27 0.90 Daily Female Births Statsforecast Holt 341 0.0252 0.0236 0.0239 12.31 5.37 6.36 0.85 Daily Female Births Chronax HoltWinters 341 1.8571 0.0667 0.0683 13.35 5.83 6.80 0.92 Daily Female Births Statsforecast HoltWinters 341 0.0818 0.0810 0.0834 12.96 5.67 6.71 0.90 Daily Female Births Chronax IMAPA 341 1.0295 0.0024 0.0022 12.12 5.38 6.46 0.85 Daily Female Births Statsforecast IMAPA 341 0.5983 0.0037 0.0059 12.07 5.43 6.62 0.86 Daily Female Births Chronax MFLES 341 1.4365 0.1070 0.0137 17.05 8.18 10.45 1.30 Daily Female Births Statsforecast MFLES 341 5.3658 0.0085 0.0128 18.26 8.68 10.80 1.38 Daily Female Births Chronax MSTL 341 0.8115 0.0012 0.0011 14.11 6.15 7.14 0.97 Daily Female Births Statsforecast MSTL 341 0.0492 0.0449 0.0483 14.38 6.37 7.45 1.01 Daily Female Births Chronax Naive 341 0.0741 0.0001 4.48e-05 16.95 8.04 9.91 1.28 Daily Female Births Statsforecast Naive 341 0.0064 0.0044 0.0035 16.95 8.04 9.91 1.28 Daily Female Births Chronax RandWalkW/Drift 341 0.0850 3.84e-05 2.55e-05 16.89 8.01 9.87 1.27 Daily Female Births Statsforecast RandWalkW/Drift 341 0.0054 0.0032 0.0035 16.89 8.01 9.87 1.27 Daily Female Births Chronax SeasonalExpSmoothing 341 0.1651 0.0001 0.0001 15.27 6.62 7.63 1.05 Daily Female Births Statsforecast SeasonalExpSmoothing 341 0.4422 0.0033 0.0043 15.27 6.62 7.63 1.05 Daily Female Births Chronax SeasonalNaive 341 0.1947 0.0007 0.0006 18.04 7.92 9.87 1.26 Daily Female Births Statsforecast SeasonalNaive 341 0.0049 0.0031 0.0035 18.04 7.92 9.87 1.26 Daily Female Births Chronax SeasonalWinAvg 341 0.0496 2.00e-05 1.50e-05 17.12 7.39 8.31 1.17 Daily Female Births Statsforecast SeasonalWinAvg 341 0.0050 0.0031 0.0043 17.12 7.39 8.31 1.17 Daily Female Births Chronax SimpleExpSmoothing 341 0.0797 2.78e-05 2.28e-05 14.73 7.00 8.85 1.11 Daily Female Births Statsforecast SimpleExpSmoothing 341 0.4390 0.0031 0.0042 14.73 7.00 8.85 1.11 Daily Female Births Chronax TBATS 341 3.2495 0.0171 0.0170 12.63 5.43 6.29 0.86 Daily Female Births Statsforecast TBATS 341 6.7732 0.0959 0.0967 12.28 5.69 7.20 0.90 Daily Female Births Chronax TSB 341 0.1098 3.14e-05 2.24e-05 14.73 7.00 8.85 1.11 Daily Female Births Statsforecast TSB 341 0.4711 0.0032 0.0042 14.73 7.00 8.85 1.11 Daily Female Births Chronax Theta 341 1.7261 0.0047 0.0044 12.05 5.39 6.54 0.86 Daily Female Births Statsforecast Theta 341 0.0144 0.0124 0.0138 12.05 5.39 6.54 0.86 Daily Female Births Chronax WindowAverage 341 0.0423 2.07e-05 1.27e-05 12.31 5.38 6.36 0.85 Daily Female Births Statsforecast WindowAverage 341 0.0049 0.0032 0.0043 12.31 5.38 6.36 0.85 Room Temperatures Chronax ADIDA 7032 0.3859 0.0008 0.0008 6.87 1.59 1.83 3.55 Room Temperatures Statsforecast ADIDA 7032 0.6123 0.0043 0.0067 6.86 1.59 1.83 3.54 Room Temperatures Chronax ARIMA 7032 1.7198 0.0140 0.0134 5.57 1.34 1.59 2.99 Room Temperatures Statsforecast ARIMA 7032 0.0799 0.0810 0.0759 5.58 1.35 1.59 2.99 Room Temperatures Chronax AutoARIMA 7032 13.3224 0.0159 0.0045 5.60 1.35 1.59 3.00 Room Temperatures Statsforecast AutoARIMA 7032 4.7570 4.7766 4.7759 5.71 1.34 1.57 2.98 Room Temperatures Chronax AutoCES 7032 1.4025 4.25e-05 3.08e-05 9.57 2.20 2.62 4.91 Room Temperatures Statsforecast AutoCES 7032 91.4692 64.4936 67.6398 10.64 2.67 3.63 5.95 Room Temperatures Chronax AutoETS 7032 23.0873 0.0058 0.0023 4.66 1.16 1.53 2.58 Room Temperatures Statsforecast AutoETS 7032 8.1513 8.0565 8.0164 5.61 1.35 1.59 3.00 Room Temperatures Chronax AutoMFLES 7032 8.1671 0.1241 0.1334 4.70 1.15 1.42 2.56 Room Temperatures Statsforecast AutoMFLES 7032 65.9265 58.6217 118.1957 4.78 1.17 1.46 2.60 Room Temperatures Chronax AutoTBATS 7032 3.0661 0.0288 0.0289 4.87 1.18 1.47 2.62 Room Temperatures Statsforecast AutoTBATS 7032 95.4781 83.5333 83.3852 4.10 0.98 1.18 2.18 Room Temperatures Chronax AutoTheta 7032 6.3909 0.3354 0.3329 5.45 1.36 1.79 3.02 Room Temperatures Statsforecast AutoTheta 7032 4.2738 4.3127 4.9150 5.45 1.36 1.79 3.02 Room Temperatures Chronax CrostonClassic 7032 0.3828 0.0004 0.0004 7.22 1.67 1.92 3.71 Room Temperatures Statsforecast CrostonClassic 7032 0.4451 0.0037 0.0056 7.22 1.67 1.92 3.71 Room Temperatures Chronax GARCH 7032 11.2155 0.0384 0.0380 8.28 2.07 2.58 4.60 Room Temperatures Statsforecast GARCH 7032 1.8963 0.0782 0.0843 101.33 24.24 25.39 53.94 Room Temperatures Chronax HistoricAverage 7032 0.0902 0.0001 0.0001 8.28 2.07 2.58 4.60 Room Temperatures Statsforecast HistoricAverage 7032 0.0054 0.0035 0.0039 8.28 2.07 2.58 4.60 Room Temperatures Chronax Holt 7032 0.8942 0.0242 0.0247 5.65 1.36 1.61 3.03 Room Temperatures Statsforecast Holt 7032 0.1756 0.1762 0.1787 5.61 1.35 1.59 3.00 Room Temperatures Chronax HoltWinters 7032 3.1843 1.2879 1.2806 4.05 1.01 1.35 2.24 Room Temperatures Statsforecast HoltWinters 7032 1.7016 1.6955 1.6940 7.35 1.71 1.99 3.80 Room Temperatures Chronax IMAPA 7032 1.0110 0.0050 0.0048 7.74 1.78 2.08 3.96 Room Temperatures Statsforecast IMAPA 7032 0.6071 0.0042 0.0067 6.86 1.59 1.83 3.54 Room Temperatures Chronax MFLES 7032 1.5401 0.1300 0.1176 4.70 1.15 1.42 2.56 Room Temperatures Statsforecast MFLES 7032 4.4536 1.8329 3.6509 6.14 1.52 1.99 3.39 Room Temperatures Chronax MSTL 7032 0.7934 0.0624 0.0561 3.97 0.92 1.09 2.05 Room Temperatures Statsforecast MSTL 7032 0.7241 0.7216 0.7126 4.10 1.00 1.34 2.23 Room Temperatures Chronax Naive 7032 0.0794 0.0001 0.0001 5.61 1.35 1.59 3.00 Room Temperatures Statsforecast Naive 7032 0.0054 0.0035 0.0040 5.61 1.35 1.59 3.00 Room Temperatures Chronax RandWalkW/Drift 7032 0.0849 0.0001 0.0001 5.60 1.35 1.59 3.00 Room Temperatures Statsforecast RandWalkW/Drift 7032 0.0056 0.0036 0.0040 5.60 1.35 1.59 3.00 Room Temperatures Chronax SeasonalExpSmoothing 7032 0.1833 0.0005 0.0005 3.77 0.88 1.01 1.97 Continued on next page 
+
+15 Simulacrum 
+
+Table 4 – continued from previous page Dataset Library Model Length. Cold Start Time (s) Warm Start Time (s) Time Interval (s) MAPE MAE RMSE MASE 
+
+Room Temperatures Statsforecast SeasonalExpSmoothing 7032 0.4584 0.0036 0.0054 3.77 0.88 1.01 1.97 Room Temperatures Chronax SeasonalNaive 7032 0.1925 0.0007 0.0006 1.98 0.47 0.57 1.06 Room Temperatures Statsforecast SeasonalNaive 7032 0.0052 0.0036 0.0040 1.98 0.47 0.57 1.06 Room Temperatures Chronax SeasonalWinAvg 7032 0.0476 1.93e-05 1.59e-05 4.17 0.98 1.49 2.18 Room Temperatures Statsforecast SeasonalWinAvg 7032 0.0053 0.0035 0.0052 4.17 0.98 1.49 2.18 Room Temperatures Chronax SimpleExpSmoothing 7032 0.0776 0.0001 0.0001 6.86 1.59 1.83 3.54 Room Temperatures Statsforecast SimpleExpSmoothing 7032 0.4450 0.0035 0.0052 6.86 1.59 1.83 3.54 Room Temperatures Chronax TBATS 7032 3.6609 0.3444 0.3305 7.29 1.68 1.95 3.75 Room Temperatures Statsforecast TBATS 7032 8.9820 2.1793 2.2344 5.93 1.47 1.94 3.28 Room Temperatures Chronax TSB 7032 0.1219 0.0001 0.0001 6.86 1.59 1.83 3.54 Room Temperatures Statsforecast TSB 7032 0.4479 0.0036 0.0052 6.86 1.59 1.83 3.54 Room Temperatures Chronax Theta 7032 2.5806 0.1693 0.1620 5.45 1.36 1.79 3.02 Room Temperatures Statsforecast Theta 7032 0.8926 0.8812 0.8816 5.45 1.36 1.79 3.02 Room Temperatures Chronax WindowAverage 7032 0.0440 2.02e-05 1.23e-05 6.21 1.46 1.65 3.25 Room Temperatures Statsforecast WindowAverage 7032 0.0054 0.0035 0.0050 6.21 1.46 1.65 3.25 
+
+16 Chronax: A Jax Library for Univariate Statistical Forecasting and Conformal Inference 
+
+Figure 3: Heatmap of Chronax/Statsforecast benchmarking ratios for the Airline Passengers dataset across six metrics. Rows correspond to forecasting models and columns correspond to Cold Start, Warm Start, MAPE, MAE, RMSE, and MASE. Cell labels report raw ratios, while color encodes log 10 (Chronax /Statsforecast) . Green values ( < 1.0×)favor Chronax and red values ( > 1.0×) favor Statsforecast. 17 Simulacrum 
+
+Figure 4: Heatmap of Chronax/Statsforecast benchmarking ratios for the Daily Female Births dataset across six metrics. Rows correspond to forecasting models and columns correspond to Cold Start, Warm Start, MAPE, MAE, RMSE, and MASE. Cell labels report raw ratios, while color encodes log 10 (Chronax /Statsforecast) . Green values ( < 1.0×)favor Chronax and red values ( > 1.0×) favor Statsforecast. 18 Chronax: A Jax Library for Univariate Statistical Forecasting and Conformal Inference 
+
+Figure 5: Heatmap of Chronax/Statsforecast benchmarking ratios for the Room Temperature dataset across six metrics. Rows correspond to forecasting models and columns correspond to Cold Start, Warm Start, MAPE, MAE, RMSE, and MASE. Cell labels report raw ratios, while color encodes log 10 (Chronax /Statsforecast) . Green values ( < 1.0×)favor Chronax and red values ( > 1.0×) favor Statsforecast. 19
