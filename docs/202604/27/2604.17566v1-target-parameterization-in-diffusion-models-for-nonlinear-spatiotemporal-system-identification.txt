@@ -1,0 +1,485 @@
+Title: Target Parameterization in Diffusion Models for Nonlinear Spatiotemporal System Identification
+
+URL Source: https://arxiv.org/pdf/2604.17566v1
+
+Published Time: Tue, 21 Apr 2026 01:32:58 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# Target Parameterization in Diffusion Models for Nonlinear Spatiotemporal System Identification 
+
+Achraf El Messaoudi 1∗, Noureddine Khaous 2∗, Karim Cherifi 1
+
+Abstract — Machine learning is becoming increasingly impor-tant for nonlinear system identification, including dynamical systems with spatially distributed outputs. However, classical identification and forecasting approaches become markedly less reliable in turbulent-flow regimes, where the dynamics are high-dimensional, strongly nonlinear, and highly sensitive to com-pounding rollout errors. Diffusion-based models have recently shown improved robustness in this setting and offer probabilistic inference capabilities, but many current implementations inherit target parameterizations from image generation, most commonly noise or velocity prediction. In this work, we revisit this design choice in the context of nonlinear spatiotemporal system identification. We consider a simple, self-contained patch-based transformer that operates directly on physical fields and use turbulent flow simulation as a representative testbed. Our results show that clean-state prediction consistently improves rollout stability and reduces long-horizon error relative to velocity-and noise-based objectives, with the advantage becoming more pronounced as the per-token dimensionality increases. These findings identify target parameterization as a key modeling choice in diffusion-based identification of nonlinear systems with spatial outputs in turbulent regimes. 
+
+I. INTRODUCTION System identification for dynamical systems is a central problem in control, where the objective is to construct predictive models from measured data for simulation, analysis, and control design. In recent years, machine learning has become an increasingly important tool for this task, owing to its ability to capture complex dynamical behaviors directly from data [1]. Recent transformer-based approaches have started to broaden the scope of data-driven modeling for dynamical systems. In particular, sequence models have been used to infer the behavior of previously unseen systems directly from trajectory data [ 2], [ 3 ], [ 4]. Beyond these settings, related ideas have also been explored for parametric dynamical systems with time-varying inputs, where transformer archi-tectures are used as black-box predictors for multi-output temporal evolution [5]. These developments are also relevant for dynamical systems with spatial outputs, where the observations are no longer low-dimensional signals but distributed fields evolving over time. In this setting, the identification problem must account not only for temporal dynamics, but also for the spatial structure of the outputs. A natural extension of machine-learning-based state-space identification is therefore to preserve the nonlinear     
+
+> 1Universit ´e Marie et Louis Pasteur, SUPMICROTECH, CNRS, institut FEMTO-ST, F-25000 Besanc ¸on, France
+> 2LLF, CNRS, Universit´ e Paris Cit´ e, F-75013 Paris, France
+> ∗Equal contribution
+
+state-space viewpoint while replacing dense input-output mappings by convolutional parameterizations [6]. For turbulent flows, however, this identification problem becomes substantially more difficult. The dynamics are high-dimensional, strongly nonlinear, and sensitive to compounding rollout errors, so that locally accurate predictors may still drift or become unstable in free-running simulation. In this regime, autoregressive conditional diffusion model (ACDM) has recently emerged as a promising approach, combining strong long-horizon prediction with posterior sampling capabilities that are attractive when multiple future flow evolutions are consistent with the same conditioning information [7]. At the same time, several modeling choices in diffusion-based forecasting are inherited from image generation [ 8], [9], [ 10 ], [ 11 ]. One important choice concerns the prediction objective: rather than predicting the clean next state directly, diffusion models are commonly trained to predict injected noise, or closely related parameterizations such as velocity [ 8], [ 10 ]. However, recent work suggests that clean-signal prediction can be substantially easier than noise-like targets, especially in high-dimensional token spaces [ 12 ]. This ob-servation naturally motivates revisiting the learning objective itself when identifying predictive surrogates for turbulent-flow dynamics. Motivated by these considerations, we revisit prediction target choice in diffusion-based system identification for nonlinear distributed dynamics. Our goal is not to propose a highly specialized architecture, but rather to isolate how the diffusion prediction objective affects the quality of the identified model. To this end, we use a deliberately simple, self-contained patch-based transformer operating directly on physical fields, without latent autoencoders, auxiliary tokenizers, or external backbone components, and vary only the diffusion target while keeping the architecture and training budget fixed. Concretely, we compare clean-state, velocity, and noise prediction on the incompressible and transonic benchmarks introduced in [ 7], with an emphasis on long-horizon rollouts. These observations suggest that, in diffusion-based system identification of nonlinear distributed dynamics, the prediction target should be regarded as a genuine modeling choice rather than a secondary implementation detail. This motivates the controlled study carried out in this paper, where we isolate the effect of target parameterization on the quality of the identified transition model. The contributions of this paper are as follows:  
+
+> •
+
+We revisit the choice of diffusion prediction objective (x-, v-, or ϵ-prediction) in diffusion-based system iden-tification of turbulent-flow dynamics, and provide a 
+
+> arXiv:2604.17566v1 [eess.SY] 19 Apr 2026
+
+controlled evaluation on incompressible and transonic cylinder benchmarks under matched training budgets.  
+
+> •
+
+We introduce a minimal, self-contained patch-transformer diffusion system identification model for next-step field prediction that operates directly in physical space and conditions on past frames and scalar parameters, enabling a clean assessment of objective-choice effects without encoders, U-Nets, or latent variables.  
+
+> •
+
+We show that clean-state prediction leads to more reliable identified transition models than conventional noise-like targets, yielding improved rollout stability and lower long-horizon error, and we relate this behavior to a manifold-based interpretation of physical states versus diffusion targets.  
+
+> •
+
+We propose a two-resolution, matched-token-count pro-tocol that varies per-token dimensionality while keeping sequence length fixed, and show that the advantage of clean-state prediction becomes more pronounced in the large-patch regime. II. BACKGROUND AND PROBLEM SETUP We consider dynamical systems with spatial outputs, for which collected input-output trajectory data are available. The spatial outputs are spatio-temporal fields {xt}Tt=1 with 
+
+xt ∈ RC×H×W , where C denotes the number of physi-cal channels and (H, W ) the spatial resolution. Here, T
+
+denotes the number of time steps in a trajectory. In many control-oriented settings, each trajectory is associated with two types of exogenous information: a time-varying input signal u1: T driving the system evolution, and possibly a fixed low-dimensional parameter vector θ describing the operating condition or system instance. Accordingly, from a system-identification viewpoint, the objective is to identify a predictive model of the field evolution from past observations together with the available control inputs and, when relevant, static parameters. This setting arises naturally in nonlinear systems with spatially distributed outputs, where one seeks to model the evolution of measured fields under external actuation. Representative examples are discussed in [ 6], including flow around an oscillating cylinder, where the transverse cylinder displacement acts as the input, and Rayleigh–B ´enard convection, where the manipulated input is the temperature difference imposed between two bottom wall sections. We model the conditional next-step distribution given a fixed-length history window together with the available exogenous information: 
+
+ˆxt+1 ∼ pϕ( · | xt−k+1: t, u t−k+1: t, θ ), (1) where k denotes the context length, xt−k+1: t := (xt−k+1 , . . . , x t), and ut−k+1: t := ( ut−k+1 , . . . , u t).A free-running rollout of horizon H is then obtained by recursively replacing the true past states in (1) with previously generated ones, for t = k, . . . , k + H −1. Here, ϕ denotes the learnable parameters of the conditional generative model pϕ.From a system-identification perspective, this corresponds to 
+
+Fig. 1: Geometric assumption. Under the manifold as-sumption, physical states x ∈ X concentrate near a low-dimensional subset M ⊂ X , while injected noise ϵ ∼ N (0 , I )
+
+is isotropic in X .evaluating the identified surrogate in free-running simulation, which is the regime relevant for long-horizon prediction and downstream control-oriented use. A central difficulty in this setting is compounding error: small inaccuracies at each step can accumulate during rollout and lead to drift or instability, a phenomenon widely observed in autoregressive sequence prediction and particularly severe in chaotic flow dynamics. 
+
+A. Conditional diffusion / rectified flow for next-step genera-tion 
+
+We instantiate (1) using a diffusion-style generative model, adopting a rectified-flow formulation that learns a velocity field transporting noise to data. To avoid confusion with the discrete time index t in {xt}, we denote the continuous diffusion time by τ ∈ [0 , 1] . Given a target next state x ≡ xt+1 
+
+and conditioning information c := ( xt−k+1: t, θ ), we sample 
+
+τ ∈ [0 , 1] and form a noised interpolation 
+
+zτ = τ x + (1 − τ ) ϵ, ϵ ∼ N (0 , I ). (2) For the linear coupling in (2) , the induced target velocity along the path is 
+
+v⋆(zτ , τ ; x, ϵ ) := dzτ
+
+dτ = x − ϵ = x − zτ
+
+1 − τ , (3) where v⋆ denotes the ground-truth velocity implied by the coupling, while vϕ(z, τ, c ) denotes the learned velocity field parameterized by ϕ.At inference time, we generate ˆx by integrating the learned ODE from τ = 0 (noise) to τ ≈ 1 using a standard numerical solver : 
+
+dz
+
+dτ = vϕ(z, τ, c ), z(0) ∼ N (0 , I ), ˆx = z(1 − ε), (4) with a small ε > 0 for numerical stability. This continuous-time view is closely connected to diffusion/score-based mod-eling [ 8] and provides a convenient interface for conditional next-step generation within the autoregressive rollout (II). B. Prediction target parameterizations 
+
+A central modeling choice is the training target predicted from (zτ , τ, c ). We consider three standard parameterizations widely used in diffusion-style models:  
+
+> •
+
+x-prediction: predicts the clean next state ˆxϕ(zτ , τ, c ). 
+
+> •
+
+ϵ-prediction: predicts the injected noise ˆϵϕ(zτ , τ, c ). 
+
+> •
+
+v-prediction: predicts the velocity ˆvϕ(zτ , τ, c ) as in (3) .Under (2) , these targets are analytically related; for example, 
+
+x = zτ −(1 −τ )ϵτ (for τ > 0) and v = x − ϵ. Accordingly, in idealized settings the parameterizations can be transformed into one another and are often treated as interchangeable up to reweighting [8], [9], [10]. A different conclusion emerges once one accounts for finite capacity and representation bottlenecks. A common hypothesis in high-dimensional learning is that natural signals concentrate near a low-dimensional manifold of the ambient space. Denoising can then be viewed as recovering a struc-tured signal while suppressing components orthogonal to this subset, which is an interpretation that also underlies denoising autoencoders. In contrast, Gaussian noise ϵ ∼ N (0 , I ) is isotropic in the full ambient space. This geometric asymmetry motivates why learning to reconstruct x can differ from learning to predict noise-like quantities (such as ϵ, or the noise component implicit in v = x − ϵ) despite analytic equivalences in (2); Figure 1 summarizes the intuition. This perspective is emphasized in [ 12 ], where the authors introduce JiT ( Just Image Transformer ) and argue that the practical equivalence between x- and ϵ-prediction can break sharply for transformer diffusion models when the representation is under-complete relative to the target space. More concretely, patch tokenization introduces an explicit per-token ambient dimension: with patch size P , each token corresponds to a vector in RCP 2
+
+, and this dimension grows quadratically with P . When CP 2 is large relative to the model width, predicting noise-like targets can become substantially more demanding than predicting structured signals, even though the targets are analytically related under (2) . In the remainder of this paper, we refer to our autoregressive adaptation of this architecture as A-JiT ( Autoregressive JiT ). III. M ETHOD 
+
+We instantiate the autoregressive next-step model pϕ(· | 
+
+xt−k+1: t, u t−k+1: t, θ ) using a conditional rectified-flow for-mulation (Section II-A) parameterized by a patch-token transformer backbone (Figure 2). The architecture is de-liberately self-contained: it operates directly in physical field space via patch tokens (no latent encoder/decoder), so that differences in long-horizon rollouts can be attributed primarily to the diffusion target parameterization rather than auxiliary architectural components. We use the notation from Section II: the next state is x ≡ xt+1 , the conditioning is 
+
+c := ( xt−k+1: t, u t−k+1: t, θ ), and the noised input is zτ in (2) . Across all experiments, we keep the backbone fixed and vary only the training target ( x, v, or ϵ). 
+
+Fig. 2: Method overview. A self-contained patch-token transformer maps the noised next-state zτ to a field-level prediction, conditioned on the history window xt−k+1: t,diffusion time, and parameters θ.
+
+A. Self-contained patch-token transformer backbone 
+
+Figure 2 summarizes the forward path. The “Pixel/Field space” blocks correspond to the noised input zτ and the predicted output in RC×H×W . The “Model block” consists of patchification with a linear embedding into tokens, a stack of transformer blocks, and a linear head followed by unpatchifica-tion. Conditioning enters through two complementary routes: a token-level encoding of the past window xt−k+1: t (added to the input tokens), and a global pathway that injects (τ, θ )
+
+into each transformer block via feature-wise modulation. 
+
+a) Patch tokenization: Let P be the patch size (dividing 
+
+H and W ). A field u ∈ RC×H×W is partitioned into N = 
+
+> HP
+
+· WP non-overlapping patches and each flattened patch in 
+
+RCP 2
+
+is mapped to a token in RD . In practice, we implement this with a strided convolution (kernel size and stride equal to P ), which is equivalent to a shared linear projection across patches. We denote patch embedding by Tok( ·), yielding 
+
+Tok( u) ∈ RN ×D .
+
+b) History conditioning (token-level): We stack the k
+
+context frames along channels, xstk  
+
+> t−k+1: t
+
+∈ R(kC )×H×W ,and embed them into tokens Thist = Tok hist (xstk 
+
+> t−k+1: t
+
+) ∈
+
+RN ×D . Similarly, we embed the diffusion input into Tz =Tok z (zτ ) ∈ RN ×D . The token sequence entering the trans-former is the token-wise sum 
+
+T0 = Tz + Thist + Epos , (5) where Epos ∈ RN ×D is a fixed 2D sinusoidal positional embedding. This design keeps the attention sequence length equal to the patch-grid size and enables token-wise fusion of the current diffusion state zτ with the conditioning history. 
+
+c) Global conditioning via (τ, θ ): We embed diffusion time τ using sinusoidal/Fourier features followed by an MLP (as commonly used in diffusion models), and embed the parameter vector θ with an MLP. Their sum gives a global conditioning vector 
+
+g(τ, θ ) = gτ (τ ) + gθ (θ) ∈ RD , (6) which modulates each transformer block through feature-wise shift/scale (FiLM/AdaLN-style) [ 11 ]. Intuitively, this pathway provides per-step context (diffusion time) and trajectory identity (e.g., Re/Ma) without increasing the token sequence length. 
+
+d) Transformer and field output: We apply a stack of L
+
+transformer blocks with multi-head self-attention and MLP sublayers, following the ViT/DiT pattern. Let TL ∈ RN ×D
+
+denote the final token sequence. A linear head maps each token back to a RCP 2
+
+patch vector, and unpatchification reconstructs a field output 
+
+yϕ(zτ , τ, c ) ∈ RC×H×W . (7) The semantic meaning of yϕ depends on the target parame-terization below. 
+
+B. Targets and training objectives 
+
+All variants share the same backbone (Section III-A); only the interpretation of yϕ and the regression objective differ. For each training example, we sample τ ∈ [0 , 1] , draw ϵ ∼N (0 , I ), and construct zτ via (2). 
+
+a) x-prediction.: We set ˆxϕ = yϕ(zτ , τ, c ) and match the induced velocity along the coupling path : 
+
+ˆvϕ = ˆxϕ − zτ
+
+1 − τ , (8) regressing to v⋆ = x−zτ 
+
+> 1−τ
+
+:
+
+Lx→v (ϕ) = E
+
+h
+
+ℓ ˆvϕ, v ⋆i
+
+. (9) 
+
+b) v-prediction.: We set ˆvϕ = yϕ(zτ , τ, c ) and minimize 
+
+Lv (ϕ) = E
+
+h
+
+ℓ ˆvϕ, v ⋆i
+
+. (10) 
+
+c) ϵ-prediction.: We set ˆϵϕ = yϕ(zτ , τ, c ) and minimize 
+
+Lϵ(ϕ) = E
+
+h
+
+ℓ ˆϵϕ, ϵ i
+
+, (11) as in DDPM-style training [8]. 
+
+C. Sampling and autoregressive rollout 
+
+Sampling integrates the ODE in (4) and therefore requires a velocity field vϕ(z, τ, c ). For v-prediction we set vϕ ≡ ˆvϕ.For x-prediction we compute vϕ from ˆxϕ using (8) . For 
+
+ϵ-prediction we first recover ˆxϕ = zτ −(1 −τ )ˆ ϵϕ 
+
+> τ
+
+(for τ >
+
+0) and then apply (8) . We integrate up to τ = 1 − ε for numerical stability, following common practice in continuous-time diffusion/flow samplers. 
+
+a) ODE discretization.: We solve the rectified-flow ODE on τ ∈ [0 , 1 − ε] using a fixed-step explicit integrator. Unless stated otherwise, we use Heun’s method (predictor–corrector), and report Euler as a simpler alternative. Let τ0 = 0 < · · · <τM = 1 − ε with step size ∆τ = τi+1 − τi. Starting from 
+
+z0 ∼ N (0 , I ), the update uses the learned velocity field 
+
+vϕ(z, τ, c ) and returns ˆx = zM .Given a history window, control inputs, and parameters, we sample ˆxt+1 ∼ pϕ(· | ˆxt−k+1: t, u t−k+1: t, θ ) and feed it back into the context window, iterating for the desired horizon as in (II) . This free-running protocol matches the standard evaluation used in autoregressive diffusion turbulence benchmarks. IV. E XPERIMENTS 
+
+A. Datasets 
+
+We evaluate our diffusion-based system identification method on two 2D cylinder-flow benchmarks released with ACDM [ 7 ]: an incompressible vortex-shedding wake ( Inc )and a compressible transonic cylinder flow ( Tra ). Both datasets provide spatio-temporal fields on a regular 128 × 64 
+
+grid along with a scalar parameter θ (Reynolds or Mach number). The proposed framework can be extended to settings where the field evolution is conditioned not only on past frames but also on time-varying control inputs. In the present work, however, we restrict attention to these parameter-conditioned benchmarks, since they provide a standardized testbed for direct comparison with ACDM. Following the original protocol, we use standardized preprocessing, per-channel normalization, and obstacle masking for both training and evaluation. 
+
+a) Inc : incompressible cylinder wake.: This benchmark consists of periodic vortex shedding across Reynolds numbers 
+
+Re ∈ [100 , 1000] . The fields include velocity and pressure channels, with θ = Re serving as the scalar conditioning parameter. 
+
+b) Tra : transonic cylinder flow.: Tra contains com-pressible flows at a fixed Reynolds number while varying the freestream Mach number Ma ∈ [0 .5, 0.9] . The data includes velocity, density, and pressure fields, with θ = Ma for conditioning. We report metrics on the specific subset of modeled channels as detailed in our experiments. 
+
+c) Splits and horizons.: Following [ 7], we adopt evalua-tion regimes that probe generalization in θ (interpolation and extrapolation) as well as temporal stability through extended rollouts. Exact train/test splits, horizons, and channel configurations are specified in Sec. IV-B. 
+
+B. Experimental protocol 
+
+Our experiments isolate the effect of the diffusion target parameterization (x-, v-, or ϵ-prediction; Section III-B) on autoregressive rollout quality in a system identification setting, while keeping the backbone, optimizer, and sampling procedure fixed. Models are trained for one-step conditional generation and evaluated in free-running rollouts where predictions are recursively fed back as inputs. a) Two-resolution protocol with matched token count.: 
+
+A central diagnostic is a controlled change in the per-token ambient dimension induced by patch tokenization. With patch size P , each token corresponds to a vector in RCP 2
+
+(Section III-A), and the number of tokens is 
+
+N = ( H/P )( W/P ). We compare two spatial resolutions while keeping N fixed:  
+
+> •
+
+Low resolution: H × W = 64 × 32 with patch size 
+
+P = 4 , 
+
+> •
+
+High resolution: H × W = 256 × 128 with patch size 
+
+P = 16 .In both cases, N = ( H/P )( W/P ) = 16 · 8 = 128 tokens, so self-attention operates over the same sequence length. However, the per-token ambient dimension CP 2 increases by a factor of 16 from P = 4 to P = 16 . This separates effects due to token count from effects due to token dimension ,which is precisely the regime where target choice is expected to matter most for patch-token diffusion transformers. 
+
+b) Target-choice variants.: For each dataset ( Inc , Tra )and each resolution setting above, we train three models that share the same backbone and training hyperparameters, differing only in the predicted target and loss: 1) x-prediction with induced velocity loss: the network outputs ˆxϕ and is trained via Lx→v in (9); 2) v-prediction: the network outputs ˆvϕ and is trained with Lv in (10); 3) ϵ-prediction: the network outputs ˆϵϕ and is trained with Lϵ in (11). This matched design isolates the practical impact of target parameterization under fixed capacity and tokenization. 
+
+c) Training, sampling, and compute matching.: All vari-ants are trained on next-step examples built from trajectories using context length k = 2 . At inference time, each next-step prediction is obtained by integrating the rectified-flow ODE (4) up to τ = 1 − ε using a fixed-step solver, and then rolled out autoregressively for a fixed horizon. To ensure fair comparisons, we keep the backbone architecture (depth, width, heads), batch size, learning-rate schedule, and the total number of training updates fixed across targets and across the two-resolution protocol. Since N is matched between the two resolutions, the attention sequence length is comparable; the primary controlled change is the per-token ambient dimension 
+
+CP 2.
+
+C. Evaluation metrics 
+
+We evaluate autoregressive simulators along three com-plementary axes: pointwise accuracy, temporal stability, and temporal spectral fidelity. All metrics are computed on free-running rollouts (II) and aggregated over rollout time and test trajectories. For cylinder-flow data, we exclude the obstacle region using the provided mask whenever it is available and applicable. 
+
+a) Pointwise accuracy: We report the mean-squared error (MSE) between predicted and reference fields outside the obstacle region. While MSE can be sensitive to phase shifts in oscillatory regimes, it provides a standardized baseline for comparing rollouts under a fixed protocol. 
+
+b) Temporal stability: For each test simulation indexed by q ∈ Q , we generate a free-running rollout {ˆx(q,s ) 
+
+> t
+
+}T −1
+
+> t=0
+
+of length T , where s ∈ { 1, . . . , S } indexes independent stochastic samples (i.e., different diffusion sampling noise with the same conditioning). Let ∆t denote the time increment between consecutive frames and let ˆx(q,s ) 
+
+> t
+
+∈ RC×H×W be the predicted field at rollout step t.We measure the mean absolute time derivative between consecutive predicted frames: 
+
+d(q,s ) 
+
+> t
+
+= 1
+
+CHW 
+
+> C
+
+X
+
+> c=1
+> H
+
+X
+
+> i=1
+> W
+
+X
+
+> j=1
+
+ˆx(q,s ) 
+
+> t
+
+(c, i, j ) − ˆx(q,s ) 
+
+> t−1
+
+(c, i, j )∆t
+
+(12) We summarize temporal stability as a function of rollout step by averaging across all test simulations and stochastic samples: 
+
+¯dt = 1
+
+|Q| S
+
+X
+
+> q∈Q
+> S
+
+X
+
+> s=1
+
+d(q,s ) 
+
+> t
+
+, t = 1 , . . . , T − 1, (13) and we visualize dispersion with a min–max envelope over the same set of (q, s ).For the ground-truth rollout {x(q) 
+
+> t
+
+}T −1 
+
+> t=0
+
+, we compute the analogous quantity d(q) 
+
+> t
+
+by replacing ˆx with x, and aggregate across q ∈ Q to obtain the reference curve. Large values of ¯dt
+
+indicate temporally noisy rollouts or drift, whereas abnormally small values can indicate over-damping and collapse toward a nearly steady state. 
+
+c) Spectral fidelity: To probe whether long rollouts preserve the dominant temporal dynamics, we extract a scalar time signal from a fixed spatial location. Let p = ( ip, j p)
+
+denote the probe point and let c⋆ be the channel of interest (here we use the modeled field channel at p). For each test simulation q ∈ Q and stochastic sample s ∈ { 1, . . . , S }, we define the probe signal 
+
+s(q,s ) 
+
+> t
+
+= ˆx(q,s ) 
+
+> t
+
+(c⋆, i p, j p), t = 0 , . . . , T − 1. (14) We compute its discrete Fourier transform 
+
+bs(q,s )(fm) =  
+
+> T−1
+
+X
+
+> t=0
+
+s(q,s ) 
+
+> t
+
+e−i2πf mt∆t, fm = mT ∆t ,
+
+(15) and report the one-sided power spectrum 
+
+P (q,s )(fm) = bs(q,s )(fm) 2, m = 1 , . . . ,  T
+
+> 2
+
+ − 1.
+
+(16) In figures, we follow the plotting convention used in our analysis code and visualize the frequency-weighted spectrum 
+
+f 2 
+
+> m
+
+P (q,s )(fm) to highlight discrepancies at higher temporal frequencies. We average f 2 
+
+> m
+
+P (q,s )(fm) across all (q, s ) pairs to obtain the reported spectrum and visualize dispersion using a min– max envelope. For the reference simulation, we repeat the same procedure using x(q) 
+
+> t
+
+instead of ˆx(q,s ) 
+
+> t
+
+.x-pred ϵ-pred v-pred                                 
+
+> x-loss 0.021 10.32 14.12
+> ϵ-loss 0.028 10.41 15.09
+> v-loss 0.018 9.28 13.10
+> (a) INC 256 ×128 ,P=16
+> x-pred ϵ-pred v-pred
+> x-loss 0.011 0.017 0.016
+> ϵ-loss 0.012 0.010 0.013
+> v-loss 0.009 0.012 0.01
+> (b) INC 64 ×32 ,P=4
+
+TABLE I: Target and loss choices on benchmark INC .                                  
+
+> x-pred ϵ-pred v-pred
+> x-loss 0.026 12.27 11.12
+> ϵ-loss 0.029 13.36 14.13
+> v-loss 0.022 11.22 12.10
+> (a) TRA 256 ×128 ,P=16
+> x-pred ϵ-pred v-pred
+> x-loss 0.014 0.018 0.016
+> ϵ-loss 0.015 0.016 0.020
+> v-loss 0.011 0.014 0.015
+> (b) TRA 64 ×32 ,P=4
+
+TABLE II: Target and loss choices on benchmark TRA .V. E XPERIMENTAL RESULTS 
+
+A. Target choice 
+
+We study how the choice of prediction target and regres-sion objective affects autoregressive rollouts under a fixed backbone and training budget. Concretely, we evaluate a 3×3
+
+design over targets ( x, ϵ, v) and regression objectives ( x-, 
+
+ϵ-, v-loss). Tables I and II report the resulting long-horizon rollout error for INC and TRA under the two-resolution, matched-token-count protocol ( N = 128 ). Overall, x-prediction yields the most reliable rollouts. Crucially, the gap with ϵ- and v-based parameterizations widens in the high-resolution setting, where the patch size is larger ( P =16 ) and each token corresponds to a higher-dimensional patch vector in RCP 2
+
+. This regime increases the difficulty of regressing noise-like targets at fixed model width, consistent with the token-dimension perspective dis-cussed in Section II-B. From a compute standpoint, moving from (64 ×32 , P =4) to (256 ×128 , P =16) keeps the token count fixed but increases the cost of the input/output patch projections (which scale with CP 2) and the reconstruction and loss evaluation on a larger grid, resulting in noticeably longer training time per step. 
+
+B. Ablation Study: Bottleneck Linear Embedding 
+
+To further investigate the manifold assumption in the context of chaotic PDE simulations, we analyze the effect of a        
+
+> 24816 32 64
+> 1
+> 2
+> 3
+> 4
+> d′(Dimension)
+> Total MSE  (×10 −2)
+> Global MSE Sum vs. Dimension d′
+> No Bottleneck
+> Bottleneck
+
+Fig. 3: Sum of Global MSE across dimensions. The dashed line represents the baseline without bottleneck ( 2.5 × 10 −2). 
+
+bottleneck linear embedding on rollout stability. Following the findings in [ 7], we replace the standard linear patch projection T ok (u) ∈ RN ×D with a pair of sequential linear layers characterized by an intermediate bottleneck dimension 
+
+d′, where d′ < min( CP 2, D ). Formally, the embedding of a flattened physical patch p ∈ RCP 2
+
+is redefined as: 
+
+Epatch = W2(W1p + b1) + b2 (17) where W1 ∈ Rd′×CP 2
+
+and W2 ∈ RD×d′
+
+. This structure acts as a low-rank reparameterization of the input space. As illustrated in Figure 3, our model exhibits remarkable robustness to this constraint. Even with aggressive bottlenecks as small as d′ = 4 or d′ = 8 , the model avoids the catastrophic failures typical of higher-dimensional autoregressive regimes. Interestingly, we observe that intermediate values of d′ can even lead to a reduction in long-horizon rollout error. This suggests that the bottleneck serves as a form of manifold reg-ularization, effectively filtering out high-frequency numerical noise while preserving the essential low-dimensional physical dynamics M.
+
+C. Temporal stability and spectral fidelity 
+
+Pointwise rollout errors alone do not fully characterize system identification quality in turbulent regimes, where small phase shifts can inflate MSE while leaving the underlying dynamics largely intact. We therefore complement the target-choice ablation with two long-horizon diagnostics that directly probe autoregressive behavior: (i) temporal stability, quantified by frame-to-frame temporal-change magnitudes, and (ii) temporal spectral fidelity, computed from a fixed downstream probe signal (Section IV-C). We instantiate these diagnostics on INC and compare our best-performing target choice to ACDM under the same free-running rollout protocol. For fairness, we match ACDM’s training and sampling budget and use it as a reference diffusion baseline, not as the focus of a broader benchmarking study. 
+
+a) Temporal stability.: We assess stability via the per-step temporal-change magnitude dt (Eq. 12), i.e., the spatial mean of the absolute time increment ˆxt−ˆxt−1 
+
+> ∆t
+
+, aggregated Fig. 4: Temporal stability under autoregressive feedback. 
+
+Magnitude of temporal change ˆxt−ˆxt−1 
+
+> ∆t1
+
+along free-running rollouts, compared to the reference simulation. along the rollout. Intuitively, this quantity tracks how “ac-tive” the generated dynamics remain under repeated self-conditioning: sustained increases indicate amplification of high-frequency temporal noise and drift, whereas sustained decreases indicate excessive damping and a progressive loss of dynamic content. Figure 4 shows that our autoregressive rollouts follow the reference simulation closely across the horizon, including the characteristic oscillatory pattern as-sociated with vortex shedding. ACDM exhibits a similar qualitative trend early on, but its temporal-change statistics deviate more noticeably as the rollout progresses, with a gradual drift away from the reference band toward the end of the horizon. Overall, the curves suggest that the proposed configuration maintains stable temporal activity over long autoregressive feedback, while ACDM is slightly more prone to long-horizon drift in this diagnostic. 
+
+b) Spectral fidelity.: To assess whether rollouts preserve the dominant temporal modes of the wake, we monitor a scalar probe signal extracted at a fixed downstream grid location 
+
+q = ( iq , j q ). Concretely, we select a channel/component of interest at q to form the time series {st}H−1 
+
+> t=0
+
+(Eqs. 14–16) and compute its discrete Fourier spectrum. Peaks in this spectrum correspond to coherent periodic content (vortex shedding and harmonics), while the higher-frequency tail reflects finer temporal fluctuations. In Figure 5, the spectrum of our rollouts stays close to the reference across the dominant shedding band and much of the broadband region. ACDM also captures the main low-frequency structure, but exhibits a more noticeable mismatch in parts of the spectrum, particularly at higher frequencies. Together with the temporal-stability curves, this indicates that our autoregressive sampler better preserves the temporal organization of the wake over long horizons and maintains frequency statistics that remain consistent with the reference simulation under feedback. VI. CONCLUSION We revisited target parameterization in diffusion-based identification of nonlinear systems with spatial outputs, using turbulent flow forecasting as a representative setting. Under matched backbones and training budgets, our experiments show that clean-state prediction yields more stable long-horizon rollouts and lower accumulated error than velocity and 
+
+Fig. 5: Spectral fidelity of long rollouts. Temporal frequency spectrum of the downstream probe signal (log scale), com-paring generated rollouts to the reference simulation. noise prediction. This advantage becomes more pronounced as per-token dimensionality increases, highlighting target parameterization as a key design choice for diffusion-based spatiotemporal modeling. Several directions merit further study. First, it would be valuable to validate whether the observed advantage of clean-state prediction extends to broader classes of PDE-governed systems and experimental datasets. Second, future work should examine the interaction between target parameteriza-tion, patch size, and computational efficiency in settings where token count is not controlled. Finally, combining clean-state objectives with physics-informed constraints or uncertainty-aware identification could further improve robustness in challenging turbulent regimes. REFERENCES [1] G. Pillonetto, A. Aravkin, D. Gedon, L. Ljung, A. H. Ribeiro, and T. B. Sch ¨on, “Deep Networks for System Identification: A Survey,”

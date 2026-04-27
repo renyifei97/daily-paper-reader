@@ -1,0 +1,1309 @@
+Title: Safe Continual Reinforcement Learning in Non-stationary Environments
+
+URL Source: https://arxiv.org/pdf/2604.19737v1
+
+Published Time: Wed, 22 Apr 2026 01:27:27 GMT
+
+Number of Pages: 39
+
+Markdown Content:
+# Safe Continual Reinforcement Learning in Non-stationary Environments 
+
+## Austin Coursey, Abel Diaz-Gonzalez, Marcos Quinones-Grueiro, and Gautam Biswas Institute for Software Integrated Systems, Vanderbilt University 
+
+> ∗
+
+## austin.c.coursey@vanderbilt.edu 
+
+Abstract 
+
+Reinforcement learning (RL) offers a compelling data-driven paradigm for synthesizing controllers for com-plex systems when accurate physical models are unavailable; however, most existing control-oriented RL methods assume stationarity and, therefore, struggle in real-world nonstationary deployments where system dynamics and operating conditions can change unexpectedly. Moreover, RL controllers acting in physical environments must satisfy safety constraints throughout their learning and execution phases, rendering tran-sient violations during adaptation unacceptable. Although continual RL and safe RL have each addressed non-stationarity and safety, respectively, their intersection remains comparatively unexplored, motivating the study of safe continual RL algorithms that can adapt over the system’s lifetime while preserving safety. In this work, we systematically investigate safe continual reinforcement learning by introducing three bench-mark environments that capture safety-critical continual adaptation and by evaluating representative ap-proaches from safe RL, continual RL, and their combinations. Our empirical results reveal a fundamental tension between maintaining safety constraints and preventing catastrophic forgetting under non-stationary dynamics, with existing methods generally failing to achieve both objectives simultaneously. To address this shortcoming, we examine regularization-based strategies that partially mitigate this trade-off and character-ize their benefits and limitations. Finally, we outline key open challenges and research directions toward developing safe, resilient learning-based controllers capable of sustained autonomous operation in changing environments. 
+
+Keywords: 
+
+reinforcement learning, safe reinforcement learning, continual learning, continual reinforcement learning, non-stationary dynamics 
+
+1. Introduction 
+
+Reinforcement learning (RL) agents have been successfully applied to challenging autonomous decision-making tasks where sufficiently complete and accurate system models are not available. They have shown strong performance in domains such as robotic control [1], autonomous driving [2], and drone control [3]. However, as RL agents are deployed in real-world settings, they must contend with practical challenges that are often absent or simplified in simulation environments, where they are typically developed and tested [4]. Two particularly important challenges are handling non-stationarity [5] and satisfying safety constraints during operation [6]. Many real environments are non-stationary, meaning their dynamics change over time. RL agents operating in such environments must rapidly adapt to these changes, while also retaining knowledge of previously encountered conditions in case they recur. At the same time, real systems must meet safety constraints during both learning and deployment. Thus, an agent must remain safe even as it adapts to changing dynamics. 
+
+> ∗Corresponding author
+> arXiv:2604.19737v1 [cs.LG] 21 Apr 2026
+
+As a motivating example, consider a Mars rover on a long-duration space mission. Although an RL agent can be trained under conditions that approximate Mars, the true environment will differ due to unseen terrain, weather variability, and the gradual degradation of rover components. An RL agent must, therefore, adapt to evolving, non-stationary dynamics. Moreover, if the rover revisits previously encountered terrain, the agent should not need to relearn how to act effectively in those previously encountered conditions. Simultaneously, the agent’s behavior must comply with safety constraints, as damaging the rover could jeopardize the entire mission. Similar requirements arise in many long-horizon real-world deployments, making this a central problem for real-world control. To address non-stationarity, the emerging field of continual reinforcement learning (CRL) [7] studies how agents can learn over a sequence of changing tasks or environments while avoiding catastrophic forgetting [8]. In the rover example, avoiding catastrophic forgetting corresponds to retaining competence on previously experienced terrain types. Separately, the field of safe RL has developed methods to ensure agents meet specified safety constraints [9], such as preventing tip-over events or unsafe maneuvers. Despite substantial progress in both areas, their interaction has received relatively little attention. For example, it remains unclear whether a continual RL agent will reliably remember safety constraints after adapting, or whether a safe RL method will itself suffer from catastrophic forgetting under non-stationarity. Existing work on safe continual RL is limited to a small number of recent studies. In this study, we investigate the problem of safe continual reinforcement learning and propose two candidate algorithms. We study this problem in the setting of extreme, detectable environment changes with soft safety constraints, controlled by on-policy RL methods capable of real-time adaptation and control. We first define safe continual RL problem and further elaborate on the problem setting. We then develop and identify three benchmark environments suitable for evaluating safe continual RL methods, making the intersection of these two fields measurable. Next, we empirically compare several safe RL and continual RL algorithms on both safety and continual learning performance. Finally, we discuss open research questions and future directions for safe continual RL. Code for this paper is available at: https://github.com/MACS-Research-Lab/safe-crl .Overall, our paper makes the following contributions. 
+
+• We explore in-depth the problem of safe continual reinforcement learning, providing evidence of its complexity and the inadequacy of current methods. 
+
+• We develop and identify three robotic benchmarks for safe continual reinforcement learning: (1) con-trolling the running of a damaged half-cheetah with velocity constraints, (2) controlling the crawling of a damaged multi-leg ant robot with velocity constraints, and (3) a robotic arm that must avoid spilling a coffee mug while performing everyday tasks like moving an object. 
+
+• We develop two candidate safe continual RL algorithms called Safe Elastic Weight Consolidation (Safe EWC ) and Cost-Fisher Elastic Weight Consolidation (CF EWC ), and demonstrate their potential and limitations as initial solutions to safe continual reinforcement learning. 
+
+• We benchmark several safe RL algorithms, several continual RL algorithms, and a simple safe continual RL algorithm using both safe and continual RL metrics. In this process, we identify and discuss several open research questions and directions for safe continual RL. The remainder of the paper is structured as follows. Section 2 describes relevant related work from the continual, safe, and safe continual RL research areas. Section 3 formally defines the problem of safe continual reinforcement learning and outlines our assumptions about the problem. Section 4 describes the safe continual RL benchmarks we use. Section 5 outlines and categorizes the methods we use to explore safe continual RL problems. Section 6 describes our results. Section 7 discusses findings and open questions in safe continual RL. Finally, Section 8 concludes the paper. 
+
+2. Related Work 
+
+In this section, we briefly review the relevant areas of Adaptive Control, Continual RL, Safe RL, and Safe Continual RL. 2Adaptive Control. Control of systems under non-stationary dynamics has traditionally been solved using adaptive control methods [10]. In adaptive control, the controller’s parameters are adjusted online to compensate for changes or uncertainties in the system’s dynamics. It has been used with great success for provably optimal control in non-stationary environments. These include applications, such as quadrotor control under parametric uncertainties [11] and additive manufacturing [12]. Traditional adaptive control approaches, like Model Reference Adaptive Control [13], require a known model structure and often linearly parameterize the unknown non-stationarity. This can limit the applicability of these methods, as many real systems lack known models and real non-stationarity is not always linear. With this in mind, Model-Free Adaptive Control [14] methods, such as a pseudo-partial derivative dy-namic linearization technique [15] and a multiple adaptive observer technique [16], have been developed. These methods leverage data to approximate the system’s behavior in an adaptive control scheme. This has been used in domains such as fixed-wing drone control in windy conditions [17] and cyber-physical systems under cyber attacks [18]. While these methods can avoid the need for accurate system models, they lack mechanisms for remembering. In other words, if previously-seen dynamics are revisited, they will typically need to relearn their model. To avoid relearning previously seen dynamics without a system model while adapting to non-linear, non-stationary environments, we can turn toward continual reinforcement learning. 
+
+Continual Reinforcement Learning. Continual reinforcement learning algorithms operate in a non-stationary environment and must balance the stability and plasticity of their underlying networks [7]. The 
+
+stability of a network is defined by its ability to retain previous knowledge, such as its performance in previous environmental conditions in a non-stationary environment. The plasticity of a network is its flexibility to adapt to and learn new information. Many recent works study or aim to reduce plasticity loss while learning reinforcement learning agents [19, 20, 21, 22]. Aside from plasticity loss, recent work on continual reinforcement learning has largely focused on devel-oping techniques to improve stability. In particular, avoiding catastrophic forgetting is a central problem for continual reinforcement learning research [7]. Informally, a reinforcement learning agent catastrophically forgets when it fails to perform as well as it did previously on a task. Techniques to reduce forgetting can be divided into regularization [23, 24, 25], replay [26, 27, 28], and expansion-based techniques [29, 30, 31]. Regularization-based approaches, such as EWC [24], reduce forgetting in neural networks by penalizing changes to previously important weights. Replay-based approaches use replay buffers to store information from prior tasks. When the policy is updated, recent observations and historical data can be used to ensure the model balances current performance with forgetting. This replay buffer can be explicit [26] or generated [28]. Finally, expansion techniques mitigate forgetting by expanding parts of the network, such as the mixture model in [31]. While research on the stability-plasticity dilemma and catastrophic forgetting is important for lifelong reinforcement learning, it does not address how to satisfy safety constraints, a key aspect of real systems. 
+
+Safe Reinforcement Learning. The study of safety constraints within reinforcement learning has been comprehensively explored in the context of safe reinforcement learning [9]. Various methodologies have been employed to enforce these safety constraints, including primal [32] and primal-dual [33] optimizations of constrained Markov decision processes, along with other techniques such as Lyapunov functions [34], control barrier functions [35], implicit learning [36], model predictive control [37], and reachability analysis [38]. Generally, safe reinforcement learning methods assume fixed environments, which do not adequately account for the non-stationarity inherent in long-term real-world deployments. Nonetheless, some research has delved into safety in non-stationary contexts [39, 40, 41]; however, these studies primarily focus on safety in general non-stationary environments, overlooking the unique challenges associated with continual or lifelong reinforcement learning. 
+
+Safe and Continual Reinforcement Learning. From the above literature review, it is clear that there is a research gap in safe, continual reinforcement learning methods. While there is some work on safe reinforcement learning in related domains such as meta-learning [42] and transfer learning [43, 44], there is little work on safety in a continual reinforcement learning setting. The first safe, continual RL method was developed in [45], where the authors learned safe control policies across multiple simple tasks, without evaluating metrics, such as forgetting and transfer. More recently, in [46], the authors developed a safe continual reinforcement learning technique using barrier functions, layer regularization, and new weight 3updates for mobile robots. However, their approach is validated only in limited environments, without safe or continuous learning metrics. In our previous work [47], we conducted an initial exploration of safe continual RL, but our comparisons were limited to one safe and one continual RL algorithm across environments with a single safety constraint. Given the limitations of current research, this paper conducts a deep exploration of the problem of safe continual reinforcement learning. 
+
+3. Defining Safe Continual Reinforcement Learning 
+
+Before formally defining a safe continual reinforcement learning problem, we clarify our focus and as-sumptions about the nature of the problem. 
+
+• Discrete, dramatic task changes. We assume environmental changes occur as discrete tasks. While real non-stationarity can be gradual and subtle, our interest is in more challenging cases involving abrupt, substantial changes in dynamics or conditions. 
+
+• Known task boundaries. We assume task changes are known to the agent (i.e., task boundaries are given). Without this information, continual RL performance would be limited by the quality of a sep-arate task identification mechanism. Our goal is to evaluate continual RL methods themselves rather than task inference, and given the dramatic task shifts we consider, this assumption is reasonable. 
+
+• Soft safety constraints. We model safety as a soft constraint, meaning safety is enforced in ex-pectation (or via penalties/constraint satisfaction on average) rather than as a hard requirement that must never be violated. This allows us to study the trade-off between safety and continual adaptation. In contrast, hard safety constraints would require the agent to never violate safety, making “never forgetting” safety-critical behavior essential and placing strict demands on continual learning. 
+
+• Catastrophic forgetting as the primary continual learning challenge. We focus on catas-trophic forgetting in the continual RL setting: the tendency of agents to lose performance on earlier tasks after learning new ones. Although other aspects of continual RL are important, we view avoiding catastrophic forgetting as a necessary first step toward robust, safe continual learning. To formally define safe continual RL, we start with the definition of a reinforcement learning problem. 
+
+Reinforcement learning solves a Markov Decision Process (MDP): MDP = ( S, A, p, r ) ,
+
+which is a four-tuple consisting of a state space S, an action space A, p(s′|s, a ) is the probability of reaching state s′ while performing action a in state s, and r(s, a ) is the scalar reward obtained by taking action a
+
+in state s. The RL algorithm is designed to find a policy π(a|s) that maximizes the expected discounted reward Vπ , for a certain discount factor γ ∈ [0 , 1) ,
+
+Vπ (s) = E
+
+" ∞X
+
+> i=0
+
+γir(si, a i) s0 = s, a i ∼ π( · | si), s i+1 ∼ p( · | si, a i)
+
+#
+
+, s ∈ S .
+
+Safe Reinforcement Learning is typically formulated as a Constrained Markov Decision Process [48]: CMPD = ( S, A, p, r, C, d ),
+
+where C : S × A → Rm is the vector-valued cost function that determines the m cost-values of the states 
+
+V Cj 
+
+> π
+
+(s) = E
+
+" ∞X
+
+> i=0
+
+γiCj (si, a i) s0 = s, a i ∼ π( · | si), s i+1 ∼ p( · | si, a i)
+
+#
+
+, s ∈ S , j = 1 , 2, . . . , m, 
+
+4which are constrained by m maximum costs d = ( d1, d 2, . . . , d m) ∈ Rm
+
+V Cj 
+
+> π
+
+(s) ≤ dj , s ∈ S , j = 1 , 2, . . . , m. 
+
+Continual Reinforcement Learning (CRL) problem defines an RL problem where “the best agents never stop learning” [49]. CRL has been recently rigorously defined [49]. In this paper, we retain the characteristics of the original CRL problem, but for simplicity, we adopt the framework of a Non-Stationary Markov Decision Process (NSMDP) [50]. We consider a NSMDP =
+
+
+
+S, A, {p(τ )}τ ∈T , {r(τ )}τ ∈T 
+
+
+
+,
+
+as an extension of a stationary MDP, where the transition probability and reward are functions of a set of environmental conditions, also called tasks, T ⊂ N. Our goal is to find a policy that learns tasks consecutively, acquiring multiple trajectories within each task before moving to the next, with no control over the task order, and that can quickly adapt and build on previously learned tasks [7]. Additionally, a successful continual learning agent must be resistant to catastrophic forgetting, so we impose the following condition on the current policy. Let T≺ ⊂ T be the set of tasks that have already been trained on and let π∗ 
+
+> κ
+
+be the optimal policy obtained at task κ ∈ T ≺. Then, for some tolerance to forgetting value ϵ, our current policy π should satisfy 
+
+V (κ) 
+
+> π
+
+(s) ≥ V (κ) 
+
+> π∗
+> κ
+
+(s) − ϵ, s ∈ S , κ ∈ T ≺,
+
+where V (κ) 
+
+> π
+
+denotes the expected discounted reward of the policy π in the stationary MDP =  S, A, p (κ), r (κ).
+
+Definition 1 (Safe Continual Reinforcement Learning). A safe continual reinforcement learning prob-lem solves a “non-stationary constrained Markov decision process” NSCMDP =
+
+
+
+S, A, {p(τ )}τ ∈T , {r(τ )}τ ∈T , {C (τ )}τ ∈T , {d(τ )}τ ∈T 
+
+
+
+,
+
+where at each epoch belonging to task τ , we aim to find a policy π∗ that addresses both continual and safety constraints simultaneously: 
+
+π∗(s) = arg max  
+
+> π
+
+V (τ ) 
+
+> π
+
+(s)
+
+s.t. 
+
+
+
+V (κ) 
+
+> π
+
+(s) ≥ V (κ) 
+
+> π∗
+> κ
+
+(s) − ϵ, s ∈ S , κ ∈ T ≺,V Cj ,(κ) 
+
+> π
+
+(s) ≤ d(κ) 
+
+> j
+
+, s ∈ S , κ ∈ T ≺ ∪ { τ }, j = 1 , 2, . . . , m κ,
+
+(1) 
+
+where V Cj ,(κ) 
+
+> π
+
+denotes the j-th cost-value following policy π in the stationary CMDP =  S, A, p (κ), r (κ), C(κ), d (κ).
+
+4. Benchmark Environments for Safe Continual Reinforcement Learning 
+
+We need suitable benchmarks to investigate and compare different algorithms for safe continuous RL. This paper introduces three robotics benchmarks. The first is a modified version of the classic HalfCheetah MuJoCo environment, which we call the Damaged HalfCheetah Velocity environment. The second modifies the Ant MuJoCo navigation environment, referred to as the Damaged Ant Velocity . The third benchmark is a modification of the Continual World environment, known as the Safe Continual World . The first two environments are widely used benchmarks for safe reinforcement learning and have been extended to in-corporate non-stationary dynamics. The Safe Continual World environment is a continual reinforcement learning benchmark that incorporates safety constraints. The code for these proposed benchmarks is avail-able on our GitHub repository https://github.com/MACS-Research-Lab/safe-crl . These environments, shown in Figure 1, are described in more detail below. 5Nominal  Nominal  Nominal Back  Back Front  Front 
+
+Push Wall  Faucet Close  Push Back 
+
+Safe Continual World 
+
+Damaged HalfCheetah Velocity 
+
+Nominal 
+
+Damaged Ant Velocity 
+
+Nominal  Nominal  Nominal Back  Back Front  Front  Nominal Figure 1: Safe continual reinforcement learning benchmarks. Top : HalfCheetah MuJoCo task with a maximum velocity constraint. Every 1 million timesteps, the cheetah is damaged or repaired, significantly changing its dynamics. Middle : Ant MuJoCo task with a maximum velocity constraint. Every 1 million timesteps, the ant is damaged or repaired, significantly changing its dynamics. Bottom : three tasks from the Safe Continual World benchmark. A coffee mug is placed in the scene, and the agent is penalized for tipping the mug while solving the task. Every 2 million timesteps, the task changes, and the task sequence is repeated once. 
+
+4.1. Damaged HalfCheetah Velocity Environment 
+
+The Damaged HalfCheetah Velocity environment extends the popular HalfCheetah Velocity safe RL benchmark [51]. In this environment, the agent’s goal is to learn to run at a velocity below a constraint by moving the joints of a robotic cheetah. The primary challenge in this environment is balancing the opposing objectives of safety and reward. The HalfCheetah Velocity task lacks non-stationarity and does not represent a safe continual reinforcement learning problem. Some prior work introduces non-stationarity into lifelong learning of the HalfCheetah, including by changing the target velocity/wind [52] or by introducing obstacles in the environment [53]. In the Damaged HalfCheetah Velocity benchmark, which we proposed in our previous paper [47], the robot is damaged and subsequently repaired, leading to significant changes in its dynamics. The robot cycles through the task sequence {nominal, back, nominal, front, back, nominal, front, nominal} with task changes every 1 million timesteps, where nominal is the typical HalfCheetah Velocity configuration, back omits the back leg, and front omits the front leg. This task sequence is shown at the top of Figure 1. Details on the state and action spaces, rewards, costs, and the impact of removing limbs are provided be-low. Modified from [51], this benchmark uses the standard Gymnasium MuJoCo Half Cheetah environment  
+
+> 1
+
+as a base. 
+
+State Space. 17-dimensional vector: the z-coordinate of the front tip, the angles of the front tip, back thigh, back shin, back foot, front thigh, front shin, and front foot, the velocity of the z- and x-coordinates of the front tip, and the angular velocities of the angles. 
+
+> 1https://gymnasium.farama.org/environments/mujoco/half_cheetah/
+
+6Action Space. 6-dimensional vector controlling the torque ∈ [0 , 1] applied to the rotors on each joint. 
+
+Damaged Scenario. We implement the damaged scenarios by removing an entire limb from the MuJoCo XML file. The observations for that limb are therefore gone, and the actions that would operate on those joints no longer work (though the size of the action vector does not change). 
+
+Reward. The agent is rewarded for moving eastward (increasing x) without large actions: 
+
+rHalfCheetah = xt+1 − xt
+
+dt − 0.1|| action || 22.
+
+Cost. The agent is penalized for violating the velocity constraint (3.2096 m/s): 
+
+cost = I(v > 3.2096) .
+
+4.2. Damaged Ant Velocity Environment 
+
+This environment extends the popular Ant Velocity safe RL benchmark [51]. Similar to the HalfCheetah, it has been modified to introduce non-stationary dynamics by simulating limbs being damaged and repaired at different points in time as the ant operates. Since the ant has four limbs, the two front and two back limbs are removed in the damaged state to destabilize the robot and force the policy to relearn. The ant cycles through the task sequence {nominal, back, nominal, front, back, nominal, front, nominal} with task changes occurring every 1 million timesteps, where nominal is the typical Ant Velocity configuration, back is missing the two back legs, and front is missing the two front legs. This task sequence is shown in the middle of Figure 1. Details on the state, action, reward, and cost spaces are provided below. Modified from [51], this benchmark uses the standard Gymnasium MuJoCo Ant environment 2 as a base. 
+
+State Space. 105-dimensional vector: the positions of the ant’s body parts (13 elements), the velocities of the body parts (14 elements), and the center of mass based external forces on the body parts (78 elements). 
+
+Action Space. 8-dimensional vector controlling the torque ∈ [−1, 1] applied at the hinge joints. 
+
+Reward. The agent is rewarded for moving eastward (increasing x) without large actions, falling over, or having too large of contact forces: 
+
+rAnt = rhealthy + xt+1 − xt
+
+dt − 0.5|| action || 22 − 5 × 10 −4|| Fcontact || 22,
+
+where rhealthy is a fixed value reward (1) given to the ant for not terminating the episode by falling over or jumping too high. 
+
+Cost. The agent is penalized for violating the velocity constraint (2.6222 m/s): 
+
+cost = I(v > 2.6222) .
+
+4.2.1. Safety and Reward Tradeoff 
+
+In the MuJoCo Damaged Velocity environments, the safety constraint is a velocity constraint that remains consistent across tasks. Since the agent’s goal is to run as far east as possible, it must learn to increase its eastward velocity. Therefore, a poor policy usually does not violate safety. This creates an interesting scenario with a direct tradeoff between safety and reward. 
+
+4.3. Safe Continual World 
+
+The Safe Continual World environment builds on the Continual World environment [54], which in turn extends the Meta World environment [55]. In Meta World, an agent learns to control a robotic arm equipped with a gripper to perform everyday tasks. The Continual World introduces a challenging sequence of tasks focused on issues of forgetting and forward transfer for Meta World. This primary task sequence in Continual 
+
+> 2https://gymnasium.farama.org/environments/mujoco/ant/
+
+7World consists of 10 tasks, and it was specifically designed to be demanding, with an estimated execution time of around 100 hours on an 8-core machine [54]. During our initial experiments, we discovered that most tasks in this sequence could not be reliably solved by on-policy reinforcement learning (RL) methods within the provided timeframe, even without the additional difficulties posed by non-stationary task changes or safety constraints. To simplify the problem and facilitate a deeper study of safe continual reinforcement learning, we defined a new task sequence. This sequence was chosen as a subset of tasks that recent findings indicate can be successfully completed within 3 million timesteps using standard RL methods (see Figure 9 in [56]). Our task sequence is {faucet-close, button-push, drawer-close}, repeated once. The goals of these tasks are as follows. Faucet-close: turn a faucet off, button-push: push a button, drawer-close: close an open drawer. All three tasks require the robot to move its arm forward and push an object. The similarity of these tasks is designed to enable RL agents to transfer knowledge across tasks, facilitating the study of both forward and backward transfer. We introduce safety constraints into this non-stationary environment by adding a coffee mug to the table, shown at the bottom of Figure 1. This coffee mug is between the robotic arm and the current task’s goal. The agent should not spill the coffee while performing its task. To model this constraint, we define cost as the mug’s current tilt (in degrees). The mug’s location is random, but the agent observes it. This can be thought of as an obstacle avoidance constraint. Details on the state, action, reward, and cost spaces are provided below. We modify the Continual World [54] benchmark to introduce safety constraints. However, since Continual World is just a sequenced version of Meta World [55], we modify Meta World instead. We choose to do this because, at the time of writing, Meta World is actively maintained and updated while Continual World is not. 
+
+State Space. The Safe Continual World state space is a 53-dimensional vector consisting of the current positions, previous positions, and goal position. The positions are the gripper position, the amount the gripper is open, the position and quaternion of up to two objects relevant to the task (the second is masked if there is only one), and the position and quaternion of the mug that should not be tipped. Each object and goal is initialized in a random position in each episode, and episodes are 500 timesteps long. 
+
+Action Space. The action space is the desired [∆ x, ∆y, ∆z, ∆gripper close ] of the robotic arm. 
+
+Reward. The reward function in Meta World is a dense reward that guides the agent toward completing each step of the task. The reward function is task-dependent. See the Appendix of Meta World [55] for details. 
+
+Cost. In a Safe Continual World, the agent must avoid tipping over the coffee mug while completing its tasks. As a result, the cost function is designed to penalize the agent based on the angle, in degrees, at which the mug is tipped. If the mug is flat on the table, the cost is set at 90. Since this is considered a soft safety constraint, the episode does not end when the mug tips over. In theory, the agent can reorient the tipped mug to reduce the cost. 
+
+5. Safe and Continual Reinforcement Learning Methods 
+
+In this section, we present safe continual RL algorithms based on elastic weight consolidation (EWC) [24] as the foundational continual learning mechanism. Two algorithms, (1) Safe Elastic Weight Consolidation (Safe EWC) and (2) Cost-Fisher Elastic Weight Consolidation (CF-EWC), are described in greater detail after introducing the core framework of our safe continual RL approach. 
+
+5.1. Proposed Safe Continual Reinforcement Learning Algorithms 
+
+To address the safe continual reinforcement learning problem, we propose two new algorithms. These algorithms build on the PPO+EWC framework [57] by incorporating safety constraints. We chose elastic weight consolidation (EWC) [24] as the foundational continual learning mechanism because of its simplicity and widespread use. EWC helps mitigate the forgetting problem in continual learning by penalizing signifi-cant changes to parameters that were important in previous tasks, effectively “freezing” certain parts of the network. The loss regularization is formulated as follows: 8Algorithm 1 Safe Elastic Weight Consolidation (Safe EWC) 
+
+Require: Tasks {T 1, . . . , TK }
+
+Require: PPO params (γ, λ GAE , ϵ, c v , c e)
+
+Require: Learning rates (αθ , α ϕ), EWC coeff. λ, cost coeff. β
+
+Require: Task length Ttask , update interval Tupdate , Fisher samples N 
+
+> 1:
+
+Initialize πθ , Vϕ, M ← ∅ ▷ Policy, value function, and EWC memory  
+
+> 2:
+
+for k = 1 to K do  
+
+> 3:
+
+Initialize environment Tk ▷ Start new task  
+
+> 4:
+
+D ← ∅ ▷ Clear rollout buffer  
+
+> 5:
+
+for t = 1 to Ttask do  
+
+> 6:
+
+at ∼ πθ (· | st) ▷ Sample action  
+
+> 7:
+
+(st+1 , r t, C t) ∼ T k(st, a t) ▷ Environment transition  
+
+> 8:
+
+˜rt ← rt − βC t ▷ Cost-shaped reward (Safe EWC)  
+
+> 9:
+
+D ← D ∪ (st, a t, ˜rt, s t+1 ) ▷ Store transition  
+
+> 10:
+
+if t mod Tupdate = 0 then  
+
+> 11:
+
+PPO return and advantage computation  
+
+> 12:
+
+δt ← ˜rt + γV ϕ(st+1 ) − Vϕ(st) ▷ TD residual  
+
+> 13:
+
+ˆAt ← P
+
+> l
+
+(γλ GAE )lδt+l ▷ Generalized advantage estimation (GAE)  
+
+> 14:
+
+Gt ← P 
+
+> l
+
+γl ˜rt+l ▷ Discounted returns  
+
+> 15:
+
+PPO policy and value losses  
+
+> 16:
+
+rt(θ) ← πθ (at|st)/π θold (at|st) ▷ Importance ratio  
+
+> 17:
+
+LPPO ← − E[min( rt ˆAt, clip (rt, 1 ± ϵ) ˆAt)] ▷ Clipped surrogate objective  
+
+> 18:
+
+Lvalue ← E[( Vϕ(st) − Gt)2] ▷ Value regression  
+
+> 19:
+
+Lentropy ← − E[H(πθ (·| st))] ▷ Entropy regularization  
+
+> 20:
+
+Elastic Weight Consolidation (EWC)  
+
+> 21:
+
+LEWC ← P  
+
+> (θ∗
+> j,F j)∈M
+
+P 
+
+> i λ
+> 2
+
+Fj,i (θi − θ∗
+
+> j,i
+
+)2 ▷ Penalty for forgetting previous tasks  
+
+> 22:
+
+Parameter updates  
+
+> 23:
+
+Lθ ← L PPO + ceLentropy + LEWC ▷ Total actor loss  
+
+> 24:
+
+Lϕ ← cv Lvalue ▷ Total critic loss  
+
+> 25:
+
+θ ← θ − αθ ∇θ Lθ ▷ Update policy  
+
+> 26:
+
+ϕ ← ϕ − αϕ∇ϕLϕ ▷ Update value function  
+
+> 27:
+
+θold ← θ, D ← ∅ ▷ Prepare next rollout  
+
+> 28:
+
+end if  
+
+> 29:
+
+end for  
+
+> 30:
+
+θ∗ 
+
+> k
+
+← θ ▷ Save task-optimal parameters  
+
+> 31:
+
+Sample N transitions {(sn, a n)}Nn=1 from Tk using πθ∗ 
+
+> k
+
+▷ Fisher rollout  
+
+> 32:
+
+Fk,i ← 1
+
+> N
+
+P
+
+> n
+
+(∂θi log πθ∗ 
+
+> k
+
+(an|sn)) 2 ▷ Estimate Fisher information  
+
+> 33:
+
+M ← M ∪ (θ∗
+
+> k
+
+, F k) ▷ Store task importance  
+
+> 34:
+
+end for 
+
+L(θ) = LB (θ) + X
+
+> i
+
+λ
+
+2 Fi(θi − θ∗
+
+> A,i
+
+)2, (2) where LB is the loss on the current task, F is the Fisher information matrix measuring the “importance” of each parameter, λ is a hyperparameter to balance current and previous tasks, and θA are parameters for a previous task. In practice, this diagonal of F is approximated using the following equation: 9Fi ≈ 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+ ∂∂θ i
+
+log p(yn|xn; θ∗
+
+> A
+
+)
+
+2
+
+, (3) where N is the number of samples in a dataset from prior task A, θ∗ 
+
+> A
+
+are the saved weights from the network learned on prior task A, and p(yn|xn; θ∗
+
+> A
+
+) is the probability of the output yn given the input and weights (the policy/actor network). So, for each weight in the saved parameters, its importance across a representative dataset from the previous task is averaged. This is then used to regularize the (policy) network loss as shown in Equation (2). 
+
+5.1.1. Algorithm 1: Safe Elastic Weight Consolidation (Safe EWC) 
+
+We extend PPO+EWC by modifying the loss in Equation (2) to incorporate safety constraints, yielding Safe EWC, as introduced in prior work [47]. This is achieved by shaping the reward with the cost; specifically, we define the modified reward as follows: 
+
+rSafe EWC (s, a ) = r(s, a ) − βC (s, a ), (4) where β is a hyperparameter that determines the cost/reward tradeoff and C : S × A → Rm 
+
+> +
+
+is the current task cost function. In our experiments, we set β = 5 , which induces a direct trade-off between safety and reward. An optimal policy maximizes reward while incurring no safety violations. This shaping implicitly mitigates forgetting of safety constraints by encoding them in the reward signal; however, it modifies the reward function and may adversely affect learning in complex tasks with carefully designed rewards. Algorithm 1 details our Safe EWC method. We present the proximal policy optimization (PPO) compu-tations to illustrate how elastic weight consolidation (EWC) regularizes the actor loss; for PPO components, see [58]. Our implementation, adapted from [51], includes standard PPO stabilization techniques, including critic regularization. We also maintain a cost critic to monitor safety signals, although policy optimization uses only cost-shaped rewards. The algorithm iterates over the task sequence; however, in real settings, task identities are often unknown, and task changes must be detected. During each task, the agent is trained with PPO using reward shaping from Equation (4) (line 8). After the first task, a representative dataset is sampled to compute task-specific Fisher information, capturing parameter importance (line 32); we use the final episode as this dataset. For subsequent tasks, the actor updates apply Equations (3) and (2) to penalize changes to parameters deemed important for previous tasks (line 21). 
+
+5.1.2. Algorithm 2: Cost-Fisher Elastic Weight Consolidation (CF-EWC) 
+
+To address safe continual reinforcement learning without modifying the reward function, we propose a second EWC extension, Cost-Fisher Elastic Weight Consolidation (CF-EWC). In this algorithm, we modify the computation of the approximated Fisher information matrix to be: 
+
+Fi ≈ 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+1(cn + 1) 
+
+ ∂∂θ i
+
+log p(yn|xn; θ∗
+
+> A
+
+)
+
+2
+
+, (5) where cn is the positive cost of sample n and the rest is the same as Equation (3). Intuitively, this assigns higher importance to the weights with higher probabilities that had lower costs. When there is no cost, this computes the typical Fisher information. When the cost is high, the weight of the parameters’ importance shrinks toward zero. Therefore, we are allowing the agent to modify the weights that violated safety on previous tasks, while discouraging modifications that had a lower cost with a high reward. Note that if the cost scale changes over time (as allowed by Definition 1), this cost may need to be normalized. The complete algorithm is omitted from the main text for brevity and presented in the Appendix as Algorithm 2. The only substantive differences from Algorithm 1 are the use of Equation 5 in line 32 and the removal of cost-based reward shaping from line 8. 10 5.2. Safe or Continual Reinforcement Learning Baselines 
+
+This paper aims to enhance understanding of safe continual reinforcement learning by identifying key challenges and open questions, thereby motivating the development of frameworks that integrate safe and continual RL to address them. We benchmark safe RL, continual RL, safe continual RL, and standard RL methods on the environments described in Section 4. The selected methods are widely used in their respective subfields. All methods employ trust-region, on-policy policy-gradient algorithms (PPO or TRPO) [59, 58], enabling comparison of safety and continual learning mechanisms while controlling for the underlying RL algorithm. The benchmarked methods, their categories, and brief descriptions are provided below and summarized in Figure 2; additional details appear in Appendix A.1. RL Algorithms    
+
+> Safe RL Continual RL
+> CPO
+> PPO -Lag
+> CPPO -PID
+> PPO+EWC
+> Experience
+> Replay
+> Safe EWC
+> CF -EWC
+> PPO
+> Figure 2: Categorization of RL algorithms used in this study. Safe continual RL al-gorithms, shown in the green intersection, should satisfy the requirements of both safe and continual RL.
+
+PPO [58]: Proximal policy optimization. A standard on-policy RL algorithm that is used as a baseline. 
+
+CPO [60]: Constrained policy optimization. A safe RL algo-rithm that extends TRPO with a safety constrained policy up-date. 
+
+PPO-Lag [61]: Lagrangian PPO. A safe RL algorithm that uses Lagrangian functions with PPO to optimize the safety con-straint. 
+
+CPPO-PID [62]: Constraint-controlled PPO with PID. A safe RL algorithm that extends PPO-Lag to incorporate a PID con-troller to adjust the Lagrangian multiplier. 
+
+PPO+EWC [57]: PPO with elastic weight consolidation. Acontinual RL algorithm that penalizes the network for modifying previously important parameters. 
+
+Experience Replay : A continual RL algorithm inspired by CLEAR [26] that mixes past and present experiences during pol-icy updates of PPO. It maintains both long- and short-term re-play buffers to store information relevant to past and current tasks. Based on the known properties of each baseline algorithm’s class, we can hypothesize how each algo-rithm should behave in a non-stationary setting with safety constraints. Intuitively, the purely continual reinforcement learning methods, PPO+EWC and Experience Replay, should violate safety when they would lead to a higher or better-remembered reward. They may better remember safety constraints across tasks when they do not conflict with the task objective. The purely safe reinforcement learning methods, CPO, PPO-Lag, and CPPO-PID, should better balance safety constraints and reward while avoiding catastrophic forgetting. It is unclear whether the environment’s non-stationary dynamics will affect safety. The plain reinforcement learning algorithm, PPO, should ignore safety constraints and task forgetting and be trained solely on the current task reward signal. The results and analyses of these methods are given in Section 6. 
+
+5.3. Hyperparameter Optimization 
+
+Algorithm 1 shows that each method includes multiple hyperparameters that influence performance. To ensure fair comparisons, we optimize hyperparameters on proxy tasks aligned with each method’s domain. For PPO, hyperparameters are tuned to maximize return in the nominal version of each environment. For safe RL methods, hyperparameters are tuned to maximize return while accounting for costs in nominal environments, and performance is evaluated in terms of both safety and reward. For continual RL methods, hyperparameters are tuned to maximize return under nominal dynamics and on the first new task; evaluation then measures forgetting on the nominal dynamics and performance on the new task. Hyperparameters are optimized separately for each benchmark using the Tree-Structured Parzen Estimator [63] in Optuna [64]. Additional details on the methods and their hyperparameters are provided in Section Appendix A.1. 11 Table 1: Damaged HalfCheetah Velocity results. Mean ± standard deviation across 5 random seeds and all tasks. 
+
+Algorithm Final Reward ( ↑) Normalized Forgetting ( ↓) Total Costs ( ↓)PPO 2078 .8 ± 559 .2 0.242 7368 .4 ± 2759 .2
+
+CPO 1536 .3 ± 120 .1 0.588 495 .5 ± 109 .6
+
+PPO-Lag 1553 .5 ± 335 .1 0.284 830 .6 ± 453 .3
+
+CPPO-PID 1487 .8 ± 330 .2 0.242 576 .5 ± 280 .5
+
+PPO+EWC 2036 .6 ± 555 .9 0.242 6422 .6 ± 3476 .4
+
+Exp. Replay 504 .9 ± 294 .7 0.173 666 .7 ± 1181 .9
+
+Safe EWC (Ours) 1631 .3 ± 240 .6 0.180 393 .1 ± 452 .4
+
+CF-EWC (Ours) 2067 .1 ± 610 .0 0.221 6293 .5 ± 3416 .7
+
+6. Results 
+
+We trained the baselines and our proposed algorithms with their optimized hyperparameters on all three environments. To account for stochasticity, we used five random seeds per algorithm. For a single seed, a full training sequence on Damaged HalfCheetah Velocity required 4–6 hours, whereas Safe Continual World and Damaged Ant Velocity required 12–14 hours on CPU. All experiments were performed on a computer with an AMD Ryzen Threadripper 3960X 24-Core Processor and 256 GB of RAM. The following subsections report the results and discuss their implications for key questions in safe continual RL. 
+
+6.1. Metrics to Measure Safe Continual Reinforcement Learning 
+
+We evaluate the extent to which each method addresses safe continual reinforcement learning using the metrics proposed in [47] and [54]: 
+
+• Final Task Reward : the average undiscounted cumulative reward over the final 20 episodes for each task, measuring overall performance. 
+
+• Total Cost : the average total cost for each task. Calculated as follows, where N is the number of times a task is visited, and costs is a vector of costs during training. This measures safety. 1
+
+> N
+
+Plen(costs)  
+
+> i=1
+
+costs i.
+
+• Forgetting : the difference in undiscounted cumulative reward, averaged over 20 episodes, when start-ing a task again from the last time that task was seen. This measures continual learning performance. If this is negative, the agent exhibited positive forward transfer when revisiting the task. If this is positive and large, it exhibits catastrophic forgetting . forgetting = rfinal − rimmediate .
+
+• Normalized Forgetting : mean forgetting normalized by the magnitude of the reward range. The magnitude of the reward range is calculated by subtracting the initial reward from the final task reward. The rewards are averaged cumulative undiscounted rewards over 20 episodes. 
+
+• Average Success Rate : a running average task completion rate for Safe Continual World tasks during learning. A higher reward does not necessarily imply higher task completion. In the Safe Continual World environment, forgetting metrics are calculated using this instead of reward. 
+
+6.2. Quantitative Performance on Environments 
+
+Results for Damaged HalfCheetah Velocity are reported in Table 1, averaged over three tasks and five random seeds. A safe continual RL solution should achieve high reward while minimizing forgetting and safety violations (Section 3); thus, strong performance is required across all metrics. PPO attained the highest average reward but also the highest total cost. Safe RL methods (CPO, PPO-Lag, and CPPO-PID) reduced cost relative to PPO and the continual RL baselines, but exhibited higher normalized forgetting, indicating limited continual learning. Conversely, continual RL methods (PPO+EWC and experience replay) reduced normalized forgetting relative to safe RL methods, but incurred higher total cost. Experience replay 12 Table 2: Damaged Ant Velocity results. Mean ± standard deviation across 5 random seeds and all tasks. 
+
+Algorithm Final Reward ( ↑) Normalized Forgetting ( ↓) Total Costs ( ↓)PPO 3282 .1 ± 413 .8 0.022 9181 .0 ± 3031 .0
+
+CPO 2708 .7 ± 117 .7 0.303 886 .4 ± 85 .7
+
+PPO-Lag 2676 .4 ± 95 .0 0.001 1009 .7 ± 368 .6
+
+CPPO-PID 2688 .8 ± 92 .7 0.013 800 .6 ± 83 .1
+
+PPO+EWC 3645 .3 ± 332 .4 0.008 11061 .7 ± 2273 .2
+
+Safe EWC (Ours) 2689 .9 ± 71 .9 0.051 312 .4 ± 65 .5
+
+CF-EWC (Ours) 3739 .7 ± 266 .2 0.006 11208 .5 ± 1457 .2  
+
+> Table 3: Safe Continual World results. Mean ±standard deviation across 5 random seeds and all tasks.
+
+Algorithm Success Rate ( ↑) Normalized Forgetting ( ↓) Total Costs ( ↓)PPO 0.89 ± 0.17 0.440 112210 .1 ± 245724 .1
+
+CPO 0.85 ± 0.24 0.560 68817 .6 ± 92071 .4
+
+PPO-Lag 0.12 ± 0.22 0.025 55758 .4 ± 97358 .5
+
+CPPO-PID 0.01 ± 0.02 −0.618 18056 .7 ± 20715 .8
+
+PPO+EWC 0.88 ± 0.17 0.366 130252 .9 ± 207224 .6
+
+Safe EWC (Ours) 0.14 ± 0.24 0.070 25014 .1 ± 23109 .9
+
+CF-EWC (Ours) 0.79 ± 0.19 0.510 126258 .7 ± 251984 .8
+
+achieved comparatively low total cost largely due to sample inefficiency: because the safety constraint targets velocity, a lower reward is associated with a lower cost. Consistent with this, experience replay produced the lowest final reward, suggesting that replaying prior experience impeded learning the current task under PPO. Safe EWC achieved the second-lowest normalized forgetting while attaining the lowest cost, albeit with reduced reward, indicating a favorable safety–continual learning trade-off. In contrast, CF-EWC did not effectively prevent safety violations. In Damaged HalfCheetah Velocity, the constrained control task was sufficiently simple, and all methods solved it upon first exposure, except experience replay. This was not observed in the other environments. In Damaged Ant Velocity, most methods reached near-optimal performance only toward the end of the task sequence, as reflected in Table 2. Consequently, forgetting and normalized forgetting are low; in contrast, many methods exhibit forward transfer, leveraging knowledge from the intact ant to learn damaged variants more efficiently. The primary exception is the safe RL method CPO, which shows higher forgetting; as discussed in the next subsection, CPO converges faster and transfers less across tasks. Beyond forgetting, reward–cost trends mirror those in HalfCheetah, with Safe EWC providing the most favorable trade-off between reward and cost. CF-EWC achieves the highest average final reward but also incurs more safety violations, further suggesting that preserving “safe” weights is insufficient to enforce safety constraints. Finally, experience replay could not be trained reliably on Ant and the Safe Continual World due to out-of-memory errors caused by larger state spaces. This highlights a limitation of replay-based approaches in realistic environments, further justifying our choice of regularization-based continual learning mechanisms. In the Safe Continual World, enforcing safety constraints prevented several methods from reliably learn-ing the tasks (Table 3). PPO, PPO+EWC, and CF-EWC, which do not explicitly penalize safety violations, achieved the highest average success rates but also the highest total costs; among them, PPO+EWC ex-hibited the lowest forgetting. CPO achieved a comparable success rate at approximately half the cost, but still incurred higher costs than the remaining safe methods and showed greater forgetting on task revisits. PPO-Lag, CPPO-PID, and Safe EWC achieved substantially lower success rates, reflecting a stronger em-phasis on safety. This reflects an inherent difficulty of this environment in the balance between safety and task success. This trade-off will also be present in many real environments. Although CPPO-PID yielded 13 (a) HalfCheetah (b) Ant (c) Safe Continual World 
+
+> Figure 3: Average safe continual RL metrics for the algorithms on each environment. Algorithms that better handle the tradeoff among safety, reward/success, and forgetting will be higher and closer to the front of the plot. Cost is shown on a log scale.
+
+the lowest average total cost, Safe EWC provided the most favorable trade-off among success, forgetting, and safety. The quantitative results highlight the need for safe, continual RL methods. Current safe RL methods tend to exhibit high levels of catastrophic forgetting, while continual RL methods that lack safety measures often compromise safety. This issue is particularly evident in the Safe Continual World environment, where safety constraints hinder task success for most safe and safe continual RL algorithms. 
+
+6.3. Visualizing the Tradeoff Between Metrics 
+
+The quantitative results can be further interpreted by inspecting the trade-offs in Figure 3. In HalfChee-tah and Ant (Figures 3a and 3b), Safe EWC achieves a more favorable cost–forgetting trade-off than the other methods. Its average reward is slightly lower than the non-safe baselines and comparable to the safe RL methods, reflecting the inherent safety–reward trade-off: the agent must maximize distance while remaining below a velocity limit . Similar trends appear in Safe Continual World (Figure 3c), where the cost–forgetting trade-off is surpassed only by CPPO-PID, which attains near-zero task success. In this environment, Safe EWC achieves lower success than some methods but maintains lower cost, indicating that Safe EWC is promising for safe continual RL, though reward scaling can reduce task success. In contrast, the perfor-mance of CF-EWC consistently aligns with that of PPO and PPO+EWC. While it shows improvements in reward and reduces forgetting compared to these baselines, it does not consistently prevent safety violations. This indicates that allowing unsafe weights to be forgotten is not sufficient to ensure safe behavior, offering valuable insights for future algorithm design. 
+
+6.4. Behavior During Lifelong Learning 
+
+Additionally, we conducted a qualitative analysis to characterize how safety constraints in non-stationary environments influence training behavior during lifelong learning. Training rewards and costs are shown in Figure 4. For clarity, we plot a subset of algorithms; complete learning curves are provided in the Appendix (Appendix A.3 and Appendix A.4). The top panel of Figure 4 reports rewards for safe RL (CPO, CPPO-PID) and safe continual RL (Safe EWC) on Damaged HalfCheetah Velocity. Following task changes, all methods exhibit reward drops due to abrupt dynamics shifts induced by limb loss or repair. Early in training, agents typically re-enter a task with lower reward than when they last encountered it, indicating forgetting. As tasks are revisited, Safe EWC and CPPO-PID retain more knowledge and exhibit similar reward trajectories late in training, suggesting convergence to comparable policies. Although EWC’s benefits are modest in this environment (more clearly reflected in Table 1), they are most apparent upon revisiting earlier tasks. In contrast, CPO 14 Figure 4: Behaviors during learning. Top : Reward behavior during training of two safe RL algorithms (CPO and CPPO-PID) versus a safe continual RL algorithm (Safe EWC) on the Damaged HalfCheetah Velocity environment. Middle : Reward behavior during training of a safe RL algorithm (CPO) versus a safe and continual RL algorithm (Safe EWC) on the Damaged Ant Velocity environment. Bottom : Cost behavior during training of a continual (PPO+EWC) versus a safe continual RL algorithm (Safe EWC). 
+
+exhibits substantially greater catastrophic forgetting. Overall, the relative advantage of safe continual RL over safe RL is algorithm- and environment-dependent; here, CPPO-PID also effectively retains knowledge. The middle panel shows reward behavior in Damaged Ant Velocity. Consistent with prior quantitative results, several methods exhibit forward transfer. In particular, Safe EWC often achieves a higher reward when revisiting a task than during its previous exposure, indicating the reuse of knowledge across tasks. CPO does not show this pattern; instead, it converges more rapidly, plausibly because its underlying RL algorithm (TRPO) is more effective than PPO in this setting. CPO also forgets more across task changes, suggesting that mitigating forgetting may be easier when performance remains far from saturation, and there is substantial capacity for improvement. The bottom panel reports training costs for a continual RL method (PPO+EWC), a safe continual RL method (Safe EWC), and a safe RL method (CPO). Safe EWC maintains a lower average cost throughout training, particularly at task onset before CPO re-establishes safe behavior. Compared with PPO+EWC, incorporating safety into the continual learning mechanism yields consistently lower costs, and Safe EWC’s safety violations generally decrease over training. Notably, all methods exhibit increased safety violations at task onset despite unchanged safety constraints across tasks; we investigate this effect in the next subsection. 
+
+6.5. Remembering Safety Constraints 
+
+Next, we aim to determine whether avoiding catastrophic forgetting of rewards also prevents forgetting costs and whether safety constraint violations increase when the environment or task changes. 15 Figure 5: Cost around the moment the task changes in Safe Continual World with a safe (CPO) and safe continual (Safe EWC) algorithm. The task change triggers safety violations in CPO, which is achieving a higher reward. Table 4: Safe EWC cost regularization location impact on Damaged HalfCheetah Velocity task sequence. Mean ± standard deviation across 5 random seeds and all tasks. Safe Continual World uses success rate instead of reward. 
+
+Cost Penalty Location Final Reward ( ↑) Normalized Forgetting ( ↓) Total Costs ( ↓)Loss Function 2036 .6 ± 555 .9 0.242 6422 .6 ± 3476 .4
+
+Reward 1631 .3 ± 240 .6 0.180 393 .1 ± 452 .4
+
+To illustrate this, we refer to Figure 5, which depicts the cost behavior during training when the task shifts in the Safe Continual World environment. When transitioning from the faucet task to the button task for the first time (as shown in the left figure), the safe reinforcement learning algorithm CPO experienced a spike in safety violations. Although the definition of safety remained consistent across tasks, the change in dynamics seemed to trigger these initial violations. Even during a second encounter with the button task later in the sequence, CPO exhibited another spike in safety violations. This suggests that CPO catastrophically forgets its adherence to safety constraints when the reward signal changes. In contrast, the safe, continual reinforcement learning method, Safe EWC, avoided such issues and effectively maintained its safety constraints. However, Table 3 shows that Safe EWC achieved a significantly lower average task success rate, with 85% versus 14%. This indicates that Safe EWC is likely prioritizing safety over performance. Other safe RL methods, although they displayed lower success rates, did not forget safety as drastically as CPO did. An ideal safe continual RL algorithm should demonstrate improved cost curves while maintaining strong task performance. This should be a key goal for future methods. 
+
+6.6. Ablation Studies 
+
+As described in Section 5, Safe EWC enforces safety in PPO+EWC by penalizing the reward with cost. An alternative is to apply the same regularization directly to the loss. To assess this variant, we trained Safe EWC on the Damaged HalfCheetah Velocity task sequence with an additional loss penalty of β × Cost, using β = 5 (matching the reward-penalty setting). Results are reported in Table 4. Safety violations increased when the penalty was moved to the loss, suggesting that the cost term may be comparatively weak relative to PPO’s reward-maximization terms and the EWC parameter-change penalty. Because the (non-online) EWC penalty grows with the number of tasks, jointly balancing reward, forgetting, and cost becomes challenging. These findings indicate that, for Safe EWC, applying the cost penalty through reward shaping is better aligned with the optimization objective. In a subsequent experiment, we performed ablation on the proposed methods, Safe EWC and CF-EWC (Table 5). We report metrics for vanilla PPO, PPO with an EWC regularizer (PPO+EWC), PPO+EWC with the Cost-Fisher modification (CF-EWC), and PPO+EWC with cost-based reward penalization (Safe EWC). Across settings, adding EWC to PPO generally reduced catastrophic forgetting while preserving comparable reward. Incorporating the Cost-Fisher modification further reduced forgetting in most cases 16 Table 5: Ablation building up from the core components of CF-EWC (PPO+EWC+Cost Fisher) and Safe EWC (PPO+EWC+Safe Reward). Mean ± standard deviation across 5 random seeds and all tasks. 
+
+Component Final Reward ( ↑) Normalized Forgetting ( ↓) Total Costs ( ↓)Damaged HalfCheetah Velocity PPO 2078 .8 ± 559 .2 0.242 7368 .4 ± 2759 .2
+
++EWC 2036 .6 ± 555 .9 0.242 6422 .6 ± 3476 .4
+
++EWC+Cost Fisher 2067 .1 ± 610 .0 0.221 6293 .5 ± 3416 .7
+
++EWC+Safe Reward 1631 .3 ± 240 .6 0.180 393 .1 ± 452 .4
+
+Damaged Ant Velocity PPO 3282 .1 ± 413 .8 0.022 9181 .0 ± 3031 .0
+
++EWC 3645 .3 ± 332 .4 0.008 11061 .7 ± 2273 .2
+
++EWC+Cost Fisher 3739 .7 ± 266 .2 0.006 11208 .5 ± 1457 .2
+
++EWC+Safe Reward 2689 .9 ± 71 .9 0.051 312 .4 ± 65 .5
+
+Safe Continual World PPO 0.89 ± 0.17 0.440 112210 .1 ± 245724 .1
+
++EWC 0.88 ± 0.17 0.366 130252 .9 ± 207224 .6
+
++EWC+Cost Fisher 0.79 ± 0.19 0.510 126258 .7 ± 251984 .8
+
++EWC+Safe Reward 0.14 ± 0.24 0.070 25014 .1 ± 23109 .9
+
+(except Safe Continual World) by permitting forgetting of parameters associated with higher safety viola-tions. This suggests that CF-EWC increases network plasticity, mitigating a common limitation of EWC: the capacity to learn new tasks diminished over time. However, reweighting the Fisher information in CF-EWC did not reliably improve safety, indicating that forgetting parameters correlated with unsafe behavior was insufficient to prevent future violations. Future work should examine whether safety-relevant knowledge can instead be explicitly retained. In contrast, adding the cost-based reward penalty to PPO+EWC substantially improved safety satis-faction while maintaining low forgetting and competitive reward, supporting Safe EWC as a promising safe continual RL approach. In Safe Continual World, this improvement came at the expense of task success, highlighting that balancing safety and performance becomes more difficult in complex environments and motivating further methodological development. 
+
+7. Discussion and Open Questions 
+
+We discuss the implications of our empirical studies, open questions and future work, and limitations of this study. 
+
+7.1. Implications 
+
+Current approaches do not solve the safe continual RL problem. Our experiments indicate that existing safe RL and continual RL methods do not adequately address safe continual reinforcement learning. Sudden changes in dynamics and conflicts between reward maximization and safety constraints make the setting particularly challenging and likely require specialized methods. While our Safe EWC method effectively balances safety with catastrophic forgetting, its reward shaping mechanism reduced task success in the Safe Continual World environment, a consequence of the difficult balance between safety and performance in this environment. At the same time, our CF-EWC approach increased reward and reduced catastrophic forgetting, but did not effectively maintain safety constraints. Future approaches should further reduce catastrophic forgetting and promote positive forward and backward transfer in non-stationary environments, while simultaneously satisfying critical safety constraints. 17 Future methods should explicitly retain safety constraints. Although continual RL techniques primarily mitigate forgetting of reward, we observe that task changes can increase cost even when safety-relevant states remain unchanged (Figure 5). Consistent with the safe continual RL formulation, future work should develop mechanisms that explicitly preserve safety constraints across tasks. 
+
+The tension among objectives must be resolved. Safe continual RL requires balancing task performance, continual learning, and safety, and the appropriate trade-off is application dependent. This balance may be improved by directly optimizing a safe continual RL objective, analogous to Lagrangian formulations in constrained policy optimization. Alternatively, methods may combine mechanisms from safe RL and continual RL, such as using EWC to preserve parameters important for safety in non-stationary settings and replay buffers to rehearse safety-critical states. Extending safe RL algorithms to continual settings (e.g., Lagrangian PPO under task non-stationarity) is another promising direction. 
+
+7.2. Open Questions and Future Work 
+
+Our study identifies several open questions that motivate future research in safe continual reinforcement learning: 
+
+What constitutes an appropriate safe continual RL benchmark? Selecting suitable benchmarks is non-trivial. In many standard RL environments (e.g., CartPole), adapting to new dynamics is relatively simple, making it hard to meaningfully evaluate continual learning. Conversely, combining non-stationarity with safety constraints (e.g., Safe Continual World) can make the problem prohibitively difficult. Future work should develop additional environments that complement those introduced here and provide practical, dis-criminative benchmarks for algorithm development. 
+
+When is continual adaptation necessary? In HalfCheetah, a safe RL method (CPPO-PID) and other PPO-based approaches exhibited limited catastrophic forgetting. In settings with gradual dynamics shifts, adapting a safe RL method may be preferable to the additional computation required by safe continual RL methods. Future work should characterize when continual adaptation is necessary and when simpler adaptations suffice. 
+
+Which mechanisms are effective for safe continual RL? Because safe continual RL integrates the goals of safe RL and continual RL, progress will likely draw on mechanisms from both areas. Safe RL methods may be extended with replay, weight consolidation, or network expansion, while continual RL methods may be augmented to satisfy safety constraints. Systematically identifying and adapting effective mechanisms from each literature is a key direction. 
+
+How should methods handle hard safety constraints? This work considers soft constraints, where viola-tions are penalized but not strictly forbidden. Many applications require hard constraints that must never be violated (e.g., rocket engine control). Ensuring hard safety under continual learning may require approaches that strictly prevent forgetting of safety-critical behavior. Developing algorithms for this regime remains an important open problem. 
+
+How will imperfect task detection impact safe continual reinforcement learning? In this study, we assumed that task changes could be reliably detected, a reasonable assumption given the dramatic nature of our environment changes. However, in some real domains, the nature of the non-stationarity will be more subtle. In these domains, the core problem of safe continual RL will likely be easier, as environment changes that do not significantly impact performance will require less adaptation. At the same time, task detection will be more difficult, potentially impacting the performance of continual learning mechanisms that rely on task detection, like EWC. Future work should evaluate task detection methods and study the impact of environment changes on the tradeoff between continual adaptation and task detection. 
+
+7.3. Limitations 
+
+While we have made an effort to systematically explore the issue of safe continual RL, this work has limitations. Notably, we evaluated a limited set of widely adopted safe and continual RL algorithms, all of which are on-policy algorithms. This approach allowed us to make fair comparisons and examine the safe and continual learning properties of these algorithms. Furthermore, this category of algorithms is representative of those needed to control complex, non-stationary systems in real time without 
+
+18 prior models or the benefit of offline training . Future studies should consider other classes of RL algorithms, such as off-policy and offline RL algorithms. Our understanding of the challenges associated with safe continual RL will improve as more algorithms are tested and developed in this area. 
+
+8. Conclusion 
+
+Reinforcement learning methods have been successful in controlling complex systems without accurate physical models; however, most algorithms assume stationary environments and do not account for unex-pected non-stationary behavior changes in the system and its environment. Moreover, agents deployed in real settings must satisfy safety requirements. Although continual RL and safe RL address non-stationarity and safety, respectively, their intersection remains relatively understudied. This paper investigates these challenges under the unified problem of safe continual reinforcement learning and highlights a clear gap in the literature. We formalized safe continual RL by combining non-stationary and constrained Markov decision process frameworks, and introduced three benchmarks: (i) Damaged HalfCheetah Velocity, in which a cheetah is suddenly damaged or repaired under a maximum-velocity constraint; (ii) Damaged Ant Velocity, which applies the same setting to an ant robot; and (iii) Safe Continual World, in which a robotic arm performs sequential household tasks while avoiding spilling a coffee mug. We benchmark eight algorithms spanning standard RL, safe RL, continual RL, and safe continual RL, including two proposed methods. Our results show that existing methods do not solve safe continual RL: while safe RL methods can perform well in some non-stationary settings, safe continual RL methods are often necessary, and new algorithms are required. Among the proposed approaches, Safe EWC provides a simple and competitive baseline that balances forgetting and safety, but its cost-based reward shaping can reduce task performance. CF-EWC reduces catastrophic forgetting and can improve reward, but it does not reliably maintain safety constraints. These findings motivate methods that more effectively balance reward, safety, and forgetting. We further provide qualitative analyses of lifelong training dynamics, study the problem of retaining safety constraints across task changes (including increased safety violations at task boundaries), and perform ablations showing that Safe EWC’s penalty placement is well justified and that individual components contribute meaningfully. Finally, we outline open problems and discuss limitations to guide future work in safe continual reinforcement learning. 
+
+9. Acknowledgements 
+
+This material is based upon work supported by the National Science Foundation Graduate Research Fellowship Program under Grant No. 2444112. Any opinions, findings, and conclusions or recommendations expressed in this material are those of the author(s) and do not necessarily reflect the views of the National Science Foundation. 
+
+References 
+
+[1] J. Hwangbo, J. Lee, A. Dosovitskiy, D. Bellicoso, V. Tsounis, V. Koltun, M. Hutter, Learning agile and dynamic motor skills for legged robots, Science Robotics 4 (26) (2019) eaau5872. [2] B. R. Kiran, I. Sobh, V. Talpaert, P. Mannion, A. A. Al Sallab, S. Yogamani, P. Pérez, Deep rein-forcement learning for autonomous driving: A survey, IEEE transactions on intelligent transportation systems 23 (6) (2021) 4909–4926. [3] Y. Song, A. Romero, M. Müller, V. Koltun, D. Scaramuzza, Reaching the limit in autonomous racing: Optimal control versus reinforcement learning, Science Robotics 8 (82) (2023) eadg1462. [4] T. Kim, M. Jang, J. Kim, A survey on simulation environments for reinforcement learning, in: 2021 18th International Conference on Ubiquitous Robots (UR), IEEE, 2021, pp. 63–67. 19 [5] A. Xie, J. Harrison, C. Finn, Deep reinforcement learning amidst continual structured non-stationarity, in: International Conference on Machine Learning, PMLR, 2021, pp. 11393–11403. [6] S. Gu, L. Yang, Y. Du, G. Chen, F. Walter, J. Wang, A. Knoll, A review of safe reinforcement learning: Methods, theories and applications, IEEE Transactions on Pattern Analysis and Machine Intelligence (2024). [7] K. Khetarpal, M. Riemer, I. Rish, D. Precup, Towards continual reinforcement learning: A review and perspectives, Journal of Artificial Intelligence Research 75 (2022) 1401–1476. [8] R. Kemker, M. McClure, A. Abitino, T. Hayes, C. Kanan, Measuring catastrophic forgetting in neural networks, in: Proceedings of the AAAI conference on artificial intelligence, Vol. 32, 2018. [9] L. Brunke, M. Greeff, A. W. Hall, Z. Yuan, S. Zhou, J. Panerati, A. P. Schoellig, Safe learning in robotics: From learning-based control to safe reinforcement learning, Annual Review of Control, Robotics, and Autonomous Systems 5 (1) (2022) 411–444. [10] I. Bar-Kana, H. Kaufman, Simple adaptive control of uncertain systems, International Journal of Adap-tive Control and Signal Processing 2 (2) (1988) 133–143. [11] Z. T. Dydek, A. M. Annaswamy, E. Lavretsky, Adaptive control of quadrotor uavs: A design trade study with flight evaluations, IEEE Transactions on control systems technology 21 (4) (2012) 1400–1406. [12] J. Xiong, G. Zhang, Adaptive control of deposited height in gmaw-based layer additive manufacturing, Journal of Materials Processing Technology 214 (4) (2014) 962–968. [13] N. T. Nguyen, Model-reference adaptive control, in: Model-Reference Adaptive Control: A Primer, Springer, 2018, pp. 83–123. [14] Z. Hou, S. Jin, Model free adaptive control, CRC press Boca Raton, FL, USA, 2013. [15] Z. Hou, S. Jin, Data-driven model-free adaptive control for a class of mimo nonlinear discrete-time systems, IEEE transactions on neural networks 22 (12) (2011) 2173–2188. [16] D. Xu, B. Jiang, P. Shi, A novel model-free adaptive control design for multivariable industrial processes, IEEE Transactions on Industrial Electronics 61 (11) (2014) 6391–6398. [17] S. Zhao, X. Wang, D. Zhang, L. Shen, Model-free fuzzy adaptive control of the heading angle of fixed-wing unmanned aerial vehicles, Journal of Aerospace Engineering 30 (4) (2017) 04017019. [18] Y.-S. Ma, W.-W. Che, C. Deng, Dynamic event-triggered model-free adaptive control for nonlinear cpss under aperiodic dos attacks, Information Sciences 589 (2022) 790–801. [19] T. Klein, L. Miklautz, K. Sidak, C. Plant, S. Tschiatschek, Plasticity loss in deep reinforcement learning: A survey, arXiv preprint arXiv:2411.04832 (2024). [20] Z. Abbas, R. Zhao, J. Modayil, A. White, M. C. Machado, Loss of plasticity in continual deep rein-forcement learning, in: Conference on lifelong learning agents, PMLR, 2023, pp. 620–636. [21] E. Nikishin, J. Oh, G. Ostrovski, C. Lyle, R. Pascanu, W. Dabney, A. Barreto, Deep reinforcement learning with plasticity injection, Advances in Neural Information Processing Systems 36 (2023) 37142– 37159. [22] A. Juliani, J. Ash, A study of plasticity loss in on-policy deep reinforcement learning, Advances in Neural Information Processing Systems 37 (2025) 113884–113910. [23] C. Kaplanis, M. Shanahan, C. Clopath, Continual reinforcement learning with complex synapses, in: International Conference on Machine Learning, PMLR, 2018, pp. 2497–2506. 20 [24] J. Kirkpatrick, R. Pascanu, N. Rabinowitz, J. Veness, G. Desjardins, A. A. Rusu, K. Milan, J. Quan, T. Ramalho, A. Grabska-Barwinska, et al., Overcoming catastrophic forgetting in neural networks, Proceedings of the national academy of sciences 114 (13) (2017) 3521–3526. [25] J. Schwarz, W. Czarnecki, J. Luketina, A. Grabska-Barwinska, Y. W. Teh, R. Pascanu, R. Hadsell, Progress & compress: A scalable framework for continual learning, in: International conference on machine learning, PMLR, 2018, pp. 4528–4537. [26] D. Rolnick, A. Ahuja, J. Schwarz, T. Lillicrap, G. Wayne, Experience replay for continual learning, Advances in neural information processing systems 32 (2019). [27] P. Pathmanathan, N. Díaz-Rodríguez, J. Del Ser, Using curiosity for an even representation of tasks in continual offline reinforcement learning, Cognitive Computation 16 (1) (2024) 425–453. [28] C. Li, Y. Li, Y. Zhao, P. Peng, X. Geng, Sler: Self-generated long-term experience replay for continual reinforcement learning, Applied Intelligence 51 (1) (2021) 185–201. [29] S. Kessler, J. Parker-Holder, P. Ball, S. Zohren, S. J. Roberts, Unclear: A straightforward method for continual reinforcement learning, in: Proceedings of the 37th International Conference on Machine Learning, 2020. [30] T. Zhang, Z. Lin, Y. Wang, D. Ye, Q. Fu, W. Yang, X. Wang, B. Liang, B. Yuan, X. Li, Dynamics-adaptive continual reinforcement learning via progressive contextualization, IEEE Transactions on Neu-ral Networks and Learning Systems (2023). [31] M. Xu, W. Ding, J. Zhu, Z. Liu, B. Chen, D. Zhao, Task-agnostic online reinforcement learning with an infinite mixture of gaussian processes, Advances in Neural Information Processing Systems 33 (2020) 6429–6440. [32] T. Xu, Y. Liang, G. Lan, Crpo: A new approach for safe reinforcement learning with convergence guarantee, in: International Conference on Machine Learning, PMLR, 2021, pp. 11480–11491. [33] Z. Liu, Z. Cen, V. Isenbaev, W. Liu, S. Wu, B. Li, D. Zhao, Constrained variational policy optimization for safe reinforcement learning, in: International Conference on Machine Learning, PMLR, 2022, pp. 13644–13668. [34] L. Zhang, R. Zhang, T. Wu, R. Weng, M. Han, Y. Zhao, Safe reinforcement learning with stability guarantee for motion planning of autonomous vehicles, IEEE transactions on neural networks and learning systems 32 (12) (2021) 5435–5444. [35] Y. Emam, G. Notomista, P. Glotfelter, Z. Kira, M. Egerstedt, Safe reinforcement learning using robust control barrier functions, IEEE Robotics and Automation Letters (2022). [36] K. Srinivasan, B. Eysenbach, S. Ha, J. Tan, C. Finn, Learning to be safe: Deep rl with a safety critic, arXiv preprint arXiv:2010.14603 (2020). [37] B. Lütjens, M. Everett, J. P. How, Safe reinforcement learning with model uncertainty estimates, in: 2019 International Conference on Robotics and Automation (ICRA), IEEE, 2019, pp. 8662–8668. [38] M. Selim, A. Alanwar, S. Kousik, G. Gao, M. Pavone, K. H. Johansson, Safe reinforcement learning using black-box reachability analysis, IEEE Robotics and Automation Letters 7 (4) (2022) 10665–10672. [39] Y. Chandak, S. Jordan, G. Theocharous, M. White, P. S. Thomas, Towards safe policy improvement for non-stationary mdps, Advances in Neural Information Processing Systems 33 (2020) 9156–9168. [40] B. Chen, Z. Liu, J. Zhu, M. Xu, W. Ding, L. Li, D. Zhao, Context-aware safe reinforcement learning for non-stationary environments, in: 2021 IEEE International Conference on Robotics and Automation (ICRA), IEEE, 2021, pp. 10689–10695. 21 [41] Y. Ding, J. Lavaei, Provably efficient primal-dual reinforcement learning for cmdps with non-stationary objectives and constraints, in: Proceedings of the AAAI Conference on Artificial Intelligence, Vol. 37, 2023, pp. 7396–7404. [42] M. Cho, C. Sun, Constrained meta-reinforcement learning for adaptable safety guarantee with differen-tiable convex programming, in: Proceedings of the AAAI Conference on Artificial Intelligence, Vol. 38, 2024, pp. 20975–20983. [43] Q. Zhang, C. Wu, H. Tian, Y. Gao, W. Yao, L. Wu, Safety reinforcement learning control via transfer learning, Automatica 166 (2024) 111714. [44] Y. Wang, M. Xiao, Z. Wu, Safe transfer-reinforcement-learning-based optimal control of nonlinear systems, IEEE Transactions on Cybernetics 54 (12) (2024) 7272–7284. [45] H. B. Ammar, R. Tutunov, E. Eaton, Safe policy search for lifelong reinforcement learning with sublinear regret, in: F. Bach, D. Blei (Eds.), Proceedings of the 32nd International Conference on Machine Learning, Vol. 37 of Proceedings of Machine Learning Research, PMLR, Lille, France, 2015, pp. 2361– 2369. URL https://proceedings.mlr.press/v37/ammar15.html 
+
+[46] I. Ganie, S. Jagannathan, Online continual safe reinforcement learning-based optimal control of mobile robot formations, in: 2024 IEEE Conference on Control Technology and Applications (CCTA), 2024, pp. 519–524. [47] A. Coursey, M. Quinones-Grueiro, G. Biswas, On the design of safe continual rl methods for control of nonlinear systems (2025). arXiv:2502.15922 .URL https://arxiv.org/abs/2502.15922 
+
+[48] E. Altman, Constrained Markov Decision Processes, Chapman and Hall/CRC, 1999. [49] D. Abel, A. Barreto, B. Van Roy, D. Precup, H. P. van Hasselt, S. Singh, A definition of continual reinforcement learning, Advances in Neural Information Processing Systems 36 (2023) 50377–50407. [50] E. Lecarpentier, E. Rachelson, Non-stationary markov decision processes, a worst-case approach using model-based reinforcement learning, in: H. M. Wallach, H. Larochelle, A. Beygelzimer, F. d’Alché-Buc, E. B. Fox, R. Garnett (Eds.), Advances in Neural Information Processing Systems 32: Annual Confer-ence on Neural Information Processing Systems 2019, NeurIPS 2019, December 8-14, 2019, Vancouver, BC, Canada, 2019, pp. 7214–7223. URL https://proceedings.neurips.cc/paper/2019/hash/859b00aec8885efc83d1541b52a1220d-Abstract.html 
+
+[51] J. Ji, B. Zhang, J. Zhou, X. Pan, W. Huang, R. Sun, Y. Geng, Y. Zhong, J. Dai, Y. Yang, Safety gymnasium: A unified safe reinforcement learning benchmark, in: Thirty-seventh Conference on Neural Information Processing Systems Datasets and Benchmarks Track, 2023. URL https://openreview.net/forum?id=WZmlxIuIGR 
+
+[52] A. Xie, J. Harrison, C. Finn, Deep reinforcement learning amidst continual structured non-stationarity, in: M. Meila, T. Zhang (Eds.), Proceedings of the 38th International Conference on Machine Learning, ICML 2021, 18-24 July 2021, Virtual Event, Vol. 139 of Proceedings of Machine Learning Research, PMLR, 2021, pp. 11393–11403. URL http://proceedings.mlr.press/v139/xie21c.html 
+
+[53] S.-H. Lee, S.-W. Seo, Unsupervised skill discovery for learning shared structures across changing envi-ronments, in: A. Krause, E. Brunskill, K. Cho, B. Engelhardt, S. Sabato, J. Scarlett (Eds.), Proceedings of the 40th International Conference on Machine Learning, Vol. 202 of Proceedings of Machine Learning Research, PMLR, 2023, pp. 19185–19199. URL https://proceedings.mlr.press/v202/lee23r.html 
+
+22 [54] M. Wołczyk, M. Zając, R. Pascanu, Ł. Kuciński, P. Miłoś, Continual world: A robotic benchmark for continual reinforcement learning, Advances in Neural Information Processing Systems 34 (2021) 28496–28510. [55] T. Yu, D. Quillen, Z. He, R. Julian, K. Hausman, C. Finn, S. Levine, Meta-world: A benchmark and evaluation for multi-task and meta reinforcement learning, in: Conference on robot learning, PMLR, 2020, pp. 1094–1100. [56] H. Ahn, J. Hyeon, Y. Oh, B. Hwang, T. Moon, Prevalence of negative transfer in continual reinforcement learning: Analyses and a simple baseline, in: The Thirteenth International Conference on Learning Representations, 2025. [57] S. Nath, C. Peridis, E. Ben-Iwhiwhu, X. Liu, S. Dora, C. Liu, S. Kolouri, A. Soltoggio, Sharing life-long reinforcement learning knowledge via modulating masks, in: S. Chandar, R. Pascanu, H. Sedghi, D. Precup (Eds.), Proceedings of The 2nd Conference on Lifelong Learning Agents, Vol. 232 of Pro-ceedings of Machine Learning Research, PMLR, 2023, pp. 936–960. URL https://proceedings.mlr.press/v232/nath23a.html 
+
+[58] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, O. Klimov, Proximal policy optimization algorithms, arXiv preprint arXiv:1707.06347 (2017). [59] J. Schulman, S. Levine, P. Abbeel, M. Jordan, P. Moritz, Trust region policy optimization, in: Inter-national conference on machine learning, PMLR, 2015, pp. 1889–1897. [60] J. Achiam, D. Held, A. Tamar, P. Abbeel, Constrained policy optimization, in: International conference on machine learning, PMLR, 2017, pp. 22–31. [61] A. Ray, J. Achiam, D. Amodei, Benchmarking safe exploration in deep reinforcement learning, Preprint (2019). URL https://cdn.openai.com/safexp-short.pdf 
+
+[62] A. Stooke, J. Achiam, P. Abbeel, Responsive safety in reinforcement learning by pid lagrangian methods, in: International Conference on Machine Learning, PMLR, 2020, pp. 9133–9143. [63] J. Bergstra, R. Bardenet, Y. Bengio, B. Kégl, Algorithms for hyper-parameter optimization, Advances in neural information processing systems 24 (2011). [64] T. Akiba, S. Sano, T. Yanase, T. Ohta, M. Koyama, Optuna: A next-generation hyperparameter opti-mization framework, in: Proceedings of the 25th ACM SIGKDD international conference on knowledge discovery & data mining, 2019, pp. 2623–2631. 23 Appendix A. Appendix 
+
+Appendix A.1. Additional Methodology Information 
+
+In this section, we provide additional details on the algorithms used in this paper, focusing on their objectives and constraints. We use the notation presented in the original papers, which may not be consistent with the main text of this paper. For full details, we refer readers to the cited original papers. 
+
+Proximal Policy Optimization (PPO) 
+
+PPO is a standard on-policy RL algorithm. It introduces a clipped objective to penalize large policy updates 
+
+LCLIP (θ) = ˆEt
+
+h
+
+min 
+
+
+
+rt(θ) ˆAt, clip ( rt(θ), 1 − ϵ, 1 + ϵ) ˆAt
+
+i 
+
+,
+
+where ˆAt are advantage estimates and ϵ is a clipping hyperparameter. Then, the objective that is maximized every step is 
+
+LP P O t (θ) = ˆEt
+
+LCLIP t (θ) − c1LV F t (θ) + c2S[πθ ]( st) ,
+
+where c are coefficients to weight loss terms, LV F t = ( Vθ (st) − V targ  
+
+> t
+
+)2, and S is entropy to encourage exploration. For complete details, please see [58]. 
+
+Constrained Policy Optimization (CPO) 
+
+CPO solves a constrained reinforcement learning problem. It optimizes a constrained Markov decision process with a trust region policy optimization method. Its objective is given below. 
+
+πk+1 = arg max 
+
+> π∈Πθ
+
+Es∼dπk ,a ∼π [Aπk (s, a )] 
+
+s.t. JCi (πk) + 11 − γ Es∼dπk ,a ∼π
+
+Aπk 
+
+> Ci
+
+(s, a ) ≤ di ∀i
+
+¯DKL (π∥πk) ≤ δ. 
+
+In the objective above, Ci is the i-th cost constraint, JCi is the cumulative discounted cost, ACi is the cost advantage, and di is the acceptable cumulative cost for constraint i. This objective is consistent with typical trust region policy optimization objectives that penalize large policy changes with the additional constraint on expected cumulative cost. In practice, this objective is not explicitly maximized. Instead, CPO proposes an approximate optimization algorithm [60]. 
+
+Lagrangian PPO (PPO-Lag) 
+
+PPO-Lag solves a constrained Markov decision process by turning it into an equivalent unconstrained optimization problem using Lagrangian methods incorporated with PPO. The objective in this method can be written as 
+
+max  
+
+> θ
+
+min  
+
+> λ≥0
+
+LP P O t (θ) − λL P P O C 
+
+> t
+
+(θ),
+
+where λ is the Lagrange multiplier that is updated using gradient descent and LP P O C 
+
+> t
+
+is the PPO objective using cost instead of reward. See [61] for more details. 
+
+Constraint-Controlled PPO with Proportional-Integral-Derivative control (CPPO-PID) 
+
+CPPO solves a constrained Markov decision process using Lagrangian methods on top of PPO. However, the Lagrange multiplier is updated using PID control which may improve stability and constrain violation response speed. The λ update rule is 
+
+∆ ← JC − d∂ ← (JC − JC,prev )+
+
+I ← (I + ∆) +
+
+λ ← (KP ∆ + KI I + KD ∂)+,
+
+24 where KP , K I , K D are PID parameters and () + indicates positive projection. For full details on how this update rule is incorporated with Lagrangian PPO, please see [62]. 
+
+Algorithm 2 Cost Fisher Elastic Weight Consolidation (CF-EWC) 
+
+Require: Tasks {T 1, . . . , TK }
+
+Require: PPO params (γ, λ GAE , ϵ, c v , c e)
+
+Require: Learning rates (αθ , α ϕ), EWC coeff. λ
+
+Require: Task length Ttask , update interval Tupdate , Fisher samples N 
+
+> 1:
+
+Initialize πθ , Vϕ, M ← ∅ ▷ Policy, value function, and EWC memory  
+
+> 2:
+
+for k = 1 to K do  
+
+> 3:
+
+Initialize environment Tk ▷ Start new task  
+
+> 4:
+
+D ← ∅ ▷ Clear rollout buffer  
+
+> 5:
+
+for t = 1 to Ttask do  
+
+> 6:
+
+at ∼ πθ (· | st) ▷ Sample action  
+
+> 7:
+
+(st+1 , r t, C t) ∼ T k(st, a t) ▷ Environment transition  
+
+> 8:
+
+˜rt ← rt − βC t ▷ Cost-shaped reward (Safe EWC)  
+
+> 9:
+
+D ← D ∪ (st, a t, ˜rt, s t+1 ) ▷ Store transition  
+
+> 10:
+
+if t mod Tupdate = 0 then  
+
+> 11:
+
+PPO return and advantage computation  
+
+> 12:
+
+δt ← ˜rt + γV ϕ(st+1 ) − Vϕ(st) ▷ TD residual  
+
+> 13:
+
+ˆAt ← P
+
+> l
+
+(γλ GAE )lδt+l ▷ Generalized advantage estimation (GAE)  
+
+> 14:
+
+Gt ← P 
+
+> l
+
+γl ˜rt+l ▷ Discounted returns  
+
+> 15:
+
+PPO policy and value losses  
+
+> 16:
+
+rt(θ) ← πθ (at|st)/π θold (at|st) ▷ Importance ratio  
+
+> 17:
+
+LPPO ← − E[min( rt ˆAt, clip (rt, 1 ± ϵ) ˆAt)] ▷ Clipped surrogate objective  
+
+> 18:
+
+Lvalue ← E[( Vϕ(st) − Gt)2] ▷ Value regression  
+
+> 19:
+
+Lentropy ← − E[H(πθ (·| st))] ▷ Entropy regularization  
+
+> 20:
+
+Elastic Weight Consolidation (EWC)  
+
+> 21:
+
+LEWC ← P  
+
+> (θ∗
+> j,F j)∈M
+
+P 
+
+> i λ
+> 2
+
+Fj,i (θi − θ∗
+
+> j,i
+
+)2 ▷ Penalty for forgetting previous tasks  
+
+> 22:
+
+Parameter updates  
+
+> 23:
+
+Lθ ← L PPO + ceLentropy + LEWC ▷ Total actor loss  
+
+> 24:
+
+Lϕ ← cv Lvalue ▷ Total critic loss  
+
+> 25:
+
+θ ← θ − αθ ∇θ Lθ ▷ Update policy  
+
+> 26:
+
+ϕ ← ϕ − αϕ∇ϕLϕ ▷ Update value function  
+
+> 27:
+
+θold ← θ, D ← ∅ ▷ Prepare next rollout  
+
+> 28:
+
+end if  
+
+> 29:
+
+end for  
+
+> 30:
+
+θ∗ 
+
+> k
+
+← θ ▷ Save task-optimal parameters  
+
+> 31:
+
+Sample N transitions {(sn, a n, c n)}Nn=1 from Tk using πθ∗ 
+
+> k
+
+▷ Fisher rollout  
+
+> 32:
+
+Fk,i ← 1
+
+> N
+
+P  
+
+> n11+ cn
+
+(∂θi log πθ∗ 
+
+> k
+
+(an|sn)) 2 ▷ Estimate Cost Fisher information  
+
+> 33:
+
+M ← M ∪ (θ∗
+
+> k
+
+, F k) ▷ Store task importance  
+
+> 34:
+
+end for PPO with Elastic Weight Consolidation (PPO+EWC) 
+
+PPO+EWC incorporates elastic weight consolidation (EWC) [24] into PPO. EWC reduces forgetting in continual learning by penalizing the network for making large changes to parameters that were important on previous tasks. The loss regularization is shown below 25 L(θ) = LB (θ) + X
+
+> i
+
+λ
+
+2 Fi(θi − θ∗
+
+> A,i
+
+)2,
+
+where LB is the loss on the current task, F is a fisher information matrix measuring the “importance” of each parameter, λ is a hyperparameter to balance current and previous tasks, and θA are parameters for a previous task. In practice, F is approximated. To combine this with PPO, we add this regularization to PPO’s loss. We assume known task boundaries and accumulate this loss over each prior task. This method is commonly used as a benchmark in continual RL [57]. A variant of this method that may be more suitable for lifelong learning, Online EWC [25], has been developed. This keeps updating a single F , rather than maintaining one for each task. However, since our benchmarked task sequences are short (at most 15 tasks), we did not encounter scalability issues with EWC. 
+
+Experience Replay 
+
+Continual RL methods commonly use replay buffers to recall past experiences. To develop a representa-tive algorithm from this category, we take inspiration from CLEAR [26]. We maintain a buffer of the past 5 million experiences. At every PPO policy update, the agent uses a 50 /50 split of sampled and current experiences, as recommended by [26]. We do not include the behavior cloning loss terms from CLEAR, as those would further reduce the already-poor sample efficiency. Notably, CLEAR also uses IMPALA, a dis-tributed off-policy RL algorithm, instead of PPO. We use PPO for consistency with the other benchmarked algorithms, but future work should incorporate experience replay with off-policy algorithms to address the sample efficiency concerns. 
+
+Appendix A.1.1. Hyperparameters 
+
+> Table A.6: Selected HalfCheetah hyperparameters. * indicates they were chosen through hyperparameter optimization. Others were kept consistent with standard implementations. Experience Replay used PPO’s hyperparameters, as there were no new parameters associated with the replay buffer. Safe EWC used PPO+EWC’s hyperparameters with the cost weight. CF-EWC used PPO+EWC’s hyperparameters, as there were no new hyperparameters associated with this algorithm.
+
+Algorithm Neurons LR Batch Size Epochs Target KL EWC λ Step Frac. Lag. LR Cost β
+
+PPO 32* 3e-4 256* 44* 0.02 - - - -CPO 128* 1e-3 128* 10 0.01 - 0.653* - -PPO-Lag 32* 3e-4 128* 40 0.02 - - 0.034* -CPPO-PPID 32* 3e-4 128* 40 0.02 - - - -PPO+EWC 32* 3e-4 64* 36* 0.02 12.926* - - -Exp. Replay 32 3e-4 256 44 0.02 - - - -Safe EWC 32 3e-4 64 36 0.02 12.926 - - 5CF-EWC 32 3e-4 64 36 0.02 12.926 - - -26 Table A.7: Selected Damaged Ant Velocity hyperparameters. * indicates they were chosen through hyperparameter optimiza-tion. Others were kept consistent with standard implementations. Safe EWC used PPO+EWC’s hyperparameters with the cost weight. CF-EWC used PPO+EWC’s hyperparameters, as there were no new hyperparameters associated with this algorithm. 
+
+Algorithm Neurons LR Batch Size Epochs Target KL EWC λ Step Frac. Lag. LR Cost β
+
+PPO 32* 3e-4 256* 43* 0.02 - - - -CPO 64* 1e-3 128* 10 0.01 - 0.718* - -PPO-Lag 64* 3e-4 256* 40 0.02 - - 0.025* -CPPO-PPID 128* 3e-4 256* 40 0.02 - - - -PPO+EWC 64* 3e-4 64* 35* 0.02 11.24* - - -Safe EWC 64 3e-4 64 35 0.02 11.24 - - 5CF-EWC 64 3e-4 64 35 0.02 11.24 - - - 
+
+> Table A.8: Selected Safe Continual World hyperparameters. * indicates they were chosen through hyperparameter optimization. Others were kept consistent with standard implementations. Safe EWC used PPO+EWC’s hyperparameters with the cost weight. CF-EWC used PPO+EWC’s hyperparameters, as there were no new hyperparameters associated with this algorithm.
+
+Algorithm Neurons LR Batch Size Epochs Target KL EWC λ Step Frac. Lag. LR Cost β
+
+PPO 32* 3e-4 128* 38* 0.02 - - - -CPO 64* 1e-3 128* 10 0.01 - 0.841* - -PPO-Lag 128* 3e-4 256* 40 0.02 - - 0.032* -CPPO-PPID 32* 3e-4 64* 40 0.02 - - - -PPO+EWC 128* 3e-4 64* 37* 0.02 23.125 - - -Safe EWC 128 3e-4 64 37 0.02 23.125 - - 5CF-EWC 128 3e-4 64 37 0.02 23.125 - - -Hyperparameters were chosen through a proxy task in a relevant variation of the environment. For PPO, this was the first task in the task sequence, and performance was measured as the final average reward. For the safe RL algorithms, this was the first task in the task sequence with the safety constraint being considered, and performance was measured as the final average reward penalized by the final average cost. For the continual RL algorithms, the proxy task consisted of the first two tasks in the respective task sequence, and performance was measured by averaging the final reward on the second task with the final reward when revisiting the first task. All hyperparameters were evaluated on 5 episodes of their evaluation environments. On the MuJoCo Damaged Velocity tasks, algorithms were trained for 500,000 timesteps per task, and on the Safe Continual World environment, algorithms were trained for 1,000,000 timesteps per task. Hyperparameters were optimized using 50 trials of the Tree-Structured Parzen estimator algorithm. We chose these limited-interaction proxy tasks for two reasons. First, it was much more computationally feasible. A single training run on the Safe Continual World took almost a full day to finish. With 50 trials of 8 algorithms, it was infeasible to optimize hyperparameters on the full task given our budget. Second, we believe this represents the requirements of real lifelong RL will be done. In the real world, we will not know all possible environmental conditions or tasks the agent will encounter. We need to develop techniques that can adapt to these unexpected scenarios. The soft safety constraint cost limit for the safe RL algorithms was set to 25 for both environments. This value was used for the (non-continuous) HalfCheetah Velocity task in [51]. Since we tolerate some tilting of the mug in Safe Continual World (25 degrees should be fine), we kept this value consistent. In practice, this tolerance will need to be set by a domain expert or operator. 27 Table A.9: Damaged HalfCheetah Velocity results broken down by task across 5 random seeds. 
+
+Algorithm Nominal Front Back Rewards PPO 3891 .53 ± 582 .53 1256 .27 ± 283 .73 1088 .74 ± 811 .28 
+
+CPO 2075 .92 ± 97 .09 875 .85 ± 170 .29 1657 .17 ± 92 .78 
+
+PPO-Lag 2328 .29 ± 343 .64 1038 .47 ± 292 .45 1293 .82 ± 369 .24 
+
+CPPO-PID 2311 .46 ± 340 .71 952 .68 ± 340 .51 1199 .30 ± 309 .34 
+
+PPO+EWC 3598 .60 ± 1149 .40 1110 .57 ± 159 .67 1400 .64 ± 358 .69 
+
+Exp. Replay 883 .42 ± 615 .77 420 .81 ± 47 .21 210 .46 ± 221 .12 
+
+Safe EWC 2449 .72 ± 178 .80 1065 .29 ± 200 .83 1378 .86 ± 342 .28 
+
+CF-EWC 3460 .39 ± 1039 .57 1152 .77 ± 208 .90 1588 .19 ± 581 .62 
+
+Reward Forgetting PPO 590 .63 ± 274 .95 265 .65 ± 89 .17 1124 .30 ± 745 .13 
+
+CPO 813 .07 ± 271 .68 976 .40 ± 162 .72 2077 .69 ± 463 .75 
+
+PPO-Lag 283 .84 ± 220 .18 455 .21 ± 282 .71 1138 .59 ± 262 .72 
+
+CPPO-PID 273 .19 ± 237 .89 407 .43 ± 185 .74 870 .66 ± 479 .36 
+
+PPO+EWC 694 .21 ± 396 .63 349 .79 ± 131 .32 902 .99 ± 475 .02 
+
+Exp. Replay 219 .89 ± 118 .53 183 .54 ± 52 .96 195 .20 ± 63 .78 
+
+Safe EWC 363 .18 ± 203 .76 165 .10 ± 185 .93 703 .44 ± 412 .76 
+
+CF-EWC 709 .06 ± 293 .04 190 .60 ± 120 .61 906 .40 ± 391 .82 
+
+Total Costs PPO 20006 .78 ± 7114 .96 902 .52 ± 501 .56 1195 .76 ± 660 .97 
+
+CPO 832 .28 ± 89 .43 39 .03 ± 38 .71 615 .32 ± 200 .59 
+
+PPO-Lag 1611 .43 ± 591 .40 76 .93 ± 110 .17 803 .41 ± 658 .43 
+
+CPPO-PID 1074 .55 ± 329 .11 118 .73 ± 148 .02 536 .22 ± 364 .39 
+
+PPO+EWC 17594 .28 ± 9204 .50 656 .25 ± 679 .35 1017 .40 ± 545 .22 
+
+Exp. Replay 1871 .40 ± 3453 .78 103 .69 ± 70 .97 25 .08 ± 20 .92 
+
+Safe EWC 433 .28 ± 137 .70 358 .72 ± 612 .60 387 .35 ± 606 .91 
+
+CF-EWC 17037 .16 ± 8953 .20 416 .71 ± 198 .48 1426 .70 ± 1098 .33 
+
+Appendix A.2. Results By Task 
+
+In this section, we break down the results by task. This shows some behaviors better, such as the positive forward transfer (negative forgetting) of many algorithms on the Damaged Ant Velocity environment (see Table A.10). These results also inform us which tasks were difficult for each algorithm, allowing us to focus future research on the challenges of each environment. 28 Table A.10: Damaged Ant Velocity results broken down by task across 5 random seeds. 
+
+Algorithm Nominal Front Back Rewards PPO 4076 .32 ± 679 .24 2896 .44 ± 227 .15 2873 .43 ± 335 .06 
+
+CPO 2901 .45 ± 59 .00 2590 .21 ± 152 .32 2634 .49 ± 141 .76 
+
+PPO-Lag 2969 .05 ± 84 .09 2687 .86 ± 142 .78 2372 .26 ± 58 .08 
+
+CPPO-PID 2952 .81 ± 76 .19 2730 .06 ± 65 .57 2383 .55 ± 136 .47 
+
+PPO+EWC 4851 .58 ± 349 .04 3192 .73 ± 318 .15 2891 .70 ± 329 .99 
+
+Safe EWC 2932 .87 ± 75 .92 2751 .92 ± 41 .90 2384 .82 ± 97 .87 
+
+CF-EWC 4949 .44 ± 491 .74 3169 .52 ± 186 .40 3100 .21 ± 120 .54 
+
+Reward Forgetting PPO −211 .36 ± 123 .71 602 .20 ± 310 .25 −148 .26 ± 444 .89 
+
+CPO 357 .80 ± 175 .35 1074 .53 ± 428 .15 1310 .19 ± 538 .25 
+
+PPO-Lag −221 .60 ± 169 .95 537 .47 ± 379 .97 −310 .48 ± 222 .81 
+
+CPPO-PID −200 .12 ± 29 .52 374 .80 ± 302 .02 −53 .81 ± 316 .14 
+
+PPO+EWC −327 .56 ± 212 .11 677 .37 ± 388 .72 −249 .85 ± 295 .31 
+
+Safe EWC −198 .40 ± 115 .66 782 .60 ± 438 .30 −114 .73 ± 284 .81 
+
+CF-EWC −311 .30 ± 146 .64 594 .84 ± 475 .21 −207 .49 ± 218 .26 
+
+Total Costs PPO 14360 .01 ± 4491 .68 7807 .25 ± 2395 .19 5375 .82 ± 2206 .19 
+
+CPO 873 .60 ± 78 .37 871 .63 ± 34 .05 913 .92 ± 144 .68 
+
+PPO-Lag 1018 .68 ± 235 .86 1072 .37 ± 520 .29 938 .10 ± 349 .62 
+
+CPPO-PID 841 .56 ± 39 .28 970 .43 ± 135 .86 589 .68 ± 74 .08 
+
+PPO+EWC 17905 .56 ± 1082 .56 9976 .02 ± 3907 .85 5303 .56 ± 1829 .13 
+
+Safe EWC 362 .81 ± 21 .45 315 .63 ± 89 .78 258 .84 ± 85 .15 
+
+CF-EWC 17737 .34 ± 2147 .46 9659 .46 ± 1285 .12 6228 .70 ± 939 .01 
+
+29 Table A.11: Safe Continual World results broken down by task across 5 random seeds. 
+
+Algorithm Faucet Button Drawer Success PPO 0.90 ± 0.10 1.00 ± 0.00 0.77 ± 0.22 
+
+CPO 0.65 ± 0.29 1.00 ± 0.00 0.90 ± 0.17 
+
+PPO-Lag 0.04 ± 0.07 0.28 ± 0.32 0.04 ± 0.08 
+
+CPPO-PID 0.00 ± 0.00 0.03 ± 0.03 0.00 ± 0.00 
+
+PPO+EWC 0.79 ± 0.21 1.00 ± 0.00 0.85 ± 0.13 
+
+Safe EWC 0.03 ± 0.04 0.39 ± 0.29 0.00 ± 0.00 
+
+CF-EWC 0.67 ± 0.19 0.99 ± 0.01 0.71 ± 0.10 
+
+Success Forgetting PPO 0.76 ± 0.21 0.01 ± 0.02 0.40 ± 0.33 
+
+CPO 0.37 ± 0.34 0.24 ± 0.38 0.81 ± 0.15 
+
+PPO-Lag 0.02 ± 0.03 0.02 ± 0.11 −0.03 ± 0.05 
+
+CPPO-PID −0.01 ± 0.03 −0.01 ± 0.05 0.00 ± 0.00 
+
+PPO+EWC 0.70 ± 0.18 0.01 ± 0.02 0.25 ± 0.31 
+
+Safe EWC −0.01 ± 0.04 0.07 ± 0.13 −0.03 ± 0.07 
+
+CF-EWC 0.72 ± 0.29 0.01 ± 0.02 0.48 ± 0.18 
+
+Total Costs PPO 289830 .68 ± 362416 .12 4295 .64 ± 6958 .20 42503 .87 ± 41154 .58 
+
+CPO 106108 .08 ± 39016 .20 8388 .14 ± 14744 .49 91956 .57 ± 134588 .45 
+
+PPO-Lag 30670 .84 ± 12497 .80 121709 .39 ± 146814 .47 14895 .11 ± 8754 .31 
+
+CPPO-PID 23787 .35 ± 18894 .64 4843 .23 ± 6352 .29 25539 .48 ± 25032 .90 
+
+PPO+EWC 236857 .96 ± 264564 .40 39556 .89 ± 77616 .03 114343 .79 ± 181560 .02 
+
+Safe EWC 16749 .54 ± 4495 .90 42171 .93 ± 30738 .53 16120 .78 ± 13976 .51 
+
+CF-EWC 215464 .75 ± 288290 .20 6587 .91 ± 7541 .14 156723 .51 ± 290024 .05 
+
+Appendix A.3. Isolated Training Curves 
+
+In this section, we show the training curves of each algorithm on each environment, giving us a complete view of the behavior during lifelong learning. 30 (a) Reward for PPO on Damaged HalfCheetah Velocity. (b) Reward for CPO on Damaged HalfCheetah Velocity. 
+
+(c) Reward for PPO-Lag on Damaged HalfCheetah Velocity. (d) Reward for CPPO-PID on Damaged HalfCheetah Velocity. 
+
+(e) Reward for PPO+EWC on Damaged HalfCheetah Velocity. (f) Reward for Experience Replay on Damaged HalfCheetah Velocity. 
+
+(g) Reward for Safe EWC on Damaged HalfCheetah Velocity. (h) Reward for CF-EWC on Damaged HalfCheetah Velocity. 
+
+Figure A.6: Reward curves for different algorithms across 5 random seeds on Damaged HalfCheetah Velocity task. 
+
+31 (a) Cost for PPO on Damaged HalfCheetah Velocity. (b) Cost for CPO on Damaged HalfCheetah Velocity. 
+
+(c) Cost for PPO-Lag on Damaged HalfCheetah Velocity. (d) Cost for CPPO-PID on Damaged HalfCheetah Velocity. 
+
+(e) Cost for PPO+EWC on Damaged HalfCheetah Velocity. (f) Cost for Experience Replay on Damaged HalfCheetah Velocity. 
+
+(g) Cost for CF-EWC on Damaged HalfCheetah Velocity. (h) Cost for CF-EWC on Damaged HalfCheetah Velocity. 
+
+Figure A.7: Cost curves for different algorithms across 5 random seeds on Damaged HalfCheetah Velocity task. 
+
+32 (a) Reward for PPO on Damaged Ant Velocity. (b) Reward for CPO on Damaged Ant Velocity. 
+
+(c) Reward for PPO-Lag on Damaged Ant Velocity. (d) Reward for CPPO-PID on Damaged Ant Velocity. 
+
+(e) Reward for PPO+EWC on Damaged Ant Velocity. (f) Reward for Safe EWC on Damaged Ant Velocity. 
+
+(g) Reward for CF-EWC on Damaged Ant Velocity. 
+
+Figure A.8: Reward curves for different algorithms across 5 random seeds on Damaged Ant Velocity task. 
+
+33 (a) Cost for PPO on Damaged Ant Velocity. (b) Cost for CPO on Damaged Ant Velocity. 
+
+(c) Cost for PPO-Lag on Damaged Ant Velocity. (d) Cost for CPPO-PID on Damaged Ant Velocity. 
+
+(e) Cost for PPO+EWC on Damaged Ant Velocity. (f) Cost for CF-EWC on Damaged Ant Velocity. 
+
+(g) Cost for CF-EWC on Damaged Ant Velocity. 
+
+Figure A.9: Cost curves for different algorithms across 5 random seeds on Damaged Ant Velocity task. 
+
+34 (a) Success for PPO on Safe Continual World. (b) Success for CPO on Safe Continual Worldy. 
+
+(c) Success for PPO-Lag on Safe Continual World. (d) Success for CPPO-PID on Safe Continual World. 
+
+(e) Success for PPO+EWC on Safe Continual World. (f) Success for Safe EWC on Safe Continual World. 
+
+(g) Success for CF-EWC on Safe Continual World. 
+
+Figure A.10: Success curves for different algorithms on Safe Continual World task. 
+
+35 (a) Cost for PPO on Safe Continual World. (b) Cost for CPO on Safe Continual World.   
+
+> (c) Cost for PPO-Lag on Safe Continual World. (d) Cost for CPPO-PID on Safe Continual World.
+> (e) Cost for PPO+EWC on Safe Continual World. (f) Cost for Safe EWC on Safe Continual World.
+> (g) Cost for CF-EWC on Safe Continual World.
+
+Figure A.11: Cost curves for different algorithms on Safe Continual World task. 
+
+Appendix A.4. Combined Training Curves 
+
+In this section, we show the full training curves of each algorithm and environment on the same plots. This allows for a direct comparison of learning behaviors in safe, continual environments. For isolated training curves, which make it easier to pick out the individual algorithms, please see the previous section. 36 Figure A.12: Reward training curves for 5 seeds of all algorithms on Damaged HalfCheetah Velocity. 
+
+Figure A.13: Cost training curves for 5 seeds of all algorithms on Damaged HalfCheetah Velocity. 
+
+37 Figure A.14: Reward training curves for 5 seeds of all algorithms on Damaged Ant Velocity. 
+
+Figure A.15: Cost training curves for 5 seeds of all algorithms on Damaged Ant Velocity. 
+
+38 Figure A.16: Success curves during training all algorithms on Safe Continual World. 
+
+Figure A.17: Cost training curves for all algorithms on Safe Continual World. 
+
+39

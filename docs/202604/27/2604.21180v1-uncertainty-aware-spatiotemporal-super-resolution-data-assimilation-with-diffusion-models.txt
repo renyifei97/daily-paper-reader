@@ -1,0 +1,1520 @@
+Title: Uncertainty-Aware Spatiotemporal Super-Resolution Data Assimilation with Diffusion Models
+
+URL Source: https://arxiv.org/pdf/2604.21180v1
+
+Published Time: Fri, 24 Apr 2026 00:23:27 GMT
+
+Number of Pages: 35
+
+Markdown Content:
+# UNCERTAINTY -A WARE SPATIOTEMPORAL SUPER -R ESOLUTION 
+
+# DATA ASSIMILATION WITH DIFFUSION MODELS 
+
+A. S. P. Ayapilla 1,†,∗, K. Miyashita 2,3,†, Y. Yasuda 4, R. Onishi 1
+
+> 1
+
+Supercomputing Research Center, Institute of Integrated Research, 
+
+Institute of Science Tokyo, Tokyo 152-8550, Japan 
+
+> 2
+
+ADVANTEST CORPORATION, Japan 
+
+> 3
+
+Department of Mechanical Engineering, School of Engineering, Institute of Science Tokyo, Japan (during this work) 
+
+> 4
+
+Research Institute for Value-Added-Information Generation, JAMSTEC, Yokohama, Japan 
+
+> †
+
+These authors contributed equally to this work. 
+
+> ∗
+
+Corresponding author: ayapilla.asp@scrc.iir.isct.ac.jp April 24, 2026 
+
+## ABSTRACT 
+
+Data assimilation (DA) improves prediction of chaotic systems by combining model forecasts with sparse, noisy observations. Many widely used DA methods are inherently probabilistic, requiring uncertainty quantification rather than only a single best estimate. However, accurate probabilistic DA is often computationally expensive because it relies on repeated high-resolution (HR) forecasts and large ensembles, which can limit its practical use in time-sensitive settings. In this study, a probabilistic spatiotemporal super-resolution data assimilation framework, DiffSRDA , is developed using denoising diffusion models and evaluated on an idealized barotropic ocean jet instability testbed. DiffSRDA is trained offline to generate short HR analysis windows conditioned on (i) a time series of low-resolution (LR) forecast frames from a numerical model and (ii) sparse HR observations. Repeated reverse diffusion sampling then produces an ensemble of HR analyses, providing both point estimates and ensemble-based uncertainty information. Despite relying only on low-cost LR forecasts, DiffSRDA achieves reconstruction quality close to that of an Ensemble Kalman Filter (EnKF) driven by HR forecasts, while improving over deterministic CNN-based SRDA baselines. The sampled ensemble also yields physically meaningful uncertainty patterns, with spread concentrated in dynamically active regions similarly to EnKF. A key practical result is that accurate base DiffSRDA cycling does not require long reverse chains, so most of the full-chain accuracy can be retained with only a small number of reverse steps, making diffusion-based SRDA computationally practical for repeated cycling. Finally, by exploiting the score-based structure of diffusion sampling, training-free observation-consistency guidance is demonstrated for deployment-time sensor-layout shifts, allowing improved use of changed observation configurations without retraining. Overall, diffusion models provide a practical, uncertainty-aware, and computationally efficient approach for spatiotemporal SRDA in chaotic fluid flows. The source code for this work is available at 
+
+https://github.com/Pranithhazard/DiffSRDA .
+
+Keywords: super-resolution, data assimilation, uncertainty quantification, deep learning, diffusion models, generative models, inverse problems, score-based guidance, geophysical fluid flows 
+
+> arXiv:2604.21180v1 [physics.flu-dyn] 23 Apr 2026
+
+A PREPRINT - A PRIL 24, 2026 
+
+## 1 Introduction 
+
+Reliable forecasting of chaotic geophysical flows is essential in applications ranging from severe-weather preparedness to energy, aviation, and urban street-scale operations. Yet accurate prediction remains fundamentally difficult because the true flow state is only partially observed: measurements are sparse, noisy, and irregular in space and time, while forecast errors can grow rapidly in high-dimensional, strongly nonlinear dynamics. Data assimilation (DA) addresses this by combining observations with a dynamical model to estimate the evolving state and, ideally, its uncertainty. In practice, however, obtaining high-resolution analyses with reliable uncertainty quantification is often computationally expensive, especially when the forecast model must be evolved at fine resolution and within an ensemble. This creates a major bottleneck for time-sensitive applications and motivates DA strategies that can exploit cheaper low-resolution forecasts while still producing accurate high-resolution analyses. This bottleneck is precisely where scientific machine learning becomes attractive. The growing availability of large observational datasets and high-fidelity numerical simulations makes it possible to learn useful structure offline from expensive data and then reuse it later for much cheaper online inference. In fluid dynamics, this has motivated the adaptation of ideas such as super-resolution and learned compression to reconstruct or represent high-dimensional turbulent flows from limited or low-fidelity information (Onishi et al., 2019; Fukami et al., 2019, 2021; Yasuda et al., 2022, 2023). Related work has also used representation learning to build compact latent descriptions and reduced-order surrogate models for strongly nonlinear flows (Lusch et al., 2018; Brunton et al., 2021; Fukami and Taira, 2023; Solera-Rico et al., 2024). The particularly useful aspect of these approaches is that they can extract multiscale structure and nonlinear statistical relationships from data that would be too expensive to exploit directly inside repeated inference loops. These ideas are also relevant to data assimilation, where the goal is not only forecasting but also efficient inference of high-resolution states from partial observations. 
+
+Super-resolution data assimilation (SRDA) aims to run cheaper low-resolution (LR) forecasts while still producing high-resolution (HR) analyses. Barthélémy et al. (2022) introduced SRDA by using a supervised network to super-resolve LR forecasts to HR fields, followed by an ensemble Kalman filter update with HR observations, so learning is used for super-resolution while the assimilation step remains classical. More recently, Yasuda and Onishi (2023) proposed a simultaneous SRDA operator that predicts a short HR analysis window directly from an LR forecast window and sparse HR point observations, and Notsu et al. (2025) extended this formulation to three-dimensional settings. These learned analysis operators can greatly reduce cycling cost, but many are deterministic and therefore do not directly provide uncertainty estimates, even though uncertainty is central to DA. To address this, Yasuda and Onishi (2025) proposed an unsupervised SRDA formulation based on conditional variational autoencoders (CVAEs), deriving an evidence lower bound (ELBO) for DA that connects to 3D-Var and leveraging the non-locality of super-resolution to induce background covariance structure from data. While this provides a clear route to probabilistic SRDA, CVAE families can still be restrictive when the conditional analysis distribution is strongly non-Gaussian, motivating diffusion and score-based generative models as a complementary approach with richer uncertainty representations. Diffusion models, or more generally score-based generative models, provide a practical way to represent probabilistic priors for high-dimensional fields (Sohl-Dickstein et al., 2015; Ho et al., 2020; Song et al., 2020b; Lai et al., 2025). In their common formulation, a forward process gradually perturbs clean samples with Gaussian noise, and a learned reverse process removes that noise to generate samples from the data distribution (Ho et al., 2020). The same idea can be written in continuous time as a reverse-time SDE driven by the score of the noisy marginals (Song et al., 2020b). In the literature, diffusion models are commonly trained using the denoising formulation introduced in Denoising Diffusion Probabilistic Models (DDPM), while inference can also be carried out with deterministic or partially deterministic samplers such as Denoising Diffusion Implicit Models (DDIM) (Song et al., 2020a). Latent diffusion approaches perform the generative process in a learned compressed space and decode back to physical space, which can reduce computational cost at high resolutions (Rombach et al., 2022). Together, these ingredients make diffusion models attractive when one needs not only a point estimate but also a controlled way to represent uncertainty through ensembles of samples. These ideas connect directly to diffusion-based data assimilation, where score-based or diffusion models are combined with an observation model at inference to generate posterior samples (Rozet and Louppe, 2023; Huang et al., 2024; Du et al., 2024; Shysheya et al., 2024; Wang et al., 2025). An important point is that the Bayesian posterior implicitly targeted by a diffusion-based DA procedure depends on how the model is trained and how sampling is performed, including choices that correspond to climatological priors, cycling priors, or extended-likelihood constructions that blend model information and observations (Hodyss and Morzfeld, 2026). This viewpoint helps position diffusion-based SRDA as a probabilistic analysis framework that can fuse multiple information sources while remaining computationally practical. 2A PREPRINT - A PRIL 24, 2026 Therefore, in this paper, we present DiffSRDA , a conditional diffusion-based framework for super-resolution data assimilation (SRDA) that infers a distribution over high-resolution analysis windows from a short low-resolution forecast window and sparse high-resolution observations. This enables both accurate high-resolution reconstructions and practical ensemble-based uncertainty estimates through repeated conditional sampling. As a secondary contribution, we introduce training-free observation-consistency guidance as a lightweight deployment-time mechanism for incorporating additional or shifted observations without retraining the diffusion model. This is motivated by realistic sensor-evolution scenarios in which the observation layout or density available at deployment differs from that used during training. The proposed guidance is inspired by diffusion-posterior-sampling-style inference-time likelihood corrections (Chung et al., 2022), but is specialized to the sparse on-grid masking operator arising in SRDA, making it inexpensive and easy to incorporate into reverse diffusion sampling. In addition, we evaluate a latent diffusion variant as an ablation study, in which the same conditional sampling problem is solved in a compressed latent space to reduce the diffusion-state dimension. To keep the main narrative focused on the primary DiffSRDA framework, we present this latent-space ablation in Appendix C. Overall, we ask: How effectively can diffusion models perform super-resolution and data assimilation simultaneously, while also providing practical uncertainty estimates for chaotic multiscale flows? 
+
+The remainder of the paper is organized as follows. Section 2 introduces the SRDA problem setting, baseline methods, and diffusion-model background, and Section 2.3 presents the proposed DiffSRDA framework and its forecast–analysis pipeline. Section 3 describes the barotropic-jet testbed, training setup, evaluation protocol, and implementation details. Sections 4 and 5 present the reconstruction results and uncertainty quantification, respectively. Section 6 introduces deployment-time training-free observation-consistency guidance and evaluates its effect under sensor-layout shifts. Finally, Section 7 concludes with a discussion and future directions. 
+
+## 2 Problem formulation and methodology 
+
+2.1 Problem setting, previous SRDA methods, and overview of DiffSRDA 
+
+We begin by formulating the super-resolution data assimilation (SRDA) problem considered in this paper. Our setting follows the standard sequential forecast–analysis view of data assimilation, as in filtering methods: at each cycle, a forecast model produces a background estimate, newly available observations are assimilated to obtain an analysis, and that updated analysis is then used to initialize the next forecast cycle. In SRDA, this forecast–analysis loop is modified so that time integration is carried out with a low-resolution (LR) model for computational efficiency, while the analysis target remains a high-resolution (HR) state. The goal is therefore not only to recover missing small-scale structure, but also to keep the predicted trajectory aligned with the evolving underlying nature run as new observations arrive over time. This sequential viewpoint is especially important in chaotic multiscale systems, where transient structures, instability growth, and nonlinear interactions can quickly amplify small state errors. Figure 1(a) summarizes the broader motivation. In realistic geophysical settings, the full HR state of the system is hidden. Sparse and noisy observations provide only partial information, while a low-cost physics-based model, although dynamically informative, cannot resolve all relevant spatiotemporal scales and is itself imperfect. In such settings, one cannot expect direct simulation alone to recover the true trajectory, especially under sensitivity to initial conditions, partial boundary and forcing information, model-form uncertainty, and the prohibitive cost of repeatedly evolving HR ensembles. SRDA aims to bridge this gap by combining sparse observational information with inexpensive LR dynamics to infer HR analyses that are both accurate and computationally practical. Within this general setting, Figure 1 also helps position the representative baseline approaches considered in this paper. One natural reference baseline is the standard ensemble Kalman filter applied fully in the high-resolution (HR) space, in which uncertainty is represented by an ensemble of HR states, each ensemble member is advanced with an HR forecast model, and the analysis update is computed from the ensemble covariance through the Kalman gain; throughout this paper, we refer to this baseline as EnKF-HR for convenience. A second baseline follows the super-resolution ensemble Kalman filter strategy of Barthélémy et al. (2022), in which the forecast ensemble is generated using a low-resolution (LR) model and then mapped to HR before the EnKF update through a super-resolution (SR) operator; this retains the classical EnKF structure while reducing forecast cost because only LR dynamics are evolved online, and in the present work we use bicubic interpolation for this LR-to-HR mapping rather than a pretrained neural SR model so that the baseline cleanly isolates the effect of LR forecasting combined with an HR EnKF analysis step; for convenience, we denote this baseline by EnKF-SR . A more direct learned alternative is super-resolution data assimilation (SRDA) (Yasuda and Onishi, 2023), in which the analysis operator itself is replaced by a trained neural network that takes LR forecast information together with sparse observations and directly outputs an HR analysis state, or a short HR analysis window, in a single forward pass. This can substantially reduce the cost of cycling, but in its basic form the learned SRDA operator is deterministic and therefore does not directly provide uncertainty information. 3A PREPRINT - A PRIL 24, 2026 Chaotic dynamical systems in nature .                                                                                       
+
+> •Example –geophysical flows , urban street -scale flows , etc.
+> •High dimensional, multiscale ,chaotic ,combined with uncertainty
+> in system parameters ⇒the full true state is hidden .
+> Sparse observations from sensors ,satellites ,weather
+> stations ,drones , etc.
+> •Only source of information of the hidden true state .
+> •Data uncertainty from measurements .
+> Low -cost ,physics -based CFD model .
+> •Inadequate physics due to missing spatiotemporal scales .
+> •Uncertainty in the system’s PDE due to limited knowledge .
+> data -driven, deep -learning -
+> based super -resolution
+> data assimilation (SRDA).
+> Accurate ,high -resolution, uncertainty -aware predictions .
+> •Expected alignment of dynamics with the nature’s trajectory .
+> •Updates sequentially with newer observations .
+> "
+> Observations
+> LR time series
+> spatiotemporally super -resolved HR
+> states with uncertainty spreads
+> Down sample to LR grid to run
+> next LR forecasts
+
+Low -cost LR physics -based 
+
+model     
+
+> Time integration to produce
+> next forecasts
+> Denoising diffusion model
+
+Unseen sparse sensor 
+
+layouts at deployment 
+
+Sparse sensor layout 
+
+during training 
+
+Unguided sample. Out -of -
+
+distribution layouts result in 
+
+slightly inaccurate reconstructions. 
+
+Guided Sample. for 
+
+observation -consistent 
+
+sharper reconstructions. 
+
+y
+
+Prior score: !!"#$ &"((|*)
+
+Guiding posterior score via 
+
+Bayes’ rule: 
+
+!!"#$ &" ( * + !!"#$ &" - (
+
+diffusion time axis .
+
+! denotes the conditioning inputs as shown in 
+
+panel (b). Guidance further enforces consistency 
+
+with the available observations. 
+
+&((#|*)
+
+&((#|*, -)
+
+(a) Goal of probabilistic SRDA 
+
+(b) Overview of DiffSRDA 
+
+(c) Illustration of observation -consistency guidance at deployment -time 
+
+Figure 1: Conceptual overview of the probabilistic super-resolution data assimilation problem and the proposed DiffSRDA framework. (a) Goal of probabilistic SRDA. Sparse and noisy observations provide incomplete information about an underlying high-dimensional chaotic flow, while a low-cost physics-based low-resolution (LR) model captures only coarse dynamics. The goal is to combine both sources of information to infer accurate, high-resolution (HR), uncertainty-aware flow states. (b) Overview of DiffSRDA. Conditioned on sparse observations and an LR forecast time series, the denoising diffusion model generates spatiotemporally super-resolved HR state sequences together with sample-based uncertainty. The reconstructed HR states can then be downsampled and used to initialize the next LR forecast cycle. (c) Deployment-time score-based observation-consistency guidance for unseen sensor layouts. 
+
+When the observation configuration differs from that used during training, reverse diffusion sampling is guided using the observation likelihood so that samples are nudged from the learned conditional distribution toward greater consistency with the deployment-time observations, yielding sharper and more accurate reconstructions. 4A PREPRINT - A PRIL 24, 2026 That limitation motivates the probabilistic SRDA framework developed here. In chaotic and multiscale flows, the same coarse forecast information and sparse observations may remain consistent with multiple plausible HR realizations, especially once instabilities develop and nonlinear structures emerge. A useful SRDA method should therefore provide not only an HR reconstruction, but also a practical representation of uncertainty over possible HR analyses. In this work, we address this need by replacing the deterministic SRDA operator with a conditional diffusion model, yielding 
+
+DiffSRDA , which defines a distribution over HR analysis windows conditioned on LR forecast information and observations. Figure 1(b) provides a high-level overview of DiffSRDA. At each assimilation cycle, a short LR forecast window together with sparse observations is used as conditioning information, and the denoising diffusion model generates a spatiotemporally super-resolved HR analysis window. Repeated conditional sampling then provides both a point estimate, for example through the sample mean, and an ensemble-based estimate of predictive uncertainty. The resulting HR analysis can be downsampled and fed back to the LR model to initialize the next forecast cycle, thus preserving the sequential filtering structure of SRDA. Figure 1(c) illustrates an additional practical feature of the diffusion-based formulation. Because reverse diffusion sampling is score-based, it can be modified at deployment time using an observation-consistency guidance term. This provides a lightweight mechanism for incorporating additional or shifted observations when the sensor configuration available at deployment differs from that used during training, without retraining the diffusion model itself. We only give this intuitive overview here; the full DiffSRDA formulation is presented in Section 2.3, and the guidance method and its derivation are developed later in Section 6 and Appendix B. 
+
+2.2 Denoising diffusion models Score-based view of diffusion models: We briefly summarize the conditional denoising diffusion model used in this study and introduce the notation needed for later derivations. Let X0 denote the target HR field. In our setting, X0
+
+represents a short HR window of vorticity frames (described in more detail in the next section). A diffusion model defines (i) a forward noising process that progressively perturbs X0 into a noise-like variable XT , and (ii) a learned reverse-time process that maps noise back into an HR sample consistent with the conditioning information. It is helpful to briefly connect discrete diffusion models to continuous-time diffusion theory. To avoid introducing new symbols, we use the same diffusion-time notation τ as in the discrete formulation and interpret it here as a continuous variable τ ∈ [0 , 1] . A forward diffusion can be written as an Itô stochastic differential equation (SDE) driven by a Wiener process Wτ ,
+
+dXτ = f (Xτ , τ ) d τ + G(τ ) d Wτ , (1) whose marginals satisfy a Fokker–Planck equation. A key result is that the time-reversed process is again a diffusion, with an additional drift term that depends on the score of the conditional marginals (Anderson, 1982; Song et al., 2020b): 
+
+dXτ =
+
+
+
+f (Xτ , τ ) − D(τ ) ∇Xτ log pτ (Xτ | c)
+
+
+
+dτ + G(τ ) d ¯Wτ , D(τ ) = G(τ )G(τ )⊤, (2) where ¯Wτ is a Wiener process when integrating backward in τ . This score term motivates learning ∇Xτ log pτ (Xτ | c)
+
+from data, and the discrete Gaussian Markov chain used below can be viewed as a particular time discretization of these dynamics. Coming to the discrete picture, we index diffusion time by τ ∈ { 1, . . . , T }, where T is the total number of diffusion steps used in the forward process. The forward process is a Markov chain that adds Gaussian noise, 
+
+q(Xτ | Xτ −1) = N
+
+p 1 − βτ Xτ −1, β τ I
+
+
+
+, (3) with a fixed variance schedule {βτ }Tτ =1 . Define ατ = 1 − βτ and ¯ατ = Qτs=1 αs. Then Xτ can be sampled directly from X0 as 
+
+Xτ = √¯ατ X0 + √1 − ¯ατ ε, ε ∼ N (0 , I ), (4) which is the form used during training. 
+
+Conditional denoising objective: SRDA requires a conditional generative model. We denote the conditioning information by c, which collects the LR forecast features and the processed observation channels introduced in Sections 2.1 and 2.3. The denoiser is a neural network εθ (·) that takes (Xτ , τ, c) and predicts the noise used to generate 
+
+Xτ . The standard DDPM training objective minimizes the mean-squared error between the true noise and the predicted noise, 
+
+L(θ) = Eτ, X0, ε
+
+h
+
+∥ε − εθ (Xτ , τ, c)∥22
+
+i
+
+, (5) 5A PREPRINT - A PRIL 24, 2026 where τ is typically sampled uniformly from {1, . . . , T } and ε ∼ N (0 , I ). In our implementation, however, the denoiser is trained with an L1 noise-prediction loss rather than this canonical L2 form. 
+
+Reverse-diffusion sampling: At inference, we draw XT ∼ N (0 , I ) and run a reverse-time procedure conditioned on 
+
+c to obtain an HR analysis sample. The forward noising relation 
+
+Xτ = √¯ατ X0 + √1 − ¯ατ ε, ε ∼ N (0 , I ), (6) implies a simple connection between the denoiser output and the score of the conditional noisy marginal. We define the conditional score at diffusion time τ as 
+
+sτ (Xτ , c) ≜ ∇Xτ log pτ (Xτ | c), (7) where pτ (· | c) denotes the marginal density of Xτ induced by equation (6) under the data distribution and conditioning inputs c. For the parameterization in equation (6) , the standard ε-prediction network provides a direct estimator of the score: 
+
+sτ (Xτ , c) ≈ − 1
+
+√1 − ¯ατ
+
+εθ (Xτ , τ, c). (8) Using εθ , we form the usual clean-sample estimate 
+
+ˆX0(Xτ ) = 1
+
+√¯ατ
+
+ Xτ − √1 − ¯ατ εθ (Xτ , τ, c) . (9) Combining equation (9) with equation (8) yields the equivalent score form 
+
+ˆX0(Xτ ) = 1
+
+√¯ατ
+
+(Xτ + (1 − ¯ατ ) sτ (Xτ , c)) , (10) which is a Tweedie-type relation: the posterior mean of the clean variable is obtained by shifting the noisy sample in the direction of the score, scaled by the noise variance. Reverse-time sampling can then be written directly in terms of ˆX0(Xτ ) and εθ . We use the unified update 
+
+Xτ −1 = √¯ατ −1 ˆX0(Xτ ) + p1 − ¯ατ −1 − σ2 
+
+> τ
+
+εθ (Xτ , τ, c) + στ z, z ∼ N (0 , I ), (11) with 
+
+στ = η
+
+r 1 − ¯ατ −1
+
+1 − ¯ατ
+
+r
+
+1 − ¯ατ
+
+¯ατ −1
+
+, η ∈ [0 , 1] . (12) When η = 0 , the update is deterministic (DDIM) given the initial draw XT , while η = 1 recovers a stochastic sampler consistent with the forward variance schedule (DDPM-style sampling). To reduce inference cost, we can apply timestep respacing. Instead of traversing the full reverse chain, we select a reduced set of diffusion times 
+
+T = τK > τ K−1 > · · · > τ 1 > τ 0 = 0 ,
+
+construct a shortened reverse process whose cumulative noise levels match the corresponding values 
+
+(¯ ατK , ¯ατK−1 , . . . , ¯ατ0 ), and then apply equation (11) on this reduced grid using consecutive pairs (τk, τ k−1). We denote the number of reverse updates by K and refer to it as the number of reverse sampling steps. 
+
+2.3 Sequential probabilistic forecasting using DiffSRDA 
+
+We now describe the full methodological pipeline of DiffSRDA, i.e., how the pixel-space conditional diffusion model is used as an SRDA operator within a standard forecast–analysis cycle. We first summarize the offline training setup, in which the model is trained on HR analysis windows conditioned on low-cost forecast information and sparse observations, and then describe the corresponding inference-time cycle, in which the trained model is sampled to generate HR analyses during evaluation. Figure 2 provides a schematic overview of these two procedures. We denote HR states by xHR  
+
+> t
+
+at HR output time index t, and LR forecast states by xLR  
+
+> t′
+
+at LR forecast-output index t′.The HR and LR states used in the SRDA pipeline are aligned at common output times, while the LR and HR solvers use different internal time steps. In our setup, one assimilation interval spans four HR output steps. Figure 2(a) illustrates one assimilation cycle during training. At HR time t, the conditioning inputs consist of (i) a short LR forecast sequence centered around the aligned LR time index t′ and (ii) sparse HR observations at the assimilation times. The supervised target is a length-five HR analysis window, 
+
+X ≡ xHR  
+
+> t
+
+, xHR 
+
+> t+1
+
+, . . . , xHR 
+
+> t+4
+
+, (13) 6A PREPRINT - A PRIL 24, 2026 Current time !
+
+HR fluid 
+
+simulation 
+
+"!!" 
+
+Down -sampling 
+
+to LR 
+
+##!$% 
+
+> !"
+
+##! 
+
+> !"
+
+##!&%
+
+> !"
+
+$#$' $#
+
+##&(
+
+> )"
+
+##&*
+
+> )"
+
+##&%
+
+> )"
+
+## 
+
+> )"
+
+##&'
+
+> )"
+
+##! 
+
+> !"
+
+##!&%
+
+> !"
+
+time 
+
+Observations 
+
+LR fluid simulation forecasts 
+
+for next cycle 
+
+LR fluid simulation 
+
+forecasts 
+
+Diffusion denoiser backbone 
+
+Inputs 
+
+Labels 
+
+##$%
+
+> )"
+
+##$*
+
+> )"
+
+##$(
+
+> )"
+
+##$' 
+
+> )"
+
+##
+
+> )"
+
+Current time !
+
+HR analyses from 
+
+previous cycle 
+
+"!"#
+
+> $%
+
+"!"&
+
+> $%
+
+"!"'
+
+> $%
+
+"!"(
+
+> $%
+
+#!)% 
+
+Down -sampling 
+
+to LR 
+
+"!!"# 
+
+> )%
+
+"!! 
+
+> )%
+
+"!!*#
+
+> )%
+
+$!"( $!
+
+"!*'
+
+> $%
+
+"!*&
+
+> $%
+
+"!*#
+
+> $%
+
+"! 
+
+> $%
+
+"!*(
+
+> $%
+
+"!! 
+
+> )%
+
+"!!*#
+
+> )%
+
+time 
+
+Observations 
+
+LR fluid simulation forecasts 
+
+for next cycle 
+
+LR fluid simulation 
+
+forecasts 
+
+Reverse diffusion sampling using the 
+
+trained Diffusion denoiser backbone 
+
+Inputs 
+
+Outputs 
+
+"!
+
+> $%
+
+Down -sampling 
+
+to LR 
+
+# (a) 
+
+# (b) 
+
+Figure 2: Schematic of one assimilation cycle in (a) training DiffSRDA and (b) inference with the trained DiffSRDA model. HR states are denoted by xHR 
+
+t at HR output time index t, LR forecast states by xLR 
+
+t′ at LR forecast-output index 
+
+t′, and observations by yt at HR output time index t. The HR and LR states used in the SRDA pipeline are aligned at common output times, while the LR and HR solvers use different internal time steps. 7A PREPRINT - A PRIL 24, 2026 represented as five channels that are denoised jointly by a single conditional diffusion model. In this way, the model learns a conditional distribution over HR windows given the low-cost forecast information and the observations. Figure 2(b) shows the corresponding inference-time cycle with the trained model. At the current HR time t, the same types of conditioning inputs are provided, and reverse diffusion sampling starts from Gaussian noise to generate an HR analysis window ˆX. Once sampling is complete, the current-time HR analysis ˆxHR  
+
+> t
+
+is downsampled to the LR grid and used to initialize the next LR forecast, which then provides the background information for the subsequent assimilation cycle. These schematics motivate the probabilistic formulation used throughout the paper. The analysis variable is the HR window X, the conditioning information is the pair (f , y) consisting of the LR forecast sequence f and the HR observations y, and DiffSRDA defines a conditional generator pθ (X | f , y).It is also important to note that we adopt a four-dimensional SRDA (4D-SRDA) design, in which the inference model consumes a short time series of LR model states together with observations and outputs an HR time series, while only the current HR state is downsampled and fed back to initialize the next forecast cycle. This windowed formulation provides temporal context that makes the HR inference problem better posed than single-frame super-resolution, promotes short-range temporal coherence, and reduces ambiguity in the recovered small-scale structure of chaotic flows. From a probabilistic perspective, the diffusion model therefore learns an amortized conditional score over a fixed-lag HR segment (here, five frames) given the LR-forecast/observation context, while still operating within a sequential cycling framework rather than a full-trajectory smoothing formulation. 
+
+## 3 Barotropic-jet testbed, training setup, and evaluation 
+
+This section describes the dynamical-system testbed, numerical configurations, training setup, and evaluation protocol used in the experiments. Since the forecast–analysis cycle and the DiffSRDA formulation were introduced in Section 2 and Section 2.3, we focus here on the remaining ingredients needed to reproduce the results, namely the barotropic-jet model, its multi-resolution dataset construction, the observation setup, and the training and sampling configurations. The U-Net denoiser backbone architectures used in this study are summarized in Appendix D. 
+
+3.1 Barotropic-jet testbed 
+
+Following Ribstein et al. (2014); David et al. (2017), we use an idealized barotropic ocean jet as a testbed for super-resolution data assimilation in a chaotic multiscale geophysical-flow setting. The system evolves on a domain that is periodic in x and bounded in y, and it exhibits barotropic instability, vortex roll-up, nonlinear filamentation, vortex merging, and a late-time statistically stationary regime dominated by a few long-lived westward-propagating coherent vortices. In our experiments, the ultra-high-resolution (UHR) simulation provides the reference “nature” trajectory, while lower-resolution simulations are used to define the low-cost forecast model and the target analysis grid (see section 3.1.3 below). Figure 3 illustrates several UHR realizations generated from different perturbation initial conditions. Although these realizations share the same broad sequence of instability growth and nonlinear evolution, they diverge markedly once the instability develops, highlighting the chaotic sensitivity of the testbed. 
+
+3.1.1 Governing equations and instability mechanism 
+
+The model is written in terms of the vorticity ω(x, y, t ) and streamfunction ψ(x, y, t ):
+
+∂ω ∂t + u ∂ω ∂x + v ∂ω ∂y + fy v = −r ω − ν∆2ω − dΞ( y)
+
+dy , (14) 
+
+∆ψ = ω, (15) 
+
+(u, v ) = 
+
+
+
+− ∂ψ ∂y , ∂ψ ∂x 
+
+
+
+, (16) where the left-hand side of equation (14) represents advection of vorticity together with a constant background vorticity gradient fy (the beta-plane term, written here as fy to avoid conflict with the diffusion-model noise schedule). The right-hand side contains linear drag with coefficient r, hyperviscosity with coefficient ν, and a prescribed meridional forcing through the derivative of Ξ( y).8A PREPRINT - A PRIL 24, 2026 𝑡 = 0 𝑡 = 2 𝑡 = 4 𝑡 = 6 𝑡 = 8 𝑡 = 12 𝑡 = 14 𝑡 = 18 𝑡 = 24  
+
+> Initial perturbation Onset of barotropic
+> instability
+> Meandering and vortex roll -
+> up
+> Nonlinear filamentation and
+> vortex merging
+> Statistically stationary with
+> long -lived vortices
+
+Figure 3: Evolution of the barotropic jet instability in the ultra-high-resolution (UHR) system for multiple realizations with different perturbation initial conditions. Each row shows vorticity snapshots from a distinct trajectory at selected times t ∈ [0 , 24] . Although all realizations exhibit the same broad sequence of barotropic-instability dynamics—initially weak perturbation growth, onset of jet meandering, roll-up into coherent vortices, nonlinear filamentation and secondary structure formation, vortex interaction and merging, and finally a late-time statistically stationary regime dominated by a few long-lived westward-propagating vortices—the detailed flow fields and exact trajectories diverge substantially across realizations once the instability develops. This sensitivity highlights the chaotic nature of the system and motivates probabilistic trajectory prediction, uncertainty quantification, and data assimilation for alignment with the underlying nature trajectory. The initial jet is specified through a zonal velocity profile U (y), and the forcing Ξ( y) is chosen with the same functional form: 
+
+U (y) = U0
+
+
+
+sech 2
+
+ y − y0
+
+δ
+
+
+
+− C
+
+
+
+, (17) and 
+
+Ξ( y) = Ξ 0
+
+
+
+sech 2
+
+ y − y0
+
+δ
+
+
+
+− C
+
+
+
+, (18) where y0 and δ control the jet center and width, U0 and Ξ0 set the amplitudes, and the constant C is chosen so that the 
+
+y-integrals of U (y) and Ξ( y) vanish. For a barotropic jet on a beta plane, a necessary condition for instability is the Rayleigh–Kuo criterion, namely that the meridional gradient of absolute vorticity, 
+
+fy − d2Udy 2 ,
+
+changes sign somewhere in the domain. With the parameter values used here, this condition is satisfied, so the base jet is barotropically unstable. Small perturbations therefore grow into meanders, roll up into coherent vortices, generate thin filaments and smaller-scale structures through nonlinear interactions, and eventually enter a statistically stationary vortex-dominated regime. This common qualitative progression is visible across all trajectories in Figure 3, even though the detailed flow fields and exact trajectories differ substantially from one realization to another after instability onset. 
+
+3.1.2 Numerical method and parameter settings 
+
+We solve equations (14) – (16) on the domain 0 ≤ x ≤ 2π and 0 ≤ y ≤ π using a pseudo-spectral method. Periodic boundary conditions are imposed in the x direction, while fixed-wall boundary conditions are imposed in the y direction, with the corresponding streamfunction satisfying ψ(x, 0, t ) = ψ(x, π, t ) = 0 . In practice, fields are represented with Fourier modes in x and sine modes in y, truncated at cutoff wavenumbers (K, L ) depending on the grid resolution. Nonlinear advection terms are evaluated in physical space, and transforms between spectral and physical representations are computed efficiently using fast Fourier transforms. Time integration is performed with a modified Euler scheme. The initial vorticity field is generated by superposing small random perturbations onto the prescribed zonal jet. Following David et al. (2017), these perturbations are introduced in spectral space using random phases and amplitudes drawn from Gaussian distributions with standard deviations σphase and σamplitude , respectively. These perturbations are small enough that the early evolution is initially close to the base jet, but they trigger different nonlinear trajectories once the barotropic instability amplifies. 9A PREPRINT - A PRIL 24, 2026 Table 1: Parameters of the governing equations. Parameter Domain in x Domain in y fy r ν Ξ0 y0 δ U0 σphase σamplitude                   
+
+> Value [0 ,2π][0 , π ]0.11×10 −21×10 −50.3π/ 20.43.0π2.5×10 −3
+
+Table 2: Simulation settings for the barotropic jet calculations at the three spatial resolutions used in this study. Resolution Grid size 
+
+(Nx × Ny )
+
+Spectral cutoff 
+
+(K, L )
+
+Integrator step 
+
+∆t
+
+Saved output interval LR 32 × 16 (10 , 10) 5 × 10 −4 1.00 (= ∆ tLR ,out )
+
+HR 128 × 64 (42 , 42) 1.25 × 10 −4 0.25 (= ∆ tHR ,out )
+
+UHR 1024 × 512 (341 , 341) 1.5625 × 10 −5 0.25 (= ∆ tHR ,out )
+
+3.1.3 Resolution levels, dataset construction, and observations 
+
+We run the barotropic-jet model at three spatial resolutions: low resolution (LR), high resolution (HR), and ultra-high resolution (UHR). The UHR simulation provides the reference trajectory used for verification, HR is the target grid on which DiffSRDA produces analyses, and LR is used to generate low-cost forecasts. Table 2 summarizes the grid sizes, spectral cutoffs, time-stepping settings, and saved output intervals at the three resolutions. Over the evaluation window 
+
+t ∈ [0 , 24] , the initially perturbed jet evolves through meandering, vortex roll-up, filamentation, and vortex merging before reaching the late-time vortex-dominated regime shown in Figure 3. In the data-assimilation setting, we denote the discretized vorticity field on the HR grid by x, while physical space is still described by the Cartesian coordinates (x, y ). Two time indices are used and kept distinct throughout the paper. Physical time on the HR grid is indexed by t and sampled at ∆tHR ,out = 0 .25 . The LR forecast model advances with the coarser output interval ∆tLR ,out = 1 .00 and is indexed by t′, so one assimilation interval spans four HR steps. Diffusion time, denoted by τ , is an internal index used only for diffusion-model training and reverse-time sampling. At each assimilation time, sparse observations are generated on the HR grid from the reference state according to 
+
+y = Hx + η, (19) where H is a sparse sampling operator and η is additive observation noise. In practice, H is implemented as a binary mask that selects the observed pixels, and noise is added only at those locations. We parameterize the observation density by the grid interval ogiX : for example, ogi8 observes every g = 8 grid points in both directions, and similarly for ogi4 , ogi2 , and related cases. Unless stated otherwise, the regular observation lattice is shifted by a phase offset that is fixed in time and controlled by a pseudo-random seed. Unless stated otherwise, for observations, we use independently and identically sampled Gaussian noise with standard deviation σobs = 0 .1 in vorticity units. Observations are available only at assimilation times, that is, every four HR output steps in the present setup. Between assimilation times, the observation field is treated as missing. 
+
+3.2 Training setup Data and normalization: Training uses a library of HR simulations as supervised targets for SRDA, following the same general protocol as Yasuda and Onishi (2023). All HR training samples are normalized to [−1, 1] using fixed global bounds (ωmin , ω max ) computed from the HR training data. We use 120 ,000 training samples with batch size 64 .Validation uses batch size 250 , with 30 ,000 samples in the pixel-space setting and 10 ,000 samples in the latent setting. Early stopping is enforced based on the validation loss. 
+
+Forward diffusion schedule and objective: We use a linear variance schedule with T = 1000 diffusion steps, 
+
+βτ ∈ 10 −4, 2 × 10 −2 , (20) and train the denoiser with an L1 noise-prediction loss. Optimization uses Adam with learning rate 10 −4 for up to 2000 
+
+epochs, with early stopping using patience 50 . For validation and checkpoint selection, we use a reconstruction-style criterion obtained by running the current sampler on validation inputs and comparing the reconstructed HR output against the target. The checkpoint with the lowest validation loss is then used for evaluation. 
+
+SR-mixup augmentation: To improve robustness to distribution shifts in the LR forecast inputs, for example due to resolution- or model-mismatch effects, we apply SR-mixup (Yasuda and Onishi, 2023) as an LR-side data augmentation. This mitigates the tendency of learned SRDA models to overfit to the exact LR training distribution and then degrade 10 A PREPRINT - A PRIL 24, 2026 when the deployment LR statistics drift. For each training sample, we choose a second LR forecast window that is nearby in Euclidean distance, selected from 200 randomly drawn candidates, sample λ ∼ Beta(2 , 5) , and form the mixed LR input ˜f = λf (i) + (1 − λ)f (j). (21) Training then uses (˜f , y(i)) together with the original HR target window X(i), which encourages the model to remain stable under small but physically plausible variations of the LR conditioning. SR-mixup is applied only to the LR forecast channels and not to the observation channels. 
+
+3.3 Sampling and evaluation 
+
+At inference, samples are generated by running the reverse diffusion process conditioned on the LR forecast inputs and processed observations. During evaluation, UHR simulations are used as the reference trajectories. For diffusion-based SRDA, an ensemble of B conditional samples is obtained by repeating the reverse sampler with different initial noise realizations. Unless stated otherwise, we use B = 30 diffusion samples. For EnKF-HR, we use 
+
+N = 100 ensemble members unless noted otherwise. In the cycling experiments, the LR forecast is restarted from the first sampled current-time HR analysis produced by DiffSRDA at each assimilation time, for computational efficiency. Point-estimate metrics, however, are reported using the posterior mean over the B conditional samples. Accordingly, the reported posterior-mean errors do not correspond to a fully posterior-mean-cycled system. 
+
+3.4 Error metrics 
+
+All accuracy diagnostics are computed against the UHR reference after mapping the HR inference to the UHR grid by bicubic interpolation. Let xUHR  
+
+> t
+
+denote the reference UHR state at physical time t, and let ˆxUHR  
+
+> t
+
+denote the corresponding prediction mapped from HR to the UHR grid. We report the mean absolute error ratio (MAER), 
+
+MAER( t) = Ei
+
+ ˆxUHR  
+
+> t,i
+
+− xUHR 
+
+> t,i
+
+
+
+Ei
+
+ xUHR 
+
+> t,i
+
+ , (22) where Ei[·] denotes averaging over UHR grid points. To assess structural similarity, we report the multi-scale structural similarity (MSSIM) loss, 
+
+MSSIMLoss( t) = 1 − MSSIM  ˆxUHR  
+
+> t
+
+, xUHR 
+
+> t
+
+ , (23) using the SSIM implementation of Yasuda and Onishi (2023) with window size 11 and a Gaussian window with 
+
+σ = 1 .5. SSIM is computed after applying the same fixed affine rescaling to both fields (bias = −14 .5, scale = 29 .0). To emphasize small-scale differences, we also compute the root-mean-square error (RMSE) of the Laplacian of vorticity, 
+
+RMSE  ∆x(t) = 
+
+r
+
+Ei
+
+h  ∆h ˆxUHR 
+
+> t
+
+ 
+
+> i
+
+− ∆hxUHR 
+
+> t
+
+
+
+> i
+
+2i
+
+, (24) where ∆h denotes the discrete Laplacian on the UHR grid, with boundary treatment consistent with the numerical discretization of the barotropic jet solver, that is, periodic in x and wall-consistent in y.
+
+3.5 Additional implementation details 
+
+EnKF-HR and EnKF-SR use the perturbed-observation EnKF update and the same assimilation interval as DiffSRDA. EnKF-SR advances an ensemble using the LR forecast model, super-resolves each LR ensemble member to HR by bicubic interpolation, and applies the EnKF update in HR space, following Barthélémy et al. (2022). For the baseline observation setting, observation perturbations in the EnKF update use standard deviation σobs = 0 .10 , and covariance localization uses the Gaspari–Cohn function with localization radii 0.5 in both x and y in nondimensional coordinates. We use a multiplicative inflation factor of 1.0. To maintain ensemble spread, we inject additive system noise at each assimilation time using a precomputed spatial covariance estimated from HR training simulations; the noise magnitude is scaled by a factor of 0.005 , with a larger factor of 0.2 in the initial cycle. All training, evaluation, and diagnostic computations were performed on a machine equipped with an Intel Xeon Gold 6326 CPU and an NVIDIA RTX A6000 GPU. 11 A PREPRINT - A PRIL 24, 2026 MAER  𝜔 
+
+(a) 
+
+> 𝑡
+> RMSE  ∇!𝜔
+
+(b) 
+
+> 𝑡
+> 𝑡
+
+(c) MSSIM loss  𝜔   
+
+> 562 .6
+> 87 .2
+> 1040 .2
+> 44 .5
+> Wall -clock time
+> EnKF -HR DiffSRDA SRDA -YO2023 EnKF -SR
+
+(d) 
+
+Figure 4: Time evolution of point-estimate accuracy and computational cost for the different data assimilation methods, evaluated against the UHR reference. (a) Mean absolute error ratio (MAER) of the vorticity field, (b) root-mean-square error (RMSE) of its discrete Laplacian, (c) MSSIM loss, and (d) average wall-clock time to complete one full cycling run from t = 0 to t = 24 , measured on a machine with an Intel Xeon Gold 6326 CPU and a single NVIDIA RTX A6000 GPU. Computations are performed primarily on the GPU, with additional CPU-side overhead included in the wall-clock time. Method labels are shown in the legend. 
+
+## 4 Results 
+
+We first assess the point-estimate accuracy and computational cost of the proposed diffusion-based SRDA method, and then examine how the reverse-sampling budget controls the accuracy–cost trade-off. Unless stated otherwise, all error curves are averaged over 40 UHR reference simulations and are evaluated on the UHR grid after mapping HR outputs to UHR by bicubic interpolation. Figure 4 summarizes the time evolution of the accuracy metrics together with the average wall-clock time for one full cycling run from t = 0 to t = 24 for all methods. For DiffSRDA, the point estimate shown in panels (a)–(c) is the posterior mean, computed as the ensemble average over repeated conditional samples. In this figure, we use the full reverse chain ( T = 1000 reverse steps) in order to establish a clear upper reference for DiffSRDA in terms of point-estimate accuracy. In terms of the vorticity error (Figure 4(a)), EnKF-HR attains the lowest mean absolute error ratio (MAER) over most of the time window, as expected since it assimilates using an HR forecast model and a large ensemble. Among the learned SRDA operators, DiffSRDA yields the smallest MAER, while the deterministic SRDA baseline of Yasuda and Onishi (2023), which we denote hereafter by SRDA-YO2023, is less accurate. EnKF-SR, which combines LR forecasting with bicubic super-resolution inside the EnKF update, performs substantially worse in this setting. The relative gaps depend on the dynamical stage: differences are modest during the early evolution and in the late-time regime, but widen noticeably around the instability-growth and strongly nonlinear stages. The same overall ordering is reflected in the MSSIM loss in Figure 4(c), indicating that DiffSRDA better preserves coherent structures than SRDA-YO2023. To probe fine-scale content more directly, Figure 4(b) reports the RMSE of the discrete Laplacian of the vorticity field, which strongly amplifies thin filaments and sharp gradients. Here the benefit of diffusion-based SRDA is more pronounced: DiffSRDA reduces the Laplacian error more substantially than SRDA-YO2023, suggesting improved reconstruction of small-scale structure beyond what is visible from MAER alone. 12 A PREPRINT - A PRIL 24, 2026 MAE ratio averaged in  𝑡    
+
+> Reverse diffusion sampling steps
+> Wall time (s)
+> Reverse diffusion sampling steps
+> (a) (b)
+> DiffSRDA DDPM
+> DiffSRDA DDIM
+
+Figure 5: Effect of the number of reverse diffusion steps ( 1, 5, 10 , 20 , 50 , 100 , 500 , 1000 ) on accuracy and cost for DiffSRDA. (a) MAER of the vorticity field averaged over the full simulation time window, and (b) average wall-clock time for one full cycling run from t = 0 to t = 24 . Results are shown for DDPM-style sampling ( η = 1 ) and DDIM-style sampling ( η = 0 ). The main practical limitation of full-chain sampling appears in Figure 4(d). With T = 1000 reverse steps, DiffSRDA is considerably more expensive over a full cycling run than the deterministic SRDA operator, although it remains substantially cheaper than EnKF-HR. This motivates the next experiment, in which we vary the number of reverse steps through timestep respacing to reduce the cost of DiffSRDA toward that of SRDA-YO2023 while aiming to retain the accuracy gains observed with full-chain sampling. Figure 5 quantifies how accuracy and cost change with the number of reverse diffusion steps. We report the MAER averaged over the full simulation time window (Figure 5(a)) and the corresponding average wall-clock time for one full cycling run from t = 0 to t = 24 (Figure 5(b)). Results are shown for DiffSRDA using both DDPM-style sampling (η = 1 ) and DDIM-style sampling ( η = 0 ). Two trends stand out. First, extremely short reverse chains are insufficient: the one-step setting produces large errors. Second, once the reverse chain includes a small but nontrivial number of steps, the accuracy saturates rapidly. In particular, using five reverse steps yields a time-averaged MAER comparable to the 1000-step setting, and in our runs it is sometimes slightly lower. This indicates that timestep respacing can retain the benefits of diffusion-based SRDA while avoiding most of the sampling cost. The cost in Figure 5(b) drops sharply as the number of reverse steps decreases. The scaling is not perfectly linear because each full cycling run includes fixed overhead, such as conditioning preparation and model I/O, but the overall conclusion is unchanged: most of the cost of full-chain sampling can be removed without sacrificing accuracy. Based on this result, we use the five-step setting (TR5) for the qualitative comparisons below and for the uncertainty-quantification experiments that require repeated sampling. From this point onward, unless stated otherwise, DiffSRDA refers to the respaced sampler with five reverse steps (TR5). Figure 6 compares vorticity snapshots and spatial error fields at three representative times, t = 7 , t = 14 , and t = 23 ,corresponding to the early meandering stage, the vortex-merger stage, and the late-time regime. These times also align with prominent error levels in Figure 4. EnKF-HR provides the closest visual match to the UHR reference, consistent with its lower errors. EnKF-SR exhibits noticeably degraded structures and large errors across all three times. Among the learned SRDA frameworks, the deterministic SRDA-YO2023 baseline shows a rougher and patchier appearance with more visible small-scale noise, whereas DiffSRDA produces reconstructions that are closer to the UHR field in their large-scale vortex organization. Across all methods, the largest absolute errors concentrate near strong gradients and filamentary structures, which are the most difficult features to reconstruct from sparse observations and low-cost forecasts. To further isolate differences in small-scale structure, Figure 7 compares snapshots of the Laplacian of the vorticity field at the same times. This quantity is more sensitive than the vorticity field itself because it emphasizes sharp spatial variations and thin filaments, making differences easier to identify even when the vorticity fields appear broadly similar. Consistent with the Laplacian-RMSE trends in Figure 4(b), DiffSRDA most closely matches the spatial structure of the UHR Laplacian among the learned SRDA methods. SRDA-YO2023 shows more pronounced patchiness and spurious high-frequency content, reflecting its weaker reconstruction of fine-scale features. Overall, DiffSRDA provides the strongest point-estimate accuracy among the learned SRDA operators and remains closest to the EnKF-HR baseline across the metrics considered. Most importantly, the respacing study shows that 13 A PREPRINT - A PRIL 24, 2026 𝑡 = 7       
+
+> 𝑡 =23
+> Ground truth EnKF -HR DiffSRDA SRDA -YO2023
+> 𝑡 =14
+> EnKF -SR
+
+Figure 6: Vorticity snapshots at t = 7 , t = 14 , and t = 23 comparing the UHR reference with EnKF-HR, DiffSRDA, SRDA-YO2023, and EnKF-SR. For each case, the absolute error relative to the UHR reference is shown beneath the corresponding vorticity field. The selected times represent the early meandering stage ( t = 7 ), the vortex-merger stage (t = 14 ), and the late-time regime ( t = 23 ), and they coincide with prominent error levels in Figure 4. For DiffSRDA, we show the TR5 setting (five reverse diffusion steps). 𝑡 = 7       
+
+> 𝑡 =23
+> Ground truth EnKF -HR DiffSRDA SRDA -YO2023
+> 𝑡 =14
+
+Figure 7: Snapshots of the Laplacian of the vorticity field at t = 7 , t = 14 , and t = 23 comparing the UHR reference with EnKF-HR, DiffSRDA, and SRDA-YO2023. 14 A PREPRINT - A PRIL 24, 2026 diffusion-based SRDA does not require long reverse chains in this setting: using five reverse steps retains essentially the same accuracy as T = 1000 while reducing computational cost by a large factor, making pixel-space diffusion practical for repeated assimilation cycles. We also evaluate a latent diffusion variant as an ablation study, which is summarized in Appendix C. Beyond the empirical improvements, the diffusion formulation also offers a useful interpretation of why DiffSRDA performs well and why its accuracy can approach EnKF-HR even though it does not run an HR forecast ensemble. As discussed in Appendix A, the windowed conditional diffusion model can be interpreted as sampling from a Bayesian analysis distribution conditioned on two sources of information: (i) the sparse noisy observations within the window and (ii) the LR forecast trajectory used as conditioning input. Although the LR forecast is low fidelity, it still carries forward dynamical information from previous cycles, so the diffusion model implicitly inherits part of the temporal history that classical sequential DA methods obtain through repeated forecast–analysis updates. In this sense, some of the missing HR cycling information is supplied through the LR-conditioning pathway, which helps make the diffusion posterior both accurate and physically plausible rather than an unstructured black-box mapping. Another advantage of diffusion sampling is that it avoids the familiar blurring failure mode of deterministic super-resolution regressors. Deterministic CNN-based SR models trained with regression-style losses tend to learn a single point estimate, often close to the conditional mean, so when the LR-to-HR mapping is not uniquely determined, or when the LR statistics shift, the prediction can become over-smoothed or exhibit patchy small-scale artifacts. In contrast, conditional diffusion models learn the conditional score through denoising and generate samples through iterative stochastic refinement from Gaussian noise. This process can be viewed as repeatedly moving toward higher-probability regions of the conditional data distribution in a Langevin-like manner, allowing multiple plausible HR reconstructions for the same LR input rather than collapsing to a single average field (Saharia et al., 2022; Song et al., 2020b). This probabilistic output is particularly valuable for forecasting applications because it provides not only an analysis mean but also a distribution over plausible HR analysis windows, thereby enabling uncertainty quantification through ensemble spread. In the next section, we investigate this aspect in more detail. 
+
+## 5 Uncertainty quantification and calibration 
+
+Because of its generative nature, a practical advantage of DiffSRDA is that it produces an ensemble of HR analyses through repeated conditional sampling, that is, by rerunning the reverse diffusion sampler with different initial Gaussian noise while keeping the same LR-forecast and observation conditions fixed. In this section, we use these ensembles to examine uncertainty characteristics and compare them with EnKF-HR, which represents uncertainty through a forecast ensemble and the Kalman update. Unless stated otherwise, DiffSRDA results use TR5 (five reverse steps). We organize the discussion around Figures 8–11. We first give a snapshot-level view of ensemble mean and spread (Figure 8), then summarize spread and skill over time (Figure 9), assess reliability using coverage and rank histograms (Figure 10), and finally examine the sensitivity of the coverage estimate to the DiffSRDA ensemble size (Figure 11). For Figures 8–10, we use 100 ensemble members for both EnKF-HR and DiffSRDA. The diagnostics used here are standard for evaluating whether an ensemble is not only accurate on average but also statistically consistent with its own uncertainty claims. A basic dispersion check compares the ensemble spread with the error of the ensemble mean (skill). Under ideal conditions, where the reference state and ensemble members can be viewed as draws from the same distribution and the ensemble mean is unbiased, the ensemble variance should match the mean-squared error of the ensemble mean in expectation, so an appropriately aggregated spread should agree with RMSE on average (Fortin et al., 2014). Because this equality can fail in practice for many reasons, including finite ensembles, model error, and imperfect observation handling, we also report two calibration diagnostics that act more directly on the empirical predictive distribution: (i) coverage of central prediction intervals, which should be close to the nominal level for a calibrated probabilistic forecast (Gneiting et al., 2005; Gneiting and Raftery, 2007), and (ii) rank histograms (Talagrand diagrams), where a roughly uniform histogram indicates reliability while systematic shapes diagnose bias and under or over-dispersion (Talagrand et al., 1997; Hamill, 2001). As a reference for verification, we use the HR field obtained by downsampling the UHR trajectory to the HR grid. Let x(b) 
+
+> t
+
+denote the HR vorticity field of ensemble member b at physical time t, and let xref  
+
+> t
+
+denote the corresponding HR-grid reference field. The ensemble mean and pointwise ensemble spread are defined as 
+
+μt,i = Eb
+
+h
+
+[x(b) 
+
+> t
+
+]i
+
+i
+
+, σt,i = Std b
+
+
+
+[x(b) 
+
+> t
+
+]i
+
+
+
+,
+
+where i indexes HR grid points. Figure 8 provides a compact snapshot-level view of ensemble mean and spread at t = 16 . The top row compares the reference field with the EnKF-HR and DiffSRDA ensemble means. Consistent with the point-estimate results, the 15 A PREPRINT - A PRIL 24, 2026 (a) Ground truth (b) EnKF -HR ensemble mean (c) Dif fSRDA ensemble mean          
+
+> (d) EnKF -HR ensemble spread (e) DiffSRDA ensemble spread (f) EnKF -HR std(AER) (g) DiffSRDA std(AER)
+
+Figure 8: Ensemble mean and spread of the vorticity field at t = 16 for (a) the HR-grid reference obtained from the UHR trajectory, (b) EnKF-HR, and (c) DiffSRDA. The bottom row shows the ensemble spread Std b[x(b)] for (d) EnKF-HR and (e) DiffSRDA, and the spread of the absolute error Std b[AER (b)] computed using the reference field for (f) EnKF-HR and (g) DiffSRDA. DiffSRDA results use five reverse sampling steps. (a) Skill vs. spread (b) Spread/skill ratio     
+
+> EnKF -HR spread/skill
+> DiffSRDA spread/skill
+> EnKF -HR skill
+> DiffSRDA skill
+> EnKF -HR spread
+> DiffSRDA spread
+> 𝑡 𝑡
+
+Figure 9: Time series of (a) skill, defined as the RMSE of the ensemble mean against the HR-grid reference, and spread, defined as the square root of the domain-mean ensemble variance, and (b) the spread/skill ratio for EnKF-HR and DiffSRDA. EnKF-HR mean is typically closer to the reference, while DiffSRDA shows slightly larger deviations in regions with sharp gradients and filamentary structure. Panels (d,e) show the analysis spread σt,i . A key observation is that the DiffSRDA spread pattern is qualitatively similar to that of EnKF-HR: both methods place their largest uncertainty in the same dynamically active regions where gradients are strongest. DiffSRDA produces a broader spread overall than EnKF-HR, but the spatial pattern of uncertainty closely matches that of the EnKF-HR baseline. Panels (f,g) show Std b[AER (b) 
+
+> t,i
+
+], the standard deviation across ensemble members of a normalized absolute error computed against the reference, where 
+
+AER (b) 
+
+> t,i
+
+=
+
+[x(b) 
+
+> t
+
+]i − [xref  
+
+> t
+
+]i
+
+Ei
+
+ [xref  
+
+> t
+
+]i
+
+ .
+
+Because this quantity is computed using the reference field, it is not an operational uncertainty estimate. We include it only as a diagnostic to highlight where ensemble-member errors vary most strongly across the domain. Figure 9 summarizes ensemble behavior over time using two scalar curves. We define the skill as the RMSE of the ensemble mean against the reference, 
+
+Skill( t) = 
+
+r
+
+Ei
+
+h μt,i − [xref  
+
+> t
+
+]i
+
+2i
+
+, (25) and the spread as the square root of the domain-mean ensemble variance (Fortin et al., 2014), 
+
+Spread( t) = 
+
+q
+
+Ei
+
+σ2
+
+> t,i
+
+. (26) 16 A PREPRINT - A PRIL 24, 2026 (b) EnKF -HR rank histogram (c) DiffSRDA rank histogram 
+
+> (a) Coverage vs. time
+> EnKF -HR
+> DiffSRDA
+
+Figure 10: Reliability diagnostics for ensemble uncertainty. (a) Empirical coverage versus time for nominal central intervals (50% , 80% , 90%) for EnKF-HR (solid) and DiffSRDA (dashed). (b,c) Rank histograms of the HR-grid reference within the ensemble at the pixel level for (b) EnKF-HR and (c) DiffSRDA. 𝑁 !"#$   
+
+> %&'
+> DiffSRDA 90% Coverage (q = 0.9) vs. ensemble size 𝑁 !"#$
+> %&'
+> EnKF -HR 90% Coverage
+> with 100 ensembles
+
+Figure 11: Sensitivity of DiffSRDA reliability to ensemble size. The 90% empirical coverage ( q = 0 .9) is shown as a function of the number of DiffSRDA ensemble members N ens SRDA . The dashed line marks the EnKF-HR 90% coverage obtained with the fixed ensemble size of 100 used throughout this study. DiffSRDA coverage increases rapidly with ensemble size, exceeds the EnKF-HR level by about N ens SRDA ≈ 10 , and changes only weakly beyond N ens SRDA ≈ 30 .Skill measures the accuracy of the ensemble mean, whereas spread measures how widely the ensemble members vary around that mean. In Figure 9(a), EnKF-HR attains lower skill, meaning better mean accuracy, over most times, while DiffSRDA exhibits a larger spread, consistent with the results so far. Figure 9(b) reports the ratio Spread( t)/Skill( t)
+
+as a simple indicator of how the ensemble width compares with the typical mean error. In our setting, this ratio stays well below 1 for both methods over most times, which is consistent with under-dispersion under a strict interpretation. DiffSRDA tends to have a larger spread/skill ratio than EnKF-HR, indicating that its ensemble is less concentrated even though its mean error is slightly larger. Because the spread/skill comparison is only a partial dispersion check for a spatially correlated field, we also assess pixelwise calibration using empirical coverage and rank histograms in Figure 10. Figure 10(a) shows the empirical coverage of central prediction intervals for nominal levels q ∈ { 0.5, 0.8, 0.9}. Coverage is a direct calibration check for predictive intervals: for a calibrated probabilistic forecast, the empirical fraction of events falling inside a nominal q
+
+interval should be close to q (Gneiting et al., 2005; Gneiting and Raftery, 2007). For each pixel, we compute ensemble quantiles and then report the fraction of pixels whose reference value lies within the nominal interval. If the ensemble were well calibrated at the pixel level, the coverage would be close to q. In our results, both methods show coverage 17 A PREPRINT - A PRIL 24, 2026 well below nominal, especially for the 90% interval, indicating substantial under-coverage. DiffSRDA achieves higher coverage than EnKF-HR under the same observation setting, consistent with its larger spread. Figure 10(b,c) shows rank histograms (Talagrand diagrams), constructed by ranking the reference value among the sorted ensemble members at each pixel. A roughly flat histogram is consistent with reliability, while a U-shaped histogram indicates under-dispersion, meaning that the reference often falls outside the ensemble range, and a sloped histogram indicates bias. The results show that both methods exhibit strongly U-shaped histograms, again indicating under-dispersion, with DiffSRDA being slightly less extreme, consistent with its higher empirical coverage. These diagnostics verify ensembles against a higher-fidelity reference while both methods produce HR analyses constrained by HR-resolution observations, so the absolute calibration levels should be interpreted cautiously. The main point here is comparative: under the same observation setting and verification procedure, DiffSRDA yields a broader spread and correspondingly improved reliability diagnostics relative to EnKF-HR. Finally, Figure 11 examines how many DiffSRDA samples are needed for stable reliability estimates. We report the mean 90% coverage as a function of the DiffSRDA ensemble size N ens SRDA , computed by subsampling from a larger pool of samples. Coverage increases rapidly for small ensembles and changes only weakly beyond roughly N ens SRDA ≈ 30 .The dashed line marks the EnKF-HR 90% coverage obtained with its fixed ensemble size of 100 used throughout this study. In this setting, DiffSRDA reaches comparable or higher coverage with on the order of 10 samples and shows diminishing returns beyond about 30. This experiment is best viewed as a Monte Carlo convergence check: increasing N ens SRDA improves estimates of the ensemble mean, quantiles, and coverage, but it does not by itself remove the under-coverage seen in Figure 10. The practical implication is that DiffSRDA uncertainty diagnostics can be estimated with a modest number of conditional samples, which keeps probabilistic SRDA computationally feasible even when large forecast ensembles are expensive. Taken together, Figures 8–11 indicate that DiffSRDA produces a clear and physically meaningful uncertainty signal, with spread patterns that closely mirror those of EnKF-HR, and that its reliability diagnostics are comparable to, and in some cases slightly better than, those of EnKF-HR under the same observation setting. 
+
+## 6 Deployment-time training-free observation-consistency guidance 
+
+In this section, we demonstrate how the score-based structure of DiffSRDA enables training-free observation-consistency guidance at deployment time. Up to this point, DiffSRDA has been trained and evaluated using sparse mask-type observations on the HR grid with observation grid interval 8 ( ogi8 ). We now consider deployment-time shifts in the observation configuration while keeping the trained diffusion model fixed. Two cases are of particular interest. The first is a structured sensor-improvement scenario in which the observation grid becomes denser, here moving from interval 8 to interval 4 ( ogi4 ). The second is a less structured deployment shift in which the available sensors occupy fixed but spatially random locations rather than the regular lattice used during training. In both situations, directly feeding the new observations through the original conditioning interface may induce a distribution shift and degrade reconstruction quality, whereas retraining the conditional diffusion model for each new sensor layout is effective but expensive. Our goal is to show that guidance provides a simple deployment-time alternative by incorporating the new observations through an explicit observation-consistency correction during reverse diffusion sampling, without modifying the trained network. This approach follows the standard Bayesian perspective used in many diffusion-based inverse problems, including super-resolution, sparse reconstruction, and inpainting, where a pretrained generative model acts as a prior and measurement information is incorporated during inference. In score-based diffusion models, the network provides a multi-noise-level prior score, and observation information can be injected by modifying the reverse-time sampling dynamics (Song et al., 2020b; Ho et al., 2020). We refer to Daras et al. (2024); Chung et al. (2025) for broader reviews and practical guidance methods, including inpainting-style corrections such as RePaint (Lugmayr et al., 2022), gradient-based posterior sampling methods such as diffusion posterior sampling (DPS) (Chung et al., 2022), and more recent refinements aimed at improving robustness (Zhang et al., 2025). More specifically related to data assimilation, Rozet and Louppe (2023) discusses guidance strategies tailored to score-based DA. Let x denote a single HR state and let the SRDA output be the five-frame HR analysis window X = [ xHR  
+
+> t
+
+, . . . , xHR 
+
+> t+4
+
+].Let c denote the conditioning inputs used by the trained DiffSRDA model, namely the LR forecast information together with the processed observation channels provided to the network. Without guidance, the model defines an amortized conditional distribution pθ (X0 | c) through the learned reverse diffusion chain. At inference time, suppose we additionally obtain observations y on the HR grid. In an idealized setting, these observations may provide information that is not already represented in c or that falls outside the training observation distribution. We then consider the 18 A PREPRINT - A PRIL 24, 2026 guided target 
+
+˜p(X0 | c, y) ∝ pθ (X0 | c) p(y | X0). (27) Equation (27) is a useful idealized target for motivating the guidance construction. In the experiments reported below, however, guidance is best interpreted as an observation-consistency correction applied to an already observation-conditioned DiffSRDA model, rather than as exact Bayesian conditioning on entirely new information beyond the conditioning channels. At diffusion step τ , the corresponding guided score admits the decomposition 
+
+∇Xτ log ˜ pτ (Xτ | c, y) = ∇Xτ log pθ,τ (Xτ | c) + ∇Xτ log pθ,τ (y | Xτ , c), (28) where pθ,τ (y | Xτ , c) denotes the model-induced diffusion-time conditional likelihood of y given Xτ under the conditioning information c. In practice, evaluating ∇Xτ log pθ,τ (y | Xτ , c) exactly is intractable. Following the DPS-style approximation (Chung et al., 2022), we instead evaluate the likelihood at a denoised estimate of the clean state, 
+
+∇Xτ log pθ,τ (y | Xτ , c) ≈ ∇ Xτ log p
+
+
+
+y | ˆX0(Xτ , τ, c)
+
+
+
+, (29) where ˆX0(Xτ , τ, c) is the clean-state estimate implied by the denoiser output at step τ . The full derivation, including the approximations used in our implementation, is given in Appendix B. Here we summarize only the masked-residual form used in the experiments. In our implementation, the conditioning channels contain observations from the short SRDA context window at the previous and current assimilation times, whereas the guidance correction is applied only to the current analysis frame. As in the rest of the paper, we assume a Gaussian observation model at the clean HR state, 
+
+y = HX0 + η, η ∼ N (0 , R ). (30) For the mask-type on-grid operator used here, it is convenient to embed observations into the full tensor space as 
+
+˜y := H⊤y and define the binary mask matrix M := H⊤H. With the common simplification R = σ2obs I on observed entries, the likelihood contribution reduces to a masked residual evaluated at the denoised estimate, 
+
+M ⊙
+
+
+
+˜y − ˆX0
+
+
+
+. (31) Accordingly, we implement guidance as a correction applied to ˆX0 inside the sampler, 
+
+ˆX0 ← ˆX0 + κτ
+
+ M ⊙ (˜ y − ˆX0), (32) where κτ is a guidance strength that absorbs schedule-dependent factors and likelihood scaling. In our implementation, this form is obtained via a stop-gradient, first-order Jacobian simplification (Appendix B), which avoids backpropagating through the denoiser and is particularly natural for the linear mask operator used here. Hard pointwise constraints from sparse masks can introduce grid-imprint artifacts near observed locations. To reduce this effect, we optionally smooth the masked residual with a Gaussian kernel (Zhang et al., 2021; Chung et al., 2023; Bradbury and Zhong, 2025; Daras et al., 2024), 
+
+ˆX0 ← ˆX0 + κτ
+
+
+
+Gσblur ∗  M ⊙ (˜ y − ˆX0)
+
+, (33) After modifying ˆX0, we can optionally recompute the corresponding noise estimate to keep the sampler algebra consistent (Appendix B). Unless stated otherwise, the guided results in this section use DDPM sampling ( η = 1 ) with the blurred residual update, TR = 20 , constant κτ = 0 .5, σblur = 1 .5, and no recomputation of εrec after the guidance edit. We organize the results in three stages. First, we consider a structured deployment shift in which the model is trained with the regular ogi8 observation layout but is deployed for inference with the denser regular ogi4 layout. This isolates the effect of changing sensor density while preserving the same lattice structure. Second, we consider a more realistic random-layout deployment shift in which the observation locations are fixed but spatially random rather than arranged on the regular lattices seen during training. In these random-layout experiments, we use Ns = 128 and 
+
+Ns = 512 sensors, which match the number of observed grid points in the regular ogi8 and ogi4 layouts, respectively. This allows us to separate the effect of sensor count from the effect of spatial arrangement. Finally, after discussing reconstruction accuracy under these deployment shifts, we examine how guidance affects the ensemble spread and its qualitative uncertainty characteristics. For brevity, we use the following abbreviations. Here, ogi k denotes the regular observation grid interval k, so smaller 
+
+k means denser observations. cond_ogi k indicates the observation pattern supplied through the conditioning channels 
+
+c, while guid indicates that guidance is additionally applied during sampling: 19 A PREPRINT - A PRIL 24, 2026 Observation misfit  
+
+> MSSIM loss  !
+> ""
+> cond_ogi8
+> cond_ogi4_retrain
+> cond_ogi4_guid_TR100
+> cond_ogi4_guid_TR1000
+> cond_ogi4_guid_TR20
+> cond_ogi4
+
+(a) (b) 
+
+(c) 
+
+Figure 12: Effect of training-free observation-consistency guidance under a structured denser-sensor deployment shift from ogi8 to ogi4 . (a) MSSIM loss versus time for the different conditioning and guidance settings listed in the legend. (b) Corresponding observation misfit computed only at truly observed pixels. (c) Vorticity snapshots at t = 13 together with grayscale maps showing the pixelwise absolute change relative to the baseline cond_ogi8 . The sensor-layout panels on the right show that ogi8 and ogi4 correspond to 128 and 512 observed grid points, respectively. See the main text for the expanded abbreviations. • cond_ogi8 : baseline DiffSRDA, trained and evaluated with interval-8 observations, without guidance. • cond_ogi4_retrain : retrained model using interval-4 observations in the conditioning channels, without guidance. • cond_ogi4 : interval-4 observations are supplied through the conditioning channels at inference time using the model trained with interval-8 conditioning, without guidance. • cond_ogi4_guid_TR20 , cond_ogi4_guid_TR100 , cond_ogi4_guid_TR1000 : same as cond_ogi4 , but with guidance applied during sampling using T R = 20 , 100 , 1000 reverse steps, respectively. • rand_Ns128_WithoutGuidance : deployment with a fixed random sparse sensor layout using Ns = 128 
+
+sensors, without guidance. • rand_Ns128_WithGuidance : same random-layout case with guidance applied during sampling. • rand_Ns512_WithoutGuidance : deployment with a fixed random sparse sensor layout using Ns = 512 
+
+sensors, without guidance. • rand_Ns512_WithGuidance : same random-layout case with guidance applied during sampling. 20 A PREPRINT - A PRIL 24, 2026 In the random-layout experiments, all guided cases use T R = 1000 reverse steps. We first examine the structured deployment shift from ogi8 to ogi4 . Figure 12(a,b) shows two main effects. First, naively switching to denser observations in the conditioning channels without retraining ( cond_ogi4 ) degrades performance slightly relative to the in-distribution baseline ( cond_ogi8 ). This indicates that directly injecting a new observation layout through the original conditioning interface creates a distribution shift: the model was trained to interpret interval-8 sparsity patterns and does not automatically generalize perfectly when the regular sensor lattice becomes denser. The guided runs should therefore be interpreted as applying an additional observation-consistency correction on top of an already observation-conditioned model, rather than as introducing entirely separate new information beyond the conditioning channels. Second, incorporating the denser observations through guidance substantially improves both reconstruction quality and agreement with the observations, without retraining the network. In particular, cond_ogi4_guid_TR20 reduces MSSIM loss and lowers the observation misfit relative to cond_ogi4 , showing that the guided samples better match the provided measurements at observed pixels while also improving the reconstruction against the reference. Increasing the reverse-step budget strengthens this effect: moving from T R = 20 to T R = 100 further reduces both MSSIM loss and observation misfit, and with T R = 1000 the guided curves approach the retrained reference cond_ogi4_retrain .This behavior is consistent with guidance acting as a small likelihood-based correction that is applied repeatedly along the reverse chain, so that larger reverse-step budgets provide more opportunities for the observation information to accumulate smoothly. Since all results here use DDPM sampling, stochastic noise is injected at every reverse step, which can help prevent overly rigid updates when the correction is applied repeatedly. These gains, however, come at increased sampling cost because larger T R directly increases the number of reverse evaluations per SRDA cycle. Figure 12(c) complements these scalar trends with representative flow fields at t = 13 . Relative to the baseline 
+
+cond_ogi8 , the retrained interval-4 model cond_ogi4_retrain exhibits structured changes concentrated along filamentary, high-gradient regions, which are precisely the parts of the flow that tend to dominate perceptual metrics. The guided cases cond_ogi4_guid_TR20 , cond_ogi4_guid_TR100 , and cond_ogi4_guid_TR1000 show the same overall pattern of corrections, with their magnitude and spatial coherence increasing with the reverse-step budget. The dashed inset indicates one representative region where guidance improves the reconstruction of fine filament-like structure and moves it closer to the retrained case. In addition to sharpening or adjusting filaments, some of the broader high-magnitude grayscale regions are also consistent with small spatial displacements of coherent vortical features, suggesting that guidance may correct not only local texture but also the position of larger structures. Overall, Figure 12 shows that guidance does not merely improve scalar error metrics; it makes targeted, physically interpretable adjustments in dynamically active regions of the flow, and these adjustments become progressively closer to the retrained reference as T R increases. Figure 13 broadens the deployment study beyond regular lattices. In these experiments, the model is still the one trained under the regular ogi8 observation pattern, but the deployment observations are now provided at fixed random sparse spatial locations rather than on a structured grid. We consider two sensor counts: Ns = 128 , which matches the number of observed points in ogi8 , and Ns = 512 , which matches ogi4 . This allows us to assess whether the pretrained diffusion model remains useful when the observation layout changes not only in density but also in spatial arrangement. Several points are worth noting. First, the random-layout cases without guidance remain qualitatively reasonable, which suggests that DiffSRDA has some inherent tolerance to moderate sensor-layout shifts even when they are not seen during training. At the same time, rand_Ns128_WithoutGuidance is slightly inferior to the in-distribution regular-layout baseline cond_ogi8 , indicating a residual out-of-distribution penalty due to the change from a regular lattice to a random spatial arrangement. Guidance improves the reconstruction in both random-layout cases, as seen both in the MSSIM curves and in the representative snapshots in Figure 13(b). The improvement is more pronounced for the denser Ns = 512 case, which is natural because the larger number of measurements provides more information for the posterior correction. In fact, the performance of rand_Ns512_WithGuidance comes reasonably close to the retrained regular-lattice reference cond_ogi4_retrain , suggesting that the increase from 128 to 512 sensors partly compensates for the out-of-distribution effect of the random spatial layout. By contrast, both rand_Ns128_WithoutGuidance and 
+
+rand_Ns128_WithGuidance remain somewhat worse than the structured cond_ogi8 case, consistent with the fact that here the sensor count is unchanged and only the off-training-distribution spatial arrangement is altered. Overall, this experiment shows that guidance is not limited to regular-lattice densification, but can also help adapt a pretrained model to more general deployment-time sensor-layout shifts. We summarize the accuracy–cost trade-off in the structured denser-observation setting using a “gap closed” fraction based on a time-averaged error metric E, here chosen as the time-averaged MAER: 
+
+GapClosed = Ebase − Eplugin 
+
+Ebase − Eretrain 
+
+× 100% , (34) 21 A PREPRINT - A PRIL 24, 2026 MSSIM loss  𝜔 
+
+> 𝑡
+> cond_ogi8
+> cond_ogi4_retrain
+> rand_Ns128 _WithoutGuidance
+> rand_Ns128 _WithGuidance
+> rand_Ns512 _WithoutGuidance
+> rand_Ns512 _WithGuidance
+
+(a)   
+
+> Ground truth
+> 128 sparse sensors random layout
+> 512 sparse sensors random layout
+> rand_Ns128 _WithoutGuidance rand_Ns128 _WithGuidance
+> rand_Ns512 _WithoutGuidance rand_Ns512 _WithGuidance
+
+(b) 
+
+Figure 13: Effect of guidance under deployment-time shifts to fixed random sparse sensor layouts. (a) MSSIM loss versus time comparing the regular training-layout baseline cond_ogi8 , the retrained regular-lattice reference 
+
+cond_ogi4_retrain , and the random-layout cases rand_Ns128_WithoutGuidance , rand_Ns128_WithGuidance ,
+
+rand_Ns512_WithoutGuidance , and rand_Ns512_WithGuidance . Here Ns = 128 and Ns = 512 match the number of observed grid points in the regular ogi8 and ogi4 layouts, respectively. (b) Representative snapshots at t = 13 showing the ground truth, the corresponding random sensor layouts, and the no-guidance and guided reconstructions for Ns = 128 and Ns = 512 . All guided random-layout cases use T R = 1000 reverse steps. Table 3: Retraining versus guidance under a structured denser-sensor deployment shift (interval-4 guidance). 
+
+GapClosed is defined in equation (34) using time-averaged MAER, where the baseline is cond_ogi8 and the re-trained reference is cond_ogi4_retrain . “Cost factor” reports the increase in the average total computation time over one full cycling run from t = 0 to t = 24 relative to the baseline sampler with T R = 20 .Case Guidance grid Reverse steps ( T R ) Cost factor ( ×) GapClosed (%) 
+
+cond_ogi4_guid_TR20 interval 4 20 1.00 21.5 
+
+cond_ogi4_guid_TR100 interval 4 100 1.36 57.7 
+
+cond_ogi4_guid_TR1000 interval 4 1000 5.70 94.3 where Ebase corresponds to cond_ogi8 , Eretrain corresponds to cond_ogi4_retrain , and Eplugin is one of the guided cases. Table 3 quantifies the same trend: increasing T R systematically closes more of the retraining gap, reaching near-complete closure for T R = 1000 in this experiment. This improved accuracy comes at increased computational cost, so T R provides a practical deployment trade-off. Moderate budgets, for example T R = 100 , yield clear gains at modest cost, while very large budgets, such as T R = 1000 , can approach the retrained reference but are more expensive. It is also useful to briefly examine how guidance affects uncertainty quantification. Although guidance is introduced here primarily as an inference-time accuracy correction, it acts by modifying the reverse-time score and can there-fore change the ensemble distribution produced by the sampler. Since all ensembles in this section are generated with DDPM sampling, the spread reflects both model-induced uncertainty and stochasticity injected at each reverse step. Figure 14 shows the spread for the retrained interval-4 model cond_ogi4_retrain alongside the guided runs 
+
+cond_ogi4_guid_TR20 , cond_ogi4_guid_TR100 , and cond_ogi4_guid_TR1000 . Compared with retraining, the guided cases with T R = 20 and T R = 100 retain relatively localized spread patterns and remain qualitatively similar in where uncertainty concentrates, whereas the T R = 1000 guided case exhibits a smaller overall spread magnitude 22 A PREPRINT - A PRIL 24, 2026 (a) (b) (c) (d) 
+
+Figure 14: Ensemble spread fields under the structured interval-4 deployment setting. (a) cond_ogi4_retrain ; (b) 
+
+cond_ogi4_guid_TR20 ; (c) cond_ogi4_guid_TR100 ; (d) cond_ogi4_guid_TR1000 .but a more spatially diffuse and speckled spread texture. This suggests that while increasing T R can substantially improve the mean reconstruction under guidance, the resulting spread structure is not guaranteed to match that of a model retrained for the new sensor configuration. This caveat is important when interpreting the random-layout results as well. In Figure 13, all guided random-layout cases use T R = 1000 , because large reverse-step budgets are the most effective at adapting the pretrained model to strongly shifted sensor layouts. The price of this flexibility is twofold: first, the sampling cost is substantially higher than for the shorter guided chains used in the structured-layout experiments, and second, the associated uncertainty fields may become noisier and less localized, as suggested by the T R = 1000 spread pattern in Figure 14. A more systematic evaluation of guided uncertainty calibration, including spread, coverage, and rank statistics under guidance and their dependence on sampler stochasticity and step-dependent guidance schedules, is postponed to future work. In this section, we showed that guidance can exploit deployment-time changes in the observation configuration without retraining DiffSRDA. In the structured interval-4 sensor-improvement scenario, guidance mitigates the degradation observed when the interval-8-trained model is evaluated under out-of-distribution conditioning cond_ogi4 , and the benefit increases with the reverse-step budget. In the more general random-layout experiments, guidance also improves reconstructions for fixed random sparse sensor configurations with both Ns = 128 and Ns = 512 , showing that the approach is not restricted to regular-lattice densification alone. Using more reverse steps generally yields better reconstruction accuracy and can approach the retrained reference for sufficiently large budgets, but it also increases sampling cost and can alter the ensemble spread structure. In our testbed, a moderate budget around T R ≈ 100 
+
+provides a practical compromise for the structured sensor-improvement setting, delivering clear accuracy gains at modest additional cost while retaining reasonably localized spread patterns. For more strongly shifted layouts, such as the fixed random sensor configurations considered here, guidance with very large reverse-step budgets can still be effective, but its computational costs and degradation in uncertainty spreads should be kept in mind. While the goal of this section is mainly to illustrate how the score-based nature of diffusion sampling enables training-free corrections to the reverse trajectory, two practical caveats are worth noting. First, the guidance strength and blur scale require tuning. Overly aggressive updates (large κτ ) can overfit noisy observations and degrade reconstruction metrics even if the observation misfit improves, while excessive smoothing (large σblur ) can dilute informative local measurements. Step-dependent schedules for κτ are a natural extension for better balancing prior and likelihood influences across noise levels, but are beyond the scope of this work. Second, the efficient masked-residual updates in equations (32) –(33) rely on the mask-type on-grid observation operator used here. More general observation operators can be incorporated via the DPS-style gradient in Appendix B, typically at higher computational cost and with additional stability considerations. In our experiments, the chosen settings ( κτ = 0 .5, σblur = 1 .5) yielded stable improvements in both reconstruction error and observation consistency under the deployment shifts considered here. 
+
+## 7 Discussion and concluding remarks 
+
+A diffusion-based probabilistic super-resolution data assimilation framework, DiffSRDA, was developed to generate short HR analysis windows by combining low-cost LR forecast information with sparse noisy HR observations through conditional reverse diffusion sampling. The main conclusions of this study may be summarized as follows: 1. DiffSRDA provides accurate and practical SRDA in a cycling setting. Among the learned SRDA operators considered here, DiffSRDA consistently gives the best point-estimate accuracy and remains closest to the EnKF-HR baseline while avoiding the cost of repeatedly evolving HR forecast ensembles. A key practical result is that this base DiffSRDA analysis does not require long reverse chains in the present testbed: timestep respacing shows that only a small number of reverse steps is sufficient to retain essentially the same accuracy as full-chain sampling, making diffusion-based SRDA feasible for repeated forecast–analysis cycling. 23 A PREPRINT - A PRIL 24, 2026 2. DiffSRDA provides useful ensemble-based uncertainty information. Because DiffSRDA is generative, repeated conditional sampling directly yields an ensemble of HR analyses. The resulting spread fields capture physically meaningful uncertainty patterns and broadly agree with EnKF-HR in where uncertainty concentrates, especially in dynamically active regions with strong gradients and filamentary structure. Calibration diagnostics such as coverage and rank histograms indicate that the ensemble uncertainty is informative and stabilizes with a modest number of samples, although both DiffSRDA and EnKF-HR remain under-dispersed under the present pixelwise verification procedure. 3. Deployment-time guidance provides flexible sensor adaptation, even with a simple and inexpensive guidance scheme. Training-free observation-consistency guidance allows a fixed pretrained DiffSRDA model to adapt to changed sensor layouts at deployment, including both denser regular grids and fixed random sparse layouts, without retraining. Importantly, the objective of this work was not to optimize the strongest possible guidance method, but to demonstrate that even a computationally cheap stop-gradient guidance scheme can already make flexible sparse-sensor assimilation feasible in practice. One possible reason this lightweight guidance is effective is that DiffSRDA, being trained directly in an SRDA setting, may already learn a useful amortized black-box data-assimilation mapping from forecast and observation inputs to HR analyses. If so, deployment-time layout changes introduce only a partial distribution shift, and guidance need only act mainly as an observation-consistency correction rather than performing the full assimilation task from scratch. This is one of the potentially attractive features of SRDA-style frameworks. The results show that such simple guidance can recover a meaningful fraction of the retraining benefit and can also help absorb more general sensor-layout shifts beyond the regular grids used in training. At the same time, this flexibility should be distinguished from the base DiffSRDA result above: while short reverse chains are sufficient for accurate unguided DiffSRDA in the present setting, stronger guidance corrections may require substantially larger reverse-step budgets in order to accumulate smoothly. Those larger budgets increase sampling cost and can also degrade the qualitative structure of the ensemble spread if guidance is not tuned with uncertainty behavior in mind. One useful perspective on why DiffSRDA can be competitive with EnKF-HR is that the HR analysis is not inferred from observations alone. Rather, the conditional diffusion model learns a distribution over HR analysis windows given both the LR forecast window and the observations, so the LR forecast acts as a forecast-informed dynamical prior carrying information propagated from earlier cycles. As discussed in Appendix A, this is consistent with a forecast-informed Bayesian interpretation in which the learned conditional distribution reflects both observational information and dynamically propagated forecast context. In the present setting, this LR conditioning effectively carries forward part of the time-history information that would otherwise be supplied by repeatedly cycling an HR forecast model, which helps explain why the resulting analysis distribution is both accurate and physically plausible. By contrast, targeting the same posterior as a fully cycled HR-ensemble method would in general require the diffusion model itself to adapt to the cycling context (Hodyss and Morzfeld, 2026), which would be considerably less attractive computationally. The results here suggest that conditioning on a reasonably faithful LR forecast can already recover much of that benefit within a single offline-trained generative model. 
+
+Limitations, related work, and future directions: One future direction that may be worthwhile to investigate is whether probabilistic surrogate forecast models , capable of acting as standalone learned forecast models while remaining compatible with data assimilation, can offer a useful complementary alternative to SRDA when compared in terms of both accuracy and computational cost. In the present work, SR and DA are tightly coupled: DiffSRDA excels when low-cost forecast information and sparse observations are provided together, and the DA component helps regularize what would otherwise be a substantially more ill-posed SR-only prediction problem. Preliminary in-house experiments suggest that training and deploying the same framework as a pure super-resolution forecaster without built-in assimilation is much more challenging in the present chaotic multiscale setting, presumably because the temporal transition itself must then be learned more explicitly. This motivates future generative frameworks in which the dynamical transition is learned directly, so that fast HR probabilistic forecasts can be produced even without immediate observational input, and assimilation can then be carried out either through posterior sampling or through a separate filtering step. This broader direction is consistent with recent learned probabilistic forecasting systems such as GenCast (Price et al., 2023), with recent diffusion-based work that explicitly studies forecasting and assimilation together for PDE systems (Shysheya et al., 2024), and with stochastic-interpolant-based DA frameworks such as FlowDAS (Chen et al., 2025), where learned transition dynamics and generative priors are treated within one framework. A second important direction concerns how such generative forecast models should be coupled with DA. In the present work, posterior correction is implemented through a simple stop-gradient likelihood-guidance scheme. This was a deliberate choice: the goal was to show that flexible sparse-sensor assimilation is already possible with a lightweight and inexpensive mechanism, rather than to optimize the strongest available guidance strategy. More sophisticated 24 A PREPRINT - A PRIL 24, 2026 posterior-sampling, score-correction, and ensemble-filtering approaches already exist (Rozet and Louppe, 2023; Zhang et al., 2025; Bao et al., 2024, 2025; Zheng et al., 2024; Garbuno-Inigo et al., 2020), but they also introduce additional trade-offs, including higher computational cost, derivative or Jacobian requirements, stability issues, and possible changes in uncertainty behavior. The broader lesson is therefore problem-dependent: guidance is a viable tool for flexible sensor assimilation, but the most suitable guidance mechanism will depend on the dynamics, the observation operator, the computational budget, and the desired uncertainty properties. More generally, an important methodological goal is to retain the deployment-time flexibility of guidance while reducing dependence on long reverse-time correction. In the present work, short reverse chains are sufficient for accurate base DiffSRDA, whereas stronger deployment-time corrections benefit from much larger reverse-step budgets. These observations suggest that future generative DA frameworks should aim to preserve guidance-like adaptability without sacrificing the efficiency of short-chain sampling. Several emerging alternatives may be relevant in this regard. Consistency models seek to replace iterative reverse diffusion with one- or few-step generation, either through direct conditional training or distillation from a pretrained diffusion model, and may therefore reduce inference cost or enable larger ensembles (Song et al., 2023; Song and Dhariwal, 2023; Hess et al., 2025). Stochastic interpolants provide a unifying view of flows and diffusions that may offer new training and sampling strategies for conditional generation in dynamical systems (Albergo et al., 2023), while Schrödinger-bridge and related transport-based viewpoints are attractive for DA because they emphasize distribution-to-distribution transport under observational constraints (Reich, 2019; De Bortoli et al., 2021; Chen et al., 2024; Kim, 2025). Exploring whether these frameworks can improve transition learning, calibration, data consistency, or deployment-time posterior correction in probabilistic SRDA is a promising direction for future work. From the DA perspective itself, the likelihood-guidance mechanism developed here is tailored to a mask-type, on-grid observation operator with simple Gaussian assumptions. A natural next step is to extend the same inference-time prior-plus-likelihood idea to more general measurement processes, including off-grid sensors, indirect or integrated observations, partial state components, and more realistic observation-error models. Calibration also remains an open challenge, motivating improved likelihood models, schedule-aware or learned guidance strengths, and more explicit treatment of model error. Another promising direction is to make these generative SRDA frameworks more interpretable and more useful for sensor design. Recent work such as Diff-SPORT suggests that explainable-AI tools, including Shapley-value-based attribution, can be combined with diffusion-based reconstruction to identify observation locations that matter most for accurate flow reconstruction and sensor placement (Vishwasrao et al., 2025; Vinuesa et al., 2026). In future SRDA settings, such ideas may be especially useful for adaptive sensor placement, mobile-sensor steering, and physically interpretable observation-network design. Finally, it will be important to test these ideas on higher-complexity flows and, eventually, on settings closer to operational forecasting and data assimilation, where both the dynamics and the observation process are considerably less idealized. In such settings, the most valuable outcome may not be a single preferred generative framework, but rather a family of probabilistic forecast-and-assimilation models that can flexibly span fast surrogate forecasting, posterior correction, and ensemble-based filtering, while offering varying degrees of physical interpretability depending on the needs of the application. 
+
+## Acknowledgements 
+
+This work was supported by the JSPS KAKENHI (Grant Number 25H00715) and Central Japan Railway Company. Some of the simulations and deep learning experiments were performed on the TSUBAME4.0 supercomputer provided by Institute of Science Tokyo and the Earth Simulator at the Japan Agency for Marine-Earth Science and Technology (JAMSTEC). 
+
+## References 
+
+M. S. Albergo, N. M. Boffi, and E. Vanden-Eijnden. Stochastic interpolants: A unifying framework for flows and diffusions. arXiv preprint arXiv:2303.08797 , 2023. B. D. O. Anderson. Reverse-time diffusion equation models. Stochastic Processes and their Applications , 12(3): 313–326, 1982. doi: 10.1016/0304-4149(82)90051-5. F. Bao, Z. Zhang, and G. Zhang. An ensemble score filter for tracking high-dimensional nonlinear dynamical systems. 
+
+Computer Methods in Applied Mechanics and Engineering , 432:117447, 2024. F. Bao, H. G. Chipilski, S. Liang, G. Zhang, and J. S. Whitaker. Nonlinear ensemble filtering with diffusion models: Application to the surface quasigeostrophic dynamics. Monthly Weather Review , 153(7):1155–1169, 2025. 25 A PREPRINT - A PRIL 24, 2026 S. Barthélémy, J. Brajard, L. Bertino, and F. Counillon. Super-resolution data assimilation. Ocean Dynamics , 72(8): 661–678, 2022. R. Bradbury and D. Zhong. Your latent mask is wrong: Pixel-equivalent latent compositing for diffusion models. arXiv preprint arXiv:2512.05198 , 2025. S. L. Brunton, M. Budiši´ c, E. Kaiser, and J. N. Kutz. Modern koopman theory for dynamical systems. arXiv preprint arXiv:2102.12086 , 2021. S. Chen, Y. Jia, Q. Qu, H. Sun, and J. A. Fessler. Flowdas: A stochastic interpolant-based framework for data assimilation. arXiv preprint arXiv:2501.16642 , 2025. Y. Chen, M. Goldstein, M. Hua, M. S. Albergo, N. M. Boffi, and E. Vanden-Eijnden. Probabilistic forecasting with stochastic interpolants and Föllmer processes. arXiv preprint arXiv:2403.13724 , 2024. S. Cheng, C. Quilodrán-Casas, S. Ouala, A. Farchi, C. Liu, P. Tandeo, R. Fablet, D. Lucor, B. Iooss, J. Brajard, et al. Machine learning with data assimilation and uncertainty quantification for dynamical systems: a review. IEEE/CAA Journal of Automatica Sinica , 10(6):1361–1387, 2023. H. Chung, J. Kim, M. T. McCann, M. L. Klasky, and J. C. Ye. Diffusion posterior sampling for general noisy inverse problems. arXiv preprint arXiv:2209.14687 , 2022. H. Chung, J. Kim, S. Kim, and J. C. Ye. Parallel diffusion models of operator and image for blind inverse problems. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 6059–6069, 2023. H. Chung, J. Kim, and J. C. Ye. Diffusion models for inverse problems. arXiv preprint arXiv:2508.01975 , 2025. G. Daras, H. Chung, C.-H. Lai, Y. Mitsufuji, J. C. Ye, P. Milanfar, A. G. Dimakis, and M. Delbracio. A survey on diffusion models for inverse problems. arXiv preprint arXiv:2410.00083 , 2024. T. W. David, D. P. Marshall, and L. Zanna. The statistical nature of turbulent barotropic ocean jets. Ocean Modelling ,113:34–49, 2017. V. De Bortoli, J. Thornton, J. Heng, and A. Doucet. Diffusion Schrödinger bridge with applications to score-based generative modeling. Advances in Neural Information Processing Systems , 34:17695–17709, 2021. P. Du, M. H. Parikh, X. Fan, X.-Y. Liu, and J.-X. Wang. Conditional neural field latent diffusion model for generating spatiotemporal turbulence. Nature Communications , 15(1):10416, 2024. V. Fortin, M. Abaza, F. Anctil, and R. Turcotte. Why should ensemble spread match the rmse of the ensemble mean? 
+
+Journal of Hydrometeorology , 15(4):1708–1713, 2014. K. Fukami and K. Taira. Grasping extreme aerodynamics on a low-dimensional manifold. Nature Communications , 14 (1):6480, 2023. K. Fukami, K. Fukagata, and K. Taira. Super-resolution reconstruction of turbulent flows with machine learning. 
+
+Journal of Fluid Mechanics , 870:106–120, 2019. K. Fukami, R. Maulik, N. Ramachandra, K. Fukagata, and K. Taira. Global field reconstruction from sparse sensors with voronoi tessellation-assisted deep learning. Nature Machine Intelligence , 3(11):945–951, 2021. A. Garbuno-Inigo, F. Hoffmann, W. Li, and A. M. Stuart. Interacting langevin diffusions: Gradient structure and ensemble kalman sampler. SIAM Journal on Applied Dynamical Systems , 19(1):412–441, 2020. T. Gneiting and A. E. Raftery. Strictly proper scoring rules, prediction, and estimation. Journal of the American statistical Association , 102(477):359–378, 2007. T. Gneiting, A. E. Raftery, A. H. Westveld III, and T. Goldman. Calibrated probabilistic forecasting using ensemble model output statistics and minimum crps estimation. Monthly weather review , 133(5):1098–1118, 2005. T. M. Hamill. Interpretation of rank histograms for verifying ensemble forecasts. Monthly Weather Review , 129(3): 550–560, 2001. P. Hess, M. Aich, B. Pan, and N. Boers. Fast, scale-adaptive and uncertainty-aware downscaling of earth system model fields with generative machine learning. Nature Machine Intelligence , 7(3):363–373, 2025. J. Ho, A. Jain, and P. Abbeel. Denoising diffusion probabilistic models. Advances in neural information processing systems , 33:6840–6851, 2020. D. Hodyss and M. Morzfeld. Using diffusion models to do data assimilation. Monthly Weather Review , 154(2):165–182, 2026. L. Huang, L. Gianinazzi, Y. Yu, P. D. Dueben, and T. Hoefler. Diffda: a diffusion model for weather-scale data assimilation. arXiv preprint arXiv:2401.05932 , 2024. 26 A PREPRINT - A PRIL 24, 2026 M. Kim. A unified framework for diffusion bridge problems: Flow matching and Schrödinger matching into one. arXiv preprint arXiv:2503.21756 , 2025. C.-H. Lai, Y. Song, D. Kim, Y. Mitsufuji, and S. Ermon. The principles of diffusion models. arXiv preprint arXiv:2510.21890 , 2025. A. Lugmayr, M. Danelljan, A. Romero, F. Yu, R. Timofte, and L. Van Gool. Repaint: Inpainting using denoising diffusion probabilistic models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 11461–11471, 2022. B. Lusch, J. N. Kutz, and S. L. Brunton. Deep learning for universal linear embeddings of nonlinear dynamics. Nature communications , 9(1):4950, 2018. A. Notsu, Y. Yasuda, and R. Onishi. Four-dimensional super-resolution data assimilation (4d-srda) for prediction of three-dimensional quasi-geostrophic flows. SOLA , pages 21B–001, 2025. R. Onishi, D. Sugiyama, and K. Matsuda. Super-resolution simulation for real-time prediction of urban micrometeorol-ogy. SOLA , 15:178–182, 2019. I. Price, A. Sanchez-Gonzalez, F. Alet, T. R. Andersson, A. El-Kadi, D. Masters, T. Ewalds, J. Stott, S. Mohamed, P. Battaglia, et al. Gencast: Diffusion-based ensemble forecasting for medium-range weather. arXiv preprint arXiv:2312.15796 , 2023. S. Reich. Data assimilation: the schrödinger perspective. Acta Numerica , 28:635–711, 2019. B. Ribstein, V. Zeitlin, and A.-S. Tissier. Barotropic, baroclinic, and inertial instabilities of the easterly gaussian jet on the equatorial β-plane in rotating shallow water model. Physics of Fluids , 26(5), 2014. R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 10684–10695, 2022. F. Rozet and G. Louppe. Score-based data assimilation. Advances in Neural Information Processing Systems , 36: 40521–40541, 2023. C. Saharia, J. Ho, W. Chan, T. Salimans, D. J. Fleet, and M. Norouzi. Image super-resolution via iterative refinement. 
+
+IEEE transactions on pattern analysis and machine intelligence , 45(4):4713–4726, 2022. A. Shysheya, C. Diaconu, F. Bergamin, P. Perdikaris, J. M. Hernández-Lobato, R. Turner, and E. Mathieu. On conditional diffusion models for pde simulations. Advances in Neural Information Processing Systems , 37:23246–23300, 2024. J. Sohl-Dickstein, E. Weiss, N. Maheswaranathan, and S. Ganguli. Deep unsupervised learning using nonequilibrium thermodynamics. In International conference on machine learning , pages 2256–2265. PMLR, 2015. A. Solera-Rico, C. Sanmiguel Vila, M. Gómez-López, Y. Wang, A. Almashjary, S. T. Dawson, and R. Vinuesa. β-variational autoencoders and transformers for reduced-order modelling of fluid flows. Nature Communications , 15 (1):1361, 2024. J. Song, C. Meng, and S. Ermon. Denoising diffusion implicit models. arXiv preprint arXiv:2010.02502 , 2020a. Y. Song and P. Dhariwal. Improved techniques for training consistency models. arXiv preprint arXiv:2310.14189 , 2023. Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and B. Poole. Score-based generative modeling through stochastic differential equations. arXiv preprint arXiv:2011.13456 , 2020b. Y. Song, P. Dhariwal, M. Chen, and I. Sutskever. Consistency models. In Proceedings of the 40th International Conference on Machine Learning , volume 202 of Proceedings of Machine Learning Research , pages 32211–32252, 2023. O. Talagrand, R. Vautard, and B. Strauss. Evaluation of probabilistic prediction systems. In Proceedings of the ECMWF Workshop on Predictability , pages 1–25, Reading, United Kingdom, 1997. ECMWF. R. Vinuesa, S. L. Brunton, and G. Mengaldo. Explainable ai: Learning from the learners. arXiv preprint arXiv:2601.05525 , 2026. A. Vishwasrao, S. B. C. Gutha, A. Cremades, K. Wijk, A. Patil, C. Gorle, B. J. McKeon, H. Azizpour, and R. Vin-uesa. Diff-sport: Diffusion-based sensor placement optimization and reconstruction of turbulent flows in urban environments. arXiv preprint arXiv:2506.00214 , 2025. H. Wang, J. Han, W. Fan, W. Zhang, and H. Liu. Phyda: Physics-guided diffusion models for data assimilation in atmospheric systems. arXiv preprint arXiv:2505.12882 , 2025. Y. Yasuda and R. Onishi. Spatio-temporal super-resolution data assimilation (srda) utilizing deep neural networks with domain generalization. Journal of Advances in Modeling Earth Systems , 15(11):e2023MS003658, 2023. 27 A PREPRINT - A PRIL 24, 2026 Y. Yasuda and R. Onishi. Unsupervised super-resolution data assimilation using conditional variational autoencoders with estimating background covariances via super-resolution. Physics of Fluids , 37(4), 2025. Y. Yasuda, R. Onishi, Y. Hirokawa, D. Kolomenskiy, and D. Sugiyama. Super-resolution of near-surface temperature utilizing physical quantities for real-time prediction of urban micrometeorology. Building and Environment , 209: 108597, 2022. Y. Yasuda, R. Onishi, and K. Matsuda. Super-resolution of three-dimensional temperature and velocity for building-resolving urban micrometeorology using physics-guided convolutional neural networks with image inpainting techniques. Building and Environment , 243:110613, 2023. B. Zhang, W. Chu, J. Berner, C. Meng, A. Anandkumar, and Y. Song. Improving diffusion inverse problem solving with decoupled noise annealing. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 20895–20905, 2025. H. Zhang, J. Zhang, F. Perazzi, Z. Lin, and V. M. Patel. Deep image compositing. In Proceedings of the IEEE/CVF winter conference on applications of computer vision , pages 365–374, 2021. H. Zheng, W. Chu, A. Wang, N. Kovachki, R. Baptista, and Y. Yue. Ensemble kalman diffusion guidance: A derivative-free method for inverse problems. arXiv preprint arXiv:2409.20175 , 2024. 
+
+## A Interpreting DiffSRDA as a forecast-informed Bayesian posterior 
+
+The DiffSRDA formulation admits a natural Bayesian interpretation. At each assimilation time, the analysis variable is a high-resolution (HR) state window X conditioned on two sources of information: sparse observations and low-resolution (LR) forecast information from a physics-based numerical model. Following Hodyss and Morzfeld (2026), this may be viewed through an extended-likelihood formulation, in which the forecast information enters as an additional likelihood factor, while the prior over HR windows remains fixed and climatological. Let y denote the sparse HR observations available at the current assimilation time. Since the state variable is a window, the observation operator acts on the appropriate frame within X, which in the present experiments is the current-time slice. The observation model is written as 
+
+y = HX + η, η ∼ N (0 , R y ), (35) where H is a sparse sampling operator on the HR grid, equivalently represented by a binary mask in the implementation, and Ry is the observation-error covariance. The forecast information is supplied by LR model outputs. The LR forecast sequence used as conditioning input is written as 
+
+f ≡ xLR 
+
+> t′−1
+
+, xLR  
+
+> t′
+
+, xLR 
+
+> t′+1
+
+ ∈ R3nLR , (36) where t′ is the LR time index aligned with the HR assimilation cycle. To relate the LR forecast sequence to the HR window X, a linear operator S is introduced that selects the corresponding HR frames within X and downsamples each selected frame to the LR grid. The LR forecasts are then modeled as a noisy proxy of the HR state through 
+
+f = SX + ξ, ξ ∼ N (0 , R f ), (37) where Rf represents LR-model error together with representativeness error, that is, the mismatch between a down-sampled HR field and the corresponding LR forecast. In this way, the super-resolution aspect of the problem is made explicit: the likelihood is posed in LR space, while the unknown remains HR. Under the assumption that the observation and forecast errors are conditionally independent given X, the resulting forecast-informed posterior takes the form 
+
+p(X | f , y) ∝ p(y | X) p(f | X) pclim (X), (38) where pclim (X) denotes a climatological prior over HR windows, represented in practice by the HR training distribution. DiffSRDA is trained as a conditional diffusion model on HR windows X0 with conditioning input c = ( f , y). Under forward noising, 
+
+Xτ = √¯ατ X0 + √1 − ¯ατ ε, ε ∼ N (0 , I ), (39) the denoiser predicts εθ (Xτ , τ, c) from (Xτ , τ, c). An estimator of the conditional score is thereby obtained as 
+
+∇Xτ log p(Xτ | c) ≈ − 1
+
+√1 − ¯ατ
+
+εθ (Xτ , τ, c), (40) 28 A PREPRINT - A PRIL 24, 2026 together with the associated clean-state estimate given by Tweedie’s formula, 
+
+bX0(Xτ , c) = 1
+
+√¯ατ
+
+ Xτ − √1 − ¯ατ εθ (Xτ , τ, c) ≈ E[X0 | Xτ , c]. (41) Reverse-time sampling approximately integrates this conditional score field and yields samples whose terminal distribution approximates the learned conditional distribution p(X | c) = p(X | f , y). In this sense, DiffSRDA may be interpreted as learning an approximation to the forecast-informed posterior in equation (38) , rather than explicitly constructing that posterior from a prescribed analytical prior and likelihood. In the special case where pclim (X), p(y | X), and p(f | X) are all linear–Gaussian, the posterior in equation (38) is itself Gaussian. In that setting, diffusion-based sampling is consistent with this posterior, and the relationship between the posterior mean and covariance and the reverse-time diffusion dynamics can be analyzed explicitly, as shown by Hodyss and Morzfeld (2026). Outside this special case, however, the value of the present interpretation is mainly conceptual: it clarifies that DiffSRDA is not merely learning a black-box LR-to-HR super-resolution map, but rather a conditional distribution over HR analysis windows informed jointly by observations and forecast information. This viewpoint is useful for interpreting the results in the main text. The LR forecast conditioning does not provide only static contextual input; dynamical information carried forward from previous forecast–analysis cycles is also conveyed through it. As a result, the conditional distribution learned by DiffSRDA acquires a filtering-like character: current observations are combined with a forecast-informed dynamical context, even though the posterior is represented implicitly through a learned conditional score rather than through an explicit Kalman-style update. This helps explain why DiffSRDA can approach the accuracy of sequential DA baselines while still operating as a learned generative SRDA framework. 
+
+## B Derivation of observation-consistency guidance expression 
+
+This appendix derives the training-free guidance used to incorporate additional inference-time observations during reverse diffusion sampling. The trained conditional diffusion model is assumed to represent a conditional distribution 
+
+pθ (X0 | c) over the clean HR analysis window X0 ∈ R5nHR given conditioning input c. At inference time, additional observations y are incorporated through a Gaussian likelihood, and an approximate guided posterior is constructed for use during the reverse diffusion process. The guided target density over the clean state is taken as 
+
+˜p(X0 | c, y) ∝ pθ (X0 | c) p(y | X0), (42) where, throughout this work, a linear observation model with additive Gaussian noise is assumed: 
+
+y = HX0 + η, η ∼ N (0 , R ). (43) Here H is understood to include the appropriate slicing of the HR analysis window together with the sparse on-grid sampling operator. The resulting log-likelihood is 
+
+log p(y | X0) = − 12 (y − HX0)⊤R−1(y − HX0) + const , (44) and its gradient with respect to the clean state is 
+
+∇X0 log p(y | X0) = H⊤R−1(y − HX0). (45) Reverse diffusion sampling evolves a noisy variable Xτ rather than X0, so the diffusion-time posterior score 
+
+∇Xτ log ˜ pτ (Xτ | c, y) is required. The clean-space guided target in equation (42) is therefore translated into diffusion-time marginals induced by the forward diffusion kernel. Let qτ (Xτ | X0) denote the forward kernel at diffusion step 
+
+τ ,
+
+qτ (Xτ | X0) = N  Xτ ; √¯ατ X0, (1 − ¯ατ )I , (46) and let the corresponding diffusion-time marginals be defined by 
+
+pθ,τ (Xτ | c) = 
+
+Z
+
+qτ (Xτ | X0) pθ (X0 | c) dX0, ˜pτ (Xτ | c, y) = 
+
+Z
+
+qτ (Xτ | X0) ˜ p(X0 | c, y) dX0. (47) Substituting equation (42) into equation (47) gives 
+
+˜pτ (Xτ | c, y) ∝
+
+Z
+
+qτ (Xτ | X0) pθ (X0 | c) p(y | X0) dX0. (48) 29 A PREPRINT - A PRIL 24, 2026 To separate this guided marginal into an unguided term in Xτ and an observation-likelihood term, Bayes’ rule is applied under the induced joint density pθ (X0 | c) qτ (Xτ | X0), leading to 
+
+pθ (X0 | Xτ , c) := qτ (Xτ | X0) pθ (X0 | c)
+
+pθ,τ (Xτ | c) . (49) Equivalently, 
+
+qτ (Xτ | X0) pθ (X0 | c) = pθ,τ (Xτ | c) pθ (X0 | Xτ , c). (50) Substitution of equation (50) into equation (48) yields the exact factorization 
+
+˜pτ (Xτ | c, y) ∝ pθ,τ (Xτ | c)
+
+Z
+
+p(y | X0) pθ (X0 | Xτ , c) dX0
+
+| {z }   
+
+> =: pθ,τ (y|Xτ,c)
+
+, (51) where 
+
+pθ,τ (y | Xτ , c) := 
+
+Z
+
+p(y | X0) pθ (X0 | Xτ , c) dX0 (52) is the model-induced diffusion-time conditional likelihood of y given Xτ . Taking the gradient of the log of equation (51) gives the exact diffusion-time score decomposition 
+
+∇Xτ log ˜ pτ (Xτ | c, y) = ∇Xτ log pθ,τ (Xτ | c) + ∇Xτ log pθ,τ (y | Xτ , c), (53) where the proportionality constant in equation (51) depends only on (c, y) and therefore contributes no gradient with respect to Xτ . The first term is the unguided model score, while the second term is the diffusion-time measurement score. In general, the measurement term is intractable because pθ,τ (y | Xτ , c) is defined by the marginalization in equation (52), that is, by averaging the clean-space likelihood over the conditional distribution pθ (X0 | Xτ , c).A standard plug-in approximation, used in diffusion posterior sampling (DPS) and related guided samplers, replaces this intractable diffusion-time measurement score by evaluating the clean-space likelihood at a denoised estimate of X0
+
+computed from the current iterate Xτ (Chung et al., 2022). Concretely, the approximation 
+
+∇Xτ log pθ,τ (y | Xτ , c) ≈ ∇ Xτ log p
+
+
+
+y | ˆX0(Xτ , τ, c)
+
+
+
+(54) is used, where ˆX0(Xτ , τ, c) is the clean-state estimate implied by the denoiser output at diffusion step τ . Under the forward relation 
+
+Xτ = √¯ατ X0 + √1 − ¯ατ ε, ε ∼ N (0 , I ), (55) the ε-parameterized denoiser yields the standard clean estimate 
+
+ˆX0(Xτ , τ, c) = Xτ − √1 − ¯ατ εθ (Xτ , τ, c)
+
+√¯ατ
+
+. (56) The corresponding approximation of the model score is 
+
+sθ (Xτ , τ, c) := ∇Xτ log pθ,τ (Xτ | c) ≈ − 1
+
+√1 − ¯ατ
+
+εθ (Xτ , τ, c), (57) and equation (56) can equivalently be written in Tweedie form as 
+
+ˆX0(Xτ , τ, c) = 1
+
+√¯ατ
+
+(Xτ + (1 − ¯ατ ) sθ (Xτ , τ, c)) . (58) The approximate measurement gradient in diffusion space is then derived under equation (54). Define 
+
+gτ := ∇Xτ log p
+
+
+
+y | ˆX0(Xτ , τ, c)
+
+
+
+. (59) By the chain rule, 
+
+gτ = ∂ ˆX0
+
+∂Xτ
+
+!⊤
+
+∇X0 log p(y | X0) X0= ˆX0
+
+. (60) For completeness, if the observation operator is a possibly nonlinear forward map A(·) with Gaussian noise, y =
+
+A(X0) + η, η ∼ N (0 , R ), then 
+
+∇X0 log p(y | X0) = JA(X0)⊤R−1(y − A(X0)) , (61) 30 A PREPRINT - A PRIL 24, 2026 where JA(X0) := ∇X0 A(X0) is the Jacobian of the forward operator. Substitution of equation (61) into equation (60) gives 
+
+gτ = ∂ ˆX0
+
+∂Xτ
+
+!⊤
+
+JA( ˆX0)⊤R−1
+
+y − A( ˆX0)
+
+
+
+. (62) In the present work, A(X0) = HX0 is linear, so JA(·) = H, and equation (62) reduces to 
+
+gτ = ∂ ˆX0
+
+∂Xτ
+
+!⊤
+
+H⊤R−1
+
+y − H ˆX0
+
+
+
+. (63) Full DPS evaluates equation (63) by differentiating through the denoiser, which requires Jacobian–vector products involving ∂εθ /∂ Xτ at every reverse step (Chung et al., 2022). To avoid this backward pass, a stop-gradient (straight-through) Jacobian approximation is adopted based on equation (56). Differentiation of equation (56) gives 
+
+∂ ˆX0
+
+∂Xτ
+
+= 1
+
+√¯ατ
+
+I −√1 − ¯ατ
+
+√¯ατ
+
+∂εθ
+
+∂Xτ
+
+, (64) and this is approximated by retaining only the explicit linear scaling term, 
+
+∂ ˆX0
+
+∂Xτ
+
+≈ 1
+
+√¯ατ
+
+I. (65) Substitution of equation (65) into equation (63) yields the inexpensive likelihood-gradient approximation 
+
+gτ ≈ 1
+
+√¯ατ
+
+H⊤R−1
+
+y − H ˆX0
+
+
+
+. (66) For isotropic observation noise R = σ2obs I, equation (66) becomes 
+
+gτ ≈ 1
+
+σ2obs 
+
+√¯ατ
+
+H⊤
+
+y − H ˆX0
+
+
+
+. (67) The score decomposition in equation (53) is implemented by defining a guided score 
+
+spost (Xτ , τ, c, y) := sθ (Xτ , τ, c) + λτ gτ , (68) where λτ controls the guidance strength. Under the ε-parameterization, adding λτ gτ is equivalent to modifying the noise prediction, since sθ = −εθ /√1 − ¯ατ . Thus, 
+
+εpost = εθ − √1 − ¯ατ λτ gτ . (69) The same guidance can also be expressed as a direct correction of the clean estimate. Using equation (58) with spost 
+
+and holding Xτ fixed, the induced change in the clean estimate is 
+
+∆ ˆX0 = 1 − ¯ατ
+
+√¯ατ
+
+λτ gτ . (70) Substitution of equation (66) yields a schedule-aware residual correction: 
+
+∆ ˆX0 ≈ λτ
+
+1 − ¯ατ
+
+¯ατ
+
+H⊤R−1
+
+y − H ˆX0
+
+
+
+, (71) which increases log p(y | X0) and reduces the misfit y − H ˆX0.In the present experiments, H is a sparse on-grid selection operator acting on the HR analysis window. Define 
+
+M := H⊤H, (72) which is diagonal with binary entries for pure selection. If the observations are embedded into the full tensor space as 
+
+˜y := H⊤y, then 
+
+H⊤
+
+y − H ˆX0
+
+
+
+= ˜ y − M ˆX0 = M ⊙ (˜ y − ˆX0). (73) Guidance is therefore implemented as the clean-space correction 
+
+ˆX0 ← ˆX0 + κτ
+
+ M ⊙ (˜ y − ˆX0), (74) 31 A PREPRINT - A PRIL 24, 2026 where κτ is a tunable step size that absorbs the schedule and likelihood scaling in equation (71) . In particular, κτ is proportional to λτ (1 − ¯ατ )/¯ατ and may also absorb factors from R−1 when R is diagonal. A soft-guidance variant is also considered, in which the lifted residual is spatially spread by a channel-wise Gaussian blur operator Gσblur :
+
+ˆX0 ← ˆX0 + κτ Gσblur 
+
+ M ⊙ (˜ y − ˆX0). (75) This blur acts as a heuristic preconditioner and is not the exact gradient of the Gaussian likelihood. After modification of ˆX0, a noise estimate consistent with the forward relation in equation (55) may optionally be recomputed: 
+
+εrec = Xτ − √¯ατ ˆX0
+
+√1 − ¯ατ
+
+. (76) This keeps ( ˆX0, εrec ) consistent with the current Xτ after the guidance edit. Finally, let {τk}Kk=0 be the possibly respaced reverse-time index set with τK = T and τ0 = 0 . At step k, ˆX0 is computed from equation (56) , equation (74) or equation (75) is applied, εrec may optionally be computed from equation (76), and the reverse chain is then advanced from Xτk to Xτk−1 . A unified DDPM/DDIM-style update is 
+
+Xτk−1 = p¯ατk−1
+
+ˆX0 +
+
+q
+
+1 − ¯ατk−1 − σ2 
+
+> τk
+
+εrec + στk z, z ∼ N (0 , I ), (77) where στk ≥ 0 is the per-step noise level determined by the chosen sampler, with DDIM corresponding to στk = 0 . In this formulation, guidance influences the reverse dynamics through the corrected clean estimate ˆX0, and through εrec if it is recomputed. It is sometimes useful to interpret the likelihood-score approximation in equation (66) through the generic lifted-residual template summarized in diffusion inverse-problem surveys (Daras et al., 2024). In that notation, many explicit measurement-score approximations can be written schematically as 
+
+∇Xτ log pτ (y | Xτ , c) ≈ − Lτ Mτ
+
+Gτ
+
+, (78) where Mτ denotes a measurement misfit, Lτ lifts the misfit back to the state space, and Gτ sets the overall strength, often through likelihood and diffusion-time scalings. For a generic forward operator A(·) with Gaussian noise, y = A(X0) + η, η ∼ N (0 , R ), the DPS-style approximation in equation (62), combined with the Jacobian simplification in equation (65), yields 
+
+∇Xτ log pτ (y | Xτ , c) ≈ 1
+
+√¯ατ
+
+JA( ˆX0)⊤R−1
+
+y − A( ˆX0)
+
+
+
+. (79) This corresponds to choosing Mτ := y − A( ˆX0), Lτ := −¯α−1/2 
+
+> τ
+
+JA( ˆX0)⊤, and Gτ := R in equation (78) . In the linear case A(X0) = HX0, one has JA(·) = H, and equation (79) reduces to equation (66). It is emphasized that equation (65) is a stop-gradient approximation motivated by efficiency and by the simplicity of the sparse on-grid masking operator used here; in general, it does not yield an exact diffusion-time posterior score. For more challenging cases, including nonlinear observation operators or stronger guidance, covariance-aware likelihood corrections may improve stability (Rozet and Louppe, 2023). 
+
+## C SRDA using latent diffusion as a forward-looking scalability ablation 
+
+As a forward-looking scalability ablation, latent diffusion is also evaluated for SRDA. The motivation is that the cost of reverse diffusion grows with both the number of reverse steps and the state dimension, so diffusion in a compressed latent space may become attractive in future settings with much larger HR state dimensions. The purpose of this appendix is therefore not to present LatDiffSRDA as a competing mainline method, but rather to assess whether compressed-space diffusion could offer a practical route toward lower-cost SRDA in more demanding applications. LatDiffSRDA follows the same SRDA cycling protocol as DiffSRDA. Low-resolution (LR) forecast information together with sparse observations is used as conditioning input, and the SRDA operator outputs a high-resolution (HR) analysis window that is used to restart the next LR forecast cycle. The only change is the space in which diffusion is performed. Instead of running diffusion directly on HR windows in physical space, LatDiffSRDA performs diffusion in the latent space of a separately trained vector-quantized variational autoencoder (VQ-VAE). After VQ-VAE training, an HR window is mapped by the encoder to a compact latent tensor, quantized in the codebook embedding space, and 32 A PREPRINT - A PRIL 24, 2026 𝐳 𝐢 ,𝐣   
+
+> 𝐳 𝐢 ,𝐣
+> 𝒆 𝟏
+> 𝐞 𝟐
+> 𝐞 𝟔 𝐞 𝟒
+> 𝐞 𝟑
+> 𝐞 𝐤
+> 𝐞 𝟕 𝐞 𝟔
+> 𝐳 𝐪
+
+Embedding space   
+
+> 𝐳 𝐞
+> 𝐗 𝛕 .𝟎
+> DownSample
+> ReLU
+> DownSample
+> Resnet  × 3
+> Conv2D
+> Vector Quantization
+> encoder
+> 𝐗 %𝛕 .𝟎
+> Resnet  × 3
+> Conv2D
+> UpSample
+> ReLU
+> UpSample
+> decoder
+> 𝐳 𝐞 𝐳 𝐪 𝐞 𝟏 𝐞 𝟐 𝐞 𝟑 𝐞 𝐤
+
+Latent space 𝐳 𝐪  
+
+> 𝐳 𝛕 .𝟎
+> 𝛜 ~𝓝 (𝟎 ,𝑰 )
+> 𝐳 𝛕 .𝟎 𝐳 𝛕 .𝟏
+> 𝒛 𝟏
+> 𝐳 𝛕 .𝐓 1𝟏 𝐳 𝛕 .𝐓
+> training
+> sampling
+> Observations LR forecasts
+
+Figure 15: Conditional latent diffusion model used for LatDiffSRDA. The middle block shows the vector-quantized variational autoencoder (VQ-VAE): an HR input window Xτ =0 is encoded to continuous latents ze, mapped to vector-quantized latents zq in the codebook embedding space, and decoded to a reconstruction ˜Xτ =0 . The top block illustrates the vector quantization step, where each local latent vector is replaced by its nearest embedding. The bottom block shows conditional diffusion operating in latent space: the denoiser is trained and sampled on zq , with LR forecasts and observations provided as conditioning inputs. DiffSRDA 
+
+LatDiffSRDA 
+
+SRDA -YO2023 
+
+(a) (b) Ground truth DiffSRDA LatDiffSRDA 
+
+Figure 16: Forward-looking scalability ablation comparing pixel-space DiffSRDA and latent LatDiffSRDA. (a) MAER of the vorticity field versus time, averaged over the full test set, with SRDA-YO2023 shown for reference. (b) Representative vorticity snapshot at t = 14 and the corresponding absolute error relative to the UHR reference for DiffSRDA and LatDiffSRDA. Five reverse steps are used for both methods. 33 A PREPRINT - A PRIL 24, 2026 decoded back to physical space. The VQ-VAE is then kept fixed, while the conditional diffusion model is trained and sampled in the quantized latent space. Figure 15 illustrates this pipeline. Architectural details, including the VQ-VAE and latent tensor shapes, are provided in Appendix D. Figure 16 compares LatDiffSRDA and DiffSRDA under the same evaluation protocol and a fixed reverse-step budget. In the present moderate-size testbed, LatDiffSRDA is broadly comparable to DiffSRDA but does not provide a clear accuracy advantage. A plausible explanation is that the VQ-VAE introduces an additional approximation through compression and quantization, which can degrade small-scale fidelity and affect the representation of uncertainty. For this reason, the latent formulation is not adopted as the mainline method in this study. On the other hand, LatDiffSRDA can reduce sampling cost. For the full reverse chain with T = 1000 reverse steps, LatDiffSRDA required approximately 362 seconds of wall-clock time per full SRDA cycle from t = 0 to t = 24 ,compared with approximately 562 seconds for pixel-space DiffSRDA under the same setting. In the present testbed, this reduction in cost does not outweigh the lack of a clear accuracy benefit. However, the balance may shift in future applications where the HR state dimension is much larger and pixel-space diffusion becomes substantially more expensive. Two follow-on directions are worth noting. First, it may be beneficial to learn smoother or more task-aware latent representations, beyond reconstruction-oriented VQ-VAE training, so that the compressed space better preserves the flow structures most relevant for analysis and uncertainty. More broadly, recent work on machine learning for dynamical systems highlights the importance of informative low-dimensional representations and reduced-order latent spaces for modeling complex spatiotemporal dynamics (Cheng et al., 2023). Within that broader perspective, promising directions include conditional neural-field latent diffusion models for spatiotemporal turbulence, which offer advantages such as geometry flexibility, mesh-agnostic representation, and compact generation of extended spatiotemporal fields in latent space (Du et al., 2024), as well as β-variational-autoencoder-based reduced-order models that aim to learn more structured and physically interpretable latent representations of fluid flows (Solera-Rico et al., 2024). Second, likelihood-based guidance is less straightforward in the latent setting because sampling is performed in latent space while observations are defined in physical space. This can require repeated decoding and, for more general observation operators, differentiation through the decoder. Even so, if latent representations can be learned that preserve the relevant flow features reliably, latent diffusion may still provide an effective route to scalable SRDA at higher resolutions and in more complex meteorological and geophysical flow applications. 
+
+## D Network architectures 
+
+Figure 17 shows the U-Net denoiser backbones used for the pixel-space diffusion model (DiffSRDA) and for the latent-space scalability ablation (LatDiffSRDA). In both cases, the denoiser is trained in the standard ε-prediction form, with diffusion time τ embedded through a positional encoding and injected into the residual blocks. For DiffSRDA, shown in Figure 17(a), the noisy diffusion variable is the HR analysis window Xτ , represented as five channels. The conditioning tensor consists of five additional channels: three channels from LR forecast features, corresponding to three LR times around the assimilation time and upsampled to the HR grid, and two channels from processed observations aligned with the assimilation interval. These conditioning channels are concatenated with 
+
+Xτ along the channel dimension, so the U-Net input has 10 channels in total, and the network outputs the predicted noise field ετ with five channels, one for each HR frame. The network uses group normalization with 32 groups, and self-attention is applied at the intermediate spatial resolution of 8. For LatDiffSRDA, shown in Figure 17(b), the SRDA cycle and conditioning structure remain the same, but diffusion is performed in the vector-quantized latent space produced by a VQ-VAE, as described in Appendix C. The noisy diffusion variable is therefore the latent tensor zτ rather than the pixel-space state window. The conditioning channels from the LR forecasts and observations are concatenated with zτ , and the U-Net outputs the corresponding predicted latent-space noise field ετ . The encoder maps an HR window to a latent representation, which is quantized using a learned codebook, and the decoder reconstructs the HR window from the quantized latents. The VQ-VAE is trained separately and then kept fixed during diffusion training and sampling. The corresponding VQ-VAE configuration and latent tensor shapes are reported together with the LatDiffSRDA implementation settings. 34 A PREPRINT - A PRIL 24, 2026 Resnet  × 3
+
+> DownSample
+> Resnet  × 3
+> Attention
+> Resnet  × 3
+> Attention
+> Resnet  × 3
+> Resnet  × 3
+> DownSample
+> Resnet  × 3
+> DownSample
+> Resnet  × 3
+> DownSample
+> Resnet  × 3
+> Attention
+> Resnet  × 3
+> Attention
+> Resnet  × 3
+> UpSample
+> Concat
+> Concat
+> Concat
+> Resnet  × 3
+> UpSample
+> Resnet  × 3
+> Concat
+> Resnet  × 3
+> UpSample
+> Resnet  × 3
+> Concat
+> Concat
+> Resnet  × 3
+> UpSample
+> Resnet  × 3
+> Resnet  × 3
+> GroupNorm
+> Sigmoid
+> Conv2D
+> Conv2D
+> Positional
+> encoding
+> 𝑿 𝝉 𝐟 𝐲 𝝉
+> 𝛜 𝛕
+
+GroupNorm 
+
+Sigmoid 
+
+Conv2D 
+
+GroupNorm 
+
+Sigmoid 
+
+Conv2D 
+
+Positional 
+
+encoding 
+
+𝝉 
+
+Linear 
+
+Resnet 
+
+> Resnet  × 3
+> DownSample
+> Resnet  × 3
+> Attention
+> Resnet  × 3
+> Attention
+> Resnet  × 3
+> Resnet  × 3
+> DownSample
+> Resnet  × 3
+> Attention
+> Resnet  × 3
+> Attention
+> Resnet  × 3
+> UpSample
+> Concat
+> Concat
+> Concat
+> Concat
+> Resnet  × 3
+> UpSample
+> Resnet  × 3
+> Resnet  × 3
+> GroupNorm
+> Sigmoid
+> Conv2D
+> Conv2D
+> Positional
+> encoding
+> 𝒛 𝝉 𝐟 𝐲 𝛕
+> 𝝐 𝝉
+
+GroupNorm 
+
+Sigmoid 
+
+Conv2D 
+
+GroupNorm 
+
+Sigmoid 
+
+Conv2D 
+
+Positional 
+
+encoding 
+
+𝝉 
+
+Linear 
+
+Resnet 
+
+## (a) 
+
+## (b) 
+
+Figure 17: U-Net denoiser architectures used in this study: (a) the pixel-space diffusion model (DiffSRDA) and (b) the latent-space scalability ablation model (LatDiffSRDA). 35

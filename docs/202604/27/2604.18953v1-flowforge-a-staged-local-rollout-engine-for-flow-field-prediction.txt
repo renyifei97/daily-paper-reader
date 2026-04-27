@@ -1,0 +1,1641 @@
+Title: FlowForge: A Staged Local Rollout Engine for Flow-Field Prediction
+
+URL Source: https://arxiv.org/pdf/2604.18953v1
+
+Published Time: Wed, 22 Apr 2026 00:26:17 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# FLOW FORGE : A S TAGED LOCAL ROLLOUT ENGINE FOR FLOW 
+
+# FIELD PREDICTION 
+
+> AR
+
+XIV PREPRINT 
+
+Xiaowen Zhang *
+
+Shanghai Jiao Tong University Shanghai, China 
+
+handshaker@sjtu.edu.cn 
+
+Ziming Zhou *
+
+University of Michigan Ann Arbor, USA 
+
+zimingzh@umich.edu 
+
+Fengnian Zhao 
+
+Shanghai Jiao Tong University Shanghai, China 
+
+iclover@sjtu.edu.cn 
+
+David L.S. Hung 
+
+Shanghai Jiao Tong University Shanghai, China 
+
+dhung@sjtu.edu.cn 
+
+## ABSTRACT 
+
+Deep learning surrogates for CFD flow field prediction often rely on large, complex models, which can be slow and fragile when data are noisy or incomplete. We introduce F LOW FORGE , a staged local rollout engine that predicts future flow fields by compiling a locality-preserving update schedule and executing it with a shared lightweight local predictor. Rather than producing the next frame in a single global pass, F LOW FORGE rewrites spatial sites stage by stage so that each update conditions only on bounded local context exposed by earlier stages. This compile–execute design aligns inference with short-range physical dependence, keeps latency predictable, and limits error amplification from global mixing. Across PDEBench, CFDBench, and BubbleML, F LOW FORGE matches or improves upon strong baselines in pointwise accuracy, delivers consistently better robustness to noise and missing observations, and maintains stable multi-step rollout behavior while reducing per-step latency. 
+
+## 1 Introduction 
+
+Flow field prediction is a core operation in time-dependent computational fluid dynamics (CFD): given a short history window Ut−m+1: t, engineers and experimentalists repeatedly need a fast surrogate for a future state Ut+k to explore small changes in operating conditions, boundary settings, or geometry. [ 1 ] In this workflow, the surrogate ML model is only useful if it is (i) accurate under nominal conditions, (ii) reliable under realistic input imperfections (noise, missing regions, imperfect boundary conditions [2]), and (iii) fast enough for interactive iteration [3]. Current ML surrogates yet do not provide a reliable off-the-shelf solution. In practice, users must choose among many families (e.g., U-Net [ 4], Fourier Neural Operator (FNO) [ 5 ], and other physics-informed neural networks (PINNs) [ 6]) whose performance and stability can vary substantially across datasets and noise regimes. Empirical studies in Section 4.2 show that even strong baselines degrade under realistic input corruptions and incur higher per-step latency. A common root cause is architectural. Many popular models rely on deep encoder–decoder pipelines or layers with global receptive fields, such as Fourier spectral operators or global attention, which mix information across the entire spatial grid in a single update. While regularization or spectral truncation can mitigate some instabilities, they do not alter the underlying information-flow graph: every output location is still computed in one global pass and can be influenced by defects anywhere in the input. This global structure is not incidental but induced by the standard supervised objective, which trains the model to predict the entire future field in one global update, 
+
+Ut+k = fk(Ut−m+1: t).
+
+> ∗
+
+These authors contributed equally. 
+
+> arXiv:2604.18953v1 [cs.LG] 21 Apr 2026
+
+FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT Input 𝑈 !"#
+
+Input 𝑈 ! → 𝑈 !"#
+
+(a) Global One -step 
+
+Prediction 
+
+(b) Short Horizon 
+
+Physical Dependence 
+
+(c) FlowForge 
+
+Reformulation 
+
+All sites predicted 
+
+simultaneously 
+
+One -step dynamics 
+
+depend on bounded 
+
+spatial neighborhoods 
+
+Available context 
+
+Stage 2 updates 
+
+Stage 3 updates   
+
+> Figure 1: From global one-step prediction to locality-preserving rollout. (a) Global predictors update all sites simultaneously. (b) Short-horizon dynamics exhibit bounded spatial dependence. (c) F LOW FORGE performs a staged local rollout aligned with this structure.
+
+Over short horizons, however, physical influence is predominantly local: each spatial site depends almost only on a bounded neighborhood. Single-pass global predictors instead compute all sites simultaneously, allowing information from distant regions to affect every update. As a result, local defects spread across the domain and inference needlessly pays for global interactions (Figure 1). Our key idea is to predict the next flow field not in a single global pass, but as a local rollout . Instead of updating all spatial locations simultaneously, we generate the single future state Ut+k by progressively rewriting spatial sites in a locality-preserving order. At each step, a site is predicted using (i) the past history Ut−m+1: t and (ii) nearby future values that have already been updated. In this way, information propagates locally and incrementally across the grid, rather than being mixed globally in one shot. Formally, this corresponds to factorizing the conditional distribution of the next field into ordered, neighborhood-conditioned site-wise updates: 
+
+p(Ut+k | Ut−m+1: t) = 
+
+> N
+
+Y
+
+> i=1
+
+p
+
+
+
+u(σ(i))  
+
+> t+k
+
+Ut−m+1: t, u (σ(<i )) 
+
+> t+k
+
+
+
+, (1) where σ defines an order over the N spatial sites, and u(σ(<i ))  
+
+> t+k
+
+denotes values generated earlier in that order. The history window Ut−m+1: t is channel-stacked as concat( Ut−m+1 , . . . , U t) ∈ RN ×(mc ).Naïvely implementing (1) is impractical: a strict site-by-site rollout would create a long sequential dependency chain, severely limiting parallelism and amplifying errors across the grid. This raises a central question: can we preserve the local physical dependence of the update while avoiding a fully sequential execution? In other words, how can we maintain locality—so each site depends only on nearby values—yet still achieve fast, predictable inference at scale? FLOW FORGE resolves this tension through a compile–execute design. The compiler precomputes a rollout plan that (i) follows a locality-preserving traversal order, (ii) partitions sites into a small number of stages that can be updated in parallel, and (iii) assigns each site a bounded neighborhood drawn only from earlier stages. At inference time, the 
+
+executor performs a stage-by-stage rewrite of the field, applying the same lightweight local predictor to all sites within a stage in parallel while conditioning strictly on the plan-defined context. In effect, the compiler fixes how information is allowed to flow across the domain, and the executor simply executes this structured schedule. As a result, information and errors propagate only locally rather than globally, parallelism is exposed in a controlled, stage-wise manner, and each site is updated using a fixed-size neighborhood. Together, these choices make inference both hardware-friendly and latency-predictable, even as problem size grows. The efficient local-rollout design and implementation make F LOW FORGE fast to run and resilient to input imperfections. FLOW FORGE achieves best-or-second-best pointwise accuracy on 10/11 datasets, while keeping multi-step rollouts stable. Under additive noise and block or edge-localized masking corruptions, F LOW FORGE exhibits the smallest increase in error, particularly near boundaries, and maintains a nearly flat per-point latency as resolution grows. These results suggest that aligning the prediction task with short-range physical information flow enables small, stable models to outperform complex architectures in realistic conditions. 2FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+Contributions. (1) Formulation: We formulate next-step flow prediction as a local rollout , factorizing p(Ut+k |
+
+Ut−m+1: t) into ordered, neighborhood-conditioned spatial updates. (2) System: We present F LOW FORGE , a compile– execute system that enables efficient and stable training and inference under this formulation. (3) Evaluation: We empirically validate F LOW FORGE on CFDBench, PDEBench, and BubbleML, covering accuracy, rollout behavior, robustness, latency, and ablations. 
+
+## 2 Staged Local Rollout 
+
+A one-step update in time-dependent CFD does not depend on the entire spatial field. Physical transport is con-strained by finite propagation speed, and diffusion spreads information over a bounded distance within a single time step. Nevertheless, many learned surrogates either predict all locations simultaneously—implicitly assuming global dependence—or rely on deep receptive fields, which increases latency and degrades robustness under perturbations. Our goal is to realize the spatial autoregressive formulation in (1) in a way that makes this locality explicit while retaining parallelism. We do so by predicting the next field through a small number of sequential stages, where each stage writes a subset of locations in parallel and later stages are allowed to condition on values written earlier. 
+
+2.1 Staged formulation of local rollout 
+
+Rather than predicting all N spatial locations at once, we introduce an ordering σ over locations and partition it into K
+
+disjoint stages S1, . . . , S K . The stages are executed sequentially, but all locations within a stage are updated in parallel. During this process, we maintain a working array Y ≈ Ut+1 that is progressively filled. At stage s, the predictor produces values for all locations in Ss using the current field Ut and the values already written in earlier stages: 
+
+YSs = Gθ
+
+ Ut, Y S<s 
+
+, S<s := {S1, . . . , S s−1}. (2) The update is masked in the sense that predictions at stage s may read Ut and YS<s , but never entries written in the same or later stages. Executing stages 1: K yields a complete prediction Y .This construction reduces the effective sequential dependency depth from N locations to K ≪ N . The choice of stages therefore directly controls how much parallelism is exposed and how much predicted context each location can access. In practice, this choice should reflect the finite spatial extent of one-step physical dependencies. 
+
+2.2 Physical dependency structure and stage design 
+
+We exploit this locality by appealing to the finite spatial extent of one-step physical dependencies. For instance, in an advection–diffusion system over a time step ∆t, information is transported along characteristics at speed at most cmax 
+
+and diffused over a radius proportional to √ν∆t. Combining these effects yields a conservative bound on the one-step dependency radius, 
+
+rreq ≈ cmax ∆t + rp,
+
+where rp captures the effective diffusion radius (Proposition F.9). Beyond this distance, the influence of the current state on a local update is negligible. On a uniform grid with spacing ∆x, this implies that predicting a location only requires access to approximately 
+
+R ≈  rreq 
+
+> ∆x
+
+
+
+neighboring rings or shells. A sufficient condition for physical consistency is therefore that, when a location is updated, earlier stages have already covered most of this neighborhood (Lemma F.10). This naturally motivates locality-preserving traversal orders and outward-expanding stage schedules, in which later stages condition on progressively larger spatial context. 
+
+2.3 Stability and latency implications 
+
+With these schedule principles in mind, we next quantify what staging implies for stability and end-to-end latency. Because later stages condition on a more complete neighborhood, uncertainty tends to decrease as rollout progresses. If the stage-restricted map induced by Gθ (Ut, ·) is Lipschitz with constant Ls, then a perturbation introduced at stage r
+
+can affect the output of stage s > r by at most Qsq=r+1 Lq (Proposition F.4). This highlights the benefit of keeping the number of stages K small and allocating more locations to later stages, where richer context is available. 3FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+Staging also makes latency explicit. In an ideal parallel execution model, if updating one location costs tloc and stage s
+
+processes |Ss| locations with parallel width ws, the total makespan is 
+
+Ttotal =
+
+> K
+
+X
+
+> s=1
+
+l |Ss|
+
+> ws
+
+m
+
+tloc (Proposition F. 16) .
+
+The stage schedule therefore provides a principled and tunable trade-off between conditioning strength, stability, and end-to-end latency. 
+
+## 3 FLOW FORGE Design 
+
+Section 2 motivates predicting Ut+1 via a staged local rollout : we maintain a working field and overwrite it in stages, with the rule that predictions in stage s may depend only on values written in stages < s . We adopt this formulation because it makes the dependency structure explicit and controllable. In particular, it (i) guarantees that within-stage updates can be parallelized without circular dependencies, (ii) forces each prediction to use a bounded local neighborhood consistent with the required one-step dependency radius, and (iii) exposes direct accuracy–latency controls through the number of stages and the context size. F LOW FORGE implements this idea as a compile–execute system: an offline compiler fixes an ordering, stage boundaries, and per-site context indices; an online executor follows these tables to produce bUt+1 .
+
+3.1 Overview 
+
+FLOW FORGE separates planning from execution . The plan determines what information is visible when predicting each site: it specifies (i) a traversal order σ over spatial sites, (ii) a partition of the resulting sequence into stages S1: K ,and (iii) for each site, a fixed list of at most H earlier indices that may be read as context. The executor is then a deterministic staged rewrite of a working buffer: for stage s, it gathers the plan-specified context for all i ∈ Ss, applies a shared local predictor Gθ in batch, and writes the results back. Because the plan only allows reads from earlier stages, causality is enforced by construction and no runtime masking checks are required. This structure positions the remaining subsections. Section 3.2 formalizes the executor given a plan. Section 3.3 describes how the plan and lookup tables are synthesized to balance neighborhood coverage against sequential depth. Section 3.4 aligns training with the same plan-defined inputs to avoid rollout mismatch. Section 3.5 extends the same mechanism to high-resolution settings. 
+
+3.2 Staged Rewrite Executor 
+
+At inference time, the executor maintains a working buffer in the compiled rollout order and rewrites it in K stages. Let 
+
+σ be the compiled ordering of spatial sites, and let eUt := concat( Ut−m+1 , . . . , U t) ∈ RN ×(mc ) be the channel-stacked history window (we write eUt as Ut below). The buffer is a sequence 
+
+Y = ( y1, . . . , y N ), yi ∈ Rc,
+
+where yi corresponds to site σ(i) and is initialized from the current field, 
+
+yi ← u(σ(i))  
+
+> t
+
+for i = 1 , . . . , N, 
+
+which is subsequently overwritten into the prediction bUt+1 .The rollout plan partitions indices 1: N into disjoint stages S1, . . . , S K executed sequentially. Each stage updates all sites in Ss in parallel, subject to a causality constraint: a site in stage s may only read values written in earlier stages. For each i ∈ Ss, the compiler constructs a context set ctx( i) satisfying 
+
+ctx( i) ⊆
+
+> s−1
+
+[
+
+> r=1
+
+Sr .
+
+The plan is lowered into index tables so the executor can gather context without runtime decisions. At stage s, the executor evaluates, for all i ∈ Ss,
+
+byi = Gθ
+
+
+
+Φ( Ut, σ (i)) , Ψ( Y ; i), pos( σ(i)) 
+
+
+
+, (3) 4FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 𝑃 = 𝜎 , 𝑆 1:𝐾 , 𝐻 , 𝑤 1:𝐾 , 𝜌       
+
+> Ordering
+> 123
+> Stage Partition Context Size
+> 𝑆 1:𝑘 ,𝑤 1:𝑘 𝐻 2𝐷 3𝐷
+
+Input Field 𝑈 𝑖 ∈ 𝑅 𝑁 ×𝑐 
+
+Rollout Plan Compiler 
+
+Lower to Lookup Tables 
+
+…
+
+What to Execute 
+
+Staged Rewrite Executor 
+
+> (Online Inference)
+
+• Working Buffer 𝑌 
+
+• Gather Context 
+
+• Causal Masking 
+
+• Scatter Updates 
+
+Stage 1  Stage 2  Stage 3 
+
+… ……
+
+Masking 
+
+Local Predictor 𝐺 0
+
+• Bounded Context 
+
+• Shared Model 
+
+Updated Field 𝐘 = 𝑈 𝑡 +𝑘 
+
+Figure 2: FLOW FORGE workflow. Offline, we compile a rollout plan and lower it into index tables. Online, the executor overwrites a working buffer stage by stage using a shared local predictor Gθ , producing bUt+1 .
+
+and then commits the results by writing them back to the working buffer: 
+
+yi ← byi, i ∈ Ss. (4) We use a single shared local predictor Gθ across all stages: the update rule is stationary, and stages differ only in how much previously written neighborhood is exposed by Ψ( ·). The causality constraint ensures correctness of within-stage parallelism: because every Ψ( Y ; i) indexes only ∪r<s Sr , all context values are already written and remain fixed while stage s is computed, so no prediction in Ss depends on another prediction in Ss. Consequently, the executor can batch all sites in Ss and evaluate (3) in parallel without circular dependencies or runtime masking. Operationally, each stage follows a three-step loop: (1) gather a bounded set of context vectors from Y using the precomputed indices, (2) apply Gθ to the resulting batch, and (3) scatter the outputs back into Y . This exposes two direct runtime controls: increasing the number of stages K increases sequential depth, while increasing the context budget H increases available information per update at the cost of additional memory traffic. Because both quantities are fixed by the plan, inference cost is predictable. 
+
+3.3 Rollout Plan Compiler 
+
+After choosing the executor, the main design question is how to choose a plan that gives each prediction enough local information without making the rollout too sequential. The compiler outputs 
+
+P = ( σ, S 1: K , H, w 1: K )
+
+Here σ is the order of sites, S1: K is the stage partition in that order, H is the maximum number of context sites used by each prediction, and ws is the batch width used when executing stage s. Optionally, we can also apply a coarse-to-fine strategy with factor ρ to downscale the grid and upsample back to the native grid (Section 3.5); we treat ρ as an execution option rather than part of P.We implement the compiler in two steps. First, we choose σ and S1: K to make already-written neighbors available at decode time. Section 2 motivates a required dependency radius rreq ; on a grid with spacing ∆x this corresponds to roughly R ≈ ⌈ rreq /∆x⌉ rings (2D) or shells (3D). Intuitively, we want a site to be decoded after many sites in its 
+
+R-ring neighborhood have already been written. Second, once σ and S1: K are fixed, we precompute simple index tables so the executor can read context and write outputs without runtime decisions. 5FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+Algorithm 1 Two-step compiler for F LOW FORGE 
+
+Require: Grid sites V (size N ), spacing ∆x, required radius rreq , number of stages K (or stage size), context budget 
+
+H
+
+Ensure: Rollout plan P and index tables T 
+
+> 1:
+
+R ← ⌈ rreq /∆x⌉ 
+
+> 2:
+
+Choose traversal σ (Outward Spiral from seed)  
+
+> 3:
+
+Partition 1: N into stages S1, . . . , S K (e.g., equal-sized)  
+
+> 4:
+
+Build stage tables (stage_ptr , stage_idx ) for iterating stage indices  
+
+> 5:
+
+for i = 1 to N do  
+
+> 6:
+
+Find candidate spatial neighbors of site σ(i) within R rings/shells  
+
+> 7:
+
+Let s be the stage containing i (i.e., i ∈ Ss) 
+
+> 8:
+
+Keep up to H neighbors j such that j < i and j ∈ ∪ s−1
+
+> r=1
+
+Sr (i.e., j is in an earlier stage)  
+
+> 9:
+
+Store them in ctx_idx [i, 1: H] (and a mask if fewer than H exist)  
+
+> 10:
+
+end for  
+
+> 11:
+
+Build per-site metadata tables for pos( ·) and Φ( ·) 
+
+> 12:
+
+return P = ( σ, S 1: K , H, w 1: K ) and T
+
+In this work we use an Outward Spiral traversal: starting from a seed location, we visit spatially adjacent sites while expanding the visited region outward. This ordering is easy to implement, keeps nearby sites close in the sequence, and naturally increases the fraction of already-written neighbors as the rollout progresses. We then use a simple, predictable stage template (equal-sized by default), which makes K a direct knob for latency. The resulting executor runtime can be estimated under the same idealized model as Section 2. Because stages run sequentially, total time is approximately 
+
+Ttotal (P) = 
+
+> K
+
+X
+
+> s=1
+
+l |Ss|
+
+> ws
+
+m
+
+tloc (H),
+
+where tloc (H) summarizes the per-batch cost of reading H context vectors and running Gθ .This analytical model defines the feasible search space of configurations satisfying a latency budget Tbudget . Within this feasible set, we employ a physics-informed selection strategy to identify the optimal plan P∗. Specifically, we execute candidate configurations on a validation subset and minimize a composite objective: 
+
+Ltotal (P) = X
+
+> m∈M
+
+λm
+
+Em(P)
+
+μm
+
+.
+
+Here, M = {RMSE , Vor , Spec , Div } denotes the set of error metrics (see Appendix A.4 for the metric definitions). The term Em(P) represents the error computed for plan P on metric m, and μm is the mean error across all candidates used for normalization. We assign weights λRMSE = λVor = λSpec = 0 .3 to balance prediction accuracy, physical structure preservation, and spectral fidelity, and λDiv = 0 .1 as a soft physical conservation constraint. These weights were chosen to prioritize pointwise accuracy and physical structure while ensuring approximate mass conservation. This optimization is performed offline, and the resulting compiled tables are reused across all rollouts. 
+
+3.4 Training Without Rollout Mismatch 
+
+The staged rollout enforces a strict information pattern: each site is predicted from its current-state features plus a bounded neighborhood drawn only from earlier stages (Section 3.2). A naive supervised setup can accidentally leak 
+
+future-stage information during training, creating a train–test mismatch that amplifies under staged rollout. We avoid this by training Gθ with the same plan-defined inputs as inference (see Appendix B.4 for details). Concretely, let v⋆ 
+
+> 1: N
+
+= ( u(σ(1))  
+
+> t+1
+
+, . . . , u (σ(N ))  
+
+> t+1
+
+) be the ground-truth next-step sequence under order σ. For each index i,we form: 
+
+x⋆i =
+
+h
+
+Φ( Ut, σ (i)) , Ψ v⋆; i, pos( σ(i)) 
+
+i
+
+7−→ v⋆i ,
+
+and minimize mean-squared error over i = 1: N .
+
+3.5 Scalability and Model Backend 
+
+Inference cost scales with the number of sites N , but F LOW FORGE exposes simple knobs that keep latency predictable: bounded per-site context and a fixed number of sequential stages. For very high-resolution grids, we optionally use a 6FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+coarse-to-fine execution path that shortens the effective sequence length; and once the plan fixes the information flow, a lightweight predictor backend is sufficient. We defer these engineering details to Appendix B.5. In Section 4, we show that this design achieves strong accuracy with low and controllable latency. 
+
+## 4 Results 
+
+4.1 Prediction Accuracy Analysis 
+
+Table 1: Comparison of different models. Best values are bolded , second best are underlined . Entries marked with ∗ do not have official hyperparameters reported in the original benchmarks, and we run a short grid search for 5 epochs over canonical architectural choices.                                                                                                                                                                                                                                                  
+
+> CFDBench
+> Dataset Tube Cylinder Dam Cavity Model RMSE Vor Spec Div RMSE Vor Spec Div RMSE Vor Spec Div RMSE Vor Spec Div FNO 0.1156 0.5330 1.2647 0.2396 0.0915 0.1466 0.5345 0.2046 0.0491 0.1705 0.5225 0.1070 0.1911 0.0921 0.4822 0.0650 U-Net 0.1461 0.7464 1.5991 0.2402 0.0915 0.1466 0.5289 0.2044 0.0494 0.1742 0.5136 0.1069 0.1456 0.0715 0.3608 0.0342 DeepONet 0.3673 0.8676 0.8279 0.0601 0.0709 0.1173 0.2193 0.0346 0.0772 0.5063 0.4794 0.0347 0.2710 0.0879 0.3525 0.0301
+> CNO ∗0.1873 0.8997 1.5403 0.2306 0.0924 0.1501 0.5583 0.2056 0.0955 0.3624 0.6372 0.1120 0.2385 0.0928 0.4895 0.0587 UNO ∗0.1301 0.7057 1.4948 0.2272 0.1526 0.3376 0.8219 0.2128 0.0691 0.3458 1.1906 0.1109 0.1476 0.0693 0.3883 0.0390 FLOW FORGE 0.1035 0.3326 0.8208 0.0205 0.0258 0.0806 0.4325 0.0215 0.0222 0.2310 0.5303 0.0173 0.2949 0.2076 0.6573 0.0919
+> PDEBench
+> Dataset Diff-React Rand-M0.1 Rand-M1.0 Model RMSE Vor Spec Div RMSE Vor Spec Div RMSE Vor Spec Div FNO 0.0850 1.0010 16.9993 2.4304 0.1370 0.3684 2.5852 5.0081 0.1241 0.7569 4.3602 10.5203 U-Net 0.0871 0.7544 1.5762 1.8133 0.9253 1.0838 3.9059 14.6274 1.3545 1.2576 6.4127 20.9948 FLOW FORGE 0.0837 1.0634 1.6317 0.0422 0.0451 1.2696 2.8513 0.0301 0.1351 3.4283 5.7483 0.0938
+> BubbleML
+> Dataset FB-Gravity PB-Gravity PB-Subcooled FB-VelScale Model RMSE Vor Spec Div RMSE Vor Spec Div RMSE Vor Spec Div RMSE Vor Spec Div FNO 0.4600 1.1274 2.5466 79.4190 0.3304 1.0191 2.5540 9.7240 0.4922 1.0122 2.5957 8.1798 0.9042 1.3128 2.0251 192.8551 U-Net 122.3470 ∗512.2977 ∗3.3801 ∗6.59 ×10 4∗0.2873 1.0467 1.9896 12.2452 0.5030 1.0462 1.9598 12.3974 9.8684 ∗6.0919 ∗3.5103 ∗1.35 ×10 3∗
+> FLOW FORGE 0.1869 0.9843 2.2159 0.0240 0.2898 1.0753 1.4567 0.0289 0.3798 1.1878 1.5041 0.0371 0.5382 0.9678 2.2434 0.0421
+
+We compare F LOW FORGE with three representative surrogate families: DeepONet, U-Net, and FNO, and additionally include CNO/UNO where applicable. All models are trained for 48 hours on the same hardware with identical train/validation splits. For F LOW FORGE , we use the compiler-selected configuration (Section 3.3). For each baseline, we start from the official reference implementation and tune only standard hyperparameters (learning rate, batch size, and scheduler) within the same 48-hour budget (Appendix B). For configurations not covered in the original benchmarks (e.g., U-Net with FB-Gravity/FB-VelScale or CNO/UNO on CFDBench), we run a short 5-epoch grid search over canonical architectural choices and select the best-validation-RMSE setting (see Appendix C for search spaces and final configurations). If a method fails to reach a stable training loss within the budget, we report N/A to reflect that it cannot produce a usable model under this constraint. We evaluate on eleven datasets from CFDBench, PDEBench, and BubbleML spanning diverse flow regimes, boundary conditions, and grid resolutions (Appendix A). We report RMSE alongside three physics-oriented diagnostics: vorticity error (rotational structure), spectral error (frequency content), and divergence error (mass-conservation proxy), all summarized in Table 1. Beyond one-step evaluation, we also measure multi-step rollout behavior by iteratively feeding predictions back as inputs and tracking the same diagnostics over time (see Appendix D.1 and Figure 7). FLOW FORGE achieves the best or second-best RMSE on 10/11 datasets, showing that staged rollout preserves pointwise accuracy relative to strong one-shot baselines. Its main advantage appears in physical consistency: F LOW FORGE attains the lowest divergence error on 10/11 datasets (all except Lid-driven Cavity), often by a wide margin. This pattern aligns with the staged local rollout mechanism: each update conditions on an expanding local neighborhood and tends to produce compatible increments that accumulate fewer global inconsistencies. The same analysis also surfaces a limitation. On Lid-driven Cavity, F LOW FORGE is sub-optimal in RMSE and auxiliary metrics. This dataset is dominated by global coupling from the elliptic pressure solve in a closed domain: pressure constraints propagate almost instantaneously across the domain and errors can recirculate through the boundary. Such dynamics are poorly matched to a purely local, forward-conditioned rollout that processes sites sequentially, but more aligned with global operator baselines that directly capture domain-wide pressure coupling. Figure 3 zooms into regions of strong shear and vortex shedding, where small phase or amplitude errors quickly become visually salient. F LOW FORGE closely matches the ground-truth streamlines in both regions: in R1, predicted streamlines are smooth and follow the main flow, while in R2, vortex cores are captured with little distortion. Errors are sparse and remain confined to high-vorticity areas, indicating that staged local rollout limits their spread. By contrast, FNO preserves the bulk flow but blurs high-frequency structures near interfaces due to global spectral mixing, and 7FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT R1 
+
+> R2
+> Global Reference (Ground Truth)
+> Zoom-in R1
+
+Ground Truth Ours FNO U-Net 
+
+> Zoom-in R2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> Absolute Error (RMSE)
+
+Figure 3: Streamline prediction visualizations for the FB-Gravity dataset. Original +Global Noise +Global Masking +Edge Noise +Edge Masking    
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Average Normalized Loss
+> 0.11 0.09
+> 0.21
+> 0.13
+> 0.60
+> 0.27 0.27
+> 0.45
+> 0.34
+> 1.00
+> 0.16 0.15
+> 0.36
+> 0.12
+> 0.76
+> 0.17
+> 0.15
+> 0.36
+> 0.20
+> 0.72
+
+Prediction Robustness with Perturbed Inputs 
+
+> FlowForge (Ours)
+> DeepONet
+> FNO
+> U-Net
+
+Figure 4: Quantitative evaluation of model robustness under input perturbations. RMSE losses are max-scaled normalized relative to the worst-performing case per dataset. Bar heights indicate the average normalized loss, and error bars represent the standard deviation. 
+
+U-Net produces overly uniform streamlines with widespread artifacts, likely from amplifying local uncertainty across the domain. Overall, this case study shows that the benefit of F LOW FORGE is not just lower aggregate error but also better error geometry: errors are localized, physically interpretable, and tied to genuine modeling difficulty rather than artifacts of global coupling. 
+
+4.2 Robustness to Input Corruptions 
+
+We evaluate robustness on CFDBench under Gaussian noise and spatial masking, applied both globally and at edges. We aggregate losses across a range of corruption levels (see Appendix D.3 for details) and normalize them to account for scale. Figure 4 shows that F LOW FORGE incurs the smallest error increase across nearly all perturbations. The advantage is most pronounced under spatial masking, particularly at boundaries, where global single-pass predictors suffer substantial error amplification. This behavior reflects F LOW FORGE ’s locality-preserving rollout, which confines corrupted inputs to bounded neighborhoods and limits cross-domain error propagation. To make these effects concrete, Figure 5 shows a representative CFDBench example under strong global block masking corruption. We apply a global mask composed of contiguous spatial blocks and compare the reconstructed fields. For FNO, U-Net, and DeepONet, the block pattern of the mask is clearly imprinted in the predictions: masked regions reappear as patchy artifacts or over-smoothed blobs, and the corruption bleeds into neighboring, originally clean areas. 8FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT Applied 
+
+## Global Mask 
+
+## Observed 
+
+## Region  
+
+> Figure 5: Robustness case study under global block masking corruption.
+
+## 10 4 10 5
+
+# Flow field size (# grids) 
+
+## 0.01 
+
+## 0.02 
+
+## 0.03 
+
+## 0.05 
+
+## 0.07 
+
+## 0.09 
+
+## 0.11 
+
+## 0.13 
+
+## 0.15 
+
+> Latency / grid [μs]
+
+## DeepONet 
+
+## U-Net 
+
+## FNO 
+
+## FlowForge  
+
+> Figure 6: Latency comparison across datasets of increasing resolution. Lower is better.
+
+In contrast, F LOW FORGE produces a reconstruction that is visually close to the ground truth, with almost no visible trace of the mask and errors confined to a narrow band surrounding the occluded blocks. 
+
+4.3 Latency Analysis 
+
+We report inference latency for predicting 100 future frames, normalized by the number of spatial grid points. The normalization captures how efficiently each method processes a single spatial location as the problem size grows. Figure 6 summarizes results on datasets of increasing resolution. FLOW FORGE exhibits a relatively stable per-point latency across problem sizes. This behavior is expected given its design: inference is dominated by local, staged updates whose computational footprint does not grow with the global grid size. In addition, the F LOW FORGE compiler explicitly considers latency during configuration selection, favoring stage schedules and tilings that align well with the target hardware. As resolution increases, the normalized latency can decrease because larger grids provide more parallel work per launch and better amortize fixed overheads, improving hardware utilization. 9FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+In contrast, U-Net and FNO show a pronounced increase in normalized latency at medium grid sizes (around 128 × 128 ), followed by partial recovery at larger resolutions. This pattern reflects the cost of global operations—deep encoder– decoder passes or full-field Fourier transforms—which are inefficient when intermediate tensors exceed cache capacity but are not yet large enough to fully amortize kernel overhead. While these methods can become more efficient at very large scales, the intermediate regime incurs a substantial latency penalty. DeepONet achieves low per-point latency on small grids but does not scale well to larger resolutions, as its inference cost grows linearly with the number of queried spatial locations and lacks reuse across neighboring points. We therefore restrict DeepONet to coarse grids where it is computationally competitive. 
+
+4.4 Ablation Study      
+
+> Table 2: Ablation study of key design components on CFDBench-Cylinder. The base configuration is our best setting on this dataset: K=128 ,σ=Outward Spiral, and local predictor Gθ=MLP.
+
+Block Setting RMSE Latency (ms) 
+
+Base FlowForge 0.0258 16.16 Struct. One-shot (no rollout) 0.3457 10.47 
+
+K 4 0.0403 14.79 16 0.0364 14.93 64 0.0291 14.88 256 0.0242 16.97 
+
+σ Raster Scan 0.0262 15.96 Random 0.0265 16.64 Hilbert Curve 0.0260 17.57 
+
+Gθ CNN 0.3401 20.62 FFN 0.8469 21.92 We ablate core design choices of F LOW FORGE on CFDBench-Cylinder: (i) whether to perform a staged within-step rollout or predict all sites in a single parallel pass, (ii) the rollout granularity K, (iii) the traversal order σ, and (iv) the local predictor backbone Gθ . Table 2 reports the best configuration identified by our search (highlighted) together with controlled variations of each component. 
+
+Is FlowForge merely enforcing locality? (Local one-shot control). One concern is that the observed gains may stem solely from restricting each prediction to a local neighborhood, rather than from the staged within-step rollout itself. To disentangle these effects, we introduce a local one-shot baseline that uses the same compiler-selected local context (up to H neighbors per site) and identical input features, but predicts all sites in a single parallel pass conditioned only on Ut (i.e., without reading from the partially updated buffer Y ). Despite preserving locality, this baseline performs substantially worse (RMSE 0.3457 vs. 0.0258 ), indicating that locality alone without staged rollout is insufficient. 
+
+Effect of stage granularity ( K). Varying K from 4 (quasi-parallel) to 256 (highly sequential) reveals a consistent accuracy–latency trade-off. Increasing K reduces RMSE by providing stronger within-step conditioning: more sites can leverage already-updated local values in Y . Latency stays nearly flat up to K=64 and increases only when the rollout becomes highly sequential ( K=256 ), where reduced parallelism begins to dominate runtime. 
+
+Effect of traversal order ( σ). Orders that preserve locality (Outward Spiral, Raster Scan, Hilbert Curve) yield very similar RMSE, and even Random is only slightly worse. This indicates that, under our bounded context selection, performance is governed primarily by having access to nearby predecessors , while the exact geometric path is secondary as long as the ordering does not systematically deprive updates of local, already-generated neighbors. 
+
+Local predictor backbone ( Gθ ). Keeping the staged executor fixed, an MLP is the best-performing local predictor in both accuracy and latency. CNN/FFN alternatives are substantially worse in this setting, suggesting that for our compiler-produced sparse predecessor lists (a fixed set of indexed neighbors rather than a dense image patch), additional architectural machinery does not translate into better next-step updates and can incur extra overhead. We therefore use the MLP backbone throughout the paper. 10 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+## 5 Related Work 
+
+Our work lies at the intersection of deep learning for scientific simulation and sequential modeling. We contrast our paradigm of problem reconstruction with three prevailing approaches in flow field prediction. 
+
+Time-series PDE forecasting via learned time-stepping. A common approach to PDE forecasting is to learn a one-step time-stepper Ut 7 → bUt+k and roll it out autoregressively, making stability, error accumulation, and per-step cost central concerns. Recent work spans large-scale operator- and transformer-based autoregressive models (e.g., DPOT [ 7], PDEformer [ 8], Unisolver [ 9 ]), continuous space–time representations with symmetry structure [ 10 ], and analyses that improve rollout stability via message passing, multiscale stepping, or memory [ 11 – 15 ]. These methods primarily shape the temporal semantics of prediction—how the one-step map composes across physical time steps—while treating each update as an atomic operation. In contrast, F LOW FORGE preserves the same temporal formulation but intervenes 
+
+within a step: the update is decomposed into ordered, staged sub-updates so that partial predictions become available as context during the same physical step. 
+
+Backbones for learned time-stepping: neural operators and operator transformers. Most learned PDE forecasters implement the one-step map Ut 7 → bUt+1 with an operator-learning backbone, including classical neural operators (e.g., Fourier-/kernel-based operators and operator regression) [ 3, 5, 16 ], their geometric or multiscale variants (e.g., Geo-FNO, GINO, CNO, factorized FNO, UNO) [ 17 –21 ], and transformer-style operator or PDE-conditioned models (e.g., GNOT, ONO, HT-Net, Transolver, HAMLET, Poseidon, PDEformer, CORAL) [ 8, 22 – 28 ]. These works are 
+
+backbone-centric : they expand the function class and receptive-field structure of the predictor while keeping within-step execution fixed, typically as a synchronous field-wide evaluation. F LOW FORGE is orthogonal: it leaves the backbone unchanged but compiles a locality-preserving execution schedule with explicit intermediate buffers, making causality, conditioning, serial depth, and memory traffic explicit execution-level design variables. 
+
+Benchmarks and evaluation protocols. PDE forecasting is typically evaluated using standardized benchmarks such as PDEBench and PDEArena, which provide diverse time-dependent PDE datasets and reference implementations across surrogate families [ 29 , 30 ]. CFDBench targets CFD-specific regimes with varying boundary conditions, parameters, and geometries [ 31 ], while BubbleML extends evaluation to multiphase and multiphysics systems [ 32 ]. APEBench focuses on autoregressive emulators with rollout-based metrics and controlled protocols [ 33 ]. We follow these conventions to ensure fair comparisons of accuracy, robustness, and runtime under realistic rollout settings. 
+
+## 6 Conclusion 
+
+We presented F LOW FORGE , a staged local rollout engine for next-step flow field prediction that constrains information access during inference, enabling accurate local models with predictable cost. Across CFD benchmarks, F LOW FORGE 
+
+matches or outperforms strong global baselines and is more robust to noise and missing data, indicating that rethinking the execution of a prediction step can rival architectural scaling in scientific ML and enable more practical surrogates. 
+
+## References 
+
+[1] Steven L. Brunton, Bernd R. Noack, and Petros Koumoutsakos. Machine learning for fluid mechanics. Annual Review of Fluid Mechanics , 52:477–508, 2020. doi:10.1146/annurev-fluid-010719-060214. URL 
+
+https://www.annualreviews.org/doi/10.1146/annurev-fluid-010719-060214 .[2] Andrea Sciacchitano. Uncertainty quantification in particle image velocimetry. Measurement Science and Technology , 30(9):092001, 2019. doi:10.1088/1361-6501/ab1db8. URL 
+
+https://iopscience.iop.org/article/10.1088/1361-6501/ab1db8 .[3] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence ,3:218–229, 2021. doi:10.1038/s42256-021-00302-5. URL 
+
+https://www.nature.com/articles/s42256-021-00302-5 .[4] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation. In Medical Image Computing and Computer-Assisted Intervention – MICCAI 2015 , pages 234–241, Cham, 2015. Springer International Publishing. URL 
+
+https://link.springer.com/chapter/10.1007/978-3-319-24574-4_28 .11 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+[5] Zongyi Li, Nikola Borislavov Kovachki, Kamyar Azizzadenesheli, Burigede liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. In 
+
+International Conference on Learning Representations , 2021. URL 
+
+https://openreview.net/forum?id=c8P9NQVtmnO .[6] M. Raissi, P. Perdikaris, and G.E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. ISSN 0021-9991. doi:https://doi.org/10.1016/j.jcp.2018.10.045. URL 
+
+https://www.sciencedirect.com/science/article/pii/S0021999118307125 .[7] Zhongkai Hao, Chang Su, Songming Liu, Julius Berner, Chengyang Ying, Hang Su, Anima Anandkumar, Jian Song, and Jun Zhu. Dpot: auto-regressive denoising operator transformer for large-scale pde pre-training. In 
+
+Proceedings of the 41st International Conference on Machine Learning , ICML’24, 2024. doi:10.5555/3692070.3692773. URL https://dl.acm.org/doi/10.5555/3692070.3692773 .[8] Zhanhong Ye, Xiang Huang, Leheng Chen, Hongsheng Liu, Zidong Wang, and Bin Dong. PDEformer: Towards a foundation model for one-dimensional partial differential equations. In ICLR 2024 Workshop on AI4DifferentialEquations In Science , 2024. URL https://openreview.net/forum?id=GLDMCwdhTK .[9] Hang Zhou, Yuezhou Ma, Haixu Wu, Haowen Wang, and Mingsheng Long. Unisolver: PDE-conditional transformers are universal PDE solvers, 2025. URL https://openreview.net/forum?id=f3xXPDCh8Q .[10] David M. Knlgge, David R. Wessels, Riccardo Valperga, Samuele Papa, Jan-Jakob Sonke, Efstratios Gavves, and Erik J. Bekkers. Space-time continuous pde forecasting using equivariant neural fields. In Proceedings of the 38th International Conference on Neural Information Processing Systems , NIPS ’24, 2024. ISBN 9798331314385. doi:10.5555/3737916.3740354. URL https://dl.acm.org/doi/10.5555/3737916.3740354 .[11] Johannes Brandstetter, Daniel E. Worrall, and Max Welling. Message passing neural PDE solvers. In 
+
+International Conference on Learning Representations , 2022. URL 
+
+https://openreview.net/forum?id=vSix3HPYKSU .[12] Michael McCabe, Peter Harrington, Shashank Subramanian, and Jed Brown. Towards stability of autoregressive neural operators. Transactions on Machine Learning Research , 2023. ISSN 2835-8856. URL 
+
+https://openreview.net/forum?id=RFfUUtKYOG .[13] AmirPouya Hemmasian and Amir Barati Farimani. Multi-scale time-stepping of partial differential equations with transformers. Computer Methods in Applied Mechanics and Engineering , 426:116983, 2024. ISSN 0045-7825. doi:https://doi.org/10.1016/j.cma.2024.116983. URL 
+
+https://www.sciencedirect.com/science/article/pii/S0045782524002391 .[14] Ricardo Buitrago, Tanya Marwah, Albert Gu, and Andrej Risteski. On the benefits of memory for modeling time-dependent PDEs. In The Thirteenth International Conference on Learning Representations , 2025. URL 
+
+https://openreview.net/forum?id=o9kqa5K3tB .[15] Waleed Diab and Mohammed Al Kobaisi. Temporal neural operator for modeling time-dependent physical phenomena. Scientific Reports , 15(1):32791, 2025. doi:10.1038/s41598-025-16922-5. URL 
+
+https://doi.org/10.1038/s41598-025-16922-5 .[16] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Multipole graph neural operator for parametric partial differential equations. In Proceedings of the 34th International Conference on Neural Information Processing Systems , NIPS ’20, 2020. URL 
+
+https://dl.acm.org/doi/10.5555/3495724.3496291 .[17] Zongyi Li, Daniel Zhengyu Huang, Burigede Liu, and Anima Anandkumar. Fourier neural operator with learned deformations for pdes on general geometries. J. Mach. Learn. Res. , January 2023. URL 
+
+https://dl.acm.org/doi/10.5555/3648699.3649087 .[18] Zongyi Li, Nikola Kovachki, Chris Choy, Boyi Li, Jean Kossaifi, Shourya Otta, Mohammad Amin Nabian, Maximilian Stadler, Christian Hundt, Kamyar Azizzadenesheli, and Animashree Anandkumar. Geometry-informed neural operator for large-scale 3d pdes. In A. Oh, T. Naumann, A. Globerson, K. Saenko, M. Hardt, and S. Levine, editors, Advances in Neural Information Processing Systems , volume 36, pages 35836–35854. Curran Associates, Inc., 2023. URL https://proceedings.neurips.cc/paper_files/ paper/2023/file/70518ea42831f02afc3a2828993935ad-Paper-Conference.pdf .[19] Bogdan Raonic, Roberto Molinaro, Tim De Ryck, Tobias Rohner, Francesca Bartolucci, Rima Alaifari, Siddhartha Mishra, and Emmanuel de Bezenac. Convolutional neural operators for robust and accurate learning of PDEs. In Thirty-seventh Conference on Neural Information Processing Systems , 2023. URL 
+
+https://openreview.net/forum?id=MtekhXRP4h .12 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+[20] Alasdair Tran, Alexander Mathews, Lexing Xie, and Cheng Soon Ong. Factorized fourier neural operators. In 
+
+The Eleventh International Conference on Learning Representations , 2023. URL 
+
+https://openreview.net/forum?id=tmIiMPl4IPa .[21] Md Ashiqur Rahman, Zachary E Ross, and Kamyar Azizzadenesheli. U-NO: U-shaped neural operators. 
+
+Transactions on Machine Learning Research , 2023. ISSN 2835-8856. URL 
+
+https://openreview.net/forum?id=j3oQF9coJd .[22] Zhongkai Hao, Zhengyi Wang, Hang Su, Chengyang Ying, Yinpeng Dong, Songming Liu, Ze Cheng, Jian Song, and Jun Zhu. Gnot: a general neural operator transformer for operator learning. In Proceedings of the 40th International Conference on Machine Learning , ICML’23, 2023. URL 
+
+https://dl.acm.org/doi/10.5555/3618408.3618917 .[23] Zipeng Xiao, Zhongkai Hao, Bokai Lin, Zhijie Deng, and Hang Su. Improved operator learning by orthogonal attention, 2024. URL https://openreview.net/forum?id=mt5NPvTp5a .[24] Xinliang Liu, Bo Xu, and Lei Zhang. HT-net: Hierarchical transformer based operator learning model for multiscale PDEs, 2023. URL https://openreview.net/forum?id=UY5zS0OsK2e .[25] Haixu Wu, Huakun Luo, Haowen Wang, Jianmin Wang, and Mingsheng Long. Transolver: a fast transformer solver for pdes on general geometries. In Proceedings of the 41st International Conference on Machine Learning ,ICML’24, 2024. URL https://dl.acm.org/doi/10.5555/3692070.3694270 .[26] Andrey Bryutkin, Jiahao Huang, Zhongying Deng, Guang Yang, Carola-Bibiane Schönlieb, and Angelica Aviles-Rivero. Hamlet: graph transformer neural operator for partial differential equations. In Proceedings of the 41st International Conference on Machine Learning , ICML’24, 2024. URL 
+
+https://dl.acm.org/doi/10.5555/3692070.3692256 .[27] Maximilian Herde, Bogdan Raonic, Tobias Rohner, Roger Käppeli, Roberto Molinaro, Emmanuel de Bezenac, and Siddhartha Mishra. Poseidon: Efficient foundation models for PDEs. In The Thirty-eighth Annual Conference on Neural Information Processing Systems , 2024. URL https://openreview.net/forum?id=JC1VKK3UXk .[28] Louis Serrano, Lise Le Boudec, Armand Kassaï Koupaï, Thomas X Wang, Yuan Yin, Jean-Noël Vittaut, and patrick gallinari. Operator learning with neural fields: Tackling PDEs on general geometries. In Thirty-seventh Conference on Neural Information Processing Systems , 2023. URL 
+
+https://openreview.net/forum?id=4jEjq5nhg1 .[29] Makoto Takamoto, Timothy Praditia, Raphael Leiteritz, Dan MacKinlay, Francesco Alesiani, Dirk Pflüger, and Mathias Niepert. PDEBench Datasets, 2022. URL https://doi.org/10.18419/darus-2986 .[30] Jayesh K Gupta and Johannes Brandstetter. Towards multi-spatiotemporal-scale generalized PDE modeling. 
+
+Transactions on Machine Learning Research , 2023. ISSN 2835-8856. URL 
+
+https://openreview.net/forum?id=dPSTDbGtBY .[31] Luo Yining, Chen Yingfa, and Zhang Zhen. Cfdbench: A large-scale benchmark for machine learning methods in fluid dynamics. 2023. URL https://arxiv.org/abs/2310.05963 .[32] Sheikh Md Shakeel Hassan, Arthur Feeney, Akash Dhruv, Jihoon Kim, Youngjoon Suh, Jaiyoung Ryu, Yoonjin Won, and Aparna Chandramowlishwaran. BubbleML: A multi-physics dataset and benchmarks for machine learning. In Advances in Neural Information Processing Systems , 2023. URL 
+
+https://openreview.net/forum?id=0Wmglu8zak .[33] Felix Koehler, Simon Niedermayr, rüdiger westermann, and Nils Thuerey. APEBench: A benchmark for autoregressive neural emulators of PDEs. In The Thirty-eight Conference on Neural Information Processing Systems Datasets and Benchmarks Track , 2024. URL https://openreview.net/forum?id=iWc0qE116u .13 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+## A Dataset and Evaluation Metrics 
+
+To ensure reproducibility and facilitate fair comparison, we provide a comprehensive breakdown of the datasets used in our experiments, spanning three benchmark suites: CFDBench, PDEBench, and BubbleML. Our main evaluation uses eleven datasets (Turb-M0.1 is excluded from the main results). In this section, we detail the governing equations and physical parameters for each dataset. 
+
+A.1 CFDBench 
+
+We utilize four classical 2D fluid dynamics scenarios from CFDBench [ 31 ]. These flows are governed by the Navier-Stokes equations for an incompressible Newtonian fluid. 
+
+Governing Equations. Let u = ( u, v )⊤ denote the velocity field, p the pressure, ρ the fluid density, and μ the dynamic viscosity. The dynamics follow: 
+
+∇ · u = 0 
+
+∂u
+
+∂t + ( u · ∇ )u = − 1
+
+ρ ∇p + μρ ∇2u
+
+The boundary conditions are defined such that u is constant on the domain boundaries ∂D. The four specific configurations are: • Cavity (Lid-driven Cavity): Flow in a square container driven by a moving top lid. This dataset poses a challenge due to the mathematical singularities at the corners where the moving lid meets stationary walls, requiring the model to resolve sharp gradients and recirculating vortices. • Tube (Circular Tube Flow): Represents the development of a laminar boundary layer. Physically, viscous resistance near the wall creates a parabolic velocity profile. This task tests the model’s ability to capture boundary layer theory and liquid-gas interfaces in a confined geometry. • Dam (Dam Break): Models the transient release of fluid over an obstacle using the Volume of Fluid (VOF) method. The flow regime transitions dynamically from viscosity-dominated (creeping flow) to inertia-dominated (jet formation), testing generalization across different physical force balances. • Cylinder (Flow Around a Cylinder): A classic aerodynamic problem where boundary layer separation creates a Karman vortex street. This is the primary benchmark for modeling periodic oscillatory behaviors induced by rigid obstacles. 
+
+A.2 PDEBench 
+
+The selected datasets from PDEBench [ 29 ] introduce compressibility and non-linear chemical dynamics, significantly expanding the physical scope beyond standard CFD tasks. 
+
+Compressible Navier-Stokes ( Rand-M0.1 , Rand-M1.0 , Turb-M0.1 ). These datasets evolve density ρ, velocity v,and pressure p coupled with internal energy, governed by the full conservation laws: 
+
+∂tρ + ∇ · (ρv) = 0 , ρ(∂tv + v · ∇ v) = −∇ p + ∇ · σ′
+
+To ensure precise reproducibility, we specify the exact subsets used from the PDEBench repository. The datasets differ in both compressibility (Mach number M ) and viscosity parameters (shear η and bulk ζ): • Rand-M0.1 : Corresponds to file 2D_Rand_M0.1_Eta0.01_Zeta0.01 . This represents a subsonic regime (M < 0.1) with low viscosity ( η = ζ = 10 −2), serving as a baseline bridging incompressible and compressible physics. • Rand-M1.0 : Corresponds to file 2D_Rand_M1.0_Eta0.1_Zeta0.1 . This represents a transonic regime (M ≤ 1.0) with shock waves. Note that this dataset uses higher viscosity ( η = ζ = 10 −1) than M0.1. The model must capture sharp discontinuities where gradients become theoretically infinite. 
+
+2D Diffusion-Reaction ( Diff-React ). This dataset models biological pattern formation (activator u, inhibitor v) via the FitzHugh-Nagumo equations: 
+
+∂tu = Du∆u + Ru(u, v ), ∂tv = Dv ∆v + Rv (u, v )
+
+where non-linear reaction terms R and differential diffusion rates ( Dv > D u) lead to complex Turing patterns, testing the model’s capacity to maintain spectral fidelity over long rollouts. 14 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+A.3 BubbleML 
+
+BubbleML [ 32 ] represents the most physically complex benchmark in our evaluation, involving multiphase flows with heat transfer and phase change. The simulations use FC-72 (perfluorohexane) as the working fluid. 
+
+Governing Equations. The system solves the non-dimensionalized incompressible Navier-Stokes equations coupled with the energy equation. The liquid ( l) and vapor ( v) phases are tracked using a level-set function ϕ, where the zero level set ϕ = 0 represents the interface Γ. The dynamics evolve according to: 
+
+∂u
+
+∂t + u · ∇ u = − 1
+
+ρ′ ∇P + ∇ · 
+
+ μ′
+
+ρ′Re ∇u
+
+
+
++ g
+
+Fr 2 + SΓ 
+
+> u
+
++ SΓ
+
+> P
+
+∂T ∂t + u · ∇ T = ∇ · 
+
+ α′
+
+RePr ∇T
+
+
+
++ SΓ
+
+> T
+
+Here, u is velocity, P is pressure, and T is temperature. The system dynamics are controlled by key dimensionless numbers: Reynolds number ( Re ), Prandtl number ( Pr ), and Froude number ( Fr ). The terms ρ′, μ ′, α ′ denote density, viscosity, and thermal diffusivity scaled by their liquid-phase values. Crucially, the terms SΓ represent singular source terms at the interface Γ:• SΓ 
+
+> u
+
+accounts for surface tension forces, modeled via the Weber number (We). • SΓ 
+
+> P
+
+accounts for the pressure jump induced by phase change. • SΓ 
+
+> T
+
+represents the latent heat source/sink during evaporation or condensation. 
+
+Dataset Configurations. We utilize four datasets representing two boiling regimes: • Pool Boiling ( PB-Gravity , PB-Subcooled ): Simulates fluid confined in a tank with a bottom heater (resem-bling nuclear waste cooling). The PB-Subcooled variant introduces a temperature deficit in the bulk liquid to suppress bubble growth. • Flow Boiling ( FB-Gravity , FB-VelScale ): Models fluid pumped through a channel containing a heater (resembling data center GPU liquid cooling). These datasets feature extreme aspect ratios (e.g., 1600 × 160 )and complex interactions between bulk momentum and buoyancy-driven bubbles.    
+
+> Table 3: Detailed specifications of the datasets. Size denotes the total storage size of the dataset in Gigabytes (GB). The "Physics" column references the specific governing equations defined in the text. Note: Turb-M0.1 is excluded from the main evaluation results.
+
+Suite Dataset Resolution Physics / PDE Boundary Conditions Size (GB) CFDBench 
+
+Cavity 64 × 64 Incompressible NS (Eq. A.1) Wall 0.8 
+
+Tube 64 × 64 Incompressible NS (Eq. A.1) Inflow/Outflow 0.3 
+
+Dam 64 × 64 Multiphase (VOF) Wall 1.3 
+
+Cylinder 64 × 64 Incompressible NS (Eq. A.1) Inflow/Outflow 12.5 PDEBench 
+
+Diff-React 128 × 128 Reaction-Diffusion Periodic 12.3 
+
+Rand-M0.1 128 × 128 Compressible NS ( M < 0.1) Periodic 51.2 
+
+Rand-M1.0 128 × 128 Compressible NS ( M ≤ 1.0) Periodic 51.2 
+
+Turb-M0.1 512 × 512 Compressible Turbulence Periodic 82.0 BubbleML 
+
+FB-Gravity 1600 × 160 Flow Boiling Wall/Outflow 16.1 
+
+PB-Gravity 512 × 512 Pool Boiling Wall 24.2 
+
+PB-Subcooled 384 × 384 Pool Boiling Wall 15.4 
+
+FB-VelScale 1244 × 160 Flow Boiling Wall/Outflow 15.7 
+
+A.4 Evaluation Metrics. 
+
+To provide a comprehensive assessment of physical fidelity, we employ four distinct metrics targeting prediction accuracy, physical structure preservation, frequency consistency, and physical conservation. Let U ∈ RN ×C×H×W
+
+denote the ground truth flow field batch and ˆU denote the prediction. 
+
+Root Mean Squared Error (RMSE). We measure the absolute pixel-level deviation aggregated globally over the entire dataset. This formulation ensures that the metric is insensitive to batch size variations and penalizes 15 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+large outliers effectively: 
+
+RMSE = 
+
+s 1
+
+N · C · H · W
+
+X
+
+> i,c,x,y
+
+
+
+U − ˆU
+
+2
+
+Relative Vorticity Error (Vor). To evaluate the capture of rotational dynamics and small-scale structures, we compute the relative Frobenius norm error of the vorticity field ω = ∇ × U . Using relative error accounts for varying flow magnitudes across different samples: 
+
+VorError = ∥ω − ˆω∥F
+
+∥ω∥F
+
+=
+
+pP (ω − ˆω)2
+
+pP ω2
+
+where ∥ · ∥ F denotes the Frobenius norm over the spatial dimensions and batch. 
+
+Spectral Error (Spec). Standard metrics often ignore high-frequency details due to the spectral bias of neural networks. We compute the error in the frequency domain using the Log Spectral Distance to balance low- and high-frequency contributions: 
+
+SpecError = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+log( |F (Ui)| + ϵ)
+
+− log 
+
+
+
+|F ( ˆUi)| + ϵ
+
+
+
+> 2
+
+where F denotes the 2D Fast Fourier Transform (FFT) applied spatially, and ϵ = 10 −8 ensures numerical stability. 
+
+Divergence Error (Div). For incompressible flows, mass conservation dictates that the divergence ∇ · U should be zero. We measure the root mean squared deviation of the predicted divergence: 
+
+DivError = 
+
+s 1
+
+N · H · W
+
+X
+
+> i,x,y
+
+
+
+(∇ · U ) − (∇ · ˆU )
+
+2
+
+Here, ∇ · U is computed using second-order central finite differences for interior points. 16 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+## B Implementation Details 
+
+B.1 Codebase 
+
+FLOW FORGE is implemented in Python with approximately 10k lines of code. We will release the full code upon publication. 
+
+B.2 Architectures and Backend 
+
+FLOW FORGE predictor and backend model. Once the plan fixes what information is visible (bounded local context from earlier stages plus static site features), we instantiate Gθ as a compact, fixed predictor across all benchmarks: a 4-layer MLP with ≈ 6 × 10 4 parameters. Given local features, the model computes 
+
+Φ( Ut, σ (i)) , Ψ( Y ; i), pos( σ(i))  7 → byi ∈ Rc.
+
+This emphasizes the core design message: reliability and controllability come from the staged information flow enforced by the plan and executor, rather than from global attention or deep encoder–decoder stacks. 
+
+Baselines. For U-Net, FNO, and DeepONet, we use the reference implementations and default architectures provided by the corresponding benchmarks/datasets. 
+
+B.3 Hardware and Training Protocol 
+
+All experiments were run on a single NVIDIA RTX 3090 GPU (24 GB). Unless otherwise specified, we train all models with Adam (learning rate 10 −3), MSE loss, and a StepLR schedule for up to 150 epochs, with a wall-clock cap of 48 hours. Batch size is chosen per method/dataset to maximize GPU utilization without exceeding VRAM. 
+
+B.4 Plan-aligned Training Inputs 
+
+During inference, the executor forms each input from the current-state features and a bounded neighborhood gathered from the partially rewritten buffer, with the guarantee that all gathered entries come from earlier stages (Section 3.2). To avoid training–inference mismatch, we reuse the same plan-defined neighborhood index lists when constructing training inputs. When those indices would read from the inference-time buffer, we instead read from the ground-truth next-step sequence v⋆ 
+
+> 1: N
+
+, but only at indices that are valid under the stage order. This preserves the executor’s information constraints while avoiding the instability of feeding intermediate model predictions during training. 
+
+B.5 Inference Efficiency and Scalability CUDA Graphs. We execute F LOW FORGE with CUDA Graphs. We capture the full inference workflow into a static CUDA graph and replay it for each input, reducing CPU launch overhead to a single replay call and mitigating GPU idle time caused by frequent kernel launches. For fair comparison, all baselines are also optimized with CUDA Graphs using the same approach. 
+
+Coarse-to-fine execution. For very high-resolution grids, we optionally reduce the effective sequence length by running FLOW FORGE on a downscaled field and then upsampling the prediction back to the native grid. Let Dρ downscale by factor ρ per axis and Rρ upsample back. We compute: 
+
+bU coarse  
+
+> t+1
+
+= FLOW FORGE 
+
+ Dρ(Ut), bUt+1 = Rρ
+
+  bU coarse 
+
+> t+1
+
+.
+
+B.6 Ordering Schemes for Tokenization 
+
+Let Ω denote the set of grid coordinates (2D/3D) with N = |Ω|. An ordering is a bijection σ : {1, . . . , N } → Ω.
+
+Outward Spiral Let c be the integer-rounded grid center. Define ∥p − c∥∞ = max j |pj − cj |. Outward Spiral ordering enumerates sites by increasing Chebyshev radius: 
+
+σ =
+
+> rmax
+
+[
+
+> r=0
+
+{ p ∈ Ω | ∥ p − c∥∞ = r },
+
+where ties within the same radius are broken by a fixed deterministic scan over the bounding box of the shell (and duplicates are skipped). 17 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+Raster Scan Lexicographic (row-major) order: 2D: (x, y ) with y outer and x inner. 3D: (x, y, z ) with z outer, then y,then x.
+
+Random A uniform random permutation of Ω, generated once with a fixed RNG seed and reused. 
+
+Hilbert Curve Embed the grid into the smallest power-of-two cube/box with side M = 2 ⌈log 2(max( X,Y (,Z ))) ⌉. Assign each p ∈ Ω a Hilbert Curve index h(p) ∈ [0 , M d) and sort by h(p); embedded out-of-bounds points are ignored. Orders that preserve spatial locality (e.g., Outward Spiral and Raster Scan) tend to behave similarly, whereas orders that fail to expose nearby predecessors early under a fixed context budget can degrade. 18 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+## C Baseline Hyperparameter Search 
+
+For baseline settings that are not reported in the original benchmark suites, we run a compact architecture sweep around the canonical public implementations while keeping the optimizer, scheduler, and overall 48-hour training budget unchanged. Each candidate first receives a 5-epoch proxy run, and we promote the setting with the best validation RMSE to the full training run. We apply this procedure to CNO and UNO on CFDBench and to U-Net on the two BubbleML cases without benchmark-provided settings ( FB-Gravity and FB-VelScale ). We retain the implementation names kernel_size for CNO and uno_kernel_size for UNO; both denote the local operator kernel width used inside the corresponding architecture. 
+
+C.1 CNO on CFDBench Parameters. We search the three CNO knobs that most directly shape capacity and local aggregation. hidden_dim 
+
+sets the feature width after the lifting layer and therefore the channel capacity carried by every operator block, making it the main width parameter. depth is the number of stacked operator blocks, so it determines how much iterative feature refinement the model can perform under a fixed training budget. kernel_size controls the local receptive field of the depthwise operator in each block and is therefore the key parameter for how much near-field spatial context each update can absorb. We do not tune padding separately, because the implementation deterministically sets cno_padding =(kernel_size - 1) / 2 to preserve spatial resolution. 
+
+Search spaces and results. We sweep: 
+
+hidden_dim ∈ { 64 , 96 , 128 },
+
+depth ∈ { 4, 6, 8},
+
+kernel_size ∈ { 3, 5}.
+
+For each CFDBench dataset, we choose the setting with the lowest validation RMSE among the 5-epoch proxy runs. The final selected configurations are: Dataset depth hidden_dim kernel_size Tube 4 64 3Cylinder 6 96 5Dam 8 128 5Cavity 8 128 5
+
+C.2 UNO on CFDBench Parameters. We search the UNO parameters that most strongly shape its multiscale hierarchy. uno_base_dim sets the channel width at the finest scale and therefore the width of the full encoder–decoder stack. uno_levels controls how many resolutions the model traverses, so it changes both receptive-field growth and total multiscale capacity. 
+
+uno_kernel_size determines the local receptive field inside each operator block and therefore how aggressively each stage aggregates nearby context. We keep uno_depth_per_level =2 and uno_bottleneck_depth =4 fixed. These parameters regulate how many blocks are repeated within each scale and at the bottleneck, so holding them constant keeps the sweep focused on width, hierarchy depth, and local context size instead of exploding the search space. 
+
+Search spaces and results. We sweep: 
+
+uno_base_dim ∈ { 48 , 64 , 96 },
+
+uno_levels ∈ { 3, 4},
+
+uno_kernel_size ∈ { 3, 5},
+
+while keeping the following structural parameters fixed: 
+
+uno_depth_per_level = 2 ,
+
+uno_bottleneck_depth = 4 .
+
+For each CFDBench dataset, we again select the setting with the lowest validation RMSE from the 5-epoch proxy runs. The resulting chosen configurations are: 19 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+Dataset base_dim levels kernel_size Tube 48 3 3Cylinder 64 4 5Dam 96 4 5Cavity 96 4 5
+
+C.3 U-Net on BubbleML Parameters. For BubbleML we keep the U-Net topology used in our experiments fixed: four encoder blocks separated by 2 × 2 max-pooling layers, a bottleneck block, and four mirrored decoder blocks. Each decoder stage first upsamples with a 2 × 2 transposed convolution, concatenates the corresponding encoder skip feature, and then applies the decoder block, followed by a final 1 × 1 output projection. Under this implementation, init_features is the only exposed width knob; it sets the channel count of the first encoder block. It is therefore the main architecture parameter for trading off model capacity against memory footprint, while the overall encoder–decoder topology remains fixed. 
+
+Search spaces and results. We search only: 
+
+init_features ∈ { 32 , 64 , 128 }.
+
+Exhaustive BubbleML sweeps are prohibitively expensive, so each candidate receives a 5-epoch proxy run on 
+
+Diff-React , and we choose the width with the lowest validation RMSE. This selects init_features =64, which we then transfer unchanged to FB-Gravity and FB-VelScale .20 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+## D Additional Results and Analysis 
+
+D.1 Multi-step Autoregressive Rollout Analysis 
+
+We evaluate long-horizon autoregressive rollouts by iteratively feeding model predictions back as inputs and tracking error metrics over time (Figure 7) on CFDBench-Cylinder. While all methods exhibit growing RMSE with rollout length, FlowForge remains comparable to FNO and more stable than U-Net, indicating that staged rollout does not introduce additional numerical instability. The most pronounced difference appears in physical consistency: FlowForge maintains near-zero divergence error throughout the rollout, whereas FNO and U-Net exhibit steadily increasing divergence, reflecting accumulation of global inconsistency. FlowForge also preserves vorticity and spectral content at levels comparable to or better than baselines, despite relying on strictly local updates. Overall, these results show that the staged local rollout mechanism yields stable long-horizon behavior and effectively limits constraint drift under autoregressive use. 
+
+D.2 Analysis of Effective Physical Dependency 
+
+In the ablation study (Section 4.4), we observed that F LOW FORGE exhibits remarkable performance robustness across various spatial traversal orders σ (e.g., Outward Spiral, Raster Scan, Hilbert Curve, and Random). Intuitively, one might expect that locality-preserving orders (like Outward Spiral) would significantly outperform Random ordering. To understand why this performance gap is minimal, we analyze the effective physical dependency provided by each traversal strategy. Based on the causal inference structure analyzed in Section 2.2, we posit that the prediction accuracy at a target location 
+
+xt depends critically on the availability of spatially proximate context from the set of previously predicted locations 
+
+Pt = {xσ(1) , . . . , x σ(t−1) }. If a target location is far from any known value, the predictor lacks immediate physical cues. We quantify this dependency using the Nearest Preceding Neighbor Distance , defined for the t-th step in the sequence as: 
+
+dt = min  
+
+> j<t
+
+∥xσ(t) − xσ(j)∥2.
+
+A smaller dt implies stronger local conditioning. We simulate the traversal processes on a 16 × 16 grid and record the evolution of dt; note that in F LOW FORGE the plan-defined context for a target location is an irregular list of up to H
+
+earlier neighbor sites (within R rings/shells), rather than a dense h×w image patch. Figure 8 illustrates the moving average of dt for Outward Spiral, Raster Scan, Hilbert Curve, and Random orders. Our analysis reveals two distinct phases: 1. Warm-up Phase ( t < 30 ): In the initial steps, locality-preserving orders (Outward Spiral, Raster Scan, Hilbert Curve) maintain a consistent dt = 1 (adjacent pixels), whereas Random ordering exhibits high variance and larger average distances ( dt > 1), as early points are scattered sparsely across the grid. 2. Stable Phase ( t ≥ 30 ): As the grid becomes populated, the probability of a randomly selected target location falling within the immediate neighborhood of an existing point increases distinctly. Consequently, the dt
+
+for Random ordering rapidly decays and converges to the same baseline ( dt ≈ 1), providing similar context vectors as the locality-preserving orders. Since the local predictor is trained to map from a set of context vectors to the target value, its performance is dominated by the availability of close neighbors rather than the global geometry of the sequence. Because the “warm-up” phase represents a negligible fraction of the total rollout steps (30 out of 256 pixels), the aggregate loss is dominated by the stable phase, where all traversal orders provide statistically similar physical context. Thus, F LOW FORGE is not strictly bound to a specific traversal order. 21 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 0 20 40 60 80 
+
+> 0.05
+> 0.10
+> 0.15
+> RMSE
+
+RMSE     
+
+> 020 40 60 80
+> 5
+> 10
+> 15
+> Spectral Error
+
+Spectral Error     
+
+> 020 40 60 80
+
+Time Step 
+
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> Rel Vorticity Error
+
+Rel Vorticity Error     
+
+> 020 40 60 80
+
+Time Step 
+
+> 0
+> 1
+> 2
+> 3
+> Div Error
+
+Div Error   
+
+> FlowForge (Ours) FNO U-Net
+
+Figure 7: Multi-step autoregressive rollout on CFDBench-Cylinder. We report RMSE, spectral error, relative vorticity error, and divergence error over rollout time steps for FlowForge (ours), FNO, and U-Net. 0 20 40 60 80 100 
+
+Number of selected points (1 to 100) 
+
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> Minimal distance to prior selected points  Outward Spiral
+> Hilbert Curve (start upper-left)
+> Raster Scan (start upper-left)
+> Random (mean over 200 runs)
+
+Figure 8: Evolution of Nearest Preceding Neighbor Distance ( dt). Comparison of different traversal orders on a 16 × 16 grid. While Random ordering starts with higher separation distances, it quickly converges to the immediate-neighbor regime ( dt ≈ 1)after roughly 30 steps, providing similar local conditioning context to structured orders like Outward Spiral or Hilbert Curve. 
+
+22 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+D.3 Complete Robustness Test Results 
+
+This section presents comprehensive robustness evaluations across all four CFDBench datasets, complementing the findings in Section 4.2. We report the average loss computed over distinct severity levels: noise standard deviation 
+
+σ ∈ { 0.01 , 0.05 , 0.1}, edge width w ∈ { 1, 5, 10 }, and masking rate k ∈ { 1% , 5% , 10% }. As shown in Figure 9, FLOW FORGE achieves the lowest or second-lowest mean RMSE under all four perturbation settings across every dataset in CFDBench. These comprehensive results reinforce the analysis in Section 4.2 and indicate that F LOW FORGE is consistently more resilient to input perturbations than the baselines. 
+
+CFDBench-Cylinder Global Noise Global Masking Edge Noise Edge Masking 
+
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> 0.40
+> Mean RMSE under Perturbation
+> 0.024
+> 0.130
+> 0.027
+> 0.241
+> 0.069
+> 0.230
+> 0.082
+> 0.404
+> 0.067
+> 0.244
+> 0.072
+> 0.411
+> 0.072
+> 0.239
+> 0.085
+> 0.399
+
+FlowForge (Ours) 
+
+DeepONet 
+
+FNO 
+
+U-Net CFDBench-Cavity Global Noise Global Masking Edge Noise Edge Masking  
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> Mean RMSE under Perturbation
+> 0.302
+> 0.367 0.358
+> 1.145
+> 0.330
+> 0.585
+> 0.499
+> 1.654
+> 0.143
+> 0.550
+> 0.186
+> 1.516
+> 0.191
+> 0.498
+> 0.371
+> 1.396
+
+FlowForge (Ours) 
+
+DeepONet 
+
+FNO 
+
+U-Net 
+
+CFDBench-Tube Global Noise Global Masking Edge Noise Edge Masking   
+
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> Mean RMSE under Perturbation
+> 0.092
+> 0.155
+> 0.116
+> 0.629
+> 0.367 0.382 0.374
+> 0.840
+> 0.076
+> 0.165
+> 0.077
+> 0.253
+> 0.105
+> 0.162
+> 0.105
+> 0.275
+
+FlowForge (Ours) 
+
+DeepONet 
+
+FNO 
+
+U-Net CFDBench-Dam Global Noise Global Masking Edge Noise Edge Masking 
+
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> Mean RMSE under Perturbation
+> 0.020
+> 0.046
+> 0.023
+> 0.123
+> 0.083
+> 0.125
+> 0.103
+> 0.253
+> 0.037
+> 0.107
+> 0.041
+> 0.205
+> 0.045
+> 0.092
+> 0.062
+> 0.189
+
+FlowForge (Ours) 
+
+DeepONet 
+
+FNO 
+
+U-Net 
+
+Figure 9: Complete robustness summaries across all four CFDBench datasets. Each panel aggregates performance under global and edge-localized perturbations across the noise, masking, and boundary-corruption protocols described in Section 4.2. F LOW FORGE 
+
+remains consistently more stable than the baselines throughout the suite. 
+
+23 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+## E Extended Case Studies and Qualitative Analysis 
+
+In Section 4.1, we quantitatively analyzed the flow dynamics on the FB-Gravity dataset. To demonstrate the versatility of F LOW FORGE across diverse flow regimes and verify its stability under corruption, we provide additional qualitative comparisons here. We focus on two complementary aspects: (1) prediction fidelity in complex multiphase flows involving sharp interfaces and phase changes, and (2) visual verification of error containment mechanisms under severe input degradation. 
+
+E.1 Fidelity on Multiphase Benchmarks 
+
+We examine two challenging scenarios from the CFDBench and BubbleML suites, characterized by rapid topological changes and multi-scale interfacial dynamics. 
+
+Dam Break (Multiphase VOF). Figure 10 visualizes the Volume-of-Fluid (VOF) simulation of a collapsing fluid column. This regime poses a significant challenge due to the presence of sharp gas-liquid interfaces and the generation of fine-scale vorticity during impact. To scrutinize performance in physically volatile regions, the visualization combines macroscopic velocity streamlines with a microscopic error analysis. We define a region of intense vorticity gradients (marked by the green bounding box) and overlay the absolute vorticity error heatmap ( |ωpred − ωgt |) to reveal localized discrepancies. As observed in Figure 10, the performance gap manifests differently across model families. U-Net and DeepONet exhibit substantial deviations, marked by intense red hotspots in the error heatmaps, indicating a struggle to capture the complex multi-fluid mixing dynamics. The comparison between F LOW FORGE and FNO is more nuanced yet physically critical. While FNO achieves a low global error magnitude comparable to F LOW FORGE (indicated by similarly faint heatmaps), a closer inspection of the streamlines reveals a key divergence: FNO suffers from over-smoothing at the vortex core, failing to resolve the tight rotational structures. In contrast, F LOW FORGE precisely preserves these fine-grained dynamics. This confirms that the staged local rollout does not merely lower pixel-wise error but, more importantly, prevents the loss of high-frequency physical information that plagues monolithic global predictors. 
+
+Flow Boiling (FB-VelScale). Figure 11 depicts the void fraction field in a heated channel flow. This regime in-volves small-scale bubble nucleation and advection, governed by the interplay between buoyancy and inlet velocity perturbations. We highlight two distinct regions to illustrate scale-dependent performance. • Inlet Region (Box 1): Located near the channel entrance, flow dynamics are relatively smooth and dominated by inlet boundary conditions. F LOW FORGE successfully captures this laminar behavior. In contrast, U-Net and FNO introduce spurious oscillations, leading to significant local errors. • Nucleation Region (Box 2): Located near the heated wall, this area features vigorous bubble formation and detachment, characterized by high-frequency spatial variations in void fraction. Here, F LOW FORGE 
+
+effectively preserves individual bubble structures. Baselines, particularly FNO and U-Net, exhibit a washout effect—blurring adjacent bubbles into a unified field due to the spectral bias of global operators—which is detrimental for accurate heat transfer estimation. 
+
+E.2 Visualizing Robustness Mechanisms 
+
+To complement the aggregate robustness scores in Section 4.2, we visualize the flow fields under two distinct corruption protocols to empirically validate the error containment hypothesis. 
+
+Global Block Masking. We apply a random binary block mask to the input frame of the Cavity dataset, zeroing out approximately 10% of the spatial domain (Figure 12). For global architectures like U-Net and FNO, the missing blocks introduce high-frequency discontinuities that propagate globally via convolution or Fourier mixing. This results in spectral poisoning: artifacts teleport from the masked regions to the unmasked center and distort the primary vortex structure. The rectangular regions of high error visible in the baseline heatmaps (Figure 12) directly correspond to this non-local error propagation. In contrast, due to strict local causality , F LOW FORGE ensures that errors at a masked site can only influence its immediate topological neighbors in the subsequent rollout stage. Consequently, the majority of the flow field remains structurally intact, demonstrating that F LOW FORGE effectively confines local defects, preventing them from destroying global physical consistency. 24 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+Global Gaussian Noise Injection. We inject additive Gaussian noise ( N (0 , 0.12)) into some random blocks of the input velocity field for the Cylinder dataset (Figure 13). Global models tend to amplify high-frequency noise, interpreting it as physical turbulence. This results in disordered streamlines around the cylinder and a distorted wake structure, as shown in the baseline predictions. F LOW FORGE ,however, leverages its local aggregation mechanism as an implicit spatial filter. By conditioning the prediction on a bounded neighborhood of previous estimates, F LOW FORGE effectively averages out the incoherent zero-mean noise, recovering a clean Von Karman vortex street that closely matches the ground truth. Ground Truth Ours DeepONet   
+
+> FNO U-Net
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> 0.12
+> 0.14
+> 0.16 Abs. Vorticity Error
+
+Figure 10: Qualitative results on CFDBench-Dam. Visualization of the fluid phase fraction and vorticity error. While FNO tends to over-smooth tight vortex cores, F LOW FORGE accurately captures the sharp interface and rotational dynamics of the water column as it impacts the obstacle. R1 
+
+> R2
+> Global Reference (Ground Truth)
+> Zoom-in R1
+
+Ground Truth Ours FNO U-Net 
+
+> Zoom-in R2
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> Absolute Error (RMSE)
+
+Figure 11: Qualitative results on BubbleML FB-VelScale. Visualization of gas phase distribution (void fraction). F LOW FORGE 
+
+preserves the integrity of small-scale bubbles (Box 2) that are prone to washout in global baselines, while maintaining stability in smooth inlet regions (Box 1). 
+
+25 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT Ground Truth Ours DeepONet 
+
+FNO U-Net  
+
+> 0
+> 2
+> 4
+> 6
+> 8RMSE
+
+Figure 12: Robustness to Global Block Masking (Cavity, ≈10% masked). The input contains zeroed-out blocks. Baselines exhibit non-local error propagation (artifacts appearing far from masks), whereas F LOW FORGE strictly confines errors to the masked regions, preserving the central vortex details. Ground Truth Ours DeepONet 
+
+FNO U-Net  
+
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> 0.40 RMSE
+
+Figure 13: Robustness to Localized Gaussian Noise (Cylinder, σ = 0 .1). Comparison of streamlines under noisy input. Global models amplify noise into spurious turbulence. F LOW FORGE acts as a conditional filter, recovering a smooth and physically consistent wake. 
+
+26 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+## F Additional Theoretical Details and Proofs 
+
+F.1 Notation and Standing Assumptions 
+
+• Domain and norms. The spatial domain is either the d-torus Ω = Td (periodic) or a bounded Lipschitz domain with homogeneous Neumann (no-flux) boundary conditions. We write ⟨f, g ⟩ = R 
+
+> Ω
+
+f · g and ∥f ∥22 = ⟨f, f ⟩.• Discrete field. The next-step field is represented on a uniform grid as Ut+1 ∈ RN ×c (or equivalently vectorized in RN c ), with grid spacing ∆x per axis. • Ordering and stages. An ordering scheme induces an order σ of the spatial indices {1, . . . , N } and a stage partition S1, . . . , S K (disjoint union). • Stage-wise rollout map. At inference, stage s outputs 
+
+YSs = Gθ
+
+ Ut, Y S<s 
+
+, S<s := {S1, . . . , S s−1}.
+
+The predictor Gθ is Fréchet differentiable in its second argument and is masked : it does not access YSs nor any YSr with r > s .• Norms for block vectors. For block vectors z = ( z1, . . . , z m) we use the Euclidean norm ∥ · ∥ and the induced operator norm for Jacobians. • Helmholtz projection (incompressible case). Let 
+
+V = { v ∈ L2(Ω; Rd) : ∇· v = 0 , v · n|∂Ω = 0 (if ∂Ω̸ = ∅) },
+
+and let P : L2(Ω; Rd) → V denote the L2-orthogonal projection (Helmholtz–Hodge projection): P v = v−∇ ϕ
+
+where ϕ solves ∆ϕ = ∇· v with compatible BCs (and zero-mean in the periodic case). 
+
+F.2 Causality from Masking: Triangular Jacobian F.2.1 Block lower–triangular context Jacobian Theorem F.1 (Block lower–triangular context Jacobian) . Define F : RN c → RN c blockwise by 
+
+FS1 (Y ) = Gθ (Ut, ∅),FS2 (Y ) = Gθ (Ut, Y S1 ),
+
+...
+
+FSs (Y ) = Gθ (Ut, Y S<s ).
+
+Let Jctx := ∂F ∂Y in the stage-block layout. Then 
+
+Jctx  
+
+> s,r
+
+= ∂F Ss
+
+∂Y Sr
+
+= 0 for all r ≥ s, 
+
+i.e., Jctx is strictly block lower–triangular. In particular, (Jctx )K = 0 .Proof. By construction, FSs depends only on (YS1 , . . . , Y Ss−1 ). Hence for any r ≥ s, FSs is independent of YSr and the Fréchet partial derivative with respect to YSr is the zero operator, giving Jctx  
+
+> s,r
+
+= 0 . Strict lower–triangular block matrices are nilpotent with index at most K.
+
+Corollary F.2 (One-way error flow) . A perturbation injected into YSr cannot affect any YSq with q ≤ r. Error can only propagate to later stages. Proof. Immediate from Jctx  
+
+> q,r
+
+= 0 for q ≤ r.
+
+F.3 Stage Sensitivity and Error Propagation F.3.1 Lipschitz product bound Assumption F.3 (Stage Lipschitzness) . For each stage s there exists Ls ≥ 0 such that for all context vectors a, b ,
+
+Gθ (Ut, a ) − Gθ (Ut, b ) ≤ Ls ∥a − b∥.
+
+27 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+Proposition F.4 (Geometric damping of upstream perturbations) . Fix r < s . Consider the composite mapping from 
+
+YSr to YSs induced by executing stages r + 1 , . . . , s with all other inputs fixed. Then 
+
+∂ Y Ss
+
+∂ Y Sr
+
+≤
+
+> s
+
+Y
+
+> q=r+1
+
+Lq .
+
+Equivalently, any small perturbation δY Sr obeys 
+
+∥δY Ss ∥ ≤ 
+
+ sY
+
+> q=r+1
+
+Lq
+
+
+
+∥δY Sr ∥.
+
+Proof. Define Hr+1 (z) = Gr+1 (Ut, (YS<r , z )) , which is Lr+1 -Lipschitz by Assumption F.3. Similarly define 
+
+Hr+2 , . . . , H s for successive stages. The dependence from YSr to YSs is the composition YSs = Hs ◦ · · · ◦ Hr+1 (YSr ).Lipschitz constants multiply under composition, yielding the bound. 
+
+Corollary F.5 (Monotone decay under easier later stages) . If Lq+1 ≤ Lq and often Lq < 1, then Qsq=r+1 Lq decays geometrically in s − r. A widening schedule (smaller K) further reduces worst-case propagation depth. 
+
+F.3.2 Stage-wise attenuation (sufficient-condition analysis) Theorem F.6 (Stage-wise error attenuation under contraction) . Let y⋆Ss be the predictions obtained when earlier contexts equal their ground-truth values, and let ˆySs be the actual predictions obtained when earlier stages may carry errors. Suppose Assumption F.3 holds and max s Ls ≤ λ < 1. Then for every s,
+
+ˆySs − y⋆Ss ≤
+
+> s−1
+
+X
+
+> r=1
+
+ sY
+
+> q=r+1
+
+Lq
+
+
+
+ˆySr − y⋆Sr .
+
+In particular, 
+
+max  
+
+> j≤s
+
+ˆySj − y⋆Sj ≤ λ
+
+1 − λ max  
+
+> j<s
+
+ˆySj − y⋆Sj .
+
+Thus newly generated tokens attenuate prior errors, and total error cannot blow up across stages. Proof. By definition, ˆySs − y⋆Ss = Gθ (Ut, ˆyS<s ) − Gθ (Ut, y ⋆S<s ). Assumption F.3 and the triangle inequality imply 
+
+∥ˆySs − y⋆Ss ∥ ≤ Ls ∥ˆyS<s − y⋆S<s ∥. Expand block-by-block and apply Proposition F.4; then bound the geometric series by λ/ (1 − λ).
+
+F.4 Short-Horizon Locality and Coverage Bounds F.4.1 Kernel form for advection–diffusion Lemma F.7 (Advection–diffusion fundamental solution) . Consider the scalar advection–diffusion PDE 
+
+∂tu + a·∇ u = ν ∆u, a ∈ Rd, ν > 0,
+
+with sufficiently regular u(·, t ) and periodic or no-flux BCs. Then 
+
+u(x, t + ∆ t) = 
+
+Z
+
+> Rd
+
+G∆t(y) u x − a ∆t − y, t  dy, G∆t(y) = 1(4 πν ∆t)d/ 2 e− ∥y∥24ν∆t .
+
+Proof. Let w(x, t ) = u(x + at, t ). Then ∂tw = a·∇ u + ∂tu = ν ∆u = ν ∆w. Hence wt = ν∆w and w(·, t + ∆ t) = 
+
+G∆t ∗ w(·, t ). Rewriting in terms of u yields the claim. 28 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+F.4.2 Tail mass inside a radius Lemma F.8 (Mass inside a radius) . For Y ∼ N (0 , 2ν∆t I d),
+
+P ∥Y ∥ ≤ r = Fχ2
+
+> d
+
+ r2
+
+2ν∆t
+
+
+
+,
+
+where Fχ2 
+
+> d
+
+is the CDF of the χ2 distribution with d degrees of freedom. Proof. ∥Y ∥2/(2 ν∆t) ∼ χ2 
+
+> d
+
+by isotropy. 
+
+F.4.3 Tail-mass error bound for truncated dependence Proposition F.9 (CFL-style coverage ⇒ tail-mass error bound) . Fix p ∈ (0 , 1) and let 
+
+rp := 
+
+q
+
+2ν∆t F −1
+
+> χ2
+> d
+
+(p)
+
+so that R 
+
+> ∥y∥≤ rp
+
+G∆t(y) dy = p. Define the truncated predictor 
+
+v(x) := 
+
+Z
+
+> ∥y∥≤ r
+
+G∆t(y) u x − a∆t − y, t  dy. 
+
+Then for any r ≥ rp:(i) ∥u(·, t + ∆ t) − v∥∞ ≤ (1 − p) ∥u(·, t )∥∞,
+
+(ii) ∥u(·, t + ∆ t) − v∥2 ≤ (1 − p) ∥u(·, t )∥2.
+
+Proof. By Lemma F.7, the error equals the kernel tail e(x) = R 
+
+> ∥y∥>r
+
+G∆t(y) u(x − a∆t − y, t ) dy . Bound-ing by ∥u(·, t )∥∞ gives (i) since R 
+
+> ∥y∥>r
+
+G∆t = 1 − p for r ≥ rp. For (ii), Young’s inequality yields ∥e∥2 ≤∥G∆t1{∥ y∥>r }∥1∥u(·, t )∥2 ≤ (1 − p)∥u(·, t )∥2.
+
+F.4.4 Coverage under Outward Spiral traversal (geometry) 
+
+Let the Outward Spiral include all grid points within Chebyshev radius R (i.e., ℓ∞-ball B∞(R∆x)). The Euclidean and Chebyshev balls satisfy 
+
+B2(r) ⊆ B∞(r) ⊆ B2(√d r ). (5) 
+
+Lemma F.10 (Ring coverage vs. Euclidean radius) . If the Outward Spiral has generated R rings, then B2(r) ⊆
+
+(available context) for all r ≤ R∆x. Conversely, if B2(r) is required, it suffices to take R ≥ ⌈ r/ ∆x⌉ rings. Proof. The available context equals B∞(R∆x); apply the left inclusion in (5). 
+
+Definition F.11 (Coverage coefficient on a grid) . Let the Outward Spiral have generated R rings prior to decoding the token at x. Define 
+
+Γp(x) := R ∆x
+
+∥a∥ ∆t +
+
+q
+
+2ν∆t F −1
+
+> χ2
+> d
+
+(p)
+
+.
+
+By Lemma F.10, Γp(x) ≥ 1 implies B2(rp) ⊆ (available context). 
+
+Remark F.12 (Discrete coverage with norm equivalence) . If the implementation reasons in the ℓ∞ geometry, one may also use the inclusion B2(r) ⊆ B∞(r); thus Γp(x) ≥ 1 (Euclidean) is conservative for Chebyshev coverage. Combining Proposition F.9 with Lemma F.13 yields a practical bound 
+
+∥u(·, t + ∆ t) − vgrid ∥∞,2 ≤ (1 − p) ∥u(·, t )∥∞,2 + C ∆x. 
+
+F.4.5 Discrete quadrature error for truncated Gaussian Lemma F.13 (Discrete quadrature error for truncated Gaussian) . Assume u(·, t ) ∈ C1(Ω) and use a Riemann sum over available grid points in B2(r) to approximate v(x). Then, uniformly in x,
+
+v(x) − vgrid (x) ≤ C ∆x, 
+
+where C depends on ∥u(·, t )∥C1 , ν, ∆t, and d (Gaussian smoothness). Proof. The truncated Gaussian is smooth and rapidly decaying; a standard first-order Riemann-sum estimate for Lipschitz integrands gives O(∆ x) uniform error. 29 FLOW FORGE : Staged Local Rollout for Flow Field Prediction AR XIV PREPRINT 
+
+F.4.6 Hyperbolic and multiphysics extensions 
+
+For a linear symmetric hyperbolic system ∂tw + Pdj=1 Aj ∂xj w = 0 with wave speed bound cmax , the domain of dependence over ∆t is contained in B2(cmax ∆t). For advection–diffusion–heat (with thermal diffusivity κ), a conservative requirement is 
+
+rreq ≈ cmax ∆t +
+
+q
+
+2ν∆t F −1
+
+> χ2
+> d
+
+(p) + 
+
+q
+
+2κ∆t F −1
+
+> χ2
+> d
+
+(p).
+
+This can be used in Definition F.11 by replacing ∥a∥ with cmax and augmenting the diffusive radii. 
+
+F.5 Non-expansiveness and persistence of coverage bound 
+
+We now make precise that the coverage bound is preserved by the pressure projection. 
+
+Lemma F.14 (Helmholtz projection is non-expansive) . P : L2(Ω; Rd) → L2(Ω; Rd) is an L2-orthogonal projection onto V. Hence ∥P v −P w ∥2 ≤ ∥ v −w∥2 and, in particular, ∥P v ∥2 ≤ ∥ v∥2. Moreover, there exists a domain-dependent constant CΩ such that 
+
+∥(I − P )v∥2 = ∥∇ ϕ∥2 ≤ CΩ ∥∇· v∥2,
+
+where ∆ϕ = ∇· v (elliptic regularity). Proof. Orthogonality is standard: decompose v = w + ∇ϕ with w ∈ V and ϕ solving the Poisson problem; P is the orthogonal projector v 7 → w so it is non-expansive in L2. The estimate ∥∇ ϕ∥2 ≤ CΩ∥∆ϕ∥H−1 ≤ CΩ∥∇· v∥2 follows from elliptic regularity on Ω with the stated BCs. 
+
+Proposition F.15 (Coverage bound persists under projection) . Let u∗(·, t + ∆ t) denote the advective–diffusive update and let the true incompressible update be u(·, t + ∆ t) = P u ∗(·, t + ∆ t). Let v be the truncated predictor from Proposition F.9 and ˆu := P v . Then 
+
+∥u(·, t + ∆ t) − ˆu∥2 = ∥P u ∗ − P v ∥2 ≤ ∥ u∗ − v∥2 ≤ (1 − p) ∥u(·, t )∥2.
+
+In particular, the projection step cannot worsen the coverage error bound; it can only improve it. Proof. Apply Lemma F.14 to v and u∗, then Proposition F.9(ii). 
+
+F.6 Runtime Model: Idealized Makespan Proposition F.16 (Latency as a tunable knob) . Assume each token evaluation takes constant time ttok , tokens within a stage are independent, and up to ws tokens of stage s can be processed in parallel. Then the stage makespan satisfies 
+
+Ts =
+
+l |Ss|
+
+ws
+
+m
+
+ttok ,
+
+and the end-to-end latency is 
+
+Ttotal =
+
+> K
+
+X
+
+> s=1
+
+Ts =
+
+> K
+
+X
+
+> s=1
+
+l |Ss|
+
+ws
+
+m
+
+ttok .
+
+Hence, with fixed ttok , latency is directly controlled by the stage widths {ws}.Proof. Within stage s, |Ss| identical jobs on ws identical parallel servers have optimal makespan ⌈| Ss|/w s⌉ttok (tight list-scheduling bound for identical tasks). Stages are executed sequentially, so the total time is the sum. 30
