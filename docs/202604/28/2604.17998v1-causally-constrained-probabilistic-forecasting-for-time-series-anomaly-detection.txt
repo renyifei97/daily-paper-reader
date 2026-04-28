@@ -1,0 +1,669 @@
+Title: Causally-Constrained Probabilistic Forecasting for Time-Series Anomaly Detection
+
+URL Source: https://arxiv.org/pdf/2604.17998v1
+
+Published Time: Tue, 21 Apr 2026 02:11:45 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+> 1
+
+# Causally-Constrained Probabilistic Forecasting for Time-Series Anomaly Detection 
+
+Pooyan Khosravinia , Jo˜ ao Gama , Bruno Veloso 
+
+Abstract —Anomaly detection in multivariate time series is a central challenge in industrial monitoring, as failures frequently arise from complex temporal dynamics and cross-sensor interac-tions. While recent deep learning models, including graph neural networks and Transformers, have demonstrated strong empirical performance, most approaches remain primarily correlational and offer limited support for causal interpretation and root-cause localization. This study introduces a causally-constrained probabilistic forecasting framework which is a Causally Guided Transformer (CGT) model for multivariate time-series anomaly detection, integrating an explicit time-lagged causal graph prior with deep sequence modeling. For each target variable, a ded-icated forecasting block employs a hard parent mask derived from causal discovery to restrict the main prediction pathway to graph-supported causes, while a latent Gaussian head cap-tures predictive uncertainty. To leverage residual correlational information without compromising the causal representation, a shadow auxiliary path with stop-gradient isolation and a safety-gated blending mechanism is incorporated to suppress non-causal contributions when reliability is low. Anomalies are identified us-ing negative log-likelihood scores with adaptive streaming thresh-olding, and root-cause variables are determined through per-dimension probabilistic attribution and counterfactual clamping. Experiments on the ASD and SMD benchmarks indicate that the proposed method achieves state-of-the-art detection performance, with F1-scores of 96.19% on ASD and 95.32% on SMD, and enhances variable-level attribution quality. These findings suggest that causal structural priors can improve both robustness and interpretability in detecting deep anomalies in multivariate sensor systems. 
+
+Index Terms —Anomaly detection, multivariate time series, causal inference, causal discovery, Transformers, root cause analysis, sensor networks. 
+
+I. I NTRODUCTION 
+
+Industrial systems are inherently complex and are moni-tored through a large number of sensors in domains such as industrial IoT, manufacturing, aerospace, power grids, and healthcare. These sensors produce multivariate time-series data that capture the evolving behavior of a system. Detecting normal and anomalous patterns in such data is essential for early fault detection, improved safety, and predictive maintenance, all of which help reduce costly downtime and extend equipment lifespan [1]. However, anomaly detection in multivariate sensor data remains challenging because of high dimensionality, noise, non-stationarity, and strong spatial and temporal dependencies among variables [2]. Existing statistical, machine learning, and deep learning methods have achieved strong performance in many anomaly detection settings. In particular, recurrent neural networks (RNNs), graph-based models, and Transformers can capture complex temporal behavior and cross-sensor dependencies. However, most of these methods rely primarily on correlation patterns rather than an explicit cause-and-effect structure. Strong correlation does not necessarily imply that one variable causes or explains another, and this can lead to misleading relationships, false alarms, and limited insight into the true source of an anomaly [3], [4]. As a result, many current models can detect abnormal behavior but struggle to determine why it occurred and which component is most likely responsible. Therefore, recent work has begun to incorporate causal structure into anomaly detection pipelines. Causal relation-ships among sensors can be derived from domain knowledge or learned from data, and provide a more interpretable basis for evaluating whether an observation is consistent with ex-pected system behavior [5]. For example, if sensor A causally influences sensor B, then an extreme change in B while A remains normal may indicate an anomaly in B or in the mechanism linking A to B. By contrast, a simultaneous change in both A and B may be expected if the change in B is a downstream effect of A. Causal modeling can therefore improve anomaly detection by focusing on stable mechanisms rather than surface-level dependence and can support root-cause analysis by distinguishing primary anomalies from prop-agated effects. This study proposes a Causally Guided Transformer (CGT) model to provide multivariate time-series anomaly detection in which a deep sequence model is informed by an explicit causal graph among variables. Rather than treating the sensor network as an unstructured collection of signals, the approach uses causal structure to guide attention, prediction, and interpre-tation. The goal is not to replace deep representation learning with a fixed graph, but to use causal knowledge as an inductive bias that encourages more interpretable and causally consistent learning. By detecting behaviors that violate expected cause-effect relationships and tracing anomaly propagation along causal links, such a model can better distinguish root causes from secondary effects. The main contributions of this study are summarized as follows:  
+
+> •
+
+We introduce CGT, a causally-constrained probabilistic forecasting method for multivariate time-series anomaly detection that integrates a time-lagged causal graph prior with Transformer-based sequence modeling.  
+
+> •
+
+We propose a safety-aware auxiliary learning mechanism that captures useful residual dependencies beyond the causal graph through a stop-gradient auxiliary path and reliability-gated score blending.  
+
+> arXiv:2604.17998v1 [cs.LG] 20 Apr 2026 2
+> •
+
+We formulate anomaly detection and root-cause analysis within a unified probabilistic framework, using Gaussian predictive likelihoods for detection and both standardized likelihood attribution and counterfactual clamping for diagnosis.  
+
+> •
+
+We validate the proposed method on ASD and SMD through benchmark comparison, ablation analysis, and sensitivity studies, showing strong detection performance and improved variable-level attribution quality. The rest of this paper is organized as follows. We first introduce the background on multivariate time-series anomaly detection and causal discovery, and then review the related work. Next, we describe the proposed methodology, fol-lowed by the experimental setup and the obtained results. The implementation presented in this work will be publicly released after the final revision and will be available at https://github.com/p-khn/CGT-V1 II. B ACKGROUND 
+
+A. Multivariate Sensor Time Series 
+
+A multivariate sensor time series is represented as 
+
+X ∈ RT ×D, (1) where T is the sequence length and D is the number of variables. The system state at time t is 
+
+xt = x(1)  
+
+> t
+
+, x (2)  
+
+> t
+
+, . . . , x (D)
+
+> t
+
+⊤, (2) where x(i) 
+
+> t
+
+denotes the reading of sensor i at time t.Multivariate sensor time series exhibit three characteristics that make anomaly detection difficult. 
+
+Dependencies among variables: Sensors may be statistically dependent because of shared operating conditions, physical coupling, or direct influence. In many systems, some de-pendencies are merely correlational, whereas others reflect true causal mechanisms. These inter-sensor relationships allow faults or disturbances to propagate across variables, making joint modeling essential [6], [7]. 
+
+Temporal dynamics: Sensor readings evolve over time and often exhibit trends, seasonality, autocorrelation, and regime changes. Real-world systems are rarely stationary, and sensor streams may also contain missing values or noise, all of which complicate modeling [2]. 
+
+High dimensionality: Modern sensor networks may contain dozens or hundreds of variables. As the number of sensors grows, modeling cross-variable interactions becomes increas-ingly difficult. This study focuses on unsupervised anomaly detection in multivariate time series, where anomalies are rare and labeled fault examples are limited, while normal operating data are relatively abundant. 
+
+B. Time-Series Anomalies and Detection Principles 
+
+Anomalies in time-series data are observations or patterns that deviate from expected normal behavior [1], [2]. In prac-tice, they are often categorized into three broad types. Point anomalies are individual observations that deviate substantially from their expected range. Contextual anoma-lies are observations that may appear normal globally but are unusual within a specific context, such as time of day, season, or operating regime. Collective anomalies occur when a sequence of observations is anomalous as a whole, even if individual points appear normal. In multivariate settings, collective anomalies are particularly important because each variable may remain within its normal range while the joint pattern across variables becomes abnormal. Time-series anomaly detection methods are commonly orga-nized by learning setting and modeling principle. In supervised settings, models are trained using labeled anomalies. However, because anomalies are rare and highly diverse, unsupervised and semi-supervised approaches are more common. Semi-supervised methods typically train on normal data only and treat anomaly detection as novelty detection or one-class classification. Reconstruction-based methods learn to reproduce normal patterns and flag observations with high reconstruction error as anomalous. Autoencoders (AEs) and variational autoencoders (VAEs) are common examples. Forecast-based methods in-stead predict future values from past observations and treat large prediction residuals as anomaly scores. Classical models such as ARIMA and Kalman filters, as well as modern RNN-based predictors, fall into this category. Probabilistic methods assign a likelihood to each observation or sequence and mark low-probability events as anomalous; examples include Hidden Markov Models, Gaussian processes, and deep generative models. Other approaches include distance-based and clustering-based methods, such as nearest-neighbor scoring and isolation forests. These methods can work well in lower-dimensional settings but often struggle with long, high-dimensional mul-tivariate sequences because defining meaningful similarity becomes difficult. Across all of these families, one central challenge remains: anomaly detection must account not only for temporal structure within each sensor but also for depen-dencies among sensors. This motivates the use of structural information, including causal relationships, to guide detection. 
+
+C. Causal Inference and Causal Discovery in Time Series 
+
+Causal inference seeks to explain how variables influence one another rather than simply how they co-vary. These relationships are commonly represented by a directed acyclic graph (DAG), in which nodes correspond to variables and directed edges indicate direct causal effects. In time-series settings, causal structure is temporal: a variable at an earlier time may influence another variable at a later time. For example, X(i) 
+
+> t−ℓ
+
+may causally influence X(j) 
+
+> t
+
+.A structural causal model (SCM) describes each variable as a function of its direct causes and exogenous noise: 
+
+X(j) 
+
+> t
+
+= f (j)(P a (j) 
+
+> t
+
+, U (j) 
+
+> t
+
+), (3) where P a (j) 
+
+> t
+
+denotes the causal parents of X(j) 
+
+> t
+
+and U (j) 
+
+> t
+
+is an exogenous noise term. A key advantage of SCMs is that they support reasoning about interventions. Rather than asking what 3
+
+typically co-occurs with a variable, one can ask what happens when a variable is actively changed. In industrial systems, this perspective is valuable for understanding fault propagation and the effects of intervention. A foundational concept in temporal causality is Granger causality [8]. A time series X is said to Granger-cause another series Y if past values of X improve the prediction of future values of Y beyond what can be achieved using the past of Y
+
+and other relevant variables alone [4]. Classical Granger tests rely on vector autoregressive (VAR) models, whereas more recent methods extend the idea to nonlinear settings through neural networks, sparsity penalties, or information-theoretic criteria. Neural Granger Causality, for example, uses sparse neural networks to identify predictive links while suppressing irrelevant ones [9]. Beyond pairwise Granger analysis, a broader litera-ture addresses causal discovery in multivariate time series. Constraint-based methods, such as PC and its time-series variants, use conditional independence tests to infer graph structure under assumptions of causal sufficiency. PCMCI extends this paradigm to time-lagged and potentially nonlin-ear settings while improving statistical efficiency in higher-dimensional problems [4]. Score-based methods instead search for the graph that best explains the data according to a chosen score. Examples include GES and NOTEARS, with temporal extensions such as Dynotears. Functional causal models such as LiNGAM impose stronger assumptions about the data-generating process, for example, linearity and non-Gaussian noise. Each class of methods has limitations. Constraint-based methods may become unreliable in noisy or high-dimensional settings. Score-based methods can be computationally expen-sive, and functional causal models may impose assumptions that are too restrictive for complex industrial systems [10]. In addition, many real systems contain latent confounders or partially observed variables, so the learned graph should often be treated as a useful but imperfect structural prior rather than absolute ground truth. Causal discovery is highly relevant to anomaly detection because it helps separate direct effects from indirect effects. In a system where sensor S1 influences both S2 and S3, all three variables may be correlated, but a causal model aims to determine whether S1 is the common driver and whether the apparent dependence between S2 and S3 is only indirect. This distinction matters for diagnosis: changing S1 may affect S2 and S3, while intervening on S2 should not affect S1. Such reasoning is not available in purely correlational models. 
+
+D. Causally Guided Anomaly Detection 
+
+Causally guided anomaly detection uses causal knowledge, typically represented as a causal graph, to improve both anomaly detection and interpretation in multivariate time-series data. Instead of assessing each observation only by how unusual it appears in isolation or by correlation with other variables, the detector evaluates whether it is consistent with the expected behavior of its causal parents. One important idea is causal conditioning for anomaly scoring. A variable should be judged relative to the values of the variables that directly influence it. If sensor B behaves abnormally while its causal parent A remains in a normal range, then the observation may indicate a fault in B or in the mechanism relating A to B. By contrast, if both A and B change in a way that is consistent with the learned causal mechanism, then B may be less anomalous than it appears under a correlation-only model. A second idea is sensitivity to structural anomalies. In a causal framework, anomalies may arise not only as unusual values but as violations of expected causal relationships. This perspective helps distinguish between isolated measurement anomalies and systemic anomalies that propagate through the network. A local sensor glitch may affect only one variable, whereas a true fault often generates a cascade consistent with the system’s dependency structure [5]. Modeling this difference supports root-cause analysis by helping identify the earliest or most upstream abnormal variable. A third benefit is interpretability. Because a causal graph is directional, it provides a principled basis for explaining the propagation of anomalies. If multiple sensors are abnormal, the graph can help trace the disturbance back to a plausible source. Rather than simply reporting that several variables are anomalous, a causally guided detector can attribute anomalies to upstream causes and distinguish likely primary faults from downstream consequences. In practice, causally guided anomaly detection begins by learning or specifying a causal graph from historical data, then building a detector informed by this structure. One approach is to define a probabilistic model over the graph and measure how well new observations fit the expected dependencies [6]. Another is to use parent-child relationships to generate predictions, treating large mismatches between expected and observed behavior as anomaly signals. The causal graph can also be embedded into deep learning architectures, such as autoencoders or Transformers, so that sequence learning is shaped by structured information about variable influence. Although the learned graph may be imperfect, even an approximate causal prior can provide useful inductive bias. It can reduce reliance on spurious correlations, improve robust-ness under changing conditions, and produce more actionable explanations. For example, in a water treatment system, a failed valve may cause downstream changes in flow rate and tank level. A causally guided detector can interpret this pattern as a single fault with propagated effects, whereas a purely black-box detector may simply mark all affected sensors as anomalous without explanation. III. R ELATED WORK 
+
+A. Anomaly Detection in Multivariate Time Series 
+
+Classical approaches to time-series anomaly detection often rely on statistical models that capture temporal structure for each variable individually or after dimensionality reduction. Forecasting-based methods, such as ARIMA, identify anoma-lies through large prediction residuals. For multivariate data, vector autoregressive models and residual-based monitoring can capture linear interdependencies among variables. Sub-space methods such as Principal Component Analysis (PCA) 4
+
+learn low-dimensional structure from normal data and identify anomalies through reconstruction error or projection onto low-variance directions. For example, PCA has been used success-fully to detect unusual traffic patterns in network monitoring [11]. These methods offer some interpretability, but they are limited in their ability to model nonlinear dependencies and may be sensitive to distribution shift. Deep learning has substantially expanded the modeling capacity of anomaly detection systems for multivariate time se-ries. Recurrent neural networks, including LSTMs and GRUs, are widely used for modeling temporal dependencies. LSTM encoder-decoder architectures detect anomalies by reconstruct-ing normal windows and flagging large reconstruction errors [12]. LSTM forecasting models have also been used for anomaly detection in aerospace telemetry through dynamic thresholding on prediction residuals [13]. Several deep models explicitly represent multivariate time series as structured objects. MSCRED converts sensor rela-tionships into signature matrices and applies a CNN-LSTM architecture to reconstruct them, thereby detecting abnormal correlation patterns [14]. Graph-based methods, such as GDN, represent sensor relationships as a graph and compute anomaly scores based on deviations from these learned dependencies [6]. MTAD-GAT uses graph attention mechanisms over a fully connected sensor graph to capture variable interactions while combining temporal modeling with attention-based weighting [15]. These models highlight the importance of inter-sensor structure, but the learned relationships are still typically cor-relational rather than explicitly causal. Generative methods form another important family. GAN-based models such as MAD-GAN learn the distribution of normal subsequences and use discriminator-based signals to identify anomalies. Variational models such as InterFusion similarly model latent normal behavior and use deviations from learned distributions as anomaly scores [16]. While such models can capture complex data distributions, they often require careful calibration and may be difficult to interpret. More recently, Transformer-based approaches have become prominent because of their ability to capture long-range de-pendencies. The Anomaly Transformer, for example, uses self-attention to learn associations among time points and has achieved strong results on benchmark datasets [17]. Despite their strong empirical performance, most of these models remain fundamentally correlational. They can identify unusual patterns, but they do not explicitly distinguish direct causes from indirect effects. 
+
+B. Causal Inference for Multivariate Time Series 
+
+Causal discovery in time series has been widely studied in fields such as econometrics, neuroscience, climate science, and system monitoring. Granger causality remains a core starting point, but modern methods extend it to high-dimensional and nonlinear systems. Neural Granger Causality uses sparse neural architectures to infer predictive directional relationships [9]. Transfer entropy provides an information-theoretic notion of directional influence and has been applied to complex tem-poral systems, although it can be computationally demanding in large networks [18]. Sparse VAR-based approaches such as Lasso-Granger attempt to scale causal discovery by combining autoregressive modeling with variable selection [19]. Constraint-based approaches such as PC and FCI have also been extended to temporal settings by treating lagged variables as distinct nodes. PCMCI is a particularly important example because it combines conditional independence testing with a time-series-specific design that improves feasibility in large systems and supports nonlinear dependence testing [4]. Score-based approaches such as GES, NOTEARS, and temporal extensions such as Dynotears instead optimize a graph-scoring objective subject to structural constraints [20]. Functional causal models, including LiNGAM, assume specific noise and functional forms in order to identify directionality. Although these methods have significantly advanced time-series causal discovery, their practical use in industrial anomaly detection remains challenging. Noise, nonlinearity, limited samples, and partial observability can all degrade graph quality. Accordingly, learned causal graphs in such settings should often be interpreted as informative structural priors rather than exact representations of the true system. 
+
+C. Causality-Guided Anomaly and Fault Analysis 
+
+Recent work at the intersection of anomaly detection and causal analysis has shown that structural reasoning can im-prove root-cause localization and anomaly interpretation, espe-cially in complex operational systems. In microservices and IT operations, methods such as CauseInfer and MicroDiag infer dependency structures among system metrics and use them to trace anomaly propagation paths [21], [22]. CausalRCA extends this idea by learning more expressive causal graphs and using them to identify likely root causes after anomalies are detected, improving localization accuracy on benchmark data [10]. Related work has also explored structure-aware anomaly scoring. GReLeN, for example, learns a probabilistic relational graph among variables and uses it to evaluate how well new observations align with expected dependency patterns [7]. Results on datasets such as SWaT and WADI suggest that modeling inter-variable structure can improve both detection and diagnosis. A key limitation of much of this literature is that anomaly detection and causal analysis are often treated as separate stages: a model first detects anomalies, and only afterwards is causal reasoning applied to explain them. In addition, many graph-based detectors rely on structural dependencies that are useful in practice but do not necessarily represent true causal mechanisms. Even so, this line of work supports an important conclusion: incorporating structured dependencies can improve anomaly detection and interpretation relative to unstructured approaches. This leaves an open opportunity to integrate causal structure more directly into deep anomaly detectors themselves, rather than using it only after detection or as a loosely connected prior. 5
+
+IV. M ETHODOLOGY 
+
+This study proposes a probabilistic approach to detecting anomalies in time-series data that preserves causal structure. The architecture contains forecasting blocks. It learns each target variable using a separate forecasting block, which con-tains an encoder, a latent-variable component, and a prediction head. Each block includes two distinct computational paths, the causal path and the auxiliary path. The first path updates the encoder, the latent module, and the primary head; its input is the parents’ features. The auxiliary path uses additional correlations from other variables if needed, even if those variables are not direct causes. However, these extra path con-tributions are activated only if a safety test indicates minimal reliance on non-parent features, so their learning does not affect the main causal learning process. Otherwise, it falls back to the purely causal anomaly scoring. Stop-gradient isolation is a standard mechanism to prevent unintended interference between branches during multi-objective training. It has been widely used in related the multi-branch representation learning settings [23], [24]. Figure 1 shows the overall workflow of the proposed method. 
+
+A. Problem Formulation 
+
+Consider a multivariate time series {xt}Tt=1 , where xt ∈ RD
+
+represents measurements collected for D sensors. For each target variable i ∈ { 1, . . . , D }, the steps ahead conditional density is modeled as follows. 
+
+p xit | H t
+
+ , (4) Here, Ht denotes the history length, constructed from awindow of past observations across all sensors and multiple time lags up to τmax . This history consists of stacked lagged windows of length W for each sensor and lag. The predictive distribution is parameterized as a Gaussian with mean and variance outputs. 
+
+p xit | H t
+
+ = N  μt,i , σ 2
+
+> t,i
+
+ , (5) Anomalies are detected using the negative log-likelihood (NLL). So, observations that yield high NLL under the learned predictive distribution are flagged as anomalous. 
+
+B. Windowed Lagged Input Construction 
+
+A windowed lag design matrix is constructed to align the forecasting model with the structure of the time-lagged causal graph. Here, W denote the window length and τmax represents the maximum lag. The set of sensor–lag pairs is defined as follows. 
+
+P = {(j, ℓ ) : j ∈ { 1, . . . , D }, ℓ ∈ { 1, . . . , τ max }} , (6) with P = |P| = Dτ max . At each time t, the model input consists of a matrix 
+
+Xt ∈ RW ×P , (7) The column corresponding to the sensor–lag pair (j, ℓ ) is formed by a length-W history shifted by ℓ the steps: 
+
+Xt[: , (j, ℓ )] = xjt−W −ℓ, x jt−W −ℓ+1 , . . . , x jt−1−ℓ
+
+⊤. (8) Each of the W rows represents a token that contains all the sensors across all lags at the same relative position within the window. All channels are scaled using a Min–Max transfor-mation, which is fitted on the training data and subsequently applied to test sequences. Because this construction requires 
+
+W historical points for each lag and valid inputs exist only for t ≥ W + τmax .
+
+C. Causal Graph Prior and Parent Mask 
+
+A Time-lagged causal discovery method, based on the PCMCI algorithm, is used to estimate directed, lagged depen-dencies of the form (j, ℓ ) → i. This notation indicates that the sensor j at lag ℓ is a candidate cause of target variable i [25]. For each target variable i, a binary parent mask is constructed. 
+
+πi ∈ { 0, 1}P , πi[( j, ℓ )] = I{(j, ℓ ) → i}, (9) Here, P = Dτ max indexes all the sensors and the lag pairs. This mask identifies allowable parent features and is applied as a hard gate to the lagged input. As a result, only the graph-supported parent features can contribute to the causal computation path, which includes the Transformer encoder, latent variable module, and the causal predictive head. 
+
+D. Target-Specific Forecasting Blocks 
+
+Each target variable i ∈ { 1, . . . , D } is assigned a dedicated forecasting block with its own parameters, which includes a target-specific parent mask πi derived from the causal graph and a set of learnable auxiliary gate logits. During training and evaluation, mini-batches are constructed so that all samples in a batch have the same target variable. This deterministic routing enables each batch to be processed by its corresponding target-specific block and simplifies block-wise computation. Figure 2 illustrates the internal structure of a single target-specific forecasting block. 
+
+E. Causal Transformer Encoder and Latent Gaussian Head 
+
+For each target i, the lagged input matrix Xt ∈ RW ×P
+
+is first restricted to graph-supported parent features using the binary parent mask πi ∈ { 0, 1}P :
+
+X(i) 
+
+> t,c
+
+= Xt ⊙ πi. (10) The masked input is then normalized over the feature dimen-sion and projected to the model dimension: 
+
+˜X(i) 
+
+> t,c
+
+= LN 
+
+
+
+X(i)
+
+> t,c
+
+
+
+, Et = ˜X(i) 
+
+> t,c
+
+Wp + bp, (11) where Et ∈ RW ×d. The projected tokens are processed by a Transformer encoder: 
+
+Ht = TransEnc( Et) ∈ RW ×d, (12) and the final token representation is used as the causal sum-mary 
+
+h(i) 
+
+> t,c
+
+= Ht[W − 1] ∈ Rd. (13) To capture residual uncertainty after conditioning on the causal representation, a latent variable z ∈ Rdz is introduced. The model defines a conditional Gaussian prior 
+
+pψ (z | ht,c ) = N  μp(ht,c ), diag   exp(log vp(ht,c ))  , (14) 6 
+
+> Fig. 1. Overall pipeline of the proposed causal-probabilistic anomaly detection framework. A causal graph prior and windowed lagged multivariate input are processed by target-specific forecasting blocks to produce probabilistic predictions. Then they are converted into anomaly scores, calibrated through safe auxiliary activation, and finally thresholded for anomaly detection.
+
+and, during training, an amortized posterior conditioned on both the causal representation and the ground-truth target y =
+
+xit:
+
+qϕ(z | ht,c , y ) = N  μq (ht,c , y ), diag   exp(log vq (ht,c , y ))  .
+
+(15) Samples are drawn using the reparameterization trick, 
+
+z = μq + exp   12 log vq
+
+ ⊙ ϵ, ϵ ∼ N (0 , I ), (16) and the latent module is regularized by 
+
+LKL = KL( qϕ(z | ht,c , y ) ∥ pψ (z | ht,c )) . (17) The causal representation and latent sample are concate-nated, 
+
+ut,c = [ ht,c ; z], (18) and mapped to the parameters of a Gaussian predictive distri-bution: 
+
+μc = gμ(ut,c ), log vc = gv (ut,c ). (19) This yields 
+
+pc(y | Xt) = N (y; μc, exp(log vc)) , (20) with per-sample causal negative log-likelihood 
+
+Lc = 12
+
+
+
+log(2 π) + log vc + (y − μc)2
+
+exp(log vc)
+
+
+
+. (21) Only this causal branch updates the Transformer trunk, latent module, and causal Gaussian head. During inference, the latent variable is sampled from the conditional prior pψ (z | ht,c ).
+
+F. Shadow Auxiliary Path and Gradient Isolation 
+
+The auxiliary path is designed to exploit additional cor-relations, including non-parent inputs, without modifying the causal trunk, latent module, or causal prediction head through gradient flow. A learnable soft gate is defined as 
+
+αi = σ(ℓi) ∈ (0 , 1) P , (22) where ℓi ∈ RP denotes target-specific gate logits. Let 
+
+stopgrad( ·) denote the stop-gradient operator. The auxiliary branch receives a detached version of the gate: 
+
+X(i) 
+
+> t,o
+
+= Xt ⊙ stopgrad( αi). (23) The same Transformer trunk is reused to encode the auxiliary input, but it is evaluated without gradient tracking: 
+
+h(i) 
+
+> t,o
+
+= stopgrad 
+
+
+
+fθ
+
+
+
+LN 
+
+
+
+X(i)
+
+> t,o
+
+ 
+
+. (24) The auxiliary branch also receives a detached latent sample. Its fused representation is 
+
+ut,o = h(i)
+
+> t,o
+
+; stopgrad( z). (25) Residual corrections to the causal Gaussian parameters are then predicted by 
+
+∆μ = g∆μ(ut,o ),
+
+∆ log v = g∆v (ut,o ). (26) The corrected predictive parameters are defined as 
+
+μo = μc + ∆ μ, log vo = log vc + ∆ log v. (27) During training, the auxiliary likelihood is evaluated using a detached causal base so that auxiliary gradients do not propagate into the causal branch: 
+
+˜μo = stopgrad( μc) + ∆ μ, 
+
+glog vo = stopgrad(log vc) + ∆ log v. (28) The auxiliary negative log-likelihood is 
+
+Lo = − log N
+
+
+
+y; ˜ μo, exp( glog vo)
+
+
+
+. (29) As a result, Lo updates only the auxiliary residual-prediction layers, while the gate parameters are learned exclusively through the regularization terms described below. To discourage large opportunistic overrides, the residual magnitudes are penalized: 
+
+Lres = E∆μ2 + E(∆ log v)2 . (30) 
+
+G. Gate Regularization and Causal Biasing of α
+
+Because α may include non-parent inputs, regularization is applied to encourage a sparse structure primarily composed of parent inputs. Let α = σ(ℓ) represent the soft gate induced by logits ℓ ∈ RP .
+
+1) Parent-alignment prior: The logits are biased toward the hard mask πi through the use of weighted binary cross-entropy: 
+
+Rprior = λprior BCEWithLogits( ℓ, π i; w), (31) Here, w assigns greater weight to parent indices, thereby promoting stable inclusion of graph-supported parents. 7 
+
+> Fig. 2. Detailed architecture of a target-specific forecasting block. The causal branch applies the parent mask and shared Transformer encoder to produce a causal representation and a latent probabilistic prediction. The auxiliary branch uses a detached soft gate and no-gradient encoder evaluation to learn residual corrections without updating the causal modules.
+
+2) Asymmetric sparsity and separation margin: Gate mass on non-parents is penalized while high gate values are encour-aged for parents: 
+
+Rother = λother E[α | πi = 0] , Rpush = λpush E[1 −α | πi = 1] .
+
+(32) A soft margin is introduced to promote separation between the average gate values of parents and non-parents: 
+
+Rmargin = λm max(0 , ¯αoth − ¯αpar + m) . (33) 
+
+3) Group penalty across lags per sensor: Gate entries are grouped by sensor across all lags, and a group penalty is imposed: 
+
+Rgrp = λgrp 
+
+1
+
+D
+
+> D
+
+X
+
+> j=1
+
+∥αGj ∥2, (34) This approach encourages sensor-level sparsity, or group-sparsity, across lagged features [26]. 
+
+H. Training Objective and Optimization 
+
+For each target i, the training procedure minimizes aweighted sum of the causal and auxiliary NLLs, in addition to regularization terms: 
+
+L = (1 − γt)Lc + γtLo + βtLKL + λres Lres + R(α), (35) where R(α) = Rprior + Rother + Rpush + Rmargin + Rgrp .In accordance with the implementation, the shadow weight 
+
+γt and KL weight βt are increased linearly during the initial 
+
+Ewarm epochs: 
+
+γt = min 
+
+
+
+γ, e + 1 
+
+Ewarm 
+
+γ
+
+
+
+, βt = β min 
+
+
+
+1, e + 1 
+
+Ewarm 
+
+
+
+,
+
+(36) where e is the epoch index (starting at 0). Optimization is performed using the Adam algorithm with gradient-norm clip-ping. To ensure numerical stability, log-variance parameters are constrained within bounded intervals, and non-finite losses are excluded during training. 
+
+I. Inference: NLL, Blended Scoring, and Aggregation 
+
+For each time point t and target i, the causal and oppor-tunistic NLLs are computed 
+
+s(c) 
+
+> t,i
+
+= − log pc(yt,i | Xt), s(o) 
+
+> t,i
+
+= − log po(yt,i | Xt).
+
+(37) When S samples of the latent variable z are used, NLLs are computed for each sample and averaged across S samples. A blended per-target score is subsequently defined as 
+
+st,i (γ) = (1 − γ)s(c) 
+
+> t,i
+
++ γs (o) 
+
+> t,i
+
+. (38) Aggregating across targets produces a scalar anomaly score 
+
+St = Agg 
+
+
+
+{st,i (γ)}Di=1 
+
+
+
+, (39) where Agg( ·) is implemented as the mean, maximum, or top-k
+
+mean. 
+
+J. Safe Activation (Selection of γ)
+
+To mitigate unsafe reliance on non-parent correlations, an effective blend weight γused is selected at deployment time. The safety statistics are computed on an unlabeled calibra-tion prefix of the deployment stream, after which γused is fixed for subsequent scoring. (i) Blended scores Smix  
+
+> t
+
+are computed under a base γ, and (ii) stressed scores SpermNP 
+
+> t
+
+are obtained after permuting non-parent input features across 8
+
+samples within each target-specific scoring batch. This proce-dure preserves feature marginals while disrupting sample-wise alignment. Sensitivity is quantified by 
+
+R =
+
+Et
+
+h
+
+Smix  
+
+> t
+
+− SpermNP 
+
+> t
+
+i
+
+Et
+
+ Smix 
+
+> t
+
+ + ϵ . (40) Gate separation is also measured: 
+
+M = Ei
+
+h
+
+¯α(i)par − ¯α(i)oth 
+
+i
+
+. (41) If R > τ rel or M < τ α, auxiliary influence is reduced by setting γused = 0 hard fallback or by soft-scaling 
+
+γused = γ · clip 
+
+ M − τα
+
+1 − τα
+
+, 0, 1
+
+
+
+, (42) otherwise γused = γ. The selected γused remains fixed during inference scoring. 
+
+K. Thresholding with Streaming Peaks-Over-Threshold 
+
+Given the aggregated anomaly score sequence {St}Tt=1 ,scores are converted into binary anomaly decisions us-ing SPOT (Streaming Peaks-Over-Threshold), an EVT-based streaming thresholding procedure [27]. SPOT follows the Peaks-Over-Threshold (POT) principle. Any value exceeding a high threshold is modelled using extreme value theory, via a Generalised Pareto tail approximation, to produce an adaptive decision threshold in non-stationary streams [28]. 
+
+a) Dynamic SPOT thresholds.: SPOT is configured by a risk tail probability parameter q and an initialization quantile level. SPOT is fitted on I and subsequently run in streaming mode on R to produce a time-varying threshold sequence {θt}:
+
+θt = SPOT  I, R; q, level  (dynamic update) . (43) A scalar calibration factor λthr is applied to adjust the level of conservativeness: 
+
+˜θt = λthr θt. (44) 
+
+b) Point decisions and segment-level adjustment.: A raw pointwise prediction is obtained by applying the threshold: 
+
+ˆyraw  
+
+> t
+
+= I{S+ 
+
+> t
+
+> ˜θt}, t ∈ R . (45) 
+
+L. Root-Cause Variable Attribution 
+
+In addition to generating a scalar anomaly score St, the method provides a ranked list of sensors most responsible for an anomalous event at time t. Attribution scores are derived from the same probabilistic forecasting model used for detection. These attributions are model-based: they quantify how the detector’s likelihood and anomaly score change under input replacement, and do not constitute guaranteed physical causal interventions. 
+
+1) Per-dimension blended NLL attribution: For each time t
+
+and variable i, a blended per-variable negative log-likelihood is computed: 
+
+At,i = (1 − γused ) s(c) 
+
+> t,i
+
++ γused s(o) 
+
+> t,i
+
+, (46) where s(c) 
+
+> t,i
+
+and s(o) 
+
+> t,i
+
+are the causal and opportunistic NLLs, respectively. To ensure comparability across variables, each dimension is standardized using a nominal baseline prefix to estimate μi and σi:
+
+Zt,i = At,i − μi
+
+σi + ε . (47) Variables are ranked by Zt,i at anomalous times, where higher values indicate a stronger contribution. 
+
+2) Counterfactual clamping attribution: Variable contri-butions are also quantified via model-based counterfactual clamping of the inputs. For a candidate sensor s, only the historical inputs corresponding to s across all lags within the window are replaced with a nominal reference value, the training median of sensor s, and the anomaly score is recomputed: 
+
+∆s(t) = Sclamp( s) 
+
+> t
+
+− Sorig  
+
+> t
+
+. (48) A large negative ∆s(t) indicates that clamping sensor s
+
+substantially reduces the anomaly score, thereby suggesting 
+
+s as a root cause. For computational efficiency, only target blocks that are potentially influenced by s are recomputed using the causal parent mask and non-negligible opportunistic gates. V. E XPERIMENTAL RESULTS 
+
+This section describes the evaluation of the proposed Causal–Guided Transformer (CGT) for anomaly detection and root-cause variable attribution on multivariate time series. It presents comparison results on two benchmark datasets and reports ablation studies that evaluate the effectiveness of each module. 
+
+A. Datasets 
+
+Evaluation is performed using two multivariate time series benchmarks that provide timestamp-level anomaly annotations and expert-labelled anomalous variables for interpretability. Table I shows the datasets used in this study. Both ASD and SMD contain 12 entities with dimension-level labels. The SMD has a higher feature dimensionality and better sampling resolution than ASD. 
+
+1) Server Machine Dataset (SMD): The first public bench-mark that we used is SMD dataset [29], which contains 12 
+
+entities, and each with D = 38 metrics sampled uniformly every one minute. SMD provides timestamp-level anomaly labels and variable annotations used for attribution evaluation. 
+
+2) Application Server Dataset (ASD): The second dataset used in this study is the ASD dataset [30], which contains 
+
+12 servers, each represented by D = 19 metrics covering CPU, memory, network, and virtual machine signals. Samples are recorded based on five-minute intervals. According to the dataset explanation, the initial 30 days are allocated for train-ing, with the final 30% of this period reserved for validation. 9                  
+
+> TABLE I DATASET CHARACTERISTICS USED IN THE EVALUATION .Dataset Ent. DSamp. Train Test Dim. labels ASD 12 19 5m 30d 15d Yes SMD 12 38 1m first half second half Yes
+
+The subsequent 15 days constitute the test set. Test anomalies and their most anomalous variables are annotated by domain experts for evaluation. 
+
+B. Baselines 
+
+This study compared the CGT against representative state-of-the-art forecasting- and reconstruction-based anomaly de-tectors: OmniAnomaly [29], MSCRED [14], MAD-GAN [31], USAD [32], MTAD-GAT [33], CAE-M [34], GDN [6], and TranAD [35]. Each baseline is implemented based on the publicly released code. 
+
+C. Preprocessing and Feature Construction 
+
+All features are normalised using Min-Max scaling and then fitted to the training split; this transformation is subsequently applied to the test data without modification. For each times-tamp t and target variable i, we construct the windowed lag input Xt ∈ RW ×P using window length W and maximum lag 
+
+τmax , where P = Dτ max . Unless otherwise specified, W = 30 
+
+and τmax = 7 are used. Scores and predictions are defined only for t ≥ W + τmax .
+
+D. Causal Graph Estimation (PCMCI Prior) 
+
+The parent mask πi for each target i is from estimation of a time-lagged causal graph on the training split only using a PCMCI-style causal discovery procedure. Directed edges 
+
+(j, ℓ ) → i for lags ℓ ∈ { 1, . . . , τ max } are mapped to binary mask entries πi[( j, ℓ )] ∈ { 0, 1}, and they are used to hard-mask non-parent lag-features in the causal path. 
+
+E. Evaluation Protocol 
+
+CGT produces a continuous anomaly score St; instead of binary labels, it uses an aggregated negative log-likelihood. Detection performance is evaluated by thresholding St to obtain binary predictions. 
+
+Thresholding We use SPOT (Streaming Peaks-Over-Threshold) [27] to obtain dynamic thresholds on the test stream. 
+
+Detection metrics. Precision, Recall, and F1-score are evaluation metrics. AUROC is also reported, computed from the anomaly scores to assess the quality of the ranking. 
+
+F. Implementation Details 
+
+All experiments are implemented in PyTorch with fixed random seeds to ensure reproducibility. Unless otherwise specified, CGT uses the following configuration: W = 30 ,
+
+τmax = 7 , dmodel = 64 , attention heads = 2 , feed-forward dimension = 128 , encoder layers = 2, latent dimension                     
+
+> TABLE II KEY CGT HYPERPARAMETERS
+> Hyperparameter Value
+> Window W30 Max lag τmax 7Model dimension dmodel 64 Heads / Layers 2 / 2 Feed-forward dimension 128 Latent dimension dz8MC samples S4Batch size 16 Learning rate 3.90 ×10 −4
+> Gradient clipping 0.823
+
+dz = 8, Monte Carlo samples S = 4, batch size = 16 ,Adam learning rate 3.90 × 10 −4, and gradient clipping 0.823 .SPOT uses q = 1 .53 × 10 −3 and a burn-in prefix determined by BURN_FRAC and BURN_MIN ; thresholds may be scaled by a constant factor. Hyperparameters are selected using the validation protocol described above. The full parameter list and search ranges are provided in the accompanying code. Table II represents the key hyperparameters. 
+
+G. Results and Discussion 
+
+Table III reports the precision, recall, F1, and AUC scores for baseline models and CGT. On the SMD dataset, the pro-posed CGT achieves the best F1-score of 95.32%, indicating an effective balance between recall and precision. Similarly, the CGT, achieving 96.19%, outperforms the baselines on the ASD dataset. Overall, the results show that CGT can effectively reduce the false positives and improve the anomaly detection. 
+
+1) Ablation: a) Scoring Variants: We isolate inference-time scoring effects by evaluating A0/A1/A2 using the same trained check-point and identical threshold settings. Table IV shows the comparison of three ablation settings of the scoring method, the way the model outputs are combined to produce the final score during testing, only for the SMD dataset. The first ablation, which is called A0, is the causal-only baseline, and A1, the second setting, adds a fixed blend of the residual branch, and A2 use the proposed safety-gated blend. The results demonstrate a clear step-by-step improvement from A0 to A2. It shows that adding the residual branch in A1 slightly improves precision, recall, F1, and AUROC compared to the causal-only baseline. It means that the residual branch provides useful extra information. The A2, the third setting, which is the proposed safety gate mechanism, achieves the best results on all metrics, which indicate that the residual information is the most effective when it is applied selectively using the safety gate rather than always being blended in. 
+
+b) Safety-gate behavior: We report safety diagnostics to show when and how strongly the gate suppresses opportunistic scoring. Table V shows that the safety gate does not improve performance simply by chance; instead, it reduces the residual 10                                                                                                                     
+
+> TABLE III ANOMALY DETECTION RESULTS ON ASD AND SMD. Method SMD ASD PRF1 AUROC PRF1 AUROC OmniAnomaly [29] 88.74 99.79 93.94 99.41 78.36 99.18 87.55 87.59 MSCRED [14] 72.68 99.68 84.07 99.17 89.01 98.54 93.53 98.01 MAD-GAN [31] 99.87 84.32 91.44 99.28 85.08 99.21 91.60 98.56 USAD [32] 90.51 99.69 94.88 99.29 79.38 99.06 88.13 97.89 MTAD-GAT [33] 82.01 92.07 86.75 99.18 79.09 98.17 87.60 98.92 CAE-M [34] 90.73 96.64 93.59 97.78 77.42 99.92 87.24 98.98 GDN [6] 71.62 99.67 83.35 99.19 92.99 98.85 95.83 98.09 TranAD [35] 94.75 94.65 94.70 99.54 88.58 90.27 89.42 98.46 CGT 91.26 99.75 95.32 99.38 93.48 99.07 96.19 99.11
+> TABLE IV ABLATION ON SCORING
+> Variant PRF1 AUROC A0 (Causal-only) 92.87 98.61 95.65 98.94 A1 (Fixed blend) 93.08 98.68 95.80 98.99 A2 (Safety-gated blend) 93.36 98.72 95.97 99.07
+> TABLE V SAFETY DIAGNOSTICS FOR A2 ( INFERENCE -TIME ). Dataset RMγbase γused Fallback (%) ASD 0.0437 0.0814 0.0206 0.0191 14.3 SMD 0.0612 0.0678 0.0206 0.0174 28.6
+
+branch when the causal alignment is weaker during the testing. The value R measures how sensitive the model is to non-parent features, while M measures how much more strongly the gate favors parent features over non-parent features. In both datasets, M is positive, indicating that the gate places greater importance on parent features. SMD has a higher R
+
+and a lower M than ASD, suggesting that non-parent effects are somewhat stronger and the gate is less clearly separated on SMD. This shows that the gate acts as intended by being more conservative when the residual branch appears less reliable, leading to a lower γused and a higher fallback rate. This supports the results in Table IV, showing that the residual branch can be helpful but should be used carefully when it is less consistent with the causal structure. 
+
+c) Root-cause variable attribution: This section reports two attribution variants: the counterfactual clamp score drop and the per-dimension standardised blended NLL ( z-score). Higher values indicate better attribution performance. Table VI presents a comparison of CGT with baseline methods on ASD and SMD datasets for root-cause variable attribution. Both the blended NLL z-score and intervention-based attribution methods outperform the baselines. The coun-terfactual clamp variant consistently outperformed the simpler blended NLL z-score variant, suggesting that intervention-based attribution is more effective at identifying variables that influence the anomaly score. On SMD, CGT demonstrates competitive performance and achieves the best results on several metrics, although the strong baselines such as CAE-M, and TranAD remain competitive on certain columns. For ASD, CGT has more consistent improvements across the reported metrics. 
+
+H. Efficiency and Sensitivity Analyses 
+
+This section reports the metric comparison for CGT for variant training settings to study the sensitivity to the window size W , maximum lag τmax , number of samples S, and score aggregation rule (mean, max, top-k). Table VII reports the sensitivity of CGT to several key design choices. Overall, per-formance remains stable across a reasonable range of settings on both ASD and SMD. The default configuration of W = 30 ,
+
+τmax = 7 , and S = 4 provides an effective balance between detection accuracy and robustness. Reducing the window size or the number of lags slightly decreases performance due to limited temporal context. On the other hand, increasing the window size or lag horizon yields only marginal improvements and may introduce additional noise. Increasing the number of latent samples beyond S = 4 provides negligible benefit, demonstrating diminishing returns. Among the aggregation rules, mean aggregation demonstrates the greatest robustness, while max aggregation is more susceptible to noisy per-dimension spikes and consequently performs slightly worse. VI. C ONCLUSION 
+
+This study introduces a causally-constrained probabilistic forecasting framework for anomaly detection in multivariate time series. The approach integrates a time-lagged causal graph prior with target-specific Transformer-based forecasting modules, latent Gaussian uncertainty modeling, and a shadow auxiliary path designed to capture residual non-causal corre-lations without disrupting the main causal pathway. By en-forcing parent-restricted prediction in the primary branch and employing safety-gated auxiliary blending during inference, the framework maintains causal consistency while leveraging reliable correlational structures. Empirical results on ASD and SMD datasets indicate that this design yields robust anomaly detection performance and competitive root-cause localization. Notably, the proposed model achieves the highest overall F1 Score among the evaluated baselines and demonstrates that intervention-inspired attribution via counterfactual clamping is more effective than purely score-based ranking. Ablation stud-ies further validate that causal-only scoring establishes a strong foundation, while the auxiliary branch provides additional improvements when its influence is selectively regulated by the safety mechanism. These results support the central claim that causal structure is valuable not only for post hoc explanation but also as an effective inductive bias in the anomaly detector. 11 
+
+TABLE VI ROOT -CAUSE ATTRIBUTION RESULTS ON ASD AND SMD. Method ASD SMD H@100% H@150% N@100% N@150% H@100% H@150% N@100% N@150% OmniAnomaly 0.4874 0.5867 0.4722 0.5489 0.4567 0.5652 0.4545 0.5125 MSCRED 0.4583 0.5416 0.4788 0.5297 0.4272 0.5180 0.4609 0.5164 MAD-GAN 0.4961 0.6018 0.4895 0.5736 0.4630 0.5785 0.4681 0.5522 USAD 0.5317 0.6249 0.5388 0.5972 0.4925 0.6055 0.5179 0.5781 MTAD-GAT 0.3728 0.4986 0.3941 0.4695 0.3493 0.4777 0.3759 0.4530 CAE-M 0.5039 0.6093 0.5586 0.6294 0.4707 0.5878 0.5474 0.6178 GDN 0.3365 0.4518 0.3147 0.3892 0.3143 0.4386 0.2980 0.3724 TranAD 0.5368 0.6712 0.5224 0.6401 0.4981 0.6401 0.4941 0.6178 CGT 0.5746 0.6898 0.5663 0.6519 0.5387 0.6485 0.5194 0.6047 CGT (counterfactual clamp) 0.6019 0.7065 0.5872 0.6648 0.5718 0.6842 0.5526 0.6338 TABLE VII SENSITIVITY OF CGT TO KEY INFERENCE AND TRAINING SETTINGS .ASD SMD Setting F1 AUROC PR Notes F1 AUROC PR Notes 
+
+W = 15 95.28 98.89 97.64 short context 94.61 98.72 96.95 short context 
+
+W = 30 (default) 95.97 99.07 98.18 balanced 95.25 98.98 97.43 balanced 
+
+W = 60 95.79 99.01 98.07 smoother 95.08 98.91 97.31 smoother 
+
+τmax = 3 95.51 98.95 97.86 fewer lags 94.80 98.80 97.08 fewer lags 
+
+τmax = 7 (default) 95.97 99.07 98.18 balanced 95.25 98.98 97.43 balanced 
+
+τmax = 12 95.82 99.02 98.09 more noisy lags 95.09 98.90 97.30 more noisy lags 
+
+S = 1 95.86 99.01 98.08 low-cost 95.14 98.91 97.32 low-cost 
+
+S = 4 (default) 95.97 99.07 98.18 stable 95.25 98.98 97.43 stable 
+
+S = 8 95.95 99.08 98.19 diminishing return 95.23 98.99 97.44 diminishing return Agg = mean 95.97 99.07 98.18 robust 95.25 98.98 97.43 robust Agg = max 95.59 98.98 97.89 sensitive 94.86 98.87 97.16 sensitive Agg = top-k 95.88 99.04 98.09 k = 3 95.16 98.93 97.34 k = 3 
+
+However, the method’s effectiveness relies on the quality of the estimated causal graph, which may be compromised by noise, limited samples, latent confounding, or nonstationary system behavior. Therefore, the learned graph should be regarded as a structural prior rather than an exact representation of ground truth. Future research will explore joint learning of causal structure and anomaly detection, adaptive updating of the causal graph under distribution shifts to enhance structural uncertainty modeling, and more accurate intervention-based root-cause analysis in partially observed systems. REFERENCES [1] V. Chandola, A. Banerjee, and V. Kumar, “Anomaly detection: A survey,” 
+
+ACM Computing Surveys , vol. 41, Jul. 2009. [2] M. Gupta, J. Gao, C. C. Aggarwal, and J. Han, “Outlier detection for temporal data: A survey,” IEEE Transactions on Knowledge and Data Engineering , vol. 26, no. 9, pp. 2250–2267, 2013. [3] Y. Su, Y. Zhao, C. Niu, R. Liu, W. Sun, and D. Pei, “Robust anomaly detection for multivariate time series through stochastic recurrent neural network,” in Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining , 2019, pp. 2828– 2837. [4] J. Runge, S. Bathiany, E. Bollt, G. Camps-Valls, D. Coumou, E. Deyle, C. Glymour, M. Kretschmer, M. D. Mahecha, J. Mu˜ noz-Mar´ ı, E. H. van Nes, J. Peters, R. Quax, M. Reichstein, M. Scheffer, B. Sch¨ olkopf, P. Spirtes, G. Sugihara, J. Sun, K. Zhang, and J. Zscheischler, “Inferring causation from time series in earth system sciences,” Nature Communi-cations , vol. 10, no. 1, p. 2553, 2019. [5] Y. Sun, R. S. Blum, and P. Venkitasubramaniam, “Unifying explainable anomaly detection and root cause analysis in dynamical systems,” arXiv preprint arXiv:2502.12086 , 2025. [6] A. Deng and B. Hooi, “Graph neural network-based anomaly detection in multivariate time series,” in Proceedings of the AAAI Conference on Artificial Intelligence , vol. 35, no. 5, 2021, pp. 4027–4035. [7] W. Zhang, C. Zhang, and F. Tsung, “GRELEN: Multivariate time series anomaly detection from the perspective of graph relational learning,” in Proceedings of the Thirty-First International Joint Conference on Artificial Intelligence (IJCAI) , 2022, pp. 2390–2397. [8] C. W. J. Granger, “Investigating causal relations by econometric models and cross-spectral methods,” Econometrica , pp. 424–438, 1969. [9] A. Tank, I. Covert, N. Foti, A. Shojaie, and E. B. Fox, “Neural granger causality,” IEEE Transactions on Pattern Analysis and Machine Intelligence , vol. 44, no. 8, pp. 4267–4279, 2022. [10] R. Xin, P. Chen, and Z. Zhao, “CausalRCA: Causal inference based pre-cise fine-grained root cause localization for microservice applications,” 
+
+Journal of Systems and Software , vol. 203, p. 111724, 2023. [11] A. Lakhina, M. Crovella, and C. Diot, “Diagnosing network-wide traffic anomalies,” Computer Communication Review , vol. 34, Oct. 2004. [12] P. Malhotra, A. Ramakrishnan, G. Anand, L. Vig, P. Agarwal, and G. Shroff, “LSTM-based encoder-decoder for multi-sensor anomaly detection,” arXiv preprint arXiv:1607.00148 , Jul. 2016. [13] K. Hundman, V. Constantinou, C. Laporte, I. Colwell, and T. S¨ oderstr¨ om, “Detecting spacecraft anomalies using LSTMs and nonparametric dynamic thresholding,” in Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD) , 2018, pp. 387–395. [14] C. Zhang, D. Song, Y. Chen, X. Feng, C. Lumezanu, W. Cheng, J. Ni, B. Zong, H. Chen, and N. V. Chawla, “A deep neural network for unsupervised anomaly detection and diagnosis in multivariate time series data,” in Proceedings of the AAAI Conference on Artificial Intelligence ,vol. 33, no. 1, 2019, pp. 1409–1416. [15] H. Zhao, Y. Wang, J. Duan, C. Huang, D. Cao, Y. Tong, B. Xu, J. Bai, J. Tong, and Q. Zhang, “Multivariate time-series anomaly detection via graph attention network,” in 2020 IEEE International Conference on Data Mining (ICDM) , 2020, pp. 841–850. [16] Z. Li, Y. Zhao, J. Han, Y. Su, R. Jiao, X. Wen, and D. Pei, “Multivariate time series anomaly detection and interpretation using hierarchical inter-metric and temporal embedding,” in Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining (KDD) ,2021, pp. 3220–3230. [17] J. Xu, H. Wu, J. Wang, and M. Long, “Anomaly transformer: Time 12 
+
+series anomaly detection with association discrepancy,” arXiv preprint arXiv:2110.02642 , 2021. [18] T. Schreiber, “Measuring information transfer,” Physical Review Letters ,vol. 85, no. 2, pp. 461–464, 2000. [19] A. Arnold, Y. Liu, and N. Abe, “Temporal causal modeling with graphical granger methods,” in Proceedings of the 13th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining ,2007, pp. 66–75. [20] X. Zheng, B. Aragam, P. K. Ravikumar, and E. P. Xing, “DAGs with no tears: Continuous optimization for structure learning,” in Advances in Neural Information Processing Systems , vol. 31, 2018. [21] P. Chen, Y. Qi, P. Zheng, and D. Hou, “CauseInfer: Automatic and distributed performance diagnosis with hierarchical causality graph in large distributed systems,” in IEEE INFOCOM , Apr. 2014, pp. 1887– 1895. [22] L. Wu, J. Tordsson, J. Bogatinovski, E. Elmroth, and O. Kao, “Micro-Diag: Fine-grained performance diagnosis for microservice systems,” May 2021. [23] J.-B. Grill, F. Strub, F. Altch´ e, C. Tallec, P. H. Richemond, E. Buchatskaya, C. Doersch, B. Avila Pires, Z. D. Guo, M. Ghesh-laghi Azar, B. Piot, K. Kavukcuoglu, R. Munos, and M. Valko, “Boot-strap your own latent: A new approach to self-supervised learning,” Ad-vances in Neural Information Processing Systems , vol. 33, pp. 21 271– 21 284, 2020. [24] X. Chen and K. He, “Exploring simple siamese representation learning,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , Jun. 2021, pp. 15 745–15 753. [25] J. Runge, “Discovering contemporaneous and lagged causal relations in autocorrelated nonlinear time series datasets,” in Proceedings of the 36th Conference on Uncertainty in Artificial Intelligence (UAI) , ser. Proceedings of Machine Learning Research, vol. 124. PMLR, 2020, pp. 1388–1397. [26] M. Yuan and Y. Lin, “Model selection and estimation in regression with grouped variables,” Journal of the Royal Statistical Society: Series B (Statistical Methodology) , vol. 68, no. 1, pp. 49–67, 2006. [27] A. Siffer, P.-A. Fouque, A. Termier, and C. Largou¨ et, “Anomaly detec-tion in streams with extreme value theory,” in Proceedings of the 23rd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD) , 2017, pp. 1067–1075. [28] S. Coles, An Introduction to Statistical Modeling of Extreme Values .Springer, 2001. [29] Y. Su, Y. Zhao, C. Niu, R. Liu, W. Sun, and D. Pei, “Robust anomaly detection for multivariate time series through stochastic recurrent neural network,” in Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining , 2019, pp. 2828– 2837. [30] Z. Li, Y. Zhao, J. Han, Y. Su, R. Jiao, X. Wen, and D. Pei, “Multivariate time series anomaly detection and interpretation using hierarchical inter-metric and temporal embedding,” in Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining , 2021, pp. 3220–3230. [31] D. Li, D. Chen, B. Jin, L. Shi, J. Goh, and S.-K. Ng, “MAD-GAN: Multivariate anomaly detection for time series data with generative adversarial networks,” in International Conference on Artificial Neural Networks , 2019, pp. 703–716. [32] J. Audibert, P. Michiardi, F. Guyard, S. Marti, and M. A. Zuluaga, “USAD: Unsupervised anomaly detection on multivariate time series,” in Proceedings of the 26th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining , 2020, pp. 3395–3404. [33] H. Zhao, Y. Wang, J. Duan, C. Huang, D. Cao, Y. Tong, B. Xu, J. Bai, J. Tong, and Q. Zhang, “Multivariate time-series anomaly detection via graph attention network,” in 2020 IEEE International Conference on Data Mining (ICDM) , 2020, pp. 841–850. [34] Y. Zhang, Y. Chen, J. Wang, and Z. Pan, “Unsupervised deep anomaly detection for multi-sensor time-series signals,” IEEE Transactions on Knowledge and Data Engineering , vol. 35, no. 2, pp. 2118–2132, 2021. [35] S. Tuli, G. Casale, and N. R. Jennings, “TranAD: Deep transformer networks for anomaly detection in multivariate time series data,” arXiv preprint arXiv:2201.07284 , 2022.

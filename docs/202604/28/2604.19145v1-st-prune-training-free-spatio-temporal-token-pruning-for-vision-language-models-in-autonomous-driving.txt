@@ -1,0 +1,392 @@
+Title: ST-Prune: Training-Free Spatio-Temporal Token Pruning for Vision-Language Models in Autonomous Driving
+
+URL Source: https://arxiv.org/pdf/2604.19145v1
+
+Published Time: Wed, 22 Apr 2026 00:42:35 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# ST-P RUNE : T RAINING -F REE SPATIO -T EMPORAL TOKEN 
+
+# PRUNING FOR VISION -L ANGUAGE MODELS IN AUTONOMOUS 
+
+# DRIVING 
+
+# Lin Sha 1, Haiyun Guo 1,2* , Tao Wang 3, Cong Zhang 3, Min Huang 1, Jinqiao Wang 1,2 , and Qinghai Miao 1* 
+
+> 1
+
+School of Artificial Intelligence, University of Chinese Academy of Sciences, Beijing 100049, China 
+
+> 2
+
+Institute of Automation, Chinese Academy of Sciences, Beijing 100190, China 
+
+> 3
+
+Carizon, Beijing 100094, China 
+
+April 22, 2026 
+
+# ABSTRACT 
+
+Vision-Language Models (VLMs) have become central to autonomous driving systems, yet their deployment is severely bottlenecked by the massive computational overhead of multi-view camera and multi-frame video input. Existing token pruning methods, primarily designed for single-image inputs, treat each frame or view in isolation and thus fail to exploit the inherent spatio-temporal redun-dancies in driving scenarios. To bridge this gap, we propose ST-Prune, a training-free, plug-and-play framework comprising two complementary modules: Motion-aware Temporal Pruning (MTP) and Ring-view Spatial Pruning (RSP). MTP addresses temporal redundancy by encoding motion volatility and temporal recency as soft constraints within the diversity selection objective, prioritizing dynamic trajectories and current-frame content over static historical background. RSP further resolves spatial redundancy by exploiting the ring-view camera geometry to penalize bilateral cross-view similar-ity, eliminating duplicate projections and residual background that temporal pruning alone cannot suppress. These two modules together constitute a complete spatio-temporal pruning process, pre-serving key scene information under strict compression. Validated across four benchmarks spanning perception, prediction, and planning, ST-Prune establishes new state-of-the-art for training-free token pruning. Notably, even at 90% token reduction, ST-Prune achieves near-lossless performance with certain metrics surpassing the full-model baseline, while maintaining inference speeds comparable to existing pruning approaches. 
+
+# 1 Introduction 
+
+The realization of safe and reliable autonomous driving(AD) necessitates a system capable of simultaneous high-fidelity perception, complex behavioral reasoning, and real-time control within highly dynamic environments [ 1, 2, 3]. This multi-faceted cognitive demand has driven the rapid adoption of Vision-Language Models (VLMs) as the central reasoning backbone of modern AD systems [ 4 , 5 ]. By leveraging the extensive world knowledge encapsulated within Large Language Models (LLMs), these frameworks facilitate sophisticated scene understanding [ 6 , 7, 8] and closed-loop decision-making [9, 10, 11] within a unified architecture. Despite this rapid progress, this powerful paradigm faces a formidable Curse of Dimensionality , a bottleneck highlighted by Tesla’s AI leadership[ 12 ]. Specifically, this challenge is characterized by a two-fold compounding dimension. First, unlike general VLM applications that typically process isolated images, an autonomous vehicle must integrate synchronized inputs from a multi-view camera suite (e.g., six or more views) across a continuous temporal horizon. This results in the generation of thousands of visual tokens per inference step, creating an extreme many-to-few mapping where massive high-dimensional input must be compressed into a sparse set of trajectory waypoints or steering commands. Second, there exists a profound imbalance in the semantic density of these tokens. In standard 
+
+> arXiv:2604.19145v1 [cs.CV] 21 Apr 2026
+
+A PREPRINT - A PRIL 22, 2026 
+
+Figure 1: Illustration of the failure modes of traditional pruning methods on spatio-temporal driving inputs and the corresponding improvements achieved by ST-Prune. driving sequences, the vast majority of visual data represents redundant background scenery or static road geometry, contributing negligibly to the immediate driving policy. Conversely, safety-critical long-tail events such as a pedestrian obscured by a vehicle or a transient traffic signal change—occupy an infinitesimally small fraction of the total token space[ 13 ], yet represent the most vital cues for navigation. Together, these two dimensions force the model to expend significant computational resources on low-entropy tokens while struggling to explore the rare, salient information required for safety driving decision. To address this computational overhead, visual token pruning has emerged as a pivotal research frontier. Pioneering works such as the attention-based FAST-V [ 14 ] and the similarity-based ToMe [ 15 ] have demonstrated that redundant tokens can be substantially eliminated with minimal impact on model performance, inspiring a growing body of subsequent methods [ 16 , 17 , 18 ] that further advance token reduction across general-purpose VLMs. However, these methods are designed exclusively for single-image inputs and operate on a flat token space with no awareness of temporal ordering or omnidirectional camera configuration, rendering them fundamentally ill-suited for AD. As illustrated in Figure 1, this leads to two concrete failure modes. Temporally, treating each frame in isolation without exploiting inter-frame temporal relationships distributes the token budget uniformly across all frames, allowing static historical background to crowd out current dynamic objects such as pedestrians. Spatially, treating camera views in isolation allows cross-view overlapping background regions to monopolize the token budget, marginalizing unique foreground content such as traffic signs that occupy only a small fraction of the overall visual field. Within the AD domain, 2A PREPRINT - A PRIL 22, 2026 FastDriveVLA [ 19 ] and Prune2Drive [ 20 ] represent the only two pruning frameworks specifically tailored to driving scenarios, employing MAE-based reconstruction [ 21 ] and Bayesian parameter search respectively to address redundancy across camera views. However, both methods introduce significant overhead through additional training phases or expensive offline search processes, and neither provides a unified solution simultaneously resolving redundancy across both temporal and spatial dimensions. To bridge this gap, we propose ST-Prune, a truly training-free, plug-and-play framework comprising two complementary modules that jointly address spatio-temporal redundancy in autonomous driving. Motion-aware Temporal Pruning (MTP) leverages motion volatility and temporal recency to prioritize dynamic trajectories and recent observations, while aggressively discarding static redundancy from historical frames. Ring-view Spatial Pruning (RSP) exploits the physical spatial structure of surround-view cameras to penalize bilateral cross-view similarity, eliminating redundant background tokens that appear near-identically across adjacent views and thereby redirecting the pruning budget toward unique foreground content. As shown in Figure 1, ST-Prune correctly retains the pedestrian in the current frame through temporal recency bias and achieves more complete coverage of the traffic sign across adjacent views by suppressing cross-view redundant background. Furthermore, ST-Prune requires no training, no calibration data, and no architectural modifications, and is fully compatible with efficient kernels such as FlashAttention and KV cache optimization. The main contributions of this paper are summarized as follows: • We present ST-Prune, the first training-free, plug-and-play framework that simultaneously addresses token re-dundancy across both the multi-frame temporal dimension and the multi-view spatial dimension in autonomous driving. • We propose MTP and RSP, two complementary modules oriented for temporal and spatial redundancy in AD respectively. We further demonstrate that each module serves as a robust standalone solution, delivering consistent improvements across diverse driving scenarios. • We validate ST-Prune across four mainstream AD benchmarks, namely DriveLM, LingoQA, NuInstruct, and OmniDrive, consistently outperforming existing pruning methods across perception, prediction, and planning tasks under both 25% and 10% token retention rates, while maintaining comparable inference efficiency. 
+
+# 2 Related work 
+
+2.1 Vision-Language Driving Models 
+
+The integration of LLMs into AD has progressed rapidly through several distinct phases [ 22 ]. Early pioneering works such as GPTDriver [ 23 ] and Driving with LLMs [ 24 ] demonstrated the feasibility of leveraging LLMs for driving decisions, establishing the foundation for subsequent VLM-based approaches. Building upon, a series of works explored using VLMs as supervisory signals or auxiliary modules within end-to-end driving pipelines[ 25 , 26 , 27 ]. With the emergence of Vision-Language Action(VLA) models, VLMs have since evolved into the central cognitive unit of autonomous vehicles, directly generating navigation decisions and control signals within a unified framework[ 28 , 29 , 30 ]. Parallel to this progression, researchers have identified key limitations of general VLMs when applied to driving scenarios and proposed targeted enhancements like spatial grounding[ 31 , 32 , 33 ] and logical reasoning[ 34 , 35 , 36 ]. Another distinct branch focuses on unified multi-task architectures: rather than addressing individual limitations, DriveMM [ 37 ] proposes an all-in-one large multimodal model that processes diverse driving inputs and achieves state-of-the-art performance across a broad array of benchmarks through sophisticated cross-modal alignment strategies. Overall, these studies demonstrate the strong potential of VLMs as a unified paradigm for perception, reasoning, and decision-making in autonomous driving. However, the growing capability of VLM-based driving systems comes at a steep computational cost, especially when processing dense spatio-temporal visual tokens in real-world scenes. 
+
+2.2 Token Pruning for Vision-Language Models 
+
+To mitigate the quadratic computational complexity of Transformer-based VLMs, visual token pruning has emerged as a pivotal research direction, broadly categorized into attention-based, similarity-based, and hybrid approaches. FAST-V [ 14 ] leverages decayed attention scores in deeper layers as saliency proxies to filter low-contribution tokens. A more principled direction is represented by similarity-based methods: DivPrune [ 38 ] reformulates token reduction as a max-min diversity problem to select a complementary, non-redundant token subset, while VisPruner [ 39 ] combines visual self-attention with similarity-based de-duplication to overcome the limitations of purely cross-modal attention signals. Recognizing that pruned tokens may carry recoverable information, hybrid approaches such as SparseVLM [ 16 ]and PACT [ 40 ] further integrate clustering mechanisms to recycle rather than simply discard redundant tokens. Despite 3A PREPRINT - A PRIL 22, 2026 their effectiveness on general VLM benchmarks, all these methods are designed for single-image inputs and remain fundamentally agnostic to the spatio-temporal structure of autonomous driving. Although FastDriveVLA [ 19 ] and Prune2Drive [ 20 ] have made pioneering attempts to tailor token pruning for driving scenarios through MAE-based reconstruction and Bayesian parameter search respectively, their applicability remains fundamentally constrained. On one hand, the additional retraining and offline search processes they require introduce non-trivial deployment barriers that undermine their plug-and-play utility. On the other hand, both approaches confine their pruning objectives to spatial redundancy within individual timestamps, leaving the temporal dimension entirely unaddressed. This reveals a critical and persistent void in the field: a truly training-free framework capable of jointly suppressing redundancy across both the multi-frame temporal axis and the multi-view spatial axis has yet to emerge. 
+
+# 3 Problem Formulation 
+
+Modern VLM-based autonomous driving systems are equipped with V synchronized surround-view cameras, each capturing T consecutive frames. Each frame is processed by a vision encoder followed by a projector, producing P
+
+spatial patch tokens of embedding dimension C per view per frame. Without any pruning, the total token count fed into the LLM backbone amounts to V × T × P , which grows rapidly with the number of cameras and frames, imposing prohibitive computational overhead. In practice, the prompt design of VLM-based driving systems explicitly encodes the camera identity of each token, informing the model which tokens belong to which view. This means each camera view must be preserved as a distinct perceptual unit — discarding entire views would break the correspondence between visual tokens and their camera identities, resulting in critical blind spots and corrupting the spatial awareness of the model. This naturally imposes a per-view pruning constraint: rather than selecting tokens globally across all V × T × P tokens, the objective is to retain 
+
+K tokens independently within each view, reducing the total token count from V × T × P to a compact V × K with 
+
+K ≪ T × P .A direct and feasible approach to this problem is diversity maximization: within each view, select K tokens from T × P
+
+such that the selected subset is maximally diverse in feature space, thereby suppressing redundancy while retaining representative content. Formally, this requires solving: 
+
+S∗ = arg max  
+
+> |S| =K
+
+min   
+
+> xi,xj∈S ,i ̸=j
+
+d(xi, xj ), (1) where d(·, ·) denotes a distance metric. However, this combinatorial optimization is NP-hard in general. To make it tractable, DivPrune [ 38 ] proposes a greedy approximation that iteratively selects the token maximizing its minimum distance to all previously selected tokens: 
+
+SD = arg max   
+
+> xi/∈S
+
+min   
+
+> xj∈S
+
+d(xi, xj ). (2) This greedy formulation is training-free, plug-and-play, and produces a well-distributed token subset that naturally suppresses redundancy within a flat token space. Although this approach appears feasible, it remains agnostic to the structural semantics inherent in the two key dimensions of the driving input. Along the temporal dimension T , tokens from the current frame are strictly more actionable than those from distant historical frames, yet vanilla max-min selection assigns them equal priority, allowing stale background content to compete with critical current-frame observations. Along the spatial dimension V , tokens appearing near-identically across adjacent camera views represent physical redundancy arising from overlapping fields of view, which flat per-view diversity selection operating independently within each view has no mechanism to detect or exploit. These two structural blindspots motivate ST-Prune, which reformulates this greedy selection as a domain-constrained diversity maximization problem, incorporating temporal and geometric priors of autonomous driving directly into the selection objective. 
+
+# 4 Methodology 
+
+4.1 Method Overview 
+
+ST-Prune serves as a model-agnostic, plug-and-play framework integrated within the latent processing phase of the LLM. It requires no structural modifications to the backbone or additional training. As illustrated in Figure 2, given a high-dimensional spatio-temporal input tensor X ∈ RV ×T ×P ×C , the framework operates through two sequential stages built upon a shared Core Max-Min Selection Engine. 4A PREPRINT - A PRIL 22, 2026 
+
+Figure 2: The ST-Prune pipeline for spatio-temporal token reduction. The framework processes multi-view, multi-frame inputs through a dual-stage selection process: (1) MTP, which targets temporal redundancy using motion and recency priors, and (2) RSP, which addresses spatial redundancy across the multi-view spatial geometry. Each stage leverages an iterative Max-Min Selection engine to maintain a diverse and semantically rich token set by optimizing a diversity objective augmented with corresponding temporal or spatial weighted scores. In the first stage, Motion-aware Temporal Pruning(MTP) addresses temporal redundancy across T frames. For each camera view, the temporal token sequence is globally flattened into T × P tokens, upon which a temporal score pattern combining motion intensity and temporal recency is computed. The weighted max-min selection then retains K1 tokens per view, producing an intermediate representation X1 ∈ RV ×K1×C that preserves dynamic trajectories and critical current-frame content while aggressively discarding static historical background. In the second stage, Ring-view Spatial Pruning(RSP) addresses spatial redundancy across V camera views. The intermediate tokens are first rearranged into ring order — Front_Left , Front , Front_Right , Back_Right , Back ,
+
+Back_Left — to reflect the physical adjacency of the surround-view camera array. A bilateral spatial score pattern is then computed for each token by measuring its similarity to tokens in both neighboring views, identifying cross-view redundancy arising from overlapping fields of view. The weighted max-min selection subsequently operates independently within each view, retaining K2 tokens per view to produce the final output X2 ∈ RV ×K2×C , reducing the total token count from V × T × P to V × K2.Together, the two stages form a coarse-to-fine pipeline that collectively suppresses spatio-temporal redundancy: MTP performs a coarse temporal distillation across frames, while RSP performs a fine-grained spatial refinement across views, each guided by domain-specific structural priors rather than generic feature statistics. In the following subsections, we provide a formal mathematical exposition of MTP and RSP, detailing their respective scoring functions and their integration into the core selection engine. 
+
+4.2 Motion-aware Temporal Pruning 
+
+We represent the visual tokens of a video sequence as a temporal tensor Xtem ∈ RT ×P ×C . While aggressive pruning of static background tokens is desirable, a naive focus on motion intensity alone may inadvertently discard essential stationary landmarks such as traffic lights and stop signs in the current frame, which are indispensable for immediate decision-making. To address this, we propose Motion-aware Temporal Pruning (MTP), which reformulates the unconstrained diversity objective into a temporally-aware selection problem by introducing a unified scoring function that encodes two domain-specific priors as soft constraints: motion volatility, derived from the temporal variance of patch features, and temporal recency, modeled as an exponential bias toward the current frame. 5A PREPRINT - A PRIL 22, 2026 
+
+Algorithm 1 Motion-aware Temporal Pruning (MTP)                                                 
+
+> Require: Temporal tensor Xtem ∈RT×P×C, temporal subset size K1, balancing coefficient λ1
+> Ensure: Pruned tensor X1∈RK1×C
+> 1: Flatten Xtem into N=T×Ptokens 2: Compute Stem (t, p )for all tokens via Eq. (3) 3: Apply min-max normalization to both terms of Stem independently 4: Initialize S ← { s1}where s1is selected via Eq. (4) 5: for m= 2 to K1do
+> 6: Select smvia Eq. (5); update S ← S ∪ { sm}
+> 7: end for
+> 8: return X1={xi|i∈ S} ∈ RK1×C
+
+Formally, for each token xt,p at frame t and spatial patch p, the temporal importance score is defined as: 
+
+Stem (t, p ) = ∥xt,p − ¯xp∥22 + exp 
+
+
+
+α · tT
+
+
+
+(3) where ¯xp denotes the temporal mean of patch features at position p, and α is a scaling factor that controls the exponential emphasis on the most recent frame—set to 2 throughout our experiments. Both terms are independently normalized via min-max normalization before summation to prevent either component from dominating due to scale differences. Prior to selection, the spatio-temporal tensor is flattened into a sequence of N = T × P tokens to enable a global search across the entire video volume. The selection of S proceeds in a seed-then-expand strategy. Vanilla max-min selection initializes the seed by selecting the token with maximum similarity to all others, anchoring to the most representative token in feature space. However, this initialization is agnostic to token informativeness and temporal relevance. Instead, we introduce feature norm as a proxy for token importance to identify the most informative anchor, and further incorporate the temporal scoring function to bias the selection toward dynamic and recent-frame content: 
+
+s1 = arg max 
+
+> xi∈Xtem
+
+[∥xi∥2 + λ1 · Stem (xi)] (4) where λ1 is a balancing coefficient. This ensures that the initial anchor is not merely a central feature vector but one that is simultaneously salient and temporally relevant, orienting the entire subsequent selection sequence toward dynamic and recent-frame content from the very first step. Subsequent tokens are selected by extending the max-min diversity criterion with a temporal awareness penalty: tokens that are both dissimilar to the existing set and temporally important are jointly favored: 
+
+sm = arg min  
+
+> xi/∈S
+
+
+
+max   
+
+> xj∈S
+
+[sim (xi, xj )] + λ1 · (1 − Stem (xi)) 
+
+
+
+(5) where cosine similarity is adopted as: sim (xi, xj ) = xi · xj
+
+∥xi∥∥ xj ∥ (6) Since the temporal recency term retains all content in the most recent frame indiscriminately — including residual static background — complementary spatial pruning is subsequently applied to complete the background suppression that temporal pruning alone cannot achieve. 
+
+4.3 Ring-view Spatial Pruning 
+
+While MTP addresses temporal redundancy, autonomous driving systems exhibit significant spatial redundancy across the multi-camera suite, where adjacent cameras with overlapping fields of view simultaneously capture the same physical objects and background elements across neighboring views. We denote the visual tokens of such a surrounding-view system as a spatial tensor Xspa ∈ RV ×P ×C , where V represents the number of camera views. Ring-view Spatial Pruning(RSP) incorporates the ring spatial arrangement of the annular camera layout as a geometric constraint on the diversity objective. Unlike naive similarity-based pruning that operates within a single view, RSP defines a bilateral spatial priority score that simultaneously queries both neighboring views in the ring, encoding the physical overlap structure of the camera geometry directly into the selection criterion. Specifically, to quantify cross-view redundancy, we define a spatial importance score for each token xv,p in camera view v and spatial patch p as: 
+
+Sspa (v, p ) = 1 − 12
+
+
+
+max  
+
+> k1∈P
+
+sim (xv,p , xv+1 ,k 1 ) + max  
+
+> k2∈P
+
+sim (xv,p , xv−1,k 2 )
+
+
+
+(7) 6A PREPRINT - A PRIL 22, 2026 
+
+Algorithm 2 Ring-view Spatial Pruning (RSP)                                                     
+
+> Require: Spatial tensor Xspa ∈RV×P×C, spatial subset size K2, balancing coefficient λ2
+> Ensure: Pruned tensor X2∈RV×K2×C
+> 1: Compute bilateral spatial score Sspa (v, p )for all views and tokens via Eq. (7) 2: for each camera view v∈ { 1, . . . , V }do
+> 3: Initialize Sv← { s1(v)}where s1(v)is selected via Eq. (8) 4: for m= 2 to K2do
+> 5: Select sm(v)via Eq. (9); update Sv← S v∪ { sm(v)}
+> 6: end for
+> 7: Collect selected tokens into X2,v
+> 8: end for
+> 9: return X2={X2,v }Vv=1 ∈RV×K2×C
+
+where indices are computed modulo V to respect the ring topology, i.e., xV +1 ≡ x1. A low Sspa score indicates that a token is well-represented in both neighboring views and is therefore a strong candidate for removal. Unlike MTP which operates globally across all frames, RSP performs independent per-view selection to avoid erroneous cross-view comparisons between visually similar but spatially distinct objects, such as two black vehicles appearing in non-adjacent views. The per-view selection follows the same seed-then-expand strategy as MTP, specialized with the spatial scoring function. The spatial seed for each view v is identified as: 
+
+s1(v) = arg max 
+
+> xi∈Xspa ,v
+
+[∥xi∥2 + λ2 · Sspa (v, xi)] (8) Subsequent tokens are selected by jointly maximizing diversity within the view and penalizing cross-view overlap: 
+
+sm(v) = arg min  
+
+> xi/∈S v
+
+
+
+max  
+
+> xj∈S v
+
+[sim (xi, xj )] + λ2 · (1 − Sspa (v, xi)) 
+
+
+
+(9) By penalizing tokens with high bilateral cross-view similarity, RSP naturally identifies and removes not only duplicate object projections but also static background elements that appear near-identically across adjacent camera boundaries, completing the two-stage background suppression of ST-Prune. 
+
+4.4 Method Analysis Complexity Analysis. The vanilla max-min selection incurs O(K · T × P ) complexity per view for selecting K tokens from T × P candidates, yielding O(V · K · T · P ) in total across all views. ST-Prune introduces two additional cost terms beyond this baseline. First, MTP performs iterative selection over T × P candidates for K1 steps per view, incurring O(V · K1 · T · P ) — identical in structure to vanilla selection and therefore introducing no asymptotic overhead relative to the baseline. Second, RSP introduces a one-time bilateral similarity precomputation of O(V · P 2)
+
+across neighboring views, after which per-view selection over the K1 intermediate tokens costs O(V · K2 · K1). The total complexity of ST-Prune is therefore: 
+
+O  V · K1 · T · P + V · P 2 + V · K2 · K1
+
+ (10) Since K2 ≪ K1 ≪ T · P , the term V · K2 · K1 is negligible. The sole meaningful overhead relative to vanilla selection is the RSP precomputation O(V · P 2), which is computed once per inference pass and reused across all K2
+
+selection iterations. In practice, with V ⩽ 7 and P bounded by the patch grid in vision encoder, this term remains fully manageable and comparable in magnitude to the vanilla selection cost, introducing no prohibitive overhead. This is empirically confirmed by the end-to-end latency measurements reported in Table 3. 
+
+Module Ordering. A natural question is whether applying RSP before MTP could yield comparable results. While a spatial-first ordering is theoretically valid, it introduces a T -fold increase in RSP precomputation cost: bilateral similarity scores must be computed independently across all T frames before MTP can reduce the temporal dimension, incurring O(V · T · P 2) compared to O(V · P 2) in the temporal-first design. Furthermore, MTP naturally accommodates datasets without a ring-view camera structure by adjusting token ordering prior to RSP, whereas a spatial-first design would require an additional reordering step. These efficiency considerations motivate our temporal-first ordering. We empirically compare both orders in our ablation study(reported in Table 6), which manifests that temporal-first consistently achieves superior performance across all benchmarks with better computational efficiency, while spatial-first also yields competitive results, confirming the robustness of our spatio-temporal pruning framework regardless of module ordering. 7A PREPRINT - A PRIL 22, 2026 
+
+# 5 Experiment 
+
+5.1 Experimental Details 5.1.1 Dataset and Metric 
+
+We evaluate ST-Prune on four mainstream autonomous driving benchmarks spanning complementary task categories, as summarized below: 
+
+DriveLM [ 41 ] is a multi-view, single-frame benchmark built upon the nuScenes dataset, covering a broad spectrum of driving-relevant reasoning including cross-view risk target perception, risk target state prediction, and ego motion prediction. Evaluation is performed via four complementary metrics: Accuracy , ChatGPT score , Language score , and 
+
+Match score . A comprehensive Average score incorporating all four metrics is reported by the official online evaluation system. 
+
+LingoQA [42 ] is a single-view, multi-frame benchmark oriented toward ego-vehicle planning and driving reasoning. Unlike DriveLM, LingoQA focuses on temporal reasoning across consecutive frames, making it particularly suited for evaluating the temporal dimension of our framework. Model responses are evaluated using Lingo-Judge , a learned text classifier specifically trained to assess the quality of driving-related natural language answers. 
+
+NuInstruct [43 ] is a full multi-view, multi-frame benchmark encompassing a diverse range of high-level prediction and decision-making tasks. It is the most comprehensive benchmark in our evaluation suite, covering four distinct task types evaluated by dedicated metrics: Mean Absolute Error (MAE) for regression tasks, Accuracy for classification tasks, 
+
+Mean Average Precision (mAP) for object detection and grounding tasks, and BLEU for captioning tasks. A unified 
+
+Average score is reported across all task types. 
+
+OmniDrive [ 44 ] is a full multi-view, multi-frame benchmark primarily focused on complex scene description and counterfactual reasoning tasks in diverse driving scenarios. Evaluation relies on rule-based natural language generation metrics. 
+
+5.1.2 Foundation Model 
+
+The selection of an appropriate backbone is significantly constrained by the availability of open-source VLMs that natively support both multi-view and multi-frame inputs, which is a prerequisite for evaluating spatio-temporal token pruning. To the best of our knowledge, DriveMM[ 37 ] is currently the only publicly available model that satisfies this requirement while simultaneously demonstrating competitive performance across all four benchmarks adopted in this work. Its general-purpose structure—pairing a SigLIP [ 45 ] vision encoder with a Llama-3.1-8B [ 46 ] backbone—makes it an ideal platform to demonstrate the generalization and seamless transition of our pruning framework to future multi-modal models. Other recent VLM-based driving models[ 31 , 43 , 32 ] either lack open-source weights, support only single-view or single-frame inputs, or are architecturally specialized in ways that preclude fair comparison. Furthermore, both our internal evaluations and the results reported in the rexperiment of DriveMM [ 37 ] indicate that direct supervised fine-tuning (SFT) of general-purpose models like Qwen[ 47 ] on these datasets leads to a significant performance collapse. This makes DriveMM the most robust and technically rigorous baseline for assessing the impact of high-ratio token pruning in complex, multi-view driving scenarios. 
+
+5.1.3 Comparative Baselines 
+
+We evaluate our proposed pruning framework against several representative training free pruning baselines comprising VisPruner[ 39 ], DivPrune[ 38 ], and PACT[ 40 ]. These three methods encompass a diverse range of methodologies such as attention mechanisms, similarity based metrics, and clustering based strategies. Notably, the three baseline methods operate at distinct pipeline positions: VisPruner prunes within the vision encoder, DivPrune operates between the projector and LLM, and PACT executes pruning within the LLM layers, collectively covering the full spectrum of possible pruning positions in VLM pipelines. Additionally, we benchmark ST-Prune against Prune2Drive [ 20 ], the sole training-free competitor within AD domains. Due to its architectural limitation to multi-view processing, we evaluate this baseline solely on the DriveLM dataset. To ensure a rigorous and fair comparison, we assess the performance of our method across two widely adopted pruning regimes where 75% and 90% of the total visual tokens are removed on average. 
+
+5.1.4 Implementation Setup 
+
+All experiments are conducted on a single NVIDIA RTX PRO 6000 GPU with one batch size during inference. The balancing coefficients λ1 and λ2 are set to 0.6 and 0.8 respectively throughout all experiments. 8A PREPRINT - A PRIL 22, 2026 Table 1: Performance comparison under different token retention rates across four benchmarks. † denotes the comprehensive scores provided by the official online evaluation system, which incorporates both the fundamental DriveLM metrics and detailed language generation scores (e.g., BLEU-1, ROUGE-L). ∗ indicates (Accuracy + MAP + BLEU-MAE) / 4. 
+
+(a) Remaining 25% Tokens 
+
+Dataset Metric Full Tokens Pruning Methods DriveMM (Vanilla) VisPruner 
+
+ICCV 2025 
+
+DivPrune 
+
+CVPR 2025 
+
+PACT 
+
+CVPR 2025 ST-Prune DriveLM Accuracy ↑ 81.23 75.84 76.72 78.26 81.10 
+
+ChatGPT ↑ 65.44 65.39 64.59 64.24 64.48 Language ↑ 51.33 51.37 50.03 49.84 52.41 
+
+Match ↑ 33.92 30.60 32.36 33.34 34.85 
+
+Average † ↑ 59.11 57.12 57.03 57.32 58.83 
+
+LingoQA LingoJudge ↑ 70.80 65.40 62.80 64.00 68.20 
+
+NuInstruct MAE ↓ 3.50 3.68 3.78 10.82 3.49 
+
+Accuracy ↑ 69.84 62.15 64.31 21.05 69.66 
+
+mAP ↑ 22.32 1.85 0.00 0.00 24.34 
+
+BLEU ↑ 24.72 30.12 33.17 22.50 25.74 Average ↑ 28.35 22.61 23.43 8.17 29.06 
+
+OmniDrive BLEU ↑ 40.78 26.94 39.59 37.39 40.82 
+
+CIDEr ↑ 112.65 66.52 108.76 98.51 113.24 
+
+ROUGE ↑ 39.79 32.63 39.05 37.55 39.76 
+
+Average ∗ ↑ 64.41 42.03 62.47 57.82 64.69 (b) Remaining 10% Tokens 
+
+Dataset Metric Full Tokens Pruning Methods DriveMM (Vanilla) VisPruner 
+
+ICCV 2025 
+
+DivPrune 
+
+CVPR 2025 
+
+PACT 
+
+CVPR 2025 ST-Prune DriveLM Accuracy ↑ 81.23 74.15 73.22 76.31 77.60 
+
+ChatGPT ↑ 65.44 64.84 64.98 64.76 64.72 Language ↑ 51.33 48.11 46.76 47.83 52.81 
+
+Match ↑ 33.92 30.02 30.91 32.94 33.57 
+
+Average † ↑ 59.11 55.93 55.85 56.81 57.87 
+
+LingoQA LingoJudge ↑ 70.80 63.00 59.40 63.70 65.20 
+
+NuInstruct MAE ↓ 3.50 3.76 3.89 11.24 3.52 
+
+Accuracy ↑ 69.84 58.22 61.41 19.53 69.17 
+
+mAP ↑ 22.32 1.05 0.00 0.00 19.74 
+
+BLEU ↑ 24.72 31.84 34.09 21.47 25.74 Average ↑ 28.35 21.84 22.90 7.44 27.78 
+
+OmniDrive BLEU ↑ 40.78 19.43 39.45 28.52 40.78 
+
+CIDEr ↑ 112.65 48.84 107.21 69.36 112.79 
+
+ROUGE ↑ 39.79 28.37 38.78 32.67 39.81 
+
+Average ∗ ↑ 64.41 32.21 62.14 43.52 64.46 
+
+5.2 Main Results Single-modality Benchmarks. DriveLM and LingoQA independently validate the efficacy of RSP and MTP re-spectively, as each benchmark exercises a single spatio-temporal dimension. On DriveLM, ST-Prune demonstrates 9A PREPRINT - A PRIL 22, 2026 remarkable resilience to token compression, achieving the closest alignment to the Vanilla baseline with marginal degradation of only 0.28 and 1.24 points in Average score at 25% and 10% retention rates respectively, significantly narrower than competing methods. More notably, ST-Prune achieves 52.41 in Language score and 34.85 in Match score at 25% retention, both surpassing the full-token Vanilla baseline. We attribute this counter-intuitive improvement to a noise regularization effect: by removing visually redundant tokens that may otherwise distract the language model, our cross-view pruning sharpens the model’s focus on unique and informative spatial content, leading to more precise linguistic responses. On LingoQA, ST-Prune similarly leads all pruning baselines by a substantial margin, achieving 68.20 and 65.20 in Lingo-Judge score at 25% and 10% retention rates respectively, demonstrating that MTP effectively preserves the sequential reasoning cues essential for driving decision-making. 
+
+Full Spatio-temporal Benchmarks. NuInstruct and OmniDrive jointly validate the primary strength of ST-Prune as a unified spatio-temporal framework. On NuInstruct, ST-Prune retains an impressive 98.78% of the original model performance at 25% token retention, while competing methods fail to maintain scores above 80%. The superiority is most pronounced in grounding tasks: while alternative methods yield near-zero mAP scores, ST-Prune achieves 24.34 mAP at 25% retention and 19.74 mAP at 10% retention, demonstrating its exceptional ability to preserve fine-grained spatial information that heuristic pruning fundamentally fails to maintain. This stark contrast suggests that without explicit spatio-temporal awareness, pruning methods inadvertently discard the precise localization cues required for object grounding. On OmniDrive, ST-Prune achieves near-identical performance to the full-token baseline across all language metrics at both retention rates, with Average scores of 64.69 and 64.47 compared to the Vanilla baseline of 64.41, further confirming that our framework maintains comprehensive scene understanding even under extreme compression. 
+
+Comparison with AD-specific Pruning. Table 2 further validates ST-Prune against Prune2Drive [ 20 ], the most closely related AD-specific baseline. To ensure a fair and rigorous comparison, we follow the same decimal point precision as reported in the original Prune2Drive paper. Although the absolute differences between the two methods appear modest at this precision level, ST-Prune consistently achieves higher Average scores under both retention regimes — 58.8 vs. 58.3 at 25% retention and 57.9 vs. 57.4 at 10% retention — and outperforms Prune2Drive across the majority of individual metrics in both settings. This consistent margin is particularly noteworthy given that Prune2Drive relies on an intensive Bayesian parameter search to identify optimal token allocations across camera views, whereas ST-Prune requires no offline search or additional training whatsoever. The results demonstrate that principled spatio-temporal constraints derived from domain geometry provide a more robust and practical foundation than data-driven search processes, achieving superior performance at zero additional deployment cost. 
+
+Inference Efficiency. Table 3 reports throughput speedup relative to the DriveMM baseline across NuInstruct and OmniDrive, decomposed into prefill and decode phases. A notable observation concerns VisPruner, which achieves strong prefill speedups of 3.76 × and 3.81 × yet suffers severe decode slowdowns of 0.40 × and 0.52 × respectively. This stems from a fundamental pipeline difference: since VisPruner prunes tokens before the projector, it reduces the token count sufficiently early that the pipeline’s native downsampling operation becomes unnecessary, resulting in a longer-than-expected token sequence entering the LLM decode phase. While this makes the comparison fair in terms of pipeline configuration, it reveals an inherent efficiency limitation of pre-projector pruning strategies that undermines their practical deployment value. Among methods that preserve the native pipeline, DivPrune achieves the highest raw end-to-end speedups of 3.18 × and 2.36 ×, yet this comes at a substantial performance cost on NuInstruct where it retains only 80.8% of the original score. PACT similarly suffers severe performance degradation on both benchmarks despite moderate speedups, rendering it practically unsuitable for autonomous driving deployment. ST-Prune occupies a uniquely favorable position on the performance-efficiency Pareto frontier: it delivers consistent end-to-end speedups of over 2.5 × on NuInstruct and approximately 2.0 × on OmniDrive, while retaining 97.0% and 100.1% of the full-token baseline performance respectively — a combination unmatched by any competing method. The slight variation in speedup across datasets reflects differences in sequence length and task complexity, yet ST-Prune consistently maintains the best balance between computational efficiency and task performance across both settings. 
+
+5.3 Ablation Study Module Effectiveness. As shown in Table 4, both MTP and RSP independently deliver consistent improvements over vanilla max-min selection on the full spatio-temporal benchmarks. Notably, simultaneously adding temporal and spatial score achieves a total gain of +8.88%, nearly matching the arithmetic sum of individual contributions (+9.23%), which demonstrates that the two modules address largely complementary and non-overlapping sources of redundancy. 
+
+Budget Allocation. Table 5 investigates the budget allocation between MTP and RSP under fixed total token budgets of 25% and 10%. A balanced allocation consistently yields the strongest overall performance: at 25% budget, the 50%+50% split achieves the highest average scores on both benchmarks, while at 10% budget, the symmetric 32%+32% split delivers the best NuInstruct average of 27.78, confirming that neither temporal nor spatial pruning should dominate. 10 A PREPRINT - A PRIL 22, 2026 Table 2: Performance comparison with Prune2Drive baseline across different token retention rates. We follow the same decimal point precision as Prune2Drive.                                           
+
+> Method Accuracy ChatGPT BLEU-4 Rouge CIDEr Match Average Full Tokens Vanilla 0.81 65.44 0.61 0.74 0.29 33.9 59.1 Remain 25% Tokens Prune2Drive 0.80 64.92 0.60 0.75 0.20 34.0 58.3 ST-Prune 0.81 64.48 0.62 0.75 0.20 34.9 58.8
+> Remain 10% Tokens Prune2Drive 0.78 64.52 0.56 0.74 0.16 33.4 57.4 ST-Prune 0.78 64.72 0.61 0.74 0.23 33.6 57.9
+
+Table 3: Efficiency comparison on NuInstruct and OmniDrive datasets. Throughput metrics are presented as relative speedup factors compared to the DriveMM baseline, where a value of 1.00 indicates baseline performance. All methods are evaluated under the 10% token retention rate. Retention ratio is computed relative to the Vanilla baseline.                                              
+
+> Dataset Method Throughput Speedup Avg. Score(Retention) Prefill Decode End-to-End NuInstruct Vanilla 1.00 ×1.00 ×1.00 ×28.35 (100.0%) + VisPruner 3.76 ×0.40 ×1.74 ×21.84 (77.0%) + DivPrune 4.24 ×1.22 ×3.18 ×22.90 (80.8%) + PACT 2.56 ×1.05 ×2.36 ×8.17 (28.8%) + Ours 2.95 ×1.07 ×2.84 ×27.78 (97.99%)
+> OmniDrive Vanilla 1.00 ×1.00 ×1.00 ×64.41 (100.0%) + VisPruner 3.81 ×0.52 ×1.78 ×32.21 (50.0%) + DivPrune 4.81 ×1.01 ×2.36 ×62.14 (96.5%) + PACT 2.08 ×0.99 ×1.61 ×43.52 (67.6%) + Ours 2.47 ×1.18 ×1.98 ×64.46 (100.1%)
+
+Notably, over-relying on a single dimension consistently degrades performance, particularly on grounding tasks where mAP collapses significantly under extreme single-dimension compression. Nevertheless, even under these suboptimal single-dimension configurations, ST-Prune consistently outperforms all general-purpose pruning baselines reported in Table 1, demonstrating that the domain-specific spatio-temporal awareness embedded in each module alone is sufficient to surpass methods that lack such structural priors entirely. 
+
+Pruning Order. We empirically compare both orders in Table 6: the temporal-first order (MTP →RSP) achieves marginally superior performance on both benchmarks while delivering a consistent latency reduction of 0.15–0.16 seconds per sample, confirming our theoretical complexity analysis that temporal-first incurs lower overhead by reducing the token count before spatial similarity precomputation. Notably, the spatial-first order also yields competitive results, demonstrating the robustness of ST-Prune’s spatio-temporal pruning framework regardless of module ordering. 
+
+Pruning Postion. Motivated by the observation that existing pruning methods operate at fundamentally different pipeline positions, we conduct a controlled position study by applying ST-Prune at three candidate locations: between the vision encoder and projector, between the projector and LLM, and within the LLM phase. As shown in Table 7, pruning inside the LLM consistently outperforms both earlier positions by a substantial margin, confirming that LLM-phase token representations carry richer semantic attention that enables more meaningful diversity-based selection. This result also provides a unified explanation for the performance gap between ST-Prune and general-purpose baselines: beyond methodological differences, positional alignment with the LLM phase is itself a critical factor in preserving task performance. 
+
+Parameters Analysis. Figure 3 presents the sensitivity analysis of the balancing coefficients λ1 and λ2 for MTP and RSP respectively. To directly isolate the effect of each module, we validate on single-dimension benchmarks: λ1 is evaluated on LingoQA using the standard Lingo-Judge metric, while λ2 is evaluated on a dedicated offline subset 11 A PREPRINT - A PRIL 22, 2026 Table 4: Ablation study on the contribution of each domain-specific scoring function. Average Gain is computed over NuInstruct and OmniDrive to ensure consistent comparison across all configurations, as these are the only two benchmarks where all module combinations are applicable. Dashes indicate benchmarks where the module combination is not applicable due to single-modality input constraints.                                 
+
+> Ablation Modules Single-modality Benchmarks Spatio-temporal Benchmarks Temporal Spatial DriveLM LingoQA NuInstruct OmniDrive Average Gain
+> ✗✗57.14 65.60 26.38 60.12 -
+> ✓✗—68.20 27.45 62.45 +3.97%
+> ✗✓58.83 —27.84 63.12 +5.26%
+> ✓✓--29.06 64.69 +8.88%
+
+Table 5: Ablation study on the budget allocation under fixed total token retention rates of 25% and 10%.                              
+
+> Total Ratio Detailed Retention Configuration Average Score Temporal Spatial NuInstruct OmniDrive Remain 25% tokens 100% 25% 27.59 64.19 50% 50% 29.06 64.69
+> 25% 100% 28.09 64.10 Remain 10% tokens 100% 10% 24.98 63.96 50% 20% 25.99 64.47
+> 32% 32% 27.78 64.46 20% 50% 26.08 64.23 10% 100% 26.65 64.03
+
+Table 6: Ablation study on pruning order under 25% retention ratio.                  
+
+> Order NuInstruct OmniDrive Avg. Score E2E Latency(s/sample) Avg. Score E2E Latency(s/sample) MTP →RSP 29.06 1.71 64.69 2.83
+> RSP →MTP 28.81 1.86 64.63 2.99
+
+constructed from DriveLM 1.0 using Accuracy as the representative metric due to the online evaluation frequency limitation. Full spatio-temporal benchmarks such as NuInstruct are deliberately excluded from this analysis, as their performance reflects the joint effect of both λ1 and λ2 simultaneously, which would confound the individual sensitivity measurements. Two consistent observations emerge across both figures. First, performance degrades when the balancing coefficient is either too small or too large: an insufficient value renders the domain-specific scoring function ineffective, causing the selection to degenerate toward vanilla max-min diversity, while an excessive value allows the scoring function to overwhelm feature diversity, suppressing the complementary information that diversity selection is designed to capture. For MTP, the optimal stable range is λ1 ∈ [0 .4, 0.6] , while RSP requires a stronger penalty with an optimal range of λ2 ∈ [0 .8, 0.9] , reflecting the fact that bilateral cross-view similarity constitutes a weaker signal than temporal variance and therefore demands greater emphasis to effectively influence the selection. Despite these performance variations across the parameter range, ST-Prune consistently outperforms the best competing pruning method across virtually all evaluated values of both λ1 and λ2, as indicated by the dotted reference line in each figure. This demonstrates that ST-Prune is not critically sensitive to the precise choice of these hyperparameters, since the domain-specific spatio-temporal structural priors embedded in MTP and RSP provide a robust performance advantage over structure-agnostic baselines even under suboptimal parameter settings. 
+
+5.4 Qualitative Analysis 
+
+Figure 4 presents a qualitative comparison on a challenging grounding scenario from NuInstruct, where the target object — a vehicle approaching the ego car — appears exclusively in the Back Right camera at the current timestep among a 12 A PREPRINT - A PRIL 22, 2026 Table 7: Ablation study on the impact of pruning insertion position within the model pipeline.                     
+
+> Pruning Position Benchmarks Average Score DriveLM LingoQA NuInstruct OmniDrive ViT–Projector 57.12 66.20 22.80 61.56 51.92 Projector–LLM 56.39 61.60 23.58 62.46 51.00 Inside LLM 58.83 68.20 29.06 64.69 54.67
+
+Figure 3: Sensitivity analysis of the balancing coefficients λ1 (top) and λ2 (bottom) for MTP on LingoQA and RSP modules on DriveLM, respectively total of 30 spatio-temporal token maps spanning six camera views and five consecutive frames, posing a demanding localization challenge due to its small size and highly peripheral position. Panel (a) reveals a striking visual contrast between traditional pruning methods represented by DivPrune and ST-Prune in their token allocation strategies across all six camera views and five consecutive frames. As shown in (ii.), DivPrune retains a roughly uniform proportion of tokens across all frames and viewpoints, treating foreground objects and static background regions indiscriminately — historical frames T-4 through T-1 receive comparable token budgets to the current frame, and repetitive background scenery competes equally with safety-critical foreground content. In stark contrast, ST-Prune adopts a principled coarse-to-fine strategy. As shown in (iii.), MTP first aggressively filters the tremendous repeated background details accumulated across historical frames, concentrating the token budget toward the current frame where the target vehicle resides. However, since temporal recency retains all current-frame content indiscriminately, some residual background features inevitably persist in the current view. RSP then effectively addresses this by penalizing tokens that appear redundantly across neighboring camera views, systematically suppressing the cross-view background overlap while preserving the spatially unique content around the target region, as shown in (iv.). Through this spatio-temporal pipeline, ST-Prune progressively concentrates the token budget onto the most informative and unique content, achieving a structured and coherent representation that DivPrune’s flat selection fundamentally cannot replicate. Panel (b) zooms into the Back Right view at the current timestep, making the progressive refinement of each stage clearly visible at the token level. Notably, both DivPrune as shown in (ii.) and ST-Prune as shown in (iii.) retain tokens in the vicinity of the target vehicle within the red bounding box, suggesting that token coverage alone is not the determining factor for task success. Nevertheless, it is evident that the token budget for this key scene related to concrete task in panel(c) by DivPrune is less lower than Our methods. MTP (iii) already achieves noticeably richer coverage of the target region through temporal recency bias, while RSP (iv) further sharpens this by concentrating the remaining budget around the spatially unique content within the red bounding box, producing the most coherent local context around the approaching vehicle. 13 A PREPRINT - A PRIL 22, 2026 
+
+Figure 4: Qualitative visualization of ST-Prune on a challenging grounding scenario from NuInstruct. (a) Overall pruning results across all six camera views and five consecutive frames (T-4 to Current), comparing raw input, DivPrune, and the two stages of ST-Prune (MTP and RSP). The red bounding box highlights the target vehicle in the Back Right camera at the current timestep. (b) Detailed token retention patterns zoomed into the Back Right view at the current moment (c) Responses from different pruning methods to the grounding query, where only ST-Prune correctly identifies the target camera and produces accurate bounding box coordinates. 14 A PREPRINT - A PRIL 22, 2026 The practical consequence of these token-level differences is directly reflected in the grounding responses shown in panel (c). Although DivPrune retains a comparable number of tokens near the target vehicle, the useful information is distracted and diluted by the surrounding unstructured background tokens, preventing the language model from correctly interpreting the scene — both VisPruner and DivPrune respond that there are no risks for the ego car, a dangerous failure in a safety-critical scenario. PACT, despite producing a bounding box, assigns it to the wrong camera CAM_FRONT with degenerate coordinates [0, 0, 1600, 900] , indicating a complete collapse of spatial localization. ST-Prune alone correctly identifies CAM_BACK_RIGHT and produces the closest bounding box coordinates [775, 491, 1562, 900] 
+
+to the ground truth [725, 504, 1577, 900] , demonstrating that coherent spatio-temporal context, rather than mere token retention, is the critical enabler of precise spatial grounding under extreme token compression. 
+
+# 6 Conclusion 
+
+In this paper, we present ST-Prune, a training-free, plug-and-play spatio-temporal token pruning framework for Vision-Language Models in autonomous driving. Motivated by the fundamental inability of existing token pruning methods to exploit the structured redundancy patterns inherent in multi-view, multi-frame driving scenarios, ST-Prune extends the principled max-min diversity selection framework with two complementary domain-specific modules. Motion-aware Temporal Pruning (MTP) incorporates motion volatility and temporal recency constraints to systematically prioritize dy-namic trajectories and recent-frame content, while Ring-view Spatial Pruning (RSP) exploits the ring-view arrangement to eliminate duplicate cross-view projections and residual static background that temporal pruning alone cannot resolve. Operating in a coarse-to-fine pipeline, the two modules address spatio-temporal redundancy synergistically, each delivering consistent improvements as a standalone component while achieving superior performance in combination. Extensive experiments across four mainstream autonomous driving benchmarks demonstrate that ST-Prune consistently outperforms all existing pruning methods across perception, prediction, and planning tasks, retaining near-lossless performance under aggressive token compression while delivering end-to-end speedups comparable to existing pruning approaches. Furthermore, through extensive ablation studies and rigorous empirical analysis, we have substantiated the efficacy, robustness, and theoretical soundness of MTP and RSP. Our results underscore their critical roles both as standalone modules and as synergistic components within the unified ST-Prune framework, confirming its viability for high-efficiency autonomous driving. Despite its strong empirical performance, ST-Prune has two primary limitations that point to promising directions for future work. First, while NuInstruct incorporates trajectory prediction tasks that partially cover VLA scenarios, the generalizability of ST-Prune to dedicated VLA datasets and closed-loop action generation benchmarks remains unexplored. Extending ST-Prune to such settings, where precise temporal ordering of action sequences is critical, represents an important next step toward deploying efficient VLMs in real-world autonomous driving stacks. Second, the scope of our evaluation is constrained by the limited availability of publicly accessible vision-language driving models that natively support multi-view and multi-frame inputs. Although we conducted additional experiments on a supervised fine-tuned model based on Qwen, the significantly lower baseline performance on our benchmarks compared to DriveMM makes fair comparison difficult, as performance gaps between pruning methods may reflect differences in base model capability rather than pruning effectiveness. As more capable and publicly available multi-view, multi-frame VLMs emerge, broader evaluation across diverse model architectures will be an important direction for future work. 
+
+# References 
+
+[1] Shitao Chen, Zhiqiang Jian, Yuhao Huang, Yu Chen, Zhuoli Zhou, and Nanning Zheng. Autonomous driving: cognitive construction and situation understanding. Science China Information Sciences , 62(8):81101, 2019. [2] Juqi Hu, Caini Wang, Subhash Rakheja, Youmin Zhang, Changyin Sun, Hejia Gao, and Darong Huang. Advanced trajectory prediction framework integrating diverse driving styles for autonomous vehicles. Science China Information Sciences , 69(3):1–16, 2026. [3] Dongsheng Yang, Di Liu, Bing Han, Guoxiang Lu, Lingan Kong, Chaosheng Huang, and Jun Li. Trajectory planning and tracking control for vehicles with tire blowout in complex traffic flows. Science China Information Sciences , 68(3):132202, 2025. [4] Xingcheng Zhou, Mingyu Liu, Ekim Yurtsever, Bare Luka Zagar, Walter Zimmer, Hu Cao, and Alois C Knoll. Vision language models in autonomous driving: A survey and outlook. IEEE Transactions on Intelligent Vehicles ,2024. [5] Hanlin Tian, Kethan Reddy, Yuxiang Feng, Mohammed Quddus, Yiannis Demiris, and Panagiotis Angeloudis. Large (vision) language models for autonomous vehicles: Current trends and future directions. IEEE Transactions on Intelligent Transportation Systems , 27(1):187–210, 2025. 15 A PREPRINT - A PRIL 22, 2026 [6] Jie Hu, Huifang Kong, Qian Zhang, and Runwu Liu. Enhancing scene understanding based on deep learning for end-to-end autonomous driving. Engineering Applications of Artificial Intelligence , 116:105474, 2022. [7] Hongkuan Zhou, Stefan Schimid, Yicong Li, Lavdim Halilaj, Xiangtong Yao, and Wei Cao. Predicting the road ahead: A knowledge graph based foundation model for scene understanding in autonomous driving. In Edward Curry, Maribel Acosta, Maria Poveda-Villalón, Marieke van Erp, Adegboyega Ojo, Katja Hose, Cogan Shimizu, and Pasquale Lisena, editors, The Semantic Web , pages 116–132, Cham, 2025. Springer Nature Switzerland. [8] Khan Muhammad, Tanveer Hussain, Hayat Ullah, Javier Del Ser, Mahdi Rezaei, Neeraj Kumar, Mohammad Hijji, Paolo Bellavista, and Victor Hugo C De Albuquerque. Vision-based semantic segmentation in scene understanding for autonomous driving: Recent achievements, challenges, and outlooks. IEEE Transactions on Intelligent Transportation Systems , 23(12):22694–22715, 2022. [9] Chris Zhang, Runsheng Guo, Wenyuan Zeng, Yuwen Xiong, Binbin Dai, Rui Hu, Mengye Ren, and Raquel Urtasun. Rethinking closed-loop training for autonomous driving. In European Conference on Computer Vision ,pages 264–282. Springer, 2022. [10] Xiaosong Jia, Zhenjie Yang, Qifeng Li, Zhiyuan Zhang, and Junchi Yan. Bench2drive: Towards multi-ability benchmarking of closed-loop end-to-end autonomous driving. Advances in Neural Information Processing Systems , 37:819–844, 2024. [11] William Ljungbergh, Adam Tonderski, Joakim Johnander, Holger Caesar, Kalle Åström, Michael Felsberg, and Christoffer Petersson. Neuroncap: Photorealistic closed-loop safety testing for autonomous driving. In European Conference on Computer Vision , pages 161–177. Springer, 2024. [12] Ashok Elluswamy. A peek into Tesla’s autonomous future: Core tech revealed at ICCV 2025 WDFM-AD. Invited Talk at the ICCV Workshop on Foundation Models for Autonomous Driving (WDFM-AD), 2025. https: //www.youtube.com/watch?v=IRu-cPkpiFk .[13] Daniel Bogdoll, Stefani Guneshka, and J. Marius Zöllner. One ontology to rule them all: Corner case scenarios for autonomous driving. In Leonid Karlinsky, Tomer Michaeli, and Ko Nishino, editors, Computer Vision – ECCV 2022 Workshops , pages 409–425, Cham, 2023. Springer Nature Switzerland. [14] Liang Chen, Haozhe Zhao, Tianyu Liu, Shuai Bai, Junyang Lin, Chang Zhou, and Baobao Chang. An image is worth 1/2 tokens after layer 2: Plug-and-play inference acceleration for large vision-language models. In Aleš Leonardis, Elisa Ricci, Stefan Roth, Olga Russakovsky, Torsten Sattler, and Gül Varol, editors, Computer Vision – ECCV 2024 , pages 19–35, Cham, 2025. Springer Nature Switzerland. [15] Daniel Bolya, Cheng-Yang Fu, Xiaoliang Dai, Peizhao Zhang, Christoph Feichtenhofer, and Judy Hoffman. Token merging: Your ViT but faster. In International Conference on Learning Representations , 2023. [16] Yuan Zhang, Chun-Kai Fan, Junpeng Ma, Wenzhao Zheng, Tao Huang, Kuan Cheng, Denis Gudovskiy, Tomoyuki Okuno, Yohei Nakata, Kurt Keutzer, et al. Sparsevlm: Visual token sparsification for efficient vision-language model inference. In International Conference on Machine Learning , 2025. [17] Zichen Wen, Yifeng Gao, Shaobo Wang, Junyuan Zhang, Qintong Zhang, Weijia Li, Conghui He, and Linfeng Zhang. Stop looking for important tokens in multimodal language models: Duplication matters more. arXiv preprint arXiv:2502.11494 , 2025. [18] Zichen Wen, Yifeng Gao, Weijia Li, Conghui He, and Linfeng Zhang. Token pruning in multimodal large language models: Are we solving the right problem? arXiv preprint arXiv:2502.11501 , 2025. [19] Jiajun Cao, Qizhe Zhang, Peidong Jia, Xuhui Zhao, Bo Lan, Xiaoan Zhang, Xiaobao Wei, Sixiang Chen, Liyun Li, Xianming Liu, et al. Fastdrivevla: Efficient end-to-end driving via plug-and-play reconstruction-based token pruning. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 2571–2579, 2026. [20] Minhao Xiong, Zichen Wen, Zhuangcheng Gu, Xuyang Liu, Rui Zhang, Hengrui Kang, Jiabing Yang, Junyuan Zhang, Weijia Li, Conghui He, et al. Prune2drive: A plug-and-play framework for accelerating vision-language models in autonomous driving. arXiv preprint arXiv:2508.13305 , 2025. [21] Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr Dollár, and Ross Girshick. Masked autoencoders are scalable vision learners. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,pages 16000–16009, 2022. [22] Hong Chen, Kang Yuan, Yanjun Huang, Lulu Guo, Yulei Wang, and Jie Chen. Feedback is all you need: from chatgpt to autonomous driving. Science China Information Sciences , 66(6):1–3, 2023. [23] Jiageng Mao, Yuxi Qian, Junjie Ye, Hang Zhao, and Yue Wang. Gpt-driver: Learning to drive with gpt. arXiv preprint arXiv:2310.01415 , 2023. 16 A PREPRINT - A PRIL 22, 2026 [24] Long Chen, Oleg Sinavski, Jan Hünermann, Alice Karnsund, Andrew James Willmott, Danny Birch, Daniel Maund, and Jamie Shotton. Driving with llms: Fusing object-level vector modality for explainable autonomous driving. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 14093–14100, 2024. [25] Hao Shao, Yuxuan Hu, Letian Wang, Guanglu Song, Steven L. Waslander, Yu Liu, and Hongsheng Li. Lmdrive: Closed-loop end-to-end driving with large language models. In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 15120–15130, 2024. [26] Bo Jiang, Shaoyu Chen, Bencheng Liao, Xingyu Zhang, Wei Yin, Qian Zhang, Chang Huang, Wenyu Liu, and Xinggang Wang. Senna: Bridging large vision-language models and end-to-end autonomous driving. arXiv preprint arXiv:2410.22313 , 2024. [27] Yi Xu, Yuxin Hu, Zaiwei Zhang, Gregory P. Meyer, Siva Karthik Mustikovela, Siddhartha Srinivasa, Eric M. Wolff, and Xin Huang. Vlm-ad: End-to-end autonomous driving through vision-language model supervision. In Joseph Lim, Shuran Song, and Hae-Won Park, editors, Proceedings of The 9th Conference on Robot Learning ,volume 305 of Proceedings of Machine Learning Research , pages 3778–3803. PMLR, 27–30 Sep 2025. [28] Haoyu Fu, Diankun Zhang, Zongchuang Zhao, Jianfeng Cui, Dingkang Liang, Chong Zhang, Dingyuan Zhang, Hongwei Xie, Bing Wang, and Xiang Bai. Orion: A holistic end-to-end autonomous driving framework by vision-language instructed action generation. In Proceedings of the IEEE/CVF International Conference on Computer Vision , 2025. [29] Hidehisa Arai, Keita Miwa, Kento Sasaki, Kohei Watanabe, Yu Yamaguchi, Shunsuke Aoki, and Issei Yamamoto. Covla: Comprehensive vision-language-action dataset for autonomous driving. In 2025 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV) , pages 1933–1943, 2025. [30] Zhenjie Yang, Yilin Chai, Xiaosong Jia, Qifeng Li, Yuqian Shao, Xuekai Zhu, Haisheng Su, and Junchi Yan. Drivemoe: Mixture-of-experts for vision-language-action model in end-to-end autonomous driving. arXiv preprint arXiv:2505.16278 , 2025. [31] Jie Wang, Guang Li, Zhijian Huang, Chenxu Dang, Hangjun Ye, Yahong Han, and Long Chen. Vggdrive: Empowering vision-language models with cross-view geometric grounding for autonomous driving. arXiv preprint arXiv:2602.20794 , 2026. [32] Zhiyuan Zhang, Xiaofan Li, Zhihao Xu, Wenjie Peng, Zijian Zhou, Miaojing Shi, and Shuangping Huang. Mpdrive: Improving spatial understanding with marker-based prompt learning for autonomous driving. In 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 12089–12099, 2025. [33] Peizheng Li, Zhenghao Zhang, David Holtz, Hang Yu, Yutong Yang, Yuzhi Lai, Rui Song, Andreas Geiger, and Andreas Zell. Spacedrive: Infusing spatial awareness into vlm-based autonomous driving. arXiv preprint arXiv:2512.10719 , 2, 2025. [34] Ming Nie, Renyuan Peng, Chunwei Wang, Xinyue Cai, Jianhua Han, Hang Xu, and Li Zhang. Reason2drive: Towards interpretable and chain-based reasoning for autonomous driving. In European Conference on Computer Vision , pages 292–308. Springer, 2024. [35] Shuyao Shang, Bing Zhan, Yunfei Yan, Yuqi Wang, Yingyan Li, Yasong An, Xiaoman Wang, Jierui Liu, Lu Hou, Lue Fan, Zhaoxiang Zhang, and Tieniu Tan. Dynvla: Learning world dynamics for action reasoning in autonomous driving. arXiv preprint arXiv:2603.11041 , 2026. [36] Yi Gu, Yan Wang, Yuxiao Chen, Yurong You, Wenjie Luo, Yue Wang, Wenhao Ding, Boyi Li, Heng Yang, Boris Ivanovic, et al. Accelerating structured chain-of-thought in autonomous vehicles. arXiv preprint arXiv:2602.02864 ,2026. [37] Zhijian Huang, Chengjian Fen, Feng Yan, Baihui Xiao, Zequn Jie, Yujie Zhong, Xiaodan Liang, and Lin Ma. Drivemm: All-in-one large multimodal model for autonomous driving. arXiv preprint arXiv:2412.07689 , 2024. [38] Saeed Ranjbar Alvar, Gursimran Singh, Mohammad Akbari, and Yong Zhang. Divprune: Diversity-based visual token pruning for large multimodal models. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 9392–9401, 2025. [39] Qizhe Zhang, Aosong Cheng, Ming Lu, Renrui Zhang, Zhiyong Zhuo, Jiajun Cao, Shaobo Guo, Qi She, and Shanghang Zhang. Beyond text-visual attention: Exploiting visual cues for effective token pruning in vlms. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 20857–20867, 2025. [40] Mohamed Dhouib, Davide Buscaldi, Sonia Vanier, and Aymen Shabou. Pact: Pruning and clustering-based token reduction for faster visual language models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 14582–14592, June 2025. 17 A PREPRINT - A PRIL 22, 2026 [41] Chonghao Sima, Katrin Renz, Kashyap Chitta, Li Chen, Hanxue Zhang, Chengen Xie, Jens Beißwenger, Ping Luo, Andreas Geiger, and Hongyang Li. Drivelm: Driving with graph visual question answering. In Aleš Leonardis, Elisa Ricci, Stefan Roth, Olga Russakovsky, Torsten Sattler, and Gül Varol, editors, Computer Vision – ECCV 2024 , pages 256–274, Cham, 2025. Springer Nature Switzerland. [42] Ana-Maria Marcu, Long Chen, Jan Hünermann, Alice Karnsund, Benoit Hanotte, Prajwal Chidananda, Saurabh Nair, Vijay Badrinarayanan, Alex Kendall, Jamie Shotton, Elahe Arani, and Oleg Sinavski. Lingoqa: Visual question answering for autonomous driving. In Aleš Leonardis, Elisa Ricci, Stefan Roth, Olga Russakovsky, Torsten Sattler, and Gül Varol, editors, Computer Vision – ECCV 2024 , pages 252–269, Cham, 2024. Springer Nature Switzerland. [43] Xinpeng Ding, Jianhua Han, Hang Xu, Xiaodan Liang, Wei Zhang, and Xiaomeng Li. Holistic autonomous driving understanding by bird’s-eye-view injected multi-modal large models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 13668–13677, 2024. [44] Shihao Wang, Zhiding Yu, Xiaohui Jiang, Shiyi Lan, Min Shi, Nadine Chang, Jan Kautz, Ying Li, and Jose M. Alvarez. OmniDrive: A holistic vision-language dataset for autonomous driving with counterfactual reasoning. In 
+
+CVPR , 2025. [45] Xiaohua Zhai, Basil Mustafa, Alexander Kolesnikov, and Lucas Beyer. Sigmoid loss for language image pre-training. In 2023 IEEE/CVF International Conference on Computer Vision (ICCV) , pages 11941–11952, 2023. [46] Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Alex Vaughan, et al. The llama 3 herd of models. arXiv preprint arXiv:2407.21783 , 2024. [47] Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, Wenbin Ge, Zhifang Guo, Qidong Huang, Jie Huang, Fei Huang, Binyuan Hui, Shutong Jiang, Zhaohai Li, Mingsheng Li, Mei Li, Kaixin Li, Zicheng Lin, Junyang Lin, Xuejing Liu, Jiawei Liu, Chenglong Liu, Yang Liu, Dayiheng Liu, Shixuan Liu, Dunjie Lu, Ruilin Luo, Chenxu Lv, Rui Men, Lingchen Meng, Xuancheng Ren, Xingzhang Ren, Sibo Song, Yuchong Sun, Jun Tang, Jianhong Tu, Jianqiang Wan, Peng Wang, Pengfei Wang, Qiuyue Wang, Yuxuan Wang, Tianbao Xie, Yiheng Xu, Haiyang Xu, Jin Xu, Zhibo Yang, Mingkun Yang, Jianxin Yang, An Yang, Bowen Yu, Fei Zhang, Hang Zhang, Xi Zhang, Bo Zheng, Humen Zhong, Jingren Zhou, Fan Zhou, Jing Zhou, Yuanzhi Zhu, and Ke Zhu. Qwen3-vl technical report, 2025. 18
