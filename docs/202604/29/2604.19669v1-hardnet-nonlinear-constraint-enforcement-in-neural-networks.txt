@@ -1,0 +1,547 @@
+Title: HardNet++: Nonlinear Constraint Enforcement in Neural Networks
+
+URL Source: https://arxiv.org/pdf/2604.19669v1
+
+Published Time: Wed, 22 Apr 2026 01:29:07 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# HardNet++: Nonlinear Constraint Enforcement in Neural Networks 
+
+Andrea Goertzen, Kaveh Alim, and Navid Azizan Massachusetts Institute of Technology 
+
+Abstract — Enforcing constraint satisfaction in neural net-work outputs is critical for safety, reliability, and physical fi-delity in many control and decision-making applications. While soft-constrained methods penalize constraint violations during training, they do not guarantee constraint adherence during inference. Other approaches guarantee constraint satisfaction via specific parameterizations or a projection layer, but are tailored to specific forms (e.g., linear constraints), limiting their utility in other general problem settings. Many real-world prob-lems of interest are nonlinear, motivating the development of methods that can enforce general nonlinear constraints. To this end, we introduce HardNet++, a constraint-enforcement method that simultaneously satisfies linear and nonlinear equality and inequality constraints. Our approach iteratively adjusts the network output via damped local linearizations. Each iteration is differentiable, admitting an end-to-end training framework, where the constraint satisfaction layer is active during training. We show that under certain regularity conditions, this proce-dure can enforce nonlinear constraint satisfaction to arbitrary tolerance. Finally, we demonstrate tight constraint adherence without loss of optimality in a learning-for-optimization context, where we apply this method to a model predictive control problem with nonlinear state constraints. 
+
+I. INTRODUCTION Neural networks have demonstrated remarkable success in modeling complex physical dynamics and learning surrogate representations of computational processes, often with im-proved efficiency compared to traditional numerical meth-ods. As a result, they are increasingly used in scientific machine learning, where models are expected to represent underlying physical systems. In these settings, outputs must often satisfy domain-specific constraints derived from first principles, such as conservation of mass or energy, symme-try relationships, or governing equations. Similarly, safety-critical applications require strict enforcement of bounds on process variables or stability constraints. Standard neural networks, however, do not inherently guarantee adherence to such constraints, which can lead to physically inconsistent or infeasible predictions, limiting the practicality of such mod-els. This limitation motivates the development of principled constraint enforcement methods that preserve feasibility in learned models. Beyond scientific modeling, neural networks are also in-creasingly used to approximate optimization solvers. Many applications, including model predictive control, resource allocation, and real-time decision making, require repeatedly solving high-dimensional optimization problems online. Al-though modern optimization solvers are highly optimized, repeated real-time solutions can still be computationally  
+
+> Emails:
+
+{agoertz,mrz,azizan }@mit.edu 
+
+expensive, motivating the use of neural networks as fast surrogate solvers. However, these optimization problems typically include equality and inequality constraints that define the feasible solution set. Consequently, the practical deployment of neural network surrogate solvers depends on the ability to ensure that predicted solutions remain feasible. Despite the importance of constraint satisfaction in both scientific machine learning and learned optimization, en-forcing constraints in neural network outputs remains chal-lenging. Soft-constrained approaches encourage constraint satisfaction by penalizing violations during training [1], but they generally cannot guarantee feasibility at inference time, particularly for inputs outside the training distribution. To address this limitation, hard-constrained methods have been developed to enforce feasibility by design [2]. This is often done via specific parameterizations [3] or projection-based methods that project the network output onto a feasible set defined by the constraints. For linear equality constraints, a closed-form projection exists to minimize the Euclidean distance between the network output and a projected feasible point [4]. HardNet [2] introduced a closed-form parallel projection that enforces both linear equality and inequality constraints while provably retaining the network’s expres-sivity. Beyond linear constraints, ECO [5] enforces a convex quadratic constraint in closed form. While closed-form projections offer efficient implementa-tion and guaranteed constraint satisfaction, there are prob-lems for which, inevitably, a single closed-form projection onto the feasible set does not exist, in which case itera-tive projection methods are often applied. PiNet [6] uses Douglas-Rachford to alternate projections onto sets whose Euclidean projections are known. LMI-Net [7] satisfies linear matrix inequality (LMI) constraints by alternating between an affine equality projection and the projection onto the positive semidefinite cone, both of which can be computed in closed form. Other alternating projection methods use Dyk-stra’s projection algorithm with success in solving optimiza-tion problems with linear constraints [8], [9]. For arbitrary nonlinear equality constraints, ENFORCE [10] iteratively projects onto local linearizations of the constraints with a closed-form Euclidean projection [4], but does not handle inequality constraints. FSNet [11] uses vanilla gradient de-scent to minimize the constraint residual. Despite the success of these projection methods in con-straint satisfaction, many are limited by the form of the constraints or lack theoretical convergence guarantees. In this work, we introduce HardNet++, a framework for enforcing nonlinear equality and inequality constraints on neural net-    
+
+> arXiv:2604.19669v1 [cs.LG] 21 Apr 2026 Fig. 1. Our model structure. The network output ˆyθis mapped to a point
+> ¯yθon the feasible set through a differentiable procedure.
+
+work outputs via a differentiable projection with constraint satisfaction guarantees. Specifically, HardNet++ iteratively enforces constraints using a closed-form damped projection based on local linearizations. Our contributions are: 1) A differentiable projection framework that simultane-ously enforces nonlinear equality and inequality con-straints on neural network outputs. 2) Convergence guarantees showing that the proposed iterative projection achieves arbitrarily small constraint violations for nonlinear constraints. 3) Experimental validation on a nonlinear MPC task demonstrating reliable constraint satisfaction with min-imal degradation of optimal performance. II. P ROBLEM FORMULATION 
+
+As discussed in Section I, the ability to incorporate critical domain knowledge into neural networks would improve their utility in scientific applications by ensuring physical fidelity or adherence to safety constraints. The goal of this work, therefore, is to develop a methodology that ensures neural network outputs satisfy nonlinear constraints. Specifically, we map the unconstrained neural network output to a point that simultaneously satisfies nonlinear equality and inequality constraints, as in Figure 1. Consider a neural network output 
+
+ˆyθ = fθ (x), where x ∈ Rp is the network input, ˆyθ ∈ Rn is the unconstrained output, and θ parameterizes the network. Let hx : Rn → Rm denote m input-dependent equality constraints and gx : Rn → Rq denote q input-dependent inequality constraints. We aim to map ˆyθ to ¯yθ such that 
+
+Px(ˆ yθ ) = ¯ yθ , ¯yθ ∈ y ∈ Rn : blx ≤ gx(y) ≤ bux, h x(y) = 0 .
+
+(1) Here, bux ∈ Rq and blx ∈ Rq are input-dependent upper and lower bounds for the inequality constraints. In subse-quent sections, we define and theoretically characterize the mapping Px(ˆ yθ ).
+
+A. Notation and Definitions 
+
+We define the stacked constraint vector 
+
+c(y) := 
+
+h(y)
+
+g(y)
+
+
+
+∈ Rm+q .
+
+To measure constraint violation, we define the constraint residual 
+
+r(y) := 
+
+ h(y)ReLU ( g(y) − bu) − ReLU  bl − g(y)
+
+∈ Rm+q ,
+
+where the ReLU( ·) = max(0 , ·) operator is applied element-wise. Note that we drop the dependence of h and g as well as 
+
+bl and bu on the network input x for notational convenience, although we emphasize that this method handles input-dependent constraints, as demonstrated in Section V. The Jacobian of the constraints with respect to y is Jc(y)
+
+where Jc,ij = ∂c i(y) 
+
+> ∂y j
+
+. The Jacobian of the constraint residuals 
+
+r(y) is Jr (y) where Jr,ij = ∂r i(y) 
+
+> ∂y j
+
+. A subscript k denotes the 
+
+k-th iterate of an iterative method, where k ∈ { 0, 1, 2, . . . }.III. C ONSTRAINED LEARNING METHODOLOGY 
+
+A. Constraint Enforcement via Damped Local Linearizations 
+
+While no closed-form solution exists for projections onto general nonlinear constraints h(y) = 0 and bl ≤ g(y) ≤ bu,several projection methods can project onto linear equality or inequality constraints in closed form. To leverage this, we adopt a differentiable iterative constraint satisfaction scheme, as is common in literature [6], [10], [11]. We satisfy constraints asymptotically by performing an update step based on local linearizations of the constraints. That is, we wish to simultaneously satisfy 
+
+h(yk) + Jh(yk)[ yk+1 − yk] = 0 ,bl ≤ g(yk) + Jg (yk)[ yk+1 − yk] ≤ bu. (2) Here, Jh and Jg are the Jacobians of the equality and inequality constraints, respectively. In the case where the number of independent constraints is less than or equal to the number of variables, HardNet [2] admits a solution to the linearized projection. That is, when Jc,k := Jc(yk) has full row rank, a closed-form projection exists that satisfies Equation (2). Specifically, the HardNet projection is 
+
+yk+1 = yk − JTc,k (Jc,k JTc,k )−1r(yk). (3) Equation 3 is well-suited for linear constraints due to the parallel projection geometry inherent to HardNet. That is, points are projected parallel to the boundaries of the satis-fied constraints, allowing satisfaction of violated constraints without violating these already-satisfied constraints. In the case of nonlinear constraints, where the constraint boundary does not extend across the entire domain of the variables, a strictly parallel projection may fail to move toward violated constraints. See Figure 2a for an example of this failure mode. To circumvent this phenomenon inherent to a vanilla HardNet implementation, we add a damping term to our projection. 
+
+yk+1 = yk − JTc,k (Jc,k JTc,k + εI )−1 [r(yk)] ε > 0 (4) The regularization term, εI , offers several key advantages. First, it damps the restriction on the direction orthogonal to satisfied constraints, allowing the projection method to converge to the feasible set. See Figure 2b for an example of this improvement. It also allows (JJ T + εI )x = b to have a unique solution for x, regardless of the number of constraints and variables. That is, JJ T + εI is invertible, (a) Vanilla HardNet iterates (b) HardNet++ iterates Fig. 2. Projection steps based on local linearizations under two projection methods. The feasible set is the overlap between the red and blue regions. The red point is the initial point, and points get darker in subsequent iterations. An iterative projection using HardNet is forced to stay parallel to the satisfied linear constraint, preventing it from reaching the constraint. The damped method allows movement orthogonal to the constraint boundary, converging to the feasible set. 
+
+even when JJ T is not invertible, although in practice we can use efficient linear solvers to compute the projection in Equation (4) rather than explicitly computing the inverse. Finally, the addition of the εI term behaves as a regularizer, penalizing steps far away from the region in which the linear approximation is valid. This particular effect is discussed further in the next section. Importantly, this iterative procedure is differentiable. This enables an end-to-end training scheme, where the constrained output is considered during training, rather than only being applied at inference time. This is important because training seeks to ensure the constrained output minimizes the loss function, rather than the unconstrained output, which could be pushed away suboptimally when constraints are enforced only during inference. 
+
+B. Connection to Levenberg-Marquardt 
+
+The damped projection method has parallels to the Levenberg-Marquardt damped least-squares algorithm [12], although our projection method is fundamentally different in how it handles inequality constraints. Levenberg-Marquardt, applied to solve nonlinear least squares problems, also in-volves iterative linearizations. Specifically, it minimizes a square objective function, which, in our case, can be defined as the constraint residual. 
+
+yk+1 = argmin 
+
+> y
+
+X
+
+> i
+
+ri(y)2 = argmin 
+
+> y
+
+r(y)T r(y) (5) While this minimization problem in Equation (5) does not necessarily admit a closed-form solution, a local linearization does. 
+
+δk = yk+1 − yk = argmin 
+
+> δ
+
+[r(yk) + Jr,k δ]T [r(yk) + Jr,k δ]= argmin 
+
+> δ
+
+2rTk Jr,k δ + δT JTr,k Jr,k δ (6) Here, r(yk) is replaced with rk for notational convenience. Importantly, the Jacobian Jr,k here is the Jacobian of the 
+
+constraint residual , rather than the constraint itself, since the optimization problem in Equation (5) seeks to minimize the residual instead of the constraint value. Taking the derivative of the objective in Equation (6) and setting it to 0 gives 
+
+JTr,k Jr,k δk = −JTr,k rk. (7) This system admits a unique solution when Jr,k has full column rank, which is only possible when the number of constraints is greater than or equal to the number of variables. In the case where the number of constraints is fewer than the number of variables (and Jr,k has full row rank), the system has infinite solutions and requires additional specifications to identify a unique solution. The Levenberg-Marquardt correction gives 
+
+(JTr,k Jr,k + εI )δk = −JTr,k rk. (8) Equation (8) is equivalent to the solution to the linearized ob-jective optimization problem in Equation (6) with a penalty on || δ|| 22. That is, it is the solution to the problem, 
+
+δk = argmin 
+
+> δ
+
+[r(yk)+ Jr,k (yk)δ]T [r(yk)+ Jr,k (yk)δ]+ εδ T δ. 
+
+(9) Clearly, the solution in Equation (8) minimizes the local linearization with a penalty to restrict steps too far from where the local linearization is valid. Despite the fact that Equation (8) has a similar form to our projection in Equation (4), these projections are 
+
+fundamentally different in their geometries . Importantly, the Levenberg-Marquardt projection uses the Jacobian of the residual, while our projection uses the Jacobian of the constraint. These are the same for equality constraints but different for inequality constraints because of the ReLU in the residual calculation. The geometric intuition here can be understood in the context of the advantage of the Hard-Net parallel projection. In the Levenberg-Marquardt step, inequality constraints that are already satisfied are effectively ignored, as their corresponding rows in the Jacobian matrix are all zeros. In our projection step, we explicitly consider all constraints. In the HardNet projection, this manifests as constraining projections to run parallel to the boundary of already satisfied constraints. For linearizations of nonlinear functions, this is equivalent to restricting projections in the direction of maximum increase in the constraint value. Our damping approach then softens this so that the step is not exactly parallel to the linearized satisfied constraint boundaries. 
+
+C. Learning with Hard Constraints for Optimization 
+
+The proposed methodology for enforcing constraints in neural network outputs is particularly relevant to learned optimization solvers. Consider an optimization problem of the form min  
+
+> y
+
+Zx(y) subject to gx(y) ≤ 0, h x(y) = 0 (10) that needs to be solved for different instances of x. The idea is to train a neural network to map an optimization context x to a candidate solution yθ , rather than solving a constrained optimization independently at each instance. Often, the objective function Zx(y) itself is chosen as the loss function during training. Our methodology is well-suited for learned optimization problems because we can ensure the feasibility of the candidate solution yθ via our iterative projection method. IV. C ONVERGENCE GUARANTEES 
+
+In this section, we show that, under a standard set of assumptions, our projection method converges asymptoti-cally to a point that satisfies the constraints. We define the violation energy as 
+
+V (y) := 12 ∥r(y)∥22,
+
+We establish two standard optimization conditions for our objective function V (y).
+
+Assumption 1: (L-Smoothness): The violation energy 
+
+V (y) is L-smooth, meaning its gradients are L-Lipschitz continuous. Lemma 1 shows how this assumption provides a quadratic upper bound on the function’s growth, controlling the region where our linear approximation is valid. 
+
+Lemma 1: Let V (y) be an L-smooth function on a convex domain, then the following quadratic upper bound holds for any y1, y 2:
+
+V (y2) ≤ V (y1) + ∇V (y1)T ∆y + L
+
+2 ∥∆y∥22,
+
+where ∆y = y2 − y1. [13] It is worth noting that although Assumption 1 is stated globally for notational simplicity, the proof only uses the quadratic upper bound from Lemma 1 along the iterates. Therefore, it is sufficient that V admit an upper bound L on its local smoothness over any convex region containing the iterates (e.g., the initial sublevel set). 
+
+Assumption 2: (PŁ Condition [14]) The function V (y)
+
+with minimizer y⋆ satisfies the μ-PL condition 
+
+∀y : 12 ∥∇ V (y)∥22 ≥ μ (V (y) − V (y⋆)) 
+
+This assumption connects gradients at any point to sub-optimality, allowing us to translate arguments from gradient space to sub-optimality. If we assume there exists a point satisfying all the constraints, then V ⋆ = 0 , and violation can be upper bounded by the norm of the gradient. Further note that the function does not need to be convex to satisfy this condition; however, μ-strongly convexity implies this condition. 
+
+Assumption 3: (Lipschitzness of the Constraints) The stacked constraint vector 
+
+c(y) = 
+
+h(y)
+
+g(y)
+
+
+
+is differentiable and G-Lipschitz on the domain of interest, i.e., 
+
+∥c(y1) − c(y2)∥2 ≤ G∥y1 − y2∥2 ∀y1, y 2.
+
+This assumption implies an upper bound on the Gram Matrix Hk = JkJ⊤ 
+
+> k
+
+, where Jk = Jc(yk). Lemma 2 gives a bound on the maximum eigenvalue of Hk.
+
+Lemma 2: Under Assumption 3, the maximum eigenvalue of Hk = JkJ⊤ 
+
+> k
+
+satisfies 
+
+λmax (Hk) ≤ G2.
+
+Proof: Fix y and let J(y) = Jc(y). For any unit vector 
+
+v, differentiability and G-Lipschitzness of c imply 
+
+∥J(y)v∥2 = lim 
+
+> t→0
+
+∥c(y + tv ) − c(y)∥2
+
+|t| ≤ G. 
+
+Taking the supremum over all ∥v∥2 = 1 gives ∥J(y)∥2 ≤ G.Therefore, 
+
+λmax (Hk) = ∥Jk∥22 ≤ G2.
+
+This proves the claim. Under the aforementioned assumptions, Theorem 1 shows that the violation energy decays exponentially fast as a function of the number of iterations. 
+
+Theorem 1: Consider the violation energy V (y) = 
+
+> 12
+
+∥r(y)∥22, with minimizer y⋆. Suppose V (y) is L-smooth and satisfies the μ-PL condition, and the stacked constraint vector c(y) is G-Lipschitz. If the update step is defined as 
+
+∆yk = −J⊤ 
+
+> k
+
+(JkJ⊤ 
+
+> k
+
++ εI )−1r(yk), Jk := Jc(yk),
+
+then for any regularization parameter choice ε > L 
+
+> 2
+
+, the violation energy decays as follows: 
+
+V (yk+1 ) − V (y⋆) ≤  1 − 2μc (ε)  V (yk) − V (y⋆),
+
+where 
+
+c(ε) := min 
+
+ 1
+
+ε − L
+
+2ε2 , 1
+
+ε + G2 − L
+
+2( ε + G2)2
+
+
+
+> 0.
+
+In particular, if there exists a feasible point, then V (y⋆) = 0 
+
+and 
+
+V (yk) ≤  1 − 2μc (ε)kV (y0),
+
+so V (yk) → 0 exponentially fast. 
+
+Proof: We begin by defining 
+
+rk := r(yk), Jk := Jc(yk), Hk := JkJ⊤ 
+
+> k
+
+,
+
+and substituting the update step 
+
+∆yk = −J⊤ 
+
+> k
+
+(Hk + εI )−1rk
+
+into the quadratic upper bound: 
+
+V (yk+1 ) ≤ V (yk) + ∇V (yk)⊤∆yk + L
+
+2 ∥∆yk∥22.
+
+Now, 
+
+V (y) = 12
+
+X
+
+> i
+
+hi(y)2
+
++ 12
+
+X
+
+> j
+
+[ReLU( gj (y) − bu) − ReLU( bl − gj (y))] 2.
+
+Since the scalar function ϕ(z) = 12 [ReLU( z − bu) −
+
+ReLU( bl −z)] 2 is continuously differentiable with derivative 
+
+ϕ′(z) = ReLU( z − bu) − ReLU( bl − z), the chain rule gives 
+
+∇V (yk) = J⊤ 
+
+> k
+
+rk.Therefore, 
+
+∇V (yk)⊤∆yk = −r⊤ 
+
+> k
+
+Hk(Hk + εI )−1rk,
+
+and 
+
+∥∆yk∥22 = r⊤ 
+
+> k
+
+(Hk + εI )−1Hk(Hk + εI )−1rk.
+
+Substituting into the quadratic upper bound yields 
+
+V (yk) − V (yk+1 ) ≥ rTk Hk(Hk + εI )−1rk
+
+− L
+
+2 rTk (Hk + εI )−1Hk(Hk + εI )−1rk
+
+Let Hk = QkΛkQ⊤ 
+
+> k
+
+be the eigendecomposition of Hk,where 
+
+Λk = diag( λk, 1, . . . , λ k,m +ℓ),
+
+and let zk = Q⊤ 
+
+> k
+
+rk. Lemma 2, implies ∀i : 0 ≤ λk,i ≤ G2
+
+therefore, 
+
+V (yk) − V (yk+1 ) ≥ X
+
+> i
+
+ λk,i 
+
+λk,i + ε − L · λk,i 
+
+2( λk,i + ε)2
+
+
+
+z2
+
+> k,i
+
+.
+
+Let 
+
+xi = 1
+
+λk,i + ε , f (x) = x
+
+
+
+1 − L
+
+2 x
+
+
+
+.
+
+Then 
+
+xi ∈
+
+ 1
+
+ε + G2 , 1
+
+ε
+
+
+
+.
+
+Since f is a concave quadratic, its minimum over this interval is attained at an endpoint. Therefore, 
+
+f (xi) ≥ c(ε) = min 
+
+ 1
+
+ε − L
+
+2ε2 , 1
+
+ε + G2 − L
+
+2( ε + G2)2
+
+
+
+.
+
+Substituting this lower bound gives 
+
+V (yk) − V (yk+1 ) ≥ c(ε) X
+
+> i
+
+λk,i z2
+
+> k,i
+
+= c(ε) r⊤ 
+
+> k
+
+Hkrk
+
+= c(ε) ∥J⊤ 
+
+> k
+
+rk∥22
+
+= c(ε) ∥∇ V (yk)∥22.
+
+Applying the μ-PL condition yields 
+
+V (yk) − V (yk+1 ) ≥ 2μc (ε) V (yk) − V (y⋆),
+
+or equivalently, 
+
+V (yk+1 ) − V (y∗) ≤  1 − 2μc (ε)  V (yk) − V (y⋆).
+
+Iterating this inequality gives 
+
+V (yk) − V (y∗) ≤  1 − 2μc (ε)k V (y0) − V (y⋆).
+
+Importantly, the decay factor 1 − 2μc (ε) remains between 
+
+0 and 1. Because ε > L 
+
+> 2
+
+, we have c(ε) > 0 and therefore 
+
+1 − 2μc (ε) < 1. Additionally, since the global maximum of 
+
+f is 12L and L ≥ μ [15], f (xi) ≤ 12μ . This guarantees that the decay factor 1 − 2μc (ε) remains non-negative, validating the monotonic decay. Finally, since V (yk+1 ) ≤ V (yk), the iterates remain in the initial sublevel set of V , so the proof works under a local smoothness bound over that region. This completes the proof. V. E MPIRICAL VALIDATION 
+
+We demonstrate the ability of our proposed methodol-ogy to approximate a constrained optimization solver, as described in Section III-C. We use an illustrative model predictive control example with a nonlinear constraint on the state x.min 
+
+> x,u N
+
+X
+
+> k=1
+
+|| xk − xtarget || 22 + || uk|| 22
+
+subject to 
+
+xk+1 = Ax k + Bu k ∀k ∈ { 0, 1, ...N − 1}|uk| ≤ ub ∀k ∈ { 0, 1, ...N − 1}
+
+xT Qx ≤ xb
+
+x0 = xin 
+
+(11) We use nx = 5 , nu = 4 for xk ∈ Rnx , uk ∈ Rnu . The linear equality constraint is the system dynamics, and we use 
+
+A = I5, B =
+
+ I4
+
+eT
+
+> 4
+
+
+
+Q = blkdiag 
+
+ 0.05 0.025 0.025 0.1
+
+
+
+, 0.1I3
+
+
+
+with eT 
+
+> 4
+
+= 0 0 0 1. Box constraints are enforced on the controller u with ub = 1 , and the bound on the quadratic constraint is xb = 10 . We use N = 10 . We aim to find a mapping from the initial condition xin to the optimal state and outputs across the horizon N . That is, we learn 
+
+fθ : Rnx → RN (nu+nx) such that the dynamics constraints as well as the constraints on the states and controllers are satisfied. The target state, xtarget is [3 , 12 , 10 , 10 , 10] , which lies outside the constraint boundary. When constraints are enforced, the state will therefore never reach the target. We use a feed-forward neural network with 2 hidden layers and 200 neurons each. For the constraint satisfaction layer, we use ε = 0 .3 and 500 linearized iterations. We elect to directly minimize the objective function during training. That is, we choose the MPC objective as the loss function. We use 800 and 100 random feasible initial conditions for train-ing and validation, respectively. The constraint enforcement layers are active during training. Intuitively, this promotes minimization of the constrained output, which is the MPC goal, rather than minimizing an unconstrained output and then projecting back onto a feasible set during inference only. We test our trained model on 100 random feasible initial conditions. The modeled trajectories are compared to aCVXPY [16] solver baseline. We also quantify the subop-timality of the learned solver and the constraint violation. Specifically, we calculate both an average and a maximum suboptimality across all 100 test samples, defined as 
+
+S = max(0 , Z (¯ x, ¯u) − Z(x∗, u ∗)) 
+
+Z(x∗, u ∗) . (12) Here Z(x, u ) is the objective function min 
+
+> x,u
+
+PNk=1 || xk −
+
+xtarget || 22 +|| uk|| 22, x∗ and u∗ are the optimal state and control variables determined by the solver, and ¯x and ¯u are the state and control variables output by the model. We also report the average and maximum constraint residual across all constraints and all test cases. These are shown in Table I. TABLE I SUBOPTIMALITY AND CONSTRAINT VIOLATION FOR OUR PROJECTED MODEL ACROSS 100 REPRESENTATIVE INITIAL CONDITIONS 
+
+Average Maximum Suboptimality 5.6e − 3 0.016 
+
+Dynamics constraint violation 3.8e − 5 3.6e − 3
+
+u box constraint violation 4.6e − 5 4.1e − 3
+
+x quadratic constraint violation 5.7 − 9 9.5e − 7
+
+Fig. 3. Comparison between the controller trajectory using HardNet++ and an optimization solver for a sample initial condition. The three plots show the trajectories projected onto different axes of u. The dotted red lines represent the box constraints on the controller. The modeled controller closely aligns with the optimal trajectory. 
+
+Figures 3 and 4 show controller and state trajectories generated by the model and produced by the optimization solver for a random feasible initial condition. Both the state and the control trajectories output by the trained model match closely with the optimal trajectories. Importantly, the learned controller consistently drives the state toward the boundary of the feasible region, replicating the behavior of the optimal solution. Table I provides quantitative results for 100 random initial conditions. The learned controller achieves very small suboptimality, indicating that the neural network accurately approximates the original MPC solution. Even in the worst case, the suboptimality is modest (0.016). Constraints are satisfied to high numerical precision across all test cases while maintaining near-optimal control performance. These results confirm that the projection layer effectively enforces feasibility without sacrificing optimality. VI. C ONCLUSION 
+
+To address the challenge of enforcing constraints in neu-ral networks, we introduced HardNet++, a differentiable enforcement method for nonlinear inequality and equality constraint satisfaction. HardNet++ uses damped closed-form updates based on local linearizations of the constraints. Un-like many existing approaches, this method can handle non-linear inequality and equality constraints simultaneously. We provide theoretical guarantees showing that under standard regularity assumptions, our constraint satisfaction method converges exponentially to a feasible point satisfying the constraints to arbitrary tolerance. Empirical evaluation on a model predictive control problem with nonlinear state con-straints demonstrates reliable constraint enforcement without sacrificing optimality. The theoretical and empirical results of this paper sug-gest that HardNet++ provides a practical mechanism for incorporating hard constraints into network models, with applications in learned optimization and scientific machine 
+
+Fig. 4. Comparison between the state trajectory for HardNet++ and an optimization solver for a sample initial condition. The four plots show the trajectories and constraints projected onto different axes of x. The red line surrounds the feasible region of the state, and the x represents the target state xtarget . The modeled state trajectory matches the optimal trajectory, demonstrating the capacity of the constrained network to approximate the optimization solver. 
+
+learning. Future work could explore the applications of HardNet++ to larger-scale control and learning problems. REFERENCES [1] M. Raissi, P. Perdikaris, and G. E. Karniadakis, “Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations,” 
+
+Journal of Computational Physics , vol. 378, pp. 686–707, 2019. [2] Y. Min and N. Azizan, “HardNet: Hard-constrained neural net-works with universal approximation guarantees,” arXiv preprint arXiv:2410.10807 , 2024. [3] R. Balestriero and Y. LeCun, “Police: Provably optimal linear con-straint enforcement for deep neural networks,” in ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) . IEEE, 2023, pp. 1–5. [4] H. Chen, G. E. C. Flores, and C. Li, “Physics-informed neural net-works with hard linear equality constraints,” Computers & Chemical Engineering , vol. 189, p. 108764, 2024. [5] A. Goertzen, S. Tang, and N. Azizan, “Eco: Energy-constrained operator learning for chaotic dynamics with boundedness guarantees,” 
+
+arXiv preprint arXiv:2512.01984 , 2025. [6] P. D. Grontas, A. Terpin, E. C. Balta, R. D’Andrea, and J. Lygeros, “Πnet: Optimizing hard-constrained neural networks with orthogonal projection layers,” in Proceedings of the International Conference on Learning Representations (ICLR) , 2026, arXiv:2508.10480. [7] S. Tang, A. Goertzen, and N. Azizan, “Lmi-net: Linear matrix inequality–constrained neural networks via differentiable projection layers,” arXiv preprint arXiv:2604.05374 , 2026. [8] S. Chen, K. Saulnier, N. Atanasov, D. D. Lee, V. Kumar, G. J. Pappas, and M. Morari, “Approximating explicit model predictive control using constrained neural networks,” in 2018 Annual American control conference (ACC) . IEEE, 2018, pp. 1520–1527. [9] R. Cristian, P. Harsha, G. Perakis, B. L. Quanz, and I. Spantidakis, “End-to-end learning for optimization via constraint-enforcing ap-proximators,” in Proceedings of the AAAI conference on artificial intelligence , vol. 37, no. 6, 2023, pp. 7253–7260. [10] G. Lastrucci and A. M. Schweidtmann, “Enforce: Nonlinear con-strained learning with adaptive-depth neural projection,” arXiv preprint arXiv:2502.06774 , 2025. [11] H. T. Nguyen and P. L. Donti, “Fsnet: Feasibility-seeking neural network for constrained optimization with guarantees,” arXiv preprint arXiv:2506.00362 , 2025. [12] K. Levenberg, “A method for the solution of certain non-linear problems in least squares,” Quarterly of applied mathematics , vol. 2, no. 2, pp. 164–168, 1944. [13] Y. Nesterov, Introductory lectures on convex optimization: A basic course . Springer Science & Business Media, 2013, vol. 87. [14] B. Polyak, “Gradient methods for the minimisation of functionals,” 
+
+USSR Computational Mathematics and Mathematical Physics , vol. 3, no. 4, pp. 864–878, 1963. [15] H. Karimi, J. Nutini, and M. Schmidt, “Linear convergence of gra-dient and proximal-gradient methods under the polyak-łojasiewicz condition,” in Joint European conference on machine learning and knowledge discovery in databases . Springer, 2016, pp. 795–811. [16] S. Diamond and S. Boyd, “CVXPY: A Python-embedded modeling language for convex optimization,” Journal of Machine Learning Research , vol. 17, no. 83, pp. 1–5, 2016.

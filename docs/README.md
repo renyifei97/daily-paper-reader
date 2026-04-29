@@ -6,64 +6,59 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-04-28
-- 运行时间：2026-04-28 20:52:48 UTC
+- 最新运行日期：2026-04-29
+- 运行时间：2026-04-29 21:01:37 UTC
 - 运行状态：成功
-- 本次总论文数：14
-- 精读区：2
+- 本次总论文数：12
+- 精读区：0
 - 速读区：12
 
 ### 今日简报（AI）
-今日聚焦公共交通规划的精确算法突破与不完全观测时间序列的端到端学习框架。
-重点推荐评分 9.5 的公交线路规划最优解，以及针对电力与气象预测的时序大模型实证研究。
-建议关注 PyPOTS 工具库以解决时序数据缺失问题，并探索 GNN 在复杂时空预测中的应用。
-- 详情：[/202604/28/README](/202604/28/README)
+今日速览 12 篇 AI 前沿论文，深度覆盖强化学习策略优化与高精度时空预测技术。
+重点关注利用 GNN 提升风暴潮预报精度的 StormNet，以及保障自回归预测稳定性的混合神经积分器。
+建议关注 AI 如何通过策略复用与物理一致性建模，解决复杂环境下的长效预测与决策难题。
+- 详情：[/202604/29/README](/202604/29/README)
 
 ### 精读区论文标签
-1. [An Exact Algorithm for Public Transport Line Planning Considering Passenger and Operational Costs and Lost Demand](/202604/28/2604.18013v1-an-exact-algorithm-for-public-transport-line-planning-considering-passenger-and-operational-costs-and-lost-demand)  
-   标签：评分：9.5/10、query:urt-c
-   evidence：该论文研究了公共交通线路规划和运营频率，旨在优化乘客服务和运营成本。
-2. [End-to-End Learning for Partially-Observed Time Series with PyPOTS](/202604/28/2604.24041v1-end-to-end-learning-for-partially-observed-time-series-with-pypots)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：部分观测时间序列的端到端学习与预测
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Spatio-temporal modelling of electric vehicle charging demand](/202604/28/2604.19841v1-spatio-temporal-modelling-of-electric-vehicle-charging-demand)  
-   标签：评分：7.5/10、query:urt-pf
-   evidence：用于需求预测的时空潜高斯场模型
-2. [StormNet: Improving storm surge predictions with a GNN-based spatio-temporal offset forecasting model](/202604/28/2604.20688v2-stormnet-improving-storm-surge-predictions-with-a-gnn-based-spatio-temporal-offset-forecasting-model)  
-   标签：评分：7.5/10、query:urt-pf
-   evidence：结合LSTM的时空图神经网络用于偏移预测
-3. [Empirical Assessment of Time-Series Foundation Models For Power System Forecasting Applications](/202604/28/2604.22077v1-empirical-assessment-of-time-series-foundation-models-for-power-system-forecasting-applications)  
-   标签：评分：7.5/10、query:urt-pf
-   evidence：用于负荷预测的时间序列基础模型基准测试
-4. [Autocorrelation Reintroduces Spectral Bias in KANs for Time Series Forecasting](/202604/28/2604.23518v1-autocorrelation-reintroduces-spectral-bias-in-kans-for-time-series-forecasting)  
-   标签：评分：7.5/10、query:urt-pf
-   evidence：解决了具有时间自相关性的时间序列预测中KANs的光谱偏差问题
-5. [Transferable Human Mobility Network Reconstruction with neuroGravity](/202604/28/2604.23678v1-transferable-human-mobility-network-reconstruction-with-neurogravity)  
-   标签：评分：7.5/10、query:urt-pf
-   evidence：用于重建人口流动和人类移动网络的物理启发深度学习模型
-6. [Infrastructure-Centric World Models: Bridging Temporal Depth and Spatial Breadth for Roadside Perception](/202604/28/2604.17651v1-infrastructure-centric-world-models-bridging-temporal-depth-and-spatial-breadth-for-roadside-perception)  
-   标签：评分：7.0/10、query:urt-pf
-   evidence：时空路侧感知与行为分布
-7. [Causally-Constrained Probabilistic Forecasting for Time-Series Anomaly Detection](/202604/28/2604.17998v1-causally-constrained-probabilistic-forecasting-for-time-series-anomaly-detection)  
-   标签：评分：6.5/10、query:urt-pf
-   evidence：提出了一种用于多变量时间序列的因果约束概率预测框架
-8. [Multi-Level Temporal Graph Networks with Local-Global Fusion for Industrial Fault Diagnosis](/202604/28/2604.18765v1-multi-level-temporal-graph-networks-with-local-global-fusion-for-industrial-fault-diagnosis)  
-   标签：评分：6.5/10、query:urt-pf
-   evidence：用于大规模系统传感器相关性的时空图网络
-9. [ST-Prune: Training-Free Spatio-Temporal Token Pruning for Vision-Language Models in Autonomous Driving](/202604/28/2604.19145v1-st-prune-training-free-spatio-temporal-token-pruning-for-vision-language-models-in-autonomous-driving)  
-   标签：评分：6.5/10、query:urt-pf
-   evidence：交通相关视觉模型的时空令牌剪枝
-10. [Probabilistic Hazard Analysis Framework with Stochastic Optimal Control for Deteriorating Civil Infrastructure Systems](/202604/28/2604.23068v1-probabilistic-hazard-analysis-framework-with-stochastic-optimal-control-for-deteriorating-civil-infrastructure-systems)  
+1. [Lever: Inference-Time Policy Reuse under Support Constraints](/202604/29/2604.20174v2-lever-inference-time-policy-reuse-under-support-constraints)  
    标签：评分：6.5/10、query:urt-c
-   evidence：基础设施维护的随机最优控制和马尔可夫决策过程
-11. [Adaptive Spatial-Temporal Graph Learning-Enabled Short-Term Voltage Stability Assessment against Time-Varying Topological Conditions](/202604/28/2604.23204v1-adaptive-spatial-temporal-graph-learning-enabled-short-term-voltage-stability-assessment-against-time-varying-topological-conditions)  
+   evidence：强化学习策略复用可用于优化复杂的列车运行方案
+2. [StormNet: Improving storm surge predictions with a GNN-based spatio-temporal offset forecasting model](/202604/29/2604.20688v2-stormnet-improving-storm-surge-predictions-with-a-gnn-based-spatio-temporal-offset-forecasting-model)  
    标签：评分：6.5/10、query:urt-pf
-   evidence：针对时变拓扑条件的自适应时空图学习方法
-12. [Interpretable Physics-Informed Load Forecasting for U.S. Grid Resilience: SHAP-Guided Ensemble Validation in Hybrid Deep Learning Under Extreme Weather](/202604/28/2604.23500v1-interpretable-physics-informed-load-forecasting-for-us-grid-resilience-shap-guided-ensemble-validation-in-hybrid-deep-learning-under-extreme-weather)  
+   evidence：使用时空图神经网络和LSTM进行时间序列预测，是地铁交通预测的可迁移方法。
+3. [A Hybridizable Neural Time Integrator for Stable Autoregressive Forecasting](/202604/29/2604.21101v1-a-hybridizable-neural-time-integrator-for-stable-autoregressive-forecasting)  
    标签：评分：6.5/10、query:urt-pf
-   evidence：使用CNN和Transformer进行短期时间序列预测的方法论桥接
+   evidence：针对长期时间序列数据的稳定自回归预测方法
+4. [GeoCert: Certified Geometric AI for Reliable Forecasting](/202604/29/2604.23474v1-geocert-certified-geometric-ai-for-reliable-forecasting)  
+   标签：评分：6.5/10、query:urt-pf
+   evidence：用于交通系统可靠预测的几何人工智能框架
+5. [End-to-End Learning for Partially-Observed Time Series with PyPOTS](/202604/29/2604.24041v1-end-to-end-learning-for-partially-observed-time-series-with-pypots)  
+   标签：评分：6.5/10、query:urt-pf
+   evidence：适用于交通数据集的部分观测时间序列预测通用框架
+6. [Liquid Neural Network Models for Natural Gas Spot Price Time-Series Forecasting](/202604/29/2604.24788v1-liquid-neural-network-models-for-natural-gas-spot-price-time-series-forecasting)  
+   标签：评分：6.5/10、query:urt-pf
+   evidence：用于非平稳数据短期时间序列预测的液态神经网络方法
+7. [Functional Autoregression Without Truncation: A Continuous-Regularization Approach](/202604/29/2604.25205v1-functional-autoregression-without-truncation-a-continuous-regularization-approach)  
+   标签：评分：6.5/10、query:urt-pf
+   evidence：高级函数自回归时间序列预测方法
+8. [DGLight: DQN-Guided GRPO Fine-Tuning of Large Language Models for Traffic Signal Control](/202604/29/2604.25259v1-dglight-dqn-guided-grpo-fine-tuning-of-large-language-models-for-traffic-signal-control)  
+   标签：评分：6.5/10、query:urt-c
+   evidence：DQN和强化学习在城市交通控制中的应用
+9. [Energy Efficient LSTM Accelerators for Embedded FPGAs through Parameterised Architecture Design](/202604/29/2604.19293v1-energy-efficient-lstm-accelerators-for-embedded-fpgas-through-parameterised-architecture-design)  
+   标签：评分：6.0/10、query:urt-pf
+   evidence：用于嵌入式设备时间序列分析的LSTM硬件加速
+10. [HardNet++: Nonlinear Constraint Enforcement in Neural Networks](/202604/29/2604.19669v1-hardnet-nonlinear-constraint-enforcement-in-neural-networks)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：在控制和决策应用中强制执行非线性约束的方法
+11. [Planning in entropy-regularized Markov decision processes and games](/202604/29/2604.19695v1-planning-in-entropy-regularized-markov-decision-processes-and-games)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：该论文提出了一种针对马尔可夫决策过程的规划算法，这是基于强化学习的列车运行优化的一种基础方法。
+12. [Forecasting Individual NetFlows using a Predictive Masked Graph Autoencoder](/202604/29/2604.20483v2-forecasting-individual-netflows-using-a-predictive-masked-graph-autoencoder)  
+   标签：评分：6.0/10、query:urt-pf
+   evidence：用于流级流量的预测性掩码图自编码器
 
 
 <div class="dpr-home-promo-card">
