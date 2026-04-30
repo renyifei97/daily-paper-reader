@@ -1,0 +1,824 @@
+Title: Graph Neural Network-Informed Predictive Flows for Faster Ford-Fulkerson and PAC-Learnability
+
+URL Source: https://arxiv.org/pdf/2604.21175v1
+
+Published Time: Fri, 24 Apr 2026 00:19:13 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# Graph Neural Network-Informed Predictive Flows for Faster Ford-Fulkerson and PAC-Learnability 
+
+## Eleanor Wiesler *,1,2 Trace Baxley *,1,2 
+
+# 1 Abstract 
+
+We propose a novel learning-augmented framework for accelerating max-flow computa-tion and image segmentation by integrating Graph Neural Networks (GNNs) with the Ford–Fulkerson algorithm. Our approach departs from prior work on predictive flow ini-tialization by instead learning edge importance probabilities that guide augmenting path selection. We introduce a Message Passing Graph Neural Network (MPGNN) architecture that jointly learns node and edge embeddings through a mutually dependent update mecha-nism, enabling the model to capture both global structural context and local flow dynamics such as residual capacity, bottlenecks, and cut structure. Given an input image, we construct a grid-based flow network with source and sink nodes, extract node and edge features, and perform a single GNN inference to assign probabilities to edges indicating their likelihood of belonging to high-capacity cuts. These probabili-ties are stored in a priority queue and used to guide a modified Ford–Fulkerson procedure that prioritizes high-value augmenting paths via an adjusted Edmonds–Karp search with bottleneck-aware tie-breaking. This design avoids repeated inference over residual graphs while still leveraging learned structural insights throughout the optimization process. We further introduce a bidirectional path construction strategy centered on high-probability edges and provide a theoretical framework relating prediction quality to algorithmic efficiency via a weighted permutation distance metric. Our method preserves optimality of the max-flow/min-cut solution while significantly reducing the number of augmentations required in practice. Additionally, we outline a hybrid extension that combines flow warm-starting with edge-priority prediction. This work establishes a foundation for learning-guided combinato-rial optimization for application in efficient image segmentation. 
+
+# 2 Introduction 
+
+The Ford-Fulkerson algorithm is a classical method for computing the maximum flow in a network from a designated source node to a sink node. In its simplest form, a flow network 
+
+> 1Harvard Department of Mathematics.
+> 2Harvard Department of Computer Science.
+> ∗Joint first authors (equal contribution).
+
+1
+
+> arXiv:2604.21175v1 [cs.LG] 23 Apr 2026
+
+is a directed graph in which each edge is assigned a capacity, indicating the maximum flow it can carry. A residual graph is constructed during the algorithm’s execution to track remaining capacities and facilitate augmenting path selection. The algorithm proceeds by repeatedly finding augmenting paths in the residual graph and pushing flow along them until no such paths remain, at which point the current flow is guaranteed to be maximal. While elegant and widely used, the algorithm’s speed and performance heavily depends on the choice of starting flow and augmenting paths—making it a prime candidate for informed guidance from learning-based methods. Recent work by Davies et al [5] improves the speed of the classical Ford-Fulkerson algo-rithm for computing maximum flows by seeding Ford-Fulkerson with predicted flows gener-ated by a PAC-learning framework. We wish to learn optimal flows with GNNs to both seed the algorithm with geometry-informed starting predictions and, secondly, use GNN-based prediction to inform edge-level predictions for augmenting path finding. Recent work has focused on augmenting such algorithms with machine-learned predic-tions to improve their performance. GNNs have been used for combinatorial optimiza-tion problems including shortest paths, matching, and routing. Several works show that GNNs can approximate solutions to flow problems with high accuracy, and generalize across graph and network sizes and distributions [7], [2], [3], [8]. Our work seeks to add to the PAC-learning paradigm used in [5]. We introduce a variety of theoretical results on the learnability of edge selection functions under the Probably Approximately Correct (PAC) framework. Specifically, we model the problem of selecting high-utility edges (i.e., edges frequently appearing in optimal augmenting paths) as a multi-class classification problem over graph edges, where the target is to label edges as ”useful” or ”not useful” for aug-menting flow. Furthermore, we introduce a variety of GNN-informed algorithms for both warm-start of Ford Fulkerson and augmenting path finding, including extensive work on ideal GNN architectures for such algorithms for application in image segmentation. Together, our work seeks to contribute to a new body of work for improving Ford-Fulkerson speed with learning-augmented algorithms. 
+
+## 2.1 Ford-Fulkerson 
+
+The Ford-Fulkerson algorithm is a classical primal method for computing the maximum flow in a capacitated network. Given a directed graph G = ( V, E ) with integral capacities 
+
+c : E → Z≥0 and designated source and sink nodes s, t ∈ V , the algorithm incrementally constructs a feasible flow f by identifying augmenting paths in the residual graph Gf and pushing flow along them. The process terminates when no further augmenting path exists, at which point the flow is guaranteed to be maximal by the Max-Flow Min-Cut Theorem. While its correctness and optimality are well established, the practical performance of Ford-Fulkerson depends critically on the order and structure of augmenting paths. This motivates algorithmic enhancements that can warm-start the method or guide path selection heuristics using learned predictions. Recent work (e.g., Davies et al. 2023) formalizes this direction under a PAC-learning framework, seeding Ford-Fulkerson with approximate flows to reduce convergence time. In our work, we extend this paradigm by integrating graph neural net-work (GNN) models to predict not only warm-start flows but also edge-level priorities for augmenting path construction. The hypothesis of this paper is that these heuristics can 2improve practical runtime without sacrificing optimality. 
+
+## 2.2 Image Segmentation with Ford-Fulkerson 
+
+Graph-based image segmentation is a canonical setting for evaluating combinatorial flow algorithms. An image is represented as a grid graph where each pixel corresponds to a node, and edges encode pairwise affinities derived from local intensity differences. Two special nodes—source ( s) and sink ( t)—represent the object and background terminals, with seeds specifying hard constraints. Edges from s and t to the pixel nodes are assigned high capacities based on unary priors, and internal edges are weighted using boundary-sensitive functions (e.g., wpq = C exp( −(Ip−Iq )2 
+
+> 2σ2
+
+)). Segmenting the image reduces to solving a max-flow problem, with the min-cut delineating the object from the background. While Ford-Fulkerson is not the most advanced method for image segmentation, its application here is illustrative: the segmentation result serves as a concrete visualization of the max-flow solution, and the grid-like structure of image graphs makes them ideal for benchmarking flow algorithms with spatial coherence. In this paper, we do not aim to advance the state-of-the-art in segmentation quality. Rather, we use the segmentation task as a controlled domain to validate algorithmic enhance-ments to Ford-Fulkerson. Specifically, we deploy GNN-informed strategies—both warm-start initialization via predicted flows, and edge-prioritized augmenting paths—to reduce the num-ber of augmenting iterations. The segmentation setting provides both structural regularity and visual interpretability, allowing us to empirically measure the impact of learned predic-tions on flow runtime and algorithmic efficiency. 
+
+## 2.3 PAC-Learnability in Relation to GNN-Informed Ford Fulker-son 
+
+Given that the warm-start flow algorithm for Ford-Fulkerson used a new prediction algorithm (basing the prediction on total flow), it is important to know if this value is PAC-learnable. Some sets that are not learnable include the set of all Boolean functions – an extremely large amount of labeled training examples are required to get a sufficient prediction of the specific boolean function. This introduces the idea of PAC-learning: A hypothesis class H is Probably Approximately Correct (PAC) learnable if: For any distribution D, any accuracy ϵ > 0, and confidence δ > 0, there exists polynomial m(ϵ, δ )such that with m examples, the algorithm outputs h ∈ H satisfying with probability ≥ 1 − δ:Error( h) ≤ Best possible error + ϵ
+
+in time poly (n, 1 
+
+> ϵ
+
+, 1 
+
+> δ
+
+)Essentially, for algorithms with predictions, we want the object that is the ”learned” part of the algorithm to be PAC learnable. With complex objects like graphs, this is not always obvious ans similarly there has never been a algorithms with predictions for predicting edge probability for satisfying some given some G for graphs for flow-problems. In particular, our 3function requires us to take the arg max, which adds additional complexity. In determining the PAC-learnability of edge probabilities, one can . Specifically, with a small enough training size, we may discover that less ”powerful” algorithms than GNNs may also predict edge probabilities. Throughout our PAC-learning section, we may reference the VC dimension, which is essentially a gauge on how complex the model is by the points the model can shatter. Other dimensions included in this paper have basis in VC dimension but are used for arguments when the hypothesis class does not include Boolean functions. 
+
+## 2.4 Our Contributions 
+
+This paper presents a learning-augmented approach to accelerating the Ford–Fulkerson al-gorithm by leveraging graph neural networks (GNNs) for both initialization and augmenting path selection. Our main contributions are as follows: 1. Theoretical results on PAC learnability: We formalize the learnability of edge selection under PAC-learning theory. Specifically, we show that selecting high-utility edges based on graph metrics is PAC-learnable and derive bounds on sample complexity using the Natarajan dimension. We further demonstrate that image grid graphs admit tighter PAC bounds than general graphs, making them an effective domain for theoretical validation. 2. Algorithm 1 – GCN-based warm start: We develop a Graph Convolutional Network (GCN) architecture to predict edge-level flows from image-derived graphs. These pre-dicted flows are used to initialize the Ford–Fulkerson algorithm. This warm-start reduces the number of augmenting steps required by preemptively saturating bottle-necks in the residual graph. The full model design and training pipeline are provided in Section 3.1. 3. Algorithm 2 – MPGNN-guided edge scoring: We introduce a Message Passing Graph Neural Network (MPGNN) that learns edge importance scores in residual graphs. These scores capture structural and capacity-based features and are used to guide path selection via modified DFS, prioritizing high-probability edges likely to lie in op-timal augmenting paths. The architecture jointly learns node and edge embeddings and is described in Section 3.2. 4. Algorithm 3 – GNN-assisted Ford–Fulkerson with max-heap prioritization: We propose a full pipeline where edge scores predicted by an MPGNN on the initial residual graph are cached in a max-heap. The Ford–Fulkerson algorithm proceeds by iteratively se-lecting the highest-scoring edge and assembling an augmenting path through adjusted DFS from the source to the head and from the tail to the sink. This strategy en-ables informed augmentations across the full flow process without repeated inference, yielding reduced iteration counts and runtime improvements. 5. Implementation and codebase: Despite experimental challenges, we provide a codebase supporting most data preprocessing steps for image-to-graph generation, GNN training, and flow computation. The code infrastructure is designed for extensibility and is made available for future reproduction and evaluation. 43 PAC-Learnability of Metric-Based Selection of Edges 
+
+Davies et al. [4] uses predictions on graph flows as a seed to optimize the original Ford-Fulkerson algorithm. Moreover, they proved that high quality flows are learnable, which is intended to bolster the idea that flow-based predictions can be used. In our framework, we will show that predictions on edge probability for some property (is within the shortest path, will lie in the min-cut) is PAC-learnable, and that using such a prediction will decrease the run-time with reasonable error. Throughout this section we will be using the following notation to describe the 
+
+• V (G), E (G) is the set of vertices of a graph G
+
+• M (G, e ) is a ”metric”, which represents a quality score for some edge e ∈ E(G)
+
+• c∗(G) = arg max e∈E M (G, e ), or the ”optimal” edge choice e
+
+Initially we propose a proof that one may create a model to predict an edge that satis-fies some group of M (G, e ) threshold. For example, some graphs may have edges at object boundaries that are traversed by exponentially many shortest paths or near-shortest paths. Using features to prioritize these edges allows the algorithm to saturate bottlenecks in resid-ual graphs early - which may allow for fewer path searches. 
+
+## 3.1 PAC Learning for an Edge Based on Some Set of Metrics 
+
+Theorem 3.1. Edge selection from a set of graphs G is PAC learnable with m examples, where m ∈ O
+
+|E|d log 2(|E|dϵ )+log (1 
+
+> δ
+
+)
+
+> ϵ
+
+
+
+Proof. Consider the following Hypothesis Class for an instance space of some family of graphs, which we will call X.
+
+HE =
+
+n
+
+hw : G 7 → arg max  
+
+> e∈E(G)
+
+w·ϕ(G, e ) w ∈ Rd
+
+o
+
+where ϕ(G, e ) is a vector with dimension d that contains features that should encode the edge properties referenced by M .Also, where X is the set of directed graphs on V , we define such a family where n ≥
+
+max G∈X |E(G)|.From this, we then extract our feature map for a graph-edge pair, essentially treating our metrics M1(G, e ), M 2(G, e ), . . . M d(G, e ) as features: 
+
+ϕ : X × Emax → Rd
+
+φ(G, e ) = 
+
+
+
+M1(G, e )
+
+M2(G, e )...
+
+Md(G, e )
+
+
+
+5where Emax is the set of all potential edges that could exist in our family of graphs X.The choice of our feature map does not have to be fully defined, but may contain some of the following features, where e = ( u, v ): 
+
+• ds(u): length of a shortest path from source s to u,
+
+• dt(v): length of a shortest path from v to sink t,
+
+• deg +(u), deg −(v): out-degree of u, in-degree of v,
+
+• Γ+(u): out-neighbors of u,
+
+• Γ−(v): in-neighbors of v
+
+• cr(e): edge capacity Thus, this leads us to define our concept class in the following way: 
+
+F =  fw : ( G, e ) 7 → w · ϕ(G, e ) | w ∈ Rd
+
+A key result is the literature on real-valued function classes is the pseudo-dimension of linear functionals. Recall that the psuedo-dimension (Pdim), generalizes the VC dimension (VCdim) to work with functions in the real numbers, and measures the capacity of a class to shatter real-valued targets. The theorem introduced by Anthony and Bartlett et al. is shown below: Let F = {fw : Rd → R | fw(x) = w · x, w ∈ Rd} be the class of linear functionals on Rd.Then: 
+
+Pdim (F) = d
+
+From knowing this we know that the pseudodimension will grow linearly with the number of metrics we include in our feature vector. However, we must consider the arg max portion of our hypothesis class. In order to do this, consider the complexity of mutliclass hypothesis classes formed by the function arg max. The Natarajan dimension ( N dim ) is related to the pseudodimension over real valued functions as introduced by Shalev-Schwartz et al in lemma 29.5[]. For a class of multiclass predictors, with each hypothesis having P dim (Hbin ) = d where bin indicates the predictor for one of the edges:, we have that the following is true: 
+
+N dim (H) ≤ 3kd log( kd )where k is the number defined by some arg max i∈[k] hi(x). Thus, under these circum-stances, predicting edges from graphs via linear classifiers gives us a Natarajan dimension of at most 3 |Emax |d log( |Emax |d) since we are predicting edges (our argument). We will call 
+
+|Emax |, |E| for the rest of this proof. Finally, we can determine that an algorithm that encodes a collection of edge metrics with feature vectors is PAC learnable from the Multiclass Fundamental Theorem (29.3): 6Specifically, with any input errors ϵ, δ such that for this algorithm, given a set of random samples of size O(3|E|d log( |E|d) log( |E|3|E|d log( |E|d)    
+
+> ϵ)+log( 1
+> δ)
+> ϵ
+
+) picked from some probability distribu-tion D, will output with probability 1 − δ will pick a multiclass function with error less than 
+
+ϵ.The bound on this random sample can be simplified in the following way: 
+
+O
+
+3|E|d log( |E|d) log 
+
+3|E|2d log( |E|d)
+
+> ϵ
+
+
+
++ log  1
+
+> δ
+
+
+
+ϵ
+
+
+
+= O
+
+|E|d log( |E|d) log 
+
+|E|2d log( |E|d)
+
+> ϵ
+
+
+
++ log  1
+
+> δ
+
+
+
+ϵ
+
+
+
+O |E|d log( |E|d) 2 log |E| + log d + log log( |E|d) + log  1
+
+> ϵ
+
+ + log  1
+
+> δ
+
+
+
+ϵ
+
+!
+
+= O
+
+|E|d log( |E|d) log 
+
+|E|dϵ
+
+
+
++ log  1
+
+> δ
+
+
+
+ϵ
+
+
+
+= O
+
+|E|d log 2
+
+|E|dϵ
+
+
+
++ log  1
+
+> δ
+
+
+
+ϵ
+
+
+
+Since this bound is poly (|E|, d, 1 
+
+> δ
+
+, 1 
+
+> ϵ
+
+), the algorithm is PAC-learnable for metric-based edge selection because it is realizable, and can feasibly be used as a prediction for a learned-Ford Fulkerson algorithm. 
+
+## 3.2 PAC-Learnability with an Image Segmentation-based Family 
+
+Clearly, note that this bound proven above assumes that the graph family contains graphs with the same number of vertices. Within the flow-based warmstart algorithm, notice that in the implimentation of the Ford Fulkerson algorithm, both the number of vertices and the specific edges remain the same. This is because the seeds in the paper’s image sequences for both the foreground and background images stay stagnant, which means that the pixel nodes attaching to the source and sink nodes are the same throughout, meaning that each model only works for a single graph topology. With this assumption, the paper assumes that their algorithm will be useful for networking problems which deal with dynamic edge weights only, which sometimes can be a reasonable assumption for networking problems. However, for problems whether there is subtle dynamism with edges, these warm-start models will not work. A great example of where this discrepancy will lie is with image segmentation of similar objects (in our case, the flower data set). Essentially, we want to show that if the graph family is sufficiently small, then the algorithm to train the model will require less computational resources. 7Suppose we have V , a fixed vertex set, and let 
+
+G|V | = { G1, . . . , G N } ⊆ { directed graphs on V }
+
+be a family of graphs that all share the same underlying topology except that each Gi differs from the others only by which k vertices are attached to the source s and which k to the sink t. We assume max i |E(Gi)| ≤ m. Moreover, given images of size m × m, we know that |V | = m2 + 2 = O(m2) and that |E| = O(4 m2 + 2 k), and since k ≤ m2, we have that 
+
+|E| ∈ O(m2). Most importantly, note that for some feature vector ϕ(G, e ), that the features selected may be continuous (like cr(e) which is a real number in many cases). They also may be discrete. For example, in the case of a feature that represents whether an edge is in a mini-mum cut of the graph, we can represent that ϕ(G, e )i ∈ { 0, 1}. Moreover, when measuring something like the in neighbor for a node connected to e, for the collection of graphs asso-ciated with image segmentation cannot be greater than 5 (4 adjacent pixels and a source or sink node). Thus, we can split our feature map into a stagnant features that take in a finite number of values, and the features that take real values. Suppose we have the function class: 
+
+F = {fw(G, e ) = w · ϕ(G, e ) | w ∈ Rd}
+
+which is the class of linear scoring functions. Note that the feature vector contains dstag 
+
+stagnant features, representing the discrete space it contains, and takes up c discrete values). Moreover, the remainder of the features are real-valued; the number of these are denoted by 
+
+dreal 
+
+Because the function is linear, we can decompose the w · ϕ(G, e ), which is given by: 
+
+w · ϕ(G, e ) = wstag · ϕstag (G, e ) + wreal · ϕreal (G, e )We know that the discrete part of the decomposition is bounded above by 
+
+wstag · ϕstag (G, e ) ≤ cdstag 
+
+While we have not completed this proof, the idea is to show that certain constraints of the graph specific to some graph family will allow for a tighter bound on the required examples for PAC-learning. We have yet do this, and are tending toward a negative result on this proof, as for linear functions, having a finite search space allows for less flexibility, and possible a higher VC dimension, meaning a larger requirement for m.It seems like domain-specific graph families may be advantageous. Thus, since |Emax |
+
+is directly dependent on the properties we can introduce the following lemma related to the graphs used for picture segmentation: 
+
+Theorem 3.2. Let Ggrid be a family of m × m grid graphs such that for G ∈ Ggrid , Grid-based Graphs require less examples m to satisfy PAC-learning constraints than the standard collection on |V | = n vertices 
+
+8Proof. The Natarajan dimension depends on |Emax |, with grid based graphs, the number of edges is of size O(4 n) = O(n), as opposed to O(n2) for a complete graph. Thus, for analysis using the Multiclass Fundamental Theorem, we have that the sample complexity for Ggrid 
+
+graphs should be of the order O(sqrt |Emax |), which is given by: 
+
+O
+
+p|E|d log 2
+
+√|E|dϵ
+
+
+
++ log  1
+
+> δ
+
+
+
+ϵ
+
+
+
+One could make a similar lemma about other common graph types with non-trivial limits on the number of edges, including trees or planar graphs for example. 
+
+# 4 GNN-Based Algorithms 
+
+## 4.1 Warm-start of Ford Fulkerson with Graph Convolution 
+
+In the context of accelerating the Ford–Fulkerson algorithm for max-flow-based image seg-mentation, a Graph Convolutional Network (GCN)-based architecture offers a principled and efficient learning framework. The task is to predict edge flows on an image-derived graph that includes not only spatially structured pixel nodes, but also explicit source (object ter-minal) and sink (background terminal) nodes, which connect to subsets of the pixel graph via terminal edges. These edges encode prior beliefs (from seeded masks or unary potentials) about which pixels belong to foreground and background, respectively. The input graph G = ( V, E ) is constructed from an image by treating each pixel as a node and connecting it to its 4- or 8-neighborhood to reflect local intensity similarities. However, to model segmentation via min-cut, two terminal nodes S and T are appended to the graph, representing the object and background terminals. Nodes are connected to S or T via source and sink edges with weights derived from seed maps or learned priors, defining unary costs. The internal edges encode boundary penalties, typically based on gradient magnitude or contrast. Each node is initialized with a feature vector consisting of spatial coordinates ( x, y ), grayscale intensity, and a seed encoding (e.g., 0 for neutral, 1 for source, −1 for sink). These features are passed through three GCNConv layers with ReLU activations. The GCN layers propagate local feature information across the graph, encoding spatial and semantic structure. We limit the depth to three layers to balance receptive field growth and avoid over-smoothing—a known issue where deep GCNs can produce indistinguishable node em-beddings. After generating hidden embeddings hv ∈ Rd for all nodes (including terminals), we predict edge-level flows. For each edge ( u, v ) ∈ E, the concatenated node embeddings [hu∥∥ hv] ∈ R2d are passed through an edge MLP, a small feedforward neural network con-sisting of a hidden layer with ReLU and a final scalar output neuron. This allows the model to learn nonlinear dependencies between adjacent node features and asymmetries in flow patterns, especially important near terminal edges. 9Figure 1: GCN for Algorithm 1: Graph convolution architecture for obbtaining edge-level dlow predictions from image graphs with source and sink nodes. The model is trained to minimize the mean squared error between predicted flows and ground-truth flows computed via the exact Ford-Fulkerson algorithm. Because of the flow/cut duality, high-accuracy flow predictions implicitly identify minimum cuts: edges near capac-ity on the predicted flow correspond to bottlenecks in the segmentation. This allows the GNN to learn both the low-level boundary structure and the high-level topological flow of the segmentation mask. The resulting predicted flows are then used to warm-start Ford-Fulkerson, guiding it toward the bottleneck early and reducing the number of augmenting path iterations required to reach the global optimum. Once the GNN is trained, the full warm-start procedure is as follows: 
+
+Algorithm 1 Warm-starting Ford-Fulkerson with GCN-predicted flow  
+
+> 1:
+
+Input: Graph G = ( V, E, c ), trained GNN model Gθ 
+
+> 2:
+
+Predict flow: ˆf ← G θ(G) 
+
+> 3:
+
+while ∃ edge e with ˆfe > c e do  
+
+> 4:
+
+Clip: ˆfe ← ce 
+
+> 5:
+
+end while  
+
+> 6:
+
+Set f ← ˆf 
+
+> 7:
+
+Build residual graph Gf , determine excess/deficit sets A′ 
+
+> f
+
+, B′ 
+
+> f
+> 8:
+
+while |A′ 
+
+> f
+
+∪ B′ 
+
+> f
+
+| > 0 do  
+
+> 9:
+
+Find projection path p from A′ 
+
+> f
+
+to B′ 
+
+> f
+
+(or to s/t if none exist)  
+
+> 10:
+
+Compute μp = min {ex f (w), def f (w′), min e∈p c′
+
+> e
+
+} 
+
+> 11:
+
+Send flow μp down p, update f , Gf , A′ 
+
+> f
+
+, B′ 
+
+> f
+> 12:
+
+end while  
+
+> 13:
+
+Run Ford-Fulkerson on G seeded with f until optimality  
+
+> 14:
+
+Output: final flow f ∗
+
+10 Figure 2: Algorithm 1 Implementation: Training of GCN-based Warm-start of Ford Fulker-son for Image Segmentation. (A) 60 x 60 input object images, (B) foreground and background seeds generated in image preprocessing, (3) grid-like graph representation of image with source and sink nodes and edges added, (D) GCN convolution to generate predicted edge-level flows, (E) Ford-fulkerson step with warm-started edge-level flows, (F) Ford-fulkerson result used for min-cut for segmentation, (E) Resulting segmented image. Note that F and C are adapted from a figure in [1]. 11 Figure 3: MPGNN Framework for Algorithm 2 
+
+## 4.2 Augmenting Path Selection With Message Passing Graph Neu-ral Networks 
+
+Let G = ( V, E ) be a flow network with integral capacities c ∈ Z|E|≥0 , and let f denote a feasible flow. The residual graph Gres = ( V, E res ) is constructed at each iteration of the Ford–Fulkerson algorithm. To accelerate the search for augmenting paths, we introduce a predictive model based on a message-passing graph neural network (MPGNN) that assigns a score suv ∈ [0 , 1] to each edge ( u, v ) ∈ Eres , reflecting its learned importance for contributing to a high-capacity augmenting path. These scores guide a modified DFS to prioritize edge exploration and reduce the number of residual graphs required to reach convergence. Our approach is inspired by the warm-start strategy of Davies et al., which uses a GNN to predict a seed flow that accelerates Ford–Fulkerson. However, rather than predicting flows directly, we aim to predict edge importance probabilities based on structural and flow-related features. Given residual capacity, in- and out-degree, flow history, and edge orientation, a GNN can be trained to estimate the probability that an edge will appear in a high-capacity path or cut. Formally, each edge e ∈ E is assigned a predicted importance score p(e) by the GNN. These scores are stored in a max-heap H to efficiently identify promising edges. The key architectural feature of our approach is the joint learning of both node embed-dings and edge embeddings. Each node v is initialized with features xv such as position, degree, or terminal proximity. Each edge ( u, v ) is initialized with features euv including residual capacity ruv , original capacity cuv , and past flow value fuv . Rather than processing these separately, we use a unified MPGNN framework in which **node embeddings evolve in response to edge embeddings**, and **edge embeddings evolve in response to node states**. At each round t, node embeddings h(t) 
+
+> v
+
+and edge embeddings h(t) 
+
+> uv
+
+are updated via a mutu-12 Figure 4: MPGNN-specific steps for node and edge embeddings and suv generation ally interdependent mechanism. First, messages are constructed using a learnable function 
+
+ϕm that fuses source and target node embeddings along with edge-specific information: 
+
+m(t) 
+
+> uv
+
+= ϕm(h(t) 
+
+> u
+
+, h (t) 
+
+> v
+
+, h (t) 
+
+> uv
+
+, e uv ).
+
+These messages capture local interactions shaped by both graph topology and capacity features. They are then aggregated at each receiving node to produce an updated node embedding: 
+
+h(t+1)  
+
+> v
+
+= ϕu
+
+h(t) 
+
+> v
+
+, X 
+
+> u∈N (v)
+
+m(t)
+
+> uv
+
+ ,
+
+where ϕu may be an MLP or GRU that fuses current and incoming information. Optionally, edge embeddings can be updated as well: 
+
+h(t+1)  
+
+> uv
+
+= ϕe(h(t) 
+
+> uv
+
+, h (t) 
+
+> u
+
+, h (t) 
+
+> v
+
+, e uv ),
+
+where ϕe may again be an MLP that models directionality and flow context. This back-and-forth coupling allows the network to reason holistically: node embeddings evolve in a flow-aware context, while edge embeddings evolve in a topologically sensitive manner. This mutual attention allows the model to capture critical flow phenomena such as bottlenecks, highly traversed corridors, and near-saturated cuts. After T rounds, we apply a scoring head that concatenates the final node and edge information: 
+
+suv = σ(MLP([ h(T ) 
+
+> u
+
+∥h(T ) 
+
+> v
+
+∥h(T ) 
+
+> uv
+
+∥euv ])) ,
+
+where σ is a sigmoid activation producing a probability estimate. The edge score suv re-flects not only static edge attributes but also dynamic relational signals accumulated during 13 Figure 5: Algorithm 3 Implementation message passing. These scores are cached in a priority queue and used to guide an adjusted DFS traversal. At inference, we select the highest-scoring edge 
+
+e∗ = arg max 
+
+> e∈Eres
+
+p(e),
+
+and compute a full augmenting path by performing two DFS traversals: from the source to v
+
+and from w to the sink, where e∗ = ( v, w ). DFS is modified to prioritize edges in descending order of p(e) from the heap H. This results in a prioritized path P = P1 · e∗ · P2 along which flow is augmenting. The bottleneck capacity δ is computed, and Gres is updated. If e is saturated, it is removed from H.This mutual learning of node and edge embeddings is essential. Node-only GNNs cannot capture directionality, residual capacity asymmetry, or multi-hop flow structure. Edge-only approaches lack global context. MPGNNs allow both sides of the graph to evolve with awareness of the other—critical for flow-guided search over dynamically evolving residual graphs. The architecture supports non-local flow inference, capacity sensitivity, and can adapt to varying graph sizes and topologies. Davies et al. uses predictions on graph flows as a seed to optimize the original Ford-Fulkerson algorithm via a predicted seed value for warm-start. However, there are other methods of prediction that could potentially increase flow algorithm efficiency. The one in which we would like to explore are edge features. Given some residual capacity, in/out degree, flow history, and other factors, Graph Neural Networks can be trained to predict the probability that some edge reaches some residual capacity θ or is a part of some high capacity cut. The probability that we will try and predict is the one in which p(e)represents the probability that edge e is the edge in the graph G contained in the min-cut with the largest capacity. In this way, we can push the most amount of flow through the 14 graph as possible while being close to guaranteeing that one of the elements in our path will also be in the min-cut, and come closer to completing the iterations in Ford-Folkerson. We can use this information to pick paths which should cut down the number of residual graphs required to terminate the algorithm’s process. It would become computationally expensive to use this GNN to predict edge probabilities for every single residual graph (think of the complete graph, for example). However, we can make use of the predictions of our initial graph to optimize path search in the FF algorithm. The following steps are a sketch of such an adjusted algorithm. With this prediction, each edge e in some residual graph GR(E, V ) is assigned a proba-bility p(e), which we keep in a max-heap ( e, p (e)) ∈ H. We calculate: 
+
+e∗ = arg max  
+
+> ei∈E
+
+p(ei)Given that e∗ = ( v, w ) for v, w ∈ V , we will use and adjusted path search algorithm (ideally one that balances the shortest path and the highest capacity path from the two vertices) to find a path P1 from the source node to v and use the adjusted path-finding algorithm again to find a path P2 from w to the sink node, taking into account the capacity constraints from P1. The total path P is the concatenation of P1, e∗, and P2.The adjusted path search algorithm is a slight departure of Edmonds-Karp shortest path search, that breaks ties using the highest capacity flow. Finally, as usual, we calculate the bottleneck capacity δ and form the next residual graph. If in the next residual graph an edge is now 0, we remove ( e, p (e)) from H, and start again. However, if a flow uses its backwards edge, we must replace it again in its relative position. The psuedocode for this algorithm and our adjusted search algorithm is presented below: 
+
+Algorithm 2 Adjusted Edmonds-Karp with Maximum Bottleneck Tie-Breaking 
+
+Require: Flow network G = ( V, E ), source s, sink t
+
+Ensure: Maximum flow f 
+
+> 1:
+
+Initialize flow f (u, v ) ← 0 for all ( u, v ) ∈ E 
+
+> 2:
+
+while true do  
+
+> 3:
+
+Run Adjusted BFS with Maximum Bottleneck Tie-Breaking to find augmenting path 
+
+p in residual graph Gf (standard shortest path BFS algorithm with an additional queue for tracking the bottleneck once a path is found)  
+
+> 4:
+
+if no augmenting path found then  
+
+> 5:
+
+break  
+
+> 6:
+
+end if  
+
+> 7:
+
+Let cf (p) ← min {cf (e)|e ∈ p} 
+
+> 8:
+
+for all edges ( u, v ) ∈ p do  
+
+> 9:
+
+f (u, v ) ← f (u, v ) + cf (p) 
+
+> 10:
+
+f (v, u ) ← f (v, u ) − cf (p) 
+
+> 11:
+
+end for  
+
+> 12:
+
+end while  
+
+> 13:
+
+return f
+
+15 Algorithm 3 GNN-Assisted Ford-Fulkerson (with Adjusted Edmonds-Karp)  
+
+> 1:
+
+Input: GR = ( V, E ), s, t, p (e) ∀e ∈ E 
+
+> 2:
+
+H ← max-heap of ( e, p (e))  
+
+> 3:
+
+F ← 0 
+
+> 4:
+
+while ∃ augmenting path in GR do  
+
+> 5:
+
+e∗ = arg max e∈E p(e), e ∗ = ( v, w ) 
+
+> 6:
+
+P1 ← Adjusted-EdmondsKarp( s, v, H ) 
+
+> 7:
+
+P2 ← Adjusted-Edmonds-Karp( w, t, H ) 
+
+> 8:
+
+if P1̸ = ∅ ∧ P2̸ = ∅ then  
+
+> 9:
+
+P ← P1 ∪ { e∗} ∪ P2 
+
+> 10:
+
+δ ← min e∈P c(e) 
+
+> 11:
+
+Augment flow along P by δ 
+
+> 12:
+
+Update GR 
+
+> 13:
+
+end if  
+
+> 14:
+
+Remove ( e, p (e)) ∈ H if e / ∈ GR 
+
+> 15:
+
+end while  
+
+> 16:
+
+return F
+
+We apply this architecture once to the initial residual graph and use the learned edge probabilities to guide the entire FF process via Algorithm 3 and the adjusted DFS Algorithm. This design avoids recomputing predictions at each step, which would be computationally expensive. The resulting pipeline is as follows: an image is converted to a flow graph, node and edge features are extracted, a single MPGNN inference produces edge scores, and Ford–Fulkerson proceeds with GNN-guided augmenting paths. The algorithm yields a segmentation based on the min-cut, with substantially fewer augmentations required compared to uninformed DFS, while preserving optimality.[9] 
+
+# 5 Future Directions 
+
+## 5.1 Suggested Further Research 
+
+As discussed in our introduction, this paper is a stepping stone to extensive further experi-mental and theoretical work. 1. Ford–Fulkerson warm-start experimentation with a GCN framework. 
+
+• Proposed experimental design: start by processing only 500 images at 60 × 60 pixels, generate foreground/background seeds, and develop a simple test metric to verify that source and sink nodes are added correctly. 2. Ford–Fulkerson augmenting-path experimentation with an MPGNN frame-work. 
+
+16 • Proposed experimental design: start by processing only 500 images at 60 × 60 pixels, generate foreground/background seeds, and develop a simple test metric to verify that source and sink nodes are added correctly. 3. Proof of Algorithm 3 Runtime. 
+
+• Typically, Edmonds–Karp has worst-case runtime O(|V || E|2). If the algorithm predicts with some error ϵ, the idea is that under perfect conditions (a perfect predictor with ϵ = 0) we can finish in k iterations, where k is the size of the min-cut, while under an adversarial predictor the algorithm is equivalent to running Edmonds–Karp as normal. A next step would be to derive the expected runtime as a function of prediction error; potential back-edges in the residual graph make this worthy of further research. 
+
+## 5.2 Theoretical Next Steps 
+
+We want to prove the theoretical accuracy bounds required for the model in order for this Bi-directional Ford Fulkerson algorithm (Algorithm 2) with prediction to achieve max-flow in a reduced time-complexity. Even though the output of our GNN model given a graph and an edge as input is a real probability, what the model is effectively measuring is the ordering of the edges based on p (as seen in the heap H). Thus, given some ground truth permutation σ′, we intend to show that given some predicted permutation ˆ σ from the GNN, that if the the ”distance” between them is sufficiently small, then the adjusted FF algorithm will require less iterations, some number defined by this ”distance”. There are several choices of metrics to measure distance between but the most obvious is the Cayley distance, [6] which is defined as follows, with σ, ˆσ as two permutations. 
+
+dC (σ, ˆσ) = n − c(σ−1 ˆσ)where c(σ) being defined as the number of cycles of a permutation and dC (σ, ˆσ) is the minimum number of transpositions required to transform σ into ˆ σ.For our purposes, edges at the top of the ordering, the ones that have the highest predicted probability, carry more of an importance than those further down the line (as those near the top are more likely to become e∗ in some residual graph). In our context, edges at the top of the ordering (i.e., with the highest predicted probabilities) are more important than those further down. To capture this, we define a weighted Cayley distance as follows. Let w : {1, 2, . . . , n } → R>0 be a weight function satisfying 
+
+w(1) ≥ w(2) ≥ · · · ≥ w(n).
+
+If we represent a permutation π ∈ Sn in one-line notation, deviations in the top positions should incur a higher penalty. Thus, we define the weighted Cayley distance between the ground truth permutation σ and the predicted permutation ˆ σ as follows. 
+
+dW C (σ, ˆσ) = min 
+
+( kX
+
+> j=1
+
+w(ij ) : ˆσ = τik · · · τi1 ◦ σ
+
+)
+
+17 where some τi is a transposition on the ith position and the minimum is taken over all possible sequences of transpositions that transform σ into ˆ σ.Our goal is to show that if this weighted Cayley distance dW C (σ, ˆσ) is bounded by some sufficiently small value, then the predicted ordering of edges is close to the ground truth, which then implies that the paths selected by the adjusted Ford-Fulkerson algorithm are nearly optimal. Thus, we will formalize the relationship between the weighted permutation distance and the quality of the augmenting paths chosen, derive bounds on the improvement in the flow augmentation per iteration as a function of this distance metric, and finally then demonstrate that the total number of iterations required to achieve our max-flow value is reduced compared to the standard Ford-Fulkerson algorithm, and deduce the time complexity from this analysis. Additionally, we propose further experimental and theoretical work on the following combined algorithm: Algorithm 4 integrates two types of GNN predictions. First, a GNN is used to generate a preliminary flow which is then projected to feasibility. Second, a separate GNN predicts edge priorities in the residual graph, allowing for more informed augmenting path selection in the Ford-Fulkerson procedure. This hybrid approach is designed to benefit from both faster initialization and smarter updates, ideally reducing total iterations required. 18 Algorithm 4 Warm-Started GNN-Assisted Ford-Fulkerson  
+
+> 1:
+
+Input: Graph G = ( V, E, c ), trained flow predictor Gθ, edge-priority predictor Pϕ 
+
+> 2:
+
+Predict flow: ˆf ← G θ(G) 
+
+> 3:
+
+while ∃ edge e with ˆfe > c e do  
+
+> 4:
+
+Clip: ˆfe ← ce 
+
+> 5:
+
+end while  
+
+> 6:
+
+Set f ← ˆf 
+
+> 7:
+
+Build residual graph Gf , determine excess/deficit sets A′ 
+
+> f
+
+, B′ 
+
+> f
+> 8:
+
+while |A′ 
+
+> f
+
+∪ B′ 
+
+> f
+
+| > 0 do  
+
+> 9:
+
+Find projection path p from A′ 
+
+> f
+
+to B′ 
+
+> f
+
+(or to s/t if none exist)  
+
+> 10:
+
+Compute μp = min {ex f (w), def f (w′), min e∈p c′
+
+> e
+
+} 
+
+> 11:
+
+Send flow μp down p, update f , Gf , A′ 
+
+> f
+
+, B′ 
+
+> f
+> 12:
+
+end while  
+
+> 13:
+
+Predict edge probabilities: p(e) ← P ϕ(Gf ) for all e ∈ E 
+
+> 14:
+
+Initialize max-heap H with tuples ( e, p (e))  
+
+> 15:
+
+while ∃ augmenting path in Gf do  
+
+> 16:
+
+e∗ = arg max e∈Gf p(e), e ∗ = ( v, w ) 
+
+> 17:
+
+P1 ← AdjustedDFS( s, v, H ) 
+
+> 18:
+
+P2 ← AdjustedDFS( w, t, H ) 
+
+> 19:
+
+if P1̸ = ∅ ∧ P2̸ = ∅ then  
+
+> 20:
+
+P ← P1 ∪ { e∗} ∪ P2 
+
+> 21:
+
+δ ← min e∈P c(e) 
+
+> 22:
+
+Augment flow f along P by δ 
+
+> 23:
+
+Update residual graph Gf and probabilities p(e) 
+
+> 24:
+
+end if  
+
+> 25:
+
+Remove ( e, p (e)) from H if e / ∈ Gf 
+
+> 26:
+
+end while  
+
+> 27:
+
+return final flow f
+
+A next theoretical step would be to integrate this algorithm, and perform rigorous testing compared with traditional Ford-Fulkerson. Moreover, it would be useful to formalize the algorithm sketch for the run-time of the algorithm with edge probability predictions 
+
+# 6 Conclusion 
+
+We introduced a set of novel algorithms in the space of algorithms with predictions which utilized predictions on edge probabilities for graph families. In order to determine if this was a valid prediction, just as in the warm-start algorithm with predictive flows, we proved the PAC-learnability of edge probabilities for some general metrics. Then, we went on to define a bidirectional algorithm that takes in predictions for sufficient edges, and traces paths from the predicted edge to the source and the sink respectively using an adjusted version of Edmonds-Karp. Finally, we introduced GNN-frameworks tailored to the warm-start algorithm for flows, which was a Graph Convolutional Network, and a framework 19 tailored to path selection with learned edge probabilities, which was a message-passing graph neural network. We encourage experimental analysis of these results as a next step and further theoretical research on algorithmic runtimes. 
+
+# References 
+
+[1] Yuri Boykov and Gareth Funka-Lea. Graph cuts and efficient nd image segmentation. 
+
+International journal of computer vision , 70(2):109–131, 2006. [2] Julian Busch, Anton Kocheturov, Volker Tresp, and Thomas Seidl. Nf-gnn: network flow graph neural networks for malware detection and classification. In Proceedings of the 33rd international conference on scientific and statistical database management , pages 121–132, 2021. [3] Du Chen, Weiting Zhang, Deyun Gao, Dong Yang, and Hongke Zhang. Gflow: Gnn-based optimal flow scheduling for multipath transmission with link overlapping. IEEE Transactions on Network Science and Engineering , 2024. [4] Sami Davies, Benjamin Moseley, Sergei Vassilvitskii, and Yuyan Wang. Predictive flows for faster ford-fulkerson. In International Conference on Machine Learning , pages 7231– 7248. PMLR, 2023. [5] Sami Davies, Benjamin Moseley, Sergei Vassilvitskii, and Yuyan Wang. Predictive flows for faster ford-fulkerson. In Andreas Krause, Emma Brunskill, Kyunghyun Cho, Barbara Engelhardt, Sivan Sabato, and Jonathan Scarlett, editors, Proceedings of the 40th International Conference on Machine Learning , volume 202 of Proceed-ings of Machine Learning Research , pages 7231–7248. PMLR, 23–29 Jul 2023. URL 
+
+https://proceedings.mlr.press/v202/davies23b.html .[6] Thaynara Arielly de Lima and Mauricio Ayala-Rinc´ on. Complexity of cayley distance and other general metrics on permutation groups. In 2012 7th Colombian Computing Congress (CCC) , pages 1–6. IEEE, 2012. [7] Shurui Gui, Hao Yuan, Jie Wang, Qicheng Lao, Kang Li, and Shuiwang Ji. Flowx: Towards explainable graph neural networks via message flows. IEEE Transactions on Pattern Analysis and Machine Intelligence , 46(7):4567–4578, 2023. [8] Xiaodong He, Yinan Wang, and Juan Li. Flow completion network: Inferring the fluid dynamics from incomplete flow information using graph neural networks. Physics of Fluids , 34(8), 2022. [9] Shai Shalev-Shwartz and Shai Ben-David. Understanding machine learning: From theory to algorithms . Cambridge university press, 2014. 20

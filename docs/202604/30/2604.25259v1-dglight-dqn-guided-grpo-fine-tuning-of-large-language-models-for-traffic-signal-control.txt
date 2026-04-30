@@ -1,0 +1,613 @@
+Title: DGLight: DQN-Guided GRPO Fine-Tuning of Large Language Models for Traffic Signal Control
+
+URL Source: https://arxiv.org/pdf/2604.25259v1
+
+Published Time: Wed, 29 Apr 2026 00:33:43 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# DGLight: DQN-Guided GRPO Fine-Tuning of Large Language Models for Traffic Signal Control 
+
+# Chenbo Yu 
+
+National University of Singapore Singapore yu.chenbo@u.nus.edu 
+
+## Abstract 
+
+Traffic signal control (TSC) plays a central role in reducing con-gestion and maintaining urban mobility. This dissertation intro-duces DGLight , a critic-guided reinforcement-learning framework for adapting a pretrained large language model to TSC. DGLight 
+
+first trains a CoLight -based Deep Q-Network critic to estimate traffic-aware action values from structured intersection states, then uses the frozen critic to score candidate language-model actions and optimize the policy with Group Relative Policy Optimization (GRPO). The resulting controller maps traffic states to interpretable reasoning traces and signal decisions while learning from dense per-state supervision rather than raw cumulative environment rewards. Experiments on TSC benchmarks covering Jinan and Hangzhou show that DGLight is the strongest overall method among the compared LLM-based controllers, remains competi-tive with strong RL baselines, and transfers well to city datasets not used to fit the critic. Qualitative examples further show that the model’s generated reasoning is interpretable and aligned with the chosen signal phase. The project code is available at https: //github.com/yyccbb/FYP_LLMTSC. 
+
+## CCS Concepts 
+
+• Computing methodologies → Reinforcement learning .
+
+## Keywords 
+
+traffic signal control, large language models, reinforcement learning, interpretable reasoning, urban transportation 
+
+## 1 Introduction 
+
+Rapid urbanization and accelerating motorization have placed un-precedented strain on urban transportation systems worldwide. As cities densify, limited road infrastructure must accommodate ever-growing travel demand, leading to persistent congestion, unreliable travel times, and increased environmental externalities. Inefficient traffic flow not only wastes fuel and economic productivity but also amplifies air pollution and degrades quality of life, particularly in densely populated urban corridors. Traffic signal control (TSC) aims to coordinate phase sequences and durations at signalized intersections to maximize throughput and reduce congestion. Classical fixed-time methods use the Webster formula (Yin, Dridi, and Moudni, 2015) to preset signal timings based on historical traffic data collected from the traffic network at different times. In contrast, the max-pressure control framework (Mercader, Uwayid, and Haddad, 2020) computes a pressure value for each signal phase from the difference between queue lengths on opposing approaches and selects the phase with the highest pres-sure; this strategy can be shown to maximize network throughput. Reinforcement-learning (RL) methods model TSC as a Markov de-cision process in which an agent observes traffic states (for ex-ample, lane queue lengths and delays), chooses an action (phase switch) and receives a reward linked to throughput or delay re-duction. Deep RL further parameterizes the control policy using neural networks, enabling the agent to approximate complex, high-dimensional decision functions. Such methods have demonstrated strong empirical performance across a wide range of simulated traffic scenarios. However, they also introduce notable challenges. In particular, learned policies often exhibit limited generalization, as models trained in one traffic environment exhibit degraded per-formance when deployed in different cities or under unseen con-ditions. Furthermore, the reliance on opaque neural representa-tions reduces interpretability, making it difficult to explain or verify decision-making processes. This lack of transparency poses a bar-rier to real-world adoption, where reliability and accountability are critical. Large Language Models (LLMs) represent a new paradigm in ar-tificial intelligence, combining strong reasoning ability with the capacity to generate interpretable, text-based outputs. These prop-erties make LLMs promising candidates for traffic signal control, where decision transparency and adaptability are highly desirable. By framing control as a reasoning process, LLM-based agents can potentially provide both actionable policies and interpretable expla-nations, bridging the gap between performance and interpretabil-ity. However, this potential is not yet fully realized in practice. Achieving real-time responsiveness typically requires deploying smaller-scale models or mixture-of-experts (MoE) architectures with compact expert networks. Without sufficient domain adapta-tion, such models often fail to capture complex traffic dynamics, leading to suboptimal decisions. To this end, I introduce DGLight , a critic-guided reinforcement-learning framework for adapting a pretrained large language model to traffic signal control. The framework combines a Deep Q-Network (DQN) critic with GRPO-based policy optimization so that textual traffic prompts can be scored using dense, traffic-aware action val-ues. In this way, DGLight trains the language model to produce both 
+
+> arXiv:2604.25259v1 [cs.LG] 28 Apr 2026 Yu
+
+an interpretable reasoning trace and a valid signal decision, trans-ferring value-based traffic knowledge into the policy to improve decision quality across traffic settings. The main contributions of this dissertation are: 
+
+• First, I propose the DGLight framework, which unifies a value-based traffic critic and LLM fine-tuning within a sin-gle critic-guided training pipeline. 
+
+• Second, I trained a TSC controller with DGLight by adapt-ing a Llama3-8b traffic-signal model through the proposed pipeline, yielding an interpretable language-based policy for multi-intersection control. 
+
+• Third, I conduct comprehensive experiments on standard TSC benchmarks, including baseline comparisons, transfer evaluation on unseen city datasets, interpretability analysis, and ablation studies, to validate the effectiveness of the proposed method. 
+
+## 2 Related Work 
+
+Traffic Signal Control. Early TSC methods such as FixedTime (Yin et al., 2015) rely on predefined cycle lengths and manually designed phase splits for each intersection. Although these approaches are simple and stable in practice, they adapt poorly to time-varying traf-fic demand. MaxPressure (Mercader et al., 2020) improves adaptabil-ity by selecting phases according to the queue imbalance between incoming and outgoing directions, making it more responsive than fixed plans. However, both FixedTime and MaxPressure remain con-strained by handcrafted rules or preset logic, which limits their flexibility under complex and highly dynamic traffic scenarios. Recent progress in reinforcement learning has led to a series of RL-based TSC methods. CoLight (Wei et al., 2019) models network-level cooperation among intersections through graph attention, enabling each signal to coordinate with surrounding intersections instead of acting independently. CoSLight (Ruan et al., 2024) further extends this idea by jointly optimizing signal control and collaborator se-lection, so that each intersection can dynamically decide which neighboring intersections are most useful for coordination under current traffic conditions. MPLight (C. Chen et al., 2020) is a decen-tralized and pressure-aware RL approach designed for large-scale road networks, using parameter sharing to improve scalability and training efficiency. Although these methods achieve strong perfor-mance in per city simulation, RL-based controllers face challenges in generalization and interpretability, hence deployment robustness in real-world environments. To address these limitations, recent studies have begun exploring the integration of large language models (LLMs) into TSC. LLM-Assisted Light (M. Wang et al., 2024) places an LLM at the center of control and augments it with perception and decision-support tools so that it can combine live traffic observations with established TSC methods and remain robust under emergency, roadblock, and sensor-outage scenarios. iLLM-TSC (Pang, M. Wang, Pun, C. S. Chen, and X. Xiong, 2024) instead adopts a hybrid design in which an RL controller first proposes an action and an LLM then verifies or ad-justs that action when observations are degraded or rare events such as packet loss and emergency vehicles fall outside the original RL formulation. LATS (Y. Zhang, P. Li, Zhou, Fan, and Sartoretti, 2026) further explores a teacher-student setting in which an LLM teacher provides rich semantic features during multi-agent RL training, while a smaller student controller learns to emulate those features and is deployed without the LLM at inference time. LLMLight (Lai, Z. Xu, W. Zhang, Liu, and H. Xiong, 2024) moves closer to end-to-end LLM control by adapting its LightGPT backbone through imitation fine-tuning and critic-guided policy refinement so that the model can make direct signal decisions with improved interpretability and cross-scenario performance. Traffic-R1 (Zou et al., 2025) extends this trend with a 3B RL-finetuned foundation model that combines expert-aligned offline training, online self-exploration, and asyn-chronous multi-agent communication to achieve strong zero-shot and out-of-distribution TSC performance. Compared with end-to-end LLM finetuning, LLM+RL hybrids may remain inferior because they still inherit the ceiling and failure modes of the underlying RL controller. Existing end-to-end finetuning methods also have no-table limitations: In LLMLight , the critic-guided policy refinement objective is weaker than modern policy-gradient methods because the reward/advantage magnitude does not directly participate in loss computation. Traffic-R1 , meanwhile, relies on substantial hu-man effort to label the offline finetuning data, and its fixed-horizon cumulative queue-based reward assigns the same coarse mean re-ward to all steps within the horizon. 
+
+RL finetuning of LLMs. RL-based preference alignment (Ouyang et al., 2022) adapts a pretrained LLM using scalar or pairwise feed-back so that the policy is optimized toward preferred responses rather than merely imitating target outputs. Among modern policy optimization methods, TRPO (Schulman, Levine, Moritz, Jordan, and Abbeel, 2015) constrains updates within a trust region to sta-bilize improvement, PPO (Schulman, Wolski, Dhariwal, Radford, and Klimov, 2017) replaces this with a clipped surrogate objective that is simpler and more practical at scale, and GRPO (Shao et al., 2024) further removes the separate value model by computing group-relative advantages over sampled responses, which makes it especially attractive for LLM training. Closely related to these RL-style methods, DPO (Rafailov et al., 2023) performs direct pref-erence optimization on chosen–rejected response pairs and avoids explicit reward-model fitting and online rollout collection. This line of work is particularly important because preference-aligned RL can train reasoning ability rather than only answer imitation: through exploration, comparison, and preference-based updates, the model learns to assign higher probability to response trajec-tories that exhibit stronger multi-step reasoning while remaining close to a reference policy through KL regularization, as empha-sized in RLHF-style alignment and recent reasoning-oriented RL studies (Ouyang et al., 2022; Shao et al., 2024; Guo et al., 2025). Recent systems such as DeepSeek-R1 (Guo et al., 2025) show that large-scale self-exploration can substantially improve reasoning behavior, making RL preference alignment increasingly relevant for domain-specific agents that must optimize long-horizon objectives. 
+
+## 3 Preliminaries 
+
+Definition 1. Road Network. A road network is represented as a di-rected graph consisting of intersections V and lanes L. The lane set DGLight: DQN-Guided GRPO Fine-Tuning of Large Language Models for Traffic Signal Control 
+
+is grouped into three categories: go-through lanes ( Lgo ), left-turn lanes ( Lleft ), and right-turn lanes ( Lright ). Each lane connects adja-cent intersections and is partitioned into segments 𝑆 = {𝑠 1, . . . , 𝑠 𝑛 }
+
+according to its distance from the intersection. 
+
+Definition 2. Signal Phase. At each signal-switching step, the con-troller of an intersection chooses a signal phase from a predefined action set 𝐴 = {𝑎 1, . . . , 𝑎 𝑚 }. A phase is written as 𝑎 = set (L allow ),where Lallow denotes the collection of lanes that are allowed to move simultaneously without conflict, meaning these lanes receive green signals while conflicting lanes remain red. 
+
+Definition 3. Traffic Signal Control System. The traffic signal control system consists of multiple agents Π = {𝜋 1, . . . , 𝜋 𝑛 }, with each agent assigned to one of the 𝑛 intersections in the road network. For intersection 𝑖 , agent 𝜋 𝑖 makes its signal control decision by observing the number of vehicles in each segment of the lanes approaching that intersection, thereby forming a segment-level view of the local traffic state. 
+
+Problem Statement. LLM Reasoning for Traffic Signal Control. 
+
+For each intersection 𝑖 in the road network, an LLM serves as agent 𝜋 𝑖 . At decision step 𝑡 , the agent takes the observation 𝑂 𝑖,𝑡 ,the task description 𝑑 task , and the action space 𝐴 as input, and outputs both reasoning content and a signal phase decision. The TSC problem is therefore formulated as selecting a phase 𝑎 𝑖,𝑡 ∈ 𝐴 
+
+while generating reasoning output 𝑅 𝑖,𝑡 under the given observation and task specification. The system dynamics are defined as: 
+
+(𝑅 𝑖,𝑡 , 𝑎 𝑖,𝑡 ) = 𝜋 𝜃 𝑖 (𝑂 𝑖,𝑡 , 𝑑 task , 𝐴 ) (1) where 𝑂 𝑖,𝑡 is the observation, 𝑑 task is the task description, 𝐴 is the action space, 𝑅 𝑖,𝑡 is the reasoning output, and 𝑎 𝑖,𝑡 is the selected phase. 
+
+## 4 Methodology 
+
+This section introduces DGLight , a two-stage reinforcement-learning pipeline for adapting a pretrained large language model to traffic signal control. In the first stage, a CoLight-based DQN critic is trained to estimate action values for signal-phase decisions when provided with structured environment states. In the second stage, the frozen critic scores candidate LLM responses during rollout and the scores are used as the reward signal for GRPO-based policy optimization. Refer to Figure 1 for the pipeline architecture. 
+
+## 4.1 Pretraining the CoLight-Based DQN Critic 
+
+The critic used in DGLight is based on CoLight (Wei et al., 2019), a graph-attentive deep Q-learning model for network-level traffic signal control. CoLight is employed as a pretrained value estima-tor so that the subsequent GRPO stage can query a traffic-aware action-value function rather than rely exclusively on the raw en-vironment reward. Given the current environment state, the critic predicts action values for each intersection and thereby provides a dense estimate of the quality of candidate signal phases under the prevailing traffic situation. The CoLight critic is composed of three main components. The first component is an observation embedding module that trans-forms the local traffic state of each intersection into a latent feature representation. The second component consists of one or more multi-head graph-attention layers, which propagate information across neighboring intersections and produce attention-weighted network representations. The final component is a Q-value predic-tion layer that maps the aggregated features to one scalar value for each admissible signal phase. This architecture combines local state encoding, inter-intersection coordination, and value-based action estimation within a single model. Training follows the standard value-based reinforcement learning procedure. The model interacts with the traffic environment to collect state transitions, actions, rewards, and subsequent states ((𝑠, 𝑎, 𝑟, 𝑠 ′)), where the stepwise reward is defined to be inversely proportional to queue lengths at each intersection. These tran-sitions are stored in replay memory for off-policy updates. The optimization objective minimizes the Bellman error 
+
+LBellman (𝜃 ) = E(𝑠,𝑎,𝑟,𝑠 ′ )∼D 
+
+"
+
+𝑟 + 𝛾 max  
+
+> 𝑎 ′
+
+𝑄 𝜃 − (𝑠 ′, 𝑎 ′) − 𝑄 𝜃 (𝑠, 𝑎 )
+
+2 #
+
+,
+
+where D denotes the replay buffer, 𝜃 denotes the online network parameters, and 𝜃 − denotes the target network parameters. Expe-rience replay improves sample efficiency, and the target network improves optimization stability. 
+
+Disclaimer: The critic model, its training objective, and its overall learning logic are not original contributions of this dissertation; they are inherited from prior CoLight research. My contribution to this component is limited to re-implementing the model in PyTorch for this codebase, whereas the original CoLight implementation was based on TensorFlow. 
+
+## 4.2 LLM Prompting and Action Sampling 
+
+At each signal-switching step 𝑡 , each intersection 𝑖 is converted into a textual prompt 𝑥 𝑖,𝑡 that summarizes the current traffic condition together with the task instruction and the available signal phases. The prompt is constructed from the environment state used by the controller including the current phase and queue information. Task description is formatted so that the model produces both human-readable reasoning and a final phase choice. A sample prompt is provided in Appendix A.2. Given prompt 𝑥 𝑖,𝑡 , the policy 𝜋 𝜃 samples a group of 𝑘 candidate responses 
+
+{𝑦 (1) 
+
+> 𝑖,𝑡
+
+, 𝑦 (2) 
+
+> 𝑖,𝑡
+
+, . . . , 𝑦 (𝑘 ) 
+
+> 𝑖,𝑡
+
+}.
+
+Each response is then mapped to a signal phase through a deter-ministic parser: 
+
+𝑎 ( 𝑗 ) 
+
+> 𝑖,𝑡
+
+= Parse (𝑦 ( 𝑗 ) 
+
+> 𝑖,𝑡
+
+), 𝑗 = 1, . . . , 𝑘. 
+
+If the response fails to specify a valid action in the predefined action space, it is treated as an invalid output and assigned a fallback reward during training. This allows the method to preserve free-form reasoning generation while still enforcing a discrete control interface at execution time. Yu 
+
+Figure 1: Overview of the two-stage DGLight pipeline. 
+
+## 4.3 DQN-Guided Action Scoring in Rollout Collection 
+
+The central idea of DGLight is to replace discounted raw environ-ment rewards with action value estimates from the pretrained DQN critic. 
+
+Stepwise action value assignment. For the current traffic state at intersection 𝑖 , the frozen critic produces a vector of estimated returns over all admissible signal phases: 
+
+q𝑖,𝑡 = 𝑄 𝜙 (𝑠 𝑖,𝑡 , 𝑎 )
+
+> 𝑎 ∈𝐴
+
+,
+
+where 𝑠 𝑖,𝑡 is the structured traffic state and 𝑄 𝜙 is the pretrained DQN critic. The critic therefore acts as a traffic-aware evaluator that maps the current state to a vector of action values that reflect both spatial and temporal traffic context. Each sampled LLM response is scored by the critic through its parsed action: 
+
+𝑟 ( 𝑗 ) 
+
+> 𝑖,𝑡
+
+=
+
+(𝑄 𝜙 
+
+
+
+𝑠 𝑖,𝑡 , 𝑎 ( 𝑗 )
+
+> 𝑖,𝑡
+
+
+
+, if 𝑎 ( 𝑗 ) 
+
+> 𝑖,𝑡
+
+∈ 𝐴, 𝑟 invalid , otherwise ,
+
+where 𝑟 invalid is a fixed fallback reward for malformed or out-of-range decisions. 
+
+Environment stepping. Among the sampled candidates, the ac-tion actually executed in the environment is the highest-scoring sampled action, 
+
+𝑗 ∗ 
+
+> 𝑖,𝑡
+
+= arg max    
+
+> 𝑗 ∈ { 1,...,𝑘 }
+
+𝑟 ( 𝑗 ) 
+
+> 𝑖,𝑡
+
+, ˆ𝑎 𝑖,𝑡 = 𝑎 ( 𝑗 ∗  
+
+> 𝑖,𝑡 )
+> 𝑖,𝑡
+
+.
+
+Thus, the environment rollout is still driven by sampled LLM out-puts, but execution is guided by the critic’s action-value estimate. DGLight: DQN-Guided GRPO Fine-Tuning of Large Language Models for Traffic Signal Control 
+
+This design has a major advantage that the critic-derived reward incorporates richer spatial and temporal information than short-horizon cumulative rewards computed directly from the environ-ment. Because the CoLight-based critic aggregates information from neighboring intersections through graph attention and is trained with Bellman backups under a discount factor, 𝑄 𝜙 (𝑠 𝑖,𝑡 , 𝑎 )
+
+reflects both network interactions and the expected downstream consequences of choosing action 𝑎 .
+
+## 4.4 GRPO-Based Policy Optimization 
+
+After rollout collection, each intersection-step pair contributes a training record consisting of the prompt and the full critic score vector, 
+
+D𝑖,𝑡 =  𝑥 𝑖,𝑡 , q𝑖,𝑡 
+
+.
+
+Importantly, the stored supervision is not just the score of the executed action. Instead, the entire per-action vector is retained so that any newly sampled response for the same prompt can be rewarded according to the action it proposes. During GRPO training, a completion 𝑦 sampled for prompt 𝑥 𝑖,𝑡 is assigned reward 
+
+𝑅  𝑥 𝑖,𝑡 , 𝑦 ; q𝑖,𝑡 
+
+ =
+
+(
+
+q𝑖,𝑡 [𝑎 (𝑦 )] , if 𝑎 (𝑦 ) ∈ 𝐴, 𝑟 invalid , otherwise ,
+
+where 𝑎 (𝑦 ) denotes the parsed action of completion 𝑦 . The resulting reward values are then normalized within each sampled group, producing relative advantages that drive the GRPO update. This optimizer is particularly well suited to the present setting because it provides a natural way to train an LLM using reward signals from an already established value-based traffic-control critic. For a single traffic prompt, multiple completions can be sampled efficiently, parsed into candidate signal phases, and scored by the frozen DQN critic, after which GRPO uses the relative critic rewards within the sampled group to improve the policy. This way, critic-guided GRPO transfers decision-making knowledge from the value-based controller into the LLM. Although the critic is trained on traffic data from a specific city, the LLM is not fine-tuned to overfit any single city. Rather, it is trained to have stronger reasoning patterns for mapping textual traffic states to better signal actions. This strengthens the model’s traffic decision-making capacity while preserving transferability. 
+
+## 4.5 End-to-End DGLight Training Procedure 
+
+Algorithm 1 summarizes the complete DGLight training loop. In practice, the rollout collection and GRPO optimization stages are decoupled. A full rollout episode is first collected with the frozen critic, and the resulting prompt-score records are then used as a separate training set for the subsequent GRPO update. This sepa-ration enables finer-grained optimization, since multiple manual updates can be performed on the same episodic rollout data. 
+
+## 4.6 Comparison Variant 
+
+For completeness, I also implemented a Joint-Scored GRPO (JS-GRPO) variant as a comparison method. Instead of using direct 
+
+Algorithm 1 End-to-end DGLight training 
+
+Require: traffic environment E, pretrained LLM policy 𝜋 𝜃 , critic architecture 𝑄 𝜙 , candidate count 𝑘 , invalid-action reward 
+
+𝑟 invalid  
+
+> 1:
+
+Train the CoLight-based DQN critic 𝑄 𝜙 on traffic transitions  
+
+> 2:
+
+Freeze critic parameters 𝜙  
+
+> 3:
+
+for each policy-training episode do  
+
+> 4:
+
+Reset environment E 
+
+> 5:
+
+Initialize empty GRPO record set DGRPO  
+
+> 6:
+
+while the rollout episode is not finished do  
+
+> 7:
+
+Initialize empty executed action set ˆa𝑡  
+
+> 8:
+
+for each active intersection 𝑖 do  
+
+> 9:
+
+Construct textual prompt 𝑥 𝑖,𝑡 from the current traf-fic state 𝑠 𝑖,𝑡  
+
+> 10:
+
+Sample candidate responses {𝑦 (1) 
+
+> 𝑖,𝑡
+
+, . . . , 𝑦 (𝑘 ) 
+
+> 𝑖,𝑡
+
+} ∼
+
+𝜋 𝜃 (· | 𝑥 𝑖,𝑡 ) 
+
+> 11:
+
+Parse each response into a signal phase 𝑎 ( 𝑗 ) 
+
+> 𝑖,𝑡
+
+←
+
+Parse (𝑦 ( 𝑗 ) 
+
+> 𝑖,𝑡
+
+) 
+
+> 12:
+
+Query the frozen critic to obtain per-action values 
+
+q𝑖,𝑡 ← [ 𝑄 𝜙 (𝑠 𝑖,𝑡 , 𝑎 )] 𝑎 ∈𝐴  
+
+> 13:
+
+for each sampled response 𝑗 ∈ { 1, . . . , 𝑘 } do  
+
+> 14:
+
+if 𝑎 ( 𝑗 ) 
+
+> 𝑖,𝑡
+
+∈ 𝐴 then  
+
+> 15:
+
+𝑟 ( 𝑗 ) 
+
+> 𝑖,𝑡
+
+← 𝑄 𝜙 (𝑠 𝑖,𝑡 , 𝑎 ( 𝑗 ) 
+
+> 𝑖,𝑡
+
+) 
+
+> 16:
+
+else  
+
+> 17:
+
+𝑟 ( 𝑗 ) 
+
+> 𝑖,𝑡
+
+← 𝑟 invalid  
+
+> 18:
+
+end if  
+
+> 19:
+
+end for  
+
+> 20:
+
+𝑗 ∗ 
+
+> 𝑖,𝑡
+
+← arg max 𝑗 𝑟 ( 𝑗 ) 
+
+> 𝑖,𝑡
+> 21:
+
+ˆ𝑎 𝑖,𝑡 ← 𝑎 ( 𝑗 ∗  
+
+> 𝑖,𝑡 )
+> 𝑖,𝑡
+
+and add ˆ𝑎 𝑖,𝑡 to ˆa𝑡  
+
+> 22:
+
+Store (𝑥 𝑖,𝑡 , q𝑖,𝑡 ) in DGRPO  
+
+> 23:
+
+end for  
+
+> 24:
+
+Step the environment with joint action set ˆa𝑡  
+
+> 25:
+
+end while  
+
+> 26:
+
+Fine-tune policy 𝜋 𝜃 on DGRPO with GRPO  
+
+> 27:
+
+end for  
+
+> 28:
+
+return adapted policy 𝜋 𝜃 
+
+critic 𝑄 -values to score sampled actions, that variant estimates action quality indirectly from short-horizon joint rollout returns over snapshot-forked simulations, and then projects those returns back to per-intersection action scores for GRPO training. Because this variant is included only to test whether indirect joint scoring can outperform direct critic guidance, I do not treat it as a co-equal methodological contribution in the main text. Its detailed design is provided separately in Appendix A.1. 
+
+## 5 Experiments 
+
+In this section, I evaluate DGLight to address the following research questions: 
+
+• RQ1: (Effectiveness) Can DGLight outperform traditional, RL-based, and existing LLM-based traffic signal control methods on standard TSC datasets? Yu 
+
+• RQ2: (Transferability) Does DGLight retain strong per-formance when evaluated on city datasets that were not used to train the DQN critic? 
+
+• RQ3: (Interpretability) Are the decisions produced by 
+
+DGLight interpretable, in the sense that its generated rea-soning reflects the traffic conditions that motivate the se-lected phase? 
+
+• RQ4: (Ablation Study) How much improvement comes from critic-guided GRPO, as compared with baseline and intermediate models? 
+
+## 5.1 Experimental Settings 
+
+This subsection describes the datasets, simulation environment, baselines, evaluation metrics, and training configuration used through-out the experiments. 
+
+Table 1: Statistics of traffic flow datasets.                                    
+
+> Dataset Structure Vehicles Arrival rate (vehicles/5min) Mean Std Max Min Jinan1
+> 3×4
+> 6295 523.67 98.52 671 255 Jinan2 4365 362.83 74.81 493 236 Jinan3 5494 456.92 160.87 569 362 Hangzhou1 4×42983 247.68 40.44 332 211 Hangzhou2 6984 581.08 318.43 1145 202
+
+5.1.1 Dataset. Experiments are conducted on standard traffic sig-nal control benchmarks. Table 1 shows the final dataset statistics. 
+
+5.1.2 Environment. All methods are evaluated in an environment built on top of CityFlow (Tang et al., 2019), a scalable microscopic traffic simulator widely used in traffic signal control research. For each dataset, the simulator loads the corresponding road-network and traffic-flow configuration and exposes lane-level observations at every control step. In my experiments, each intersection con-nects four lane sections: east, west, north, and south. The control action space therefore contains four signal phases: ETWT (through movements from east and west), ELWL (left turns from east and west), NTST (through movements from north and south), and NLSL 
+
+(left turns from north and south). Right-turn movements are always allowed in the simulation. Each controller selects one signal phase for every controlled intersection, after which the environment ad-vances under a shared signal-switching interval. The green phase duration is fixed at 30 seconds. Each green phase is followed by a 3-second yellow phase and a 2-second all-red interval to ensure safe signal transitions. Unless otherwise stated, all compared methods use the same simulator configuration, decision interval, and evalu-ation protocol so that performance differences can be attributed to the controller rather than the environment setup. 
+
+5.1.3 Baselines. The comparison includes traditional controllers, RL-based methods, and LLM-based methods. 
+
+• Traditional methods. FixedTime (Yin et al., 2015) and 
+
+MaxPressure (Mercader et al., 2020). 
+
+Table 2: CoLight critic configuration.                        
+
+> Component Configuration Training dataset Hangzhou-1 Optimizer Adam with learning rate 1×10 −3
+> Discount factor 𝛾 0.8 Replay buffer size 12000 Sample size per round 3000 Batch size 20 Gradient epochs per round 100 Target network update interval every 5 rounds Exploration schedule 𝜖 =max (0.8·0.95 𝑟 ,0.2)
+> Reward −0.25 ·queue length
+
+• RL methods. MPLight (C. Chen et al., 2020), AttendLight ,
+
+PressLight , CoLight (Wei et al., 2019), Efficient-CoLight , and 
+
+Advanced-CoLight .
+
+• LLM-based methods. LightGPT (Llama3-8b) (Lai et al., 2024), JS-GRPO-h3 (Llama3-8b) , JS-GRPO-h6 (Llama3-8b) ,and the proposed DGLight (Llama3-8b) . The two JS-GRPO 
+
+variants correspond to the comparison method described in Appendix A.1, instantiated with horizon lengths of 3 and 6, respectively. 
+
+5.1.4 Metrics. Following previous studies (L. Zhang et al., 2022), the following metrics are used to evaluate the TSC agents trained with different methods: 
+
+• Average traveling time (ATT) quantifies the average du-ration of all vehicles traveling from their origins to their respective destinations. 
+
+• Average queue length (AQL) is defined as the average number of queuing vehicles waiting in the road network. 
+
+• Average waiting time (AWT) quantifies the average queu-ing time of vehicles at every intersection in the road net-work. Lower values indicate better traffic efficiency for all three metrics. 
+
+5.1.5 Training Configuration. All LLM-based methods use Llama3-8b as the backbone model. For the proposed method, the initial checkpoint is inherited from the LLMLight pipeline (Lai et al., 2024) rather than obtained through an additional supervised fine-tuning stage, since training a dedicated supervised model on high-quality traffic reasoning traces is beyond the computational budget of this dissertation. Starting from the LLMLight base model isolates the contribution of the proposed critic-guided GRPO procedure while preserving a fair comparison with prior LLM-based controllers. The overall training framework then combines a pretrained CoLight critic with a GRPO-based policy optimization stage. The critic re-tains the uniform RL hyperparameters reported by L. Zhang et al. (2022), while the policy stage uses LoRA adaptation and distributed training. Table 2 and Table 3 summarize the corresponding frame-work settings. DGLight: DQN-Guided GRPO Fine-Tuning of Large Language Models for Traffic Signal Control 
+
+Table 3: GRPO policy optimization configuration. 
+
+Component Configuration Policy backbone Llama3-8b LoRA configuration rank = 8, 𝛼 = 16 , dropout = 0.05 , bias = none Overall episodes 2Rollout environment 3600-second episodes with a 30-second action interval Rollout group size 𝑘 4Prompt / completion length 2048 / 1024 tokens Rollout sampling temperature = 1.0, top-𝑝 = 1.0, top-
+
+𝑘 = 50 
+
+GRPO optimizer and learning rate default TRL optimizer, learning rate 
+
+= 1.0 × 10 −6
+
+GRPO batch size / accumulation / epochs 8 per device / 1 / 1 Invalid-action reward 0.0 Distributed training setup 2 H100-96GB GPUs, 16 CPUs, 128 GB RAM, 12-hour wall time 
+
+## 5.2 Results on TSC Datasets (RQ1) 
+
+Table 5 shows that DGLight is the strongest overall method among the four LLM-based controllers. It achieves the best performance on most datasets and metrics, with Hangzhou-1 as the main exception. Overall, this result shows that the proposed method is superior to the reward-discounting baselines and that critic-guided GRPO improves the quality of the traffic-signal decisions produced by the LLM policy. When compared with the strongest RL baselines in Table 4, DGLight 
+
+remains competitive with the CoLight family and even exceeds them on some metrics, showing that the proposed training proce-dure improves the model’s reasoning ability for traffic situations. The main exception is Hangzhou-1, where the CoLight family per-forms exceptionally well because those models are trained directly on that dataset, which may partly reflect overfitting to that setting. Finally, JS-GRPO-h6 generally performs better than JS-GRPO-h3 ,suggesting that a longer horizon for discounted cumulative reward provides a better estimate of the true long-term reward. 
+
+## 5.3 Transferability to Unseen Cities (RQ2) 
+
+The transferability results show that DGLight retains strong perfor-mance on datasets that were not used to fit the DQN critic, namely all three Jinan datasets and Hangzhou-2. More importantly, the mag-nitude of improvement is relatively larger on these unseen datasets than on the datasets most closely aligned with the critic, especially when compared with both the RL baselines and LightGPT . This pattern suggests that the proposed method does not merely adapt to the critic’s judgment, but instead improves the model’s ability to reason about traffic states in a way that generalizes beyond the data seen by the critic. 
+
+## 5.4 Interpretability of Model Decisions (RQ3) 
+
+Figure 2 shows a representative reasoning trace generated by DG-Light for a single traffic state. The example illustrates how the model first describes the relevant traffic conditions and then maps that assessment to a final signal choice. This makes it possible to inspect whether the stated rationale is consistent with the selected action. 
+
+### Step 1: Analysis The traffic congestion is primarily dictated by early queued vehicles, with the most significant impact. Therefore, we should pay the most attention to lanes with long queue lengths. Looking at the current state of the intersection, there are no early queued vehicles in the eastern and western through lanes, northern and southern through lanes, eastern and western left-turn lanes, and northern and southern left-turn lanes. However, there are approaching vehicles in different segments of the allowed lanes of each signal. The eastern and western through lanes have a total of 4 approaching vehicles, with 1 in the eastern and 3 in the western. The northern and southern through lanes have a total of 1 approaching vehicle, all in the northern. The eastern and western left-turn lanes have a total of 1 approaching vehicle, all in the western. The northern and southern left-turn lanes have no approaching vehicles. Considering the neighbor incoming totals, we see that the eastern and western through lanes, northern and southern through lanes, eastern and western left-turn lanes, and northern and southern left-turn lanes all have 3 known totals of neighbor incoming vehicles, with 2/2 available. Given these conditions, the most effective traffic signal that will most significantly improve the traffic condition during the next phase would be the one that relieves the lanes with the most approaching vehicles, as they are likely to reach the intersection soon. ### Step 2: Answer Based on the analysis, the signal that will most significantly improve the traffic condition during the next phase is the one that relieves the eastern and western through lanes, as it has the most approaching vehicles. <signal>ETWT</signal> 
+
+Figure 2: Representative DGLight reasoning trace for a single traffic state. Yu 
+
+Table 4: Performance of traditional and RL-based baselines on the TSC datasets. Lower values are better. Best and second-best values are highlighted in bold and underlined, respectively.                                                                                                                                                            
+
+> Jinan Hangzhou Models 12312ATT AQL AWT ATT AQL AWT ATT AQL AWT ATT AQL AWT ATT AQL AWT
+> Transportation Methods
+> Random 597.62 687.35 99.46 555.23 428.38 100.40 552.74 529.63 99.33 621.14 295.81 96.06 504.28 432.92 92.61 FixedTime 481.79 491.03 70.99 441.19 294.14 66.72 450.11 394.34 69.19 616.02 301.33 73.99 486.72 425.15 72.80 MaxPressure 281.58 170.71 44.53 273.20 106.58 38.25 265.75 133.90 40.20 325.33 68.99 49.60 347.74 215.53 70.58
+> RL Methods
+> MPLight 307.82 215.93 97.88 304.51 142.25 90.91 291.79 171.70 89.93 345.60 84.70 81.97 358.56 237.17 100.16 AttendLight 291.29 186.25 61.73 280.94 115.52 52.46 273.02 144.05 55.93 322.94 66.96 55.19 358.81 239.05 72.88 PressLight 291.57 185.46 50.53 281.46 115.99 47.27 275.85 148.18 54.81 364.13 98.67 90.33 417.01 349.25 150.46 CoLight 279.60 168.53 58.87 274.77 108.28 54.14 266.39 135.08 53.33 322.85 66.94 61.82 342.90 212.09 99.74 Efficient-CoLight 277.11 163.60 43.41 269.24 102.98 39.74 262.25 129.72 39.99 311.96 58.20 36.83 333.27 189.65 61.70
+> Advanced-CoLight 274.67 160.85 49.30 268.25 102.12 41.11 260.66 127.83 43.54 304.47 52.94 41.75 329.16 186.34 76.59
+
+Table 5: Performance of LLM-based methods on the TSC datasets. Lower values are better. Best and second-best values are highlighted in bold and underlined, respectively.                                                                                 
+
+> Jinan Hangzhou Models 12312ATT AQL AWT ATT AQL AWT ATT AQL AWT ATT AQL AWT ATT AQL AWT LightGPT (Llama3-8b) 277.38 164.60 48.68 270.14 103.77 44.10 262.67 130.65 44.98 316.12 61.02 53.84 333.95 190.91 72.57 JS-GRPO-h3 (Llama3-8b) 279.59 168.24 52.80 271.59 105.43 47.57 264.74 134.01 49.48 317.48 61.89 55.04 334.76 194.48 72.43 JS-GRPO-h6 (Llama3-8b) 277.73 164.92 50.28 271.89 105.83 46.59 263.47 132.39 49.72 317.95 61.93 53.94 336.45 197.08 75.03 DGLight (Llama3-8b) 275.92 162.64 47.17 269.68 103.51 43.78 262.16 129.77 43.53 316.59 61.08 54.43 333.14 191.61 70.63
+
+## 5.5 Ablation Study (RQ4) 
+
+This ablation isolates two sources of improvement: traffic-specific LLM adaptation and critic-guided reinforcement learning. The un-tuned Llama3-8b measures the capability of the base model with-out TSC adaptation, LightGPT measures the gain from prior TSC-specific training, and DGLight measures the additional benefit of the proposed critic-guided GRPO procedure. Here, DGLight-iter0 denotes the model after one round of rollout collection followed by one round of GRPO optimization, while 
+
+DGLight-iter1 denotes the model after two such rounds. The abla-tion shows a clear overall trend: moving from the untuned Llama3-8b model to LightGPT yields the largest improvement, confirming the value of traffic-specific adaptation, and critic-guided GRPO then provides additional gains beyond the inherited LightGPT check-point. The comparison between DGLight-iter0 and DGLight-iter1 
+
+suggests that the first round already captures most of the improve-ment, while the second round produces smaller and more mixed changes that mainly refine an already strong policy. 
+
+## 6 Discussion 
+
+In the interim report, I proposed using Group-in-Group Policy Op-timization (GiGPO) for the TSC task, by grouping together near-identical traffic intersection states before computing group-relative advantages. Specifically, the idea was to define a tolerance thresh-old on lane vehicle counts and treat two states as belonging to the same group when the vehicle numbers on every incoming lane differed by no more than that threshold. The motivation was that larger groups of comparable states might improve the stability of advantage estimation during optimization. In the final system, however, this idea was not carried out. The first reason is practical: in the benchmark traffic datasets used in this study, the number of vehicles on each lane is usually small, often fewer than ten. Under this scale, it is difficult to choose a tolerance threshold that is both meaningful and robust. The second reason is methodological and is ultimately more im-portant. The implemented rollout collection method does not store trajectory-specific cumulative rewards in the way GiGPO is de-signed to exploit. Instead, for each observed traffic state, the pipeline records the critic-estimated action values for all admissible signal phases. During the GRPO optimization step, groups can therefore be generated directly by sampling multiple completions for the same prompt and comparing the actions they propose under the stored action-value vector. In other words, the GRPO groups in the final design can be chosen largely according to compute-capacity considerations during optimization rather than by retroactively matching similar states across trajectories. In summary, GiGPO enlarges GRPO comparison groups so that the resulting advantage estimates are more informative, especially DGLight: DQN-Guided GRPO Fine-Tuning of Large Language Models for Traffic Signal Control 
+
+Table 6: Ablation study comparing the untuned base model, LightGPT , and successive DGLight checkpoints. Lower values are better. Best and second-best values are highlighted in bold and underlined, respectively.                                                                                 
+
+> Jinan Hangzhou Models 12312ATT AQL AWT ATT AQL AWT ATT AQL AWT ATT AQL AWT ATT AQL AWT Llama3-8b 1064.16 1346.71 804.81 1173.01 1068.65 811.28 1077.41 1176.40 823.16 1090.97 610.32 728.08 728.00 711.15 575.44 LightGPT (Llama3-8b) 277.38 164.60 48.68 270.14 103.77 44.10 262.67 130.65 44.98 316.12 61.02 53.84 333.95 190.91 72.57 DGLight-iter0 (LightGPT) 275.62 162.38 47.16 268.61 102.25 43.31 262.37 130.72 44.40 316.09 61.26 58.47 334.40 191.65 69.02
+> DGLight-iter1 (LightGPT) 275.92 162.64 47.17 269.68 103.51 43.78 262.16 129.77 43.53 316.59 61.08 54.43 333.14 191.61 70.63
+
+when rewards are sparse and only observed at the trajectory level. That motivation is substantially weaker in DGLight , because the training signal is already available in a dense per-state form through the critic’s action values. For this reason, adding GiGPO would have increased implementation complexity without bringing significant improvement. 
+
+## 7 Conclusion and Future Work 7.1 Summary of Contributions 
+
+This dissertation presented DGLight , a critic-guided reinforcement-learning framework for adapting a large language model to traffic signal control. The study combined a reimplemented CoLight -based DQN critic with a GRPO-based policy optimization procedure so that a pretrained LLM could be trained using dense traffic-aware action values rather than only short-horizon environment rewards. The resulting pipeline converts structured intersection states into textual prompts, generates interpretable reasoning traces together with signal decisions, and reuses stored per-action value vectors to support efficient offline policy optimization. Empirically, the study showed that DGLight is the strongest overall method among the compared LLM-based controllers on the se-lected CityFlow benchmarks, while remaining competitive with strong RL baselines. The results also suggest that critic-guided GRPO improves transferability beyond the city used to fit the critic and preserves the interpretability benefit of language-based traf-fic control. Taken together, these findings show that value-based traffic knowledge can be transferred into an LLM policy without discarding human-readable reasoning. 
+
+## 7.2 Future Work 
+
+7.2.1 Token-Level Reward Assignment. The current training pipeline assigns a reward at the completion level, which means that all gen-erated tokens are optimized under the same response-level signal. In practice, however, some tokens mainly serve formatting pur-poses, such as section headers, boilerplate phrases, or the fixed decision tag format. These tokens should not necessarily receive the same credit assignment as the tokens that express traffic anal-ysis or the final signal choice. A promising extension is therefore to introduce token-level reward assignment or token masking, so that structurally required formatting tokens are excluded from op-timization or given reduced weight, while informative reasoning tokens and action-selection tokens receive stronger supervision. This may improve training efficiency by aligning the optimization signal more closely with the parts of the output that actually matter for decision quality. 
+
+7.2.2 MLLM-Style Training with a Traffic Situation Encoder. An-other promising direction is to move beyond purely text-serialized traffic states and train an MLLM-style architecture with a dedicated traffic situation encoder. Instead of describing lane counts, queue lengths, and neighboring conditions only through hand-crafted text, a learned encoder could first transform the structured traffic state into a dense embedding that captures the spatial and numer-ical relationships in the intersection. The language model could then condition on this embedding to generate the same text-based reasoning and final signal decision as in the current framework. Such a design may reduce prompt engineering overhead, shorten the effective input length, and preserve more of the original traffic structure, while still retaining the key advantage of interpretable natural-language outputs. 
+
+## References 
+
+Chen, Chacha, Hua Wei, Nan Xu, Guanjie Zheng, Ming Yang, Yuan-hao Xiong, Kai Xu, and Zhenhui Li (Apr. 2020). “Toward A Thou-sand Lights: Decentralized Deep Reinforcement Learning for Large-Scale Traffic Signal Control.” In: Proceedings of the AAAI Conference on Artificial Intelligence 34.04, pp. 3414–3421. doi :10.1609/aaai.v34i04.5744. url : https://ojs.aaai.org/index.php/ AAAI/article/view/5744. Guo, Daya, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shengqi Li, P. Wang, et al. (2025). 
+
+DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Re-inforcement Learning . arXiv: 2501.12948 [cs.CL] . url : https: //arxiv.org/abs/2501.12948. Lai, Siqi, Zhao Xu, Weijia Zhang, Hao Liu, and Hui Xiong (2024). 
+
+LLMLight: Large Language Models as Traffic Signal Control Agents .arXiv: 2312.16044 [cs.AI] . url : https://arxiv.org/abs/2312. 16044. Mercader, Pedro, Wasim Uwayid, and Jack Haddad (2020). “Max-pressure traffic controller based on travel times: An experimental analysis.” In: Transportation Research Part C: Emerging Technolo-gies 110, pp. 275–290. issn : 0968-090X. doi : https://doi.org/10. 1016/j.trc.2019.10.002. url : https://www.sciencedirect.com/ science/article/pii/S0968090X19307442. Yu 
+
+Ouyang, Long, Jeff Wu, Xu Jiang, Diogo Almeida, Carroll L. Wain-wright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Kata-rina Slama, Alex Ray, et al. (2022). Training Language Models to Follow Instructions with Human Feedback . arXiv: 2203.02155 
+
+[cs.CL] . url : https://arxiv.org/abs/2203.02155. Pang, Aoyu, Maonan Wang, Man-On Pun, Chung Shue Chen, and Xi Xiong (2024). iLLM-TSC: Integration Reinforcement Learning and Large Language Model for Traffic Signal Control Policy Im-provement . arXiv: 2407.06025 [cs.AI] . url : https://arxiv.org/ abs/2407.06025. Rafailov, Rafael, Archit Sharma, Eric Mitchell, Stefano Ermon, Christo-pher D. Manning, and Chelsea Finn (2023). Direct Preference Opti-mization: Your Language Model is Secretly a Reward Model . arXiv: 2305.18290 [cs.LG] . url : https://arxiv.org/abs/2305.18290. Ruan, Jingqing, Ziyue Li, Hua Wei, Haoyuan Jiang, Jiaming Lu, Xuantang Xiong, Hangyu Mao, and Rui Zhao (2024). CoSLight: Co-optimizing Collaborator Selection and Decision-making to En-hance Traffic Signal Control . arXiv: 2405.17152 [cs.MA] . url :https://arxiv.org/abs/2405.17152. Schulman, John, Sergey Levine, Philipp Moritz, Michael I. Jordan, and Pieter Abbeel (2015). Trust Region Policy Optimization . arXiv: 1502.05477 [cs.LG] . url : https://arxiv.org/abs/1502.05477. Schulman, John, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov (2017). Proximal Policy Optimization Algorithms .arXiv: 1707.06347 [cs.LG] . url : https://arxiv.org/abs/1707. 06347. Shao, Zhihong, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Mingchuan Zhang, Y. K. Li, Y. Wu, Daya Guo, Dejian Yang, et al. (2024). DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models . arXiv: 2402.03300 [cs.CL] .
+
+url : https://arxiv.org/abs/2402.03300. Tang, Zheng, Milind Naphade, Ming-Yu Liu, Xiaodong Yang, Stan Birchfield, Shuo Wang, Ratnesh Kumar, David Anastasiu, and Jenq-Neng Hwang (2019). CityFlow: A City-Scale Benchmark for Multi-Target Multi-Camera Vehicle Tracking and Re-Identification .arXiv: 1903.09254 [cs.CV] . url : https://arxiv.org/abs/1903. 09254. Wang, Maonan, Aoyu Pang, Yuheng Kan, Man-On Pun, Chung Shue Chen, and Bo Huang (2024). LLM-Assisted Light: Leveraging Large Language Model Capabilities for Human-Mimetic Traffic Signal Control in Complex Urban Environments . arXiv: 2403.08337 
+
+[eess.SY] . url : https://arxiv.org/abs/2403.08337. Wei, Hua, Nan Xu, Huichu Zhang, Guanjie Zheng, Xinshi Zang, Chacha Chen, Weinan Zhang, Yanmin Zhu, Kai Xu, and Zhen-hui Li (2019). “CoLight: Learning Network-level Cooperation for Traffic Signal Control.” In: Proceedings of the 28th ACM Interna-tional Conference on Information and Knowledge Management .CIKM ’19. Beijing, China: Association for Computing Machin-ery, pp. 1913–1922. isbn : 9781450369763. doi : 10.1145/3357384. 3357902. url : https://doi.org/10.1145/3357384.3357902. Yin, Biao, Mahjoub Dridi, and Abdellah Moudni (Dec. 2015). “Traffic network micro-simulation model and control algorithm based on approximate dynamic programming.” In: IET Intelligent Transport Systems 10. doi : 10.1049/iet-its.2015.0108. Zhang, Liang, Qiang Wu, Jun Shen, Linyuan Lü, Bo Du, and Jianqing Wu (17–23 Jul 2022). “Expression might be enough: representing pressure and demand for reinforcement learning based traffic signal control.” In: Proceedings of the 39th International Conference on Machine Learning . Vol. 162. Proceedings of Machine Learning Research. PMLR, pp. 26645–26654. url : https://proceedings.mlr. press/v162/zhang22ah.html. Zhang, Yifeng, Peizhuo Li, Tingguang Zhou, Mingfeng Fan, and Guillaume Sartoretti (2026). LATS: Large Language Model As-sisted Teacher-Student Framework for Multi-Agent Reinforcement Learning in Traffic Signal Control . arXiv: 2603.24361. url : https: //arxiv.org/abs/2603.24361. Zou, Xingchen, Yuhao Yang, Zheng Chen, Xixuan Hao, Yiqi Chen, Chao Huang, and Yuxuan Liang (2025). Traffic-R1: Reinforced LLMs Bring Human-Like Reasoning to Traffic Signal Control Sys-tems . arXiv: 2508.02344 [cs.AI] . url : https://arxiv.org/abs/2508. 02344. 
+
+## A Appendix A.1 Joint-Scored GRPO Comparison Variant 
+
+This appendix summarizes the Joint-Scored GRPO pipeline used as a comparison variant to the proposed DGLight method. The purpose of this variant is to test whether indirect short-horizon joint return estimation can provide a better training signal than direct critic guidance. Unlike the main method, it does not rely on a pretrained action-value critic to score each sampled response, but uses the trajectory-aggregated raw environment rewards to compute group advantages. 
+
+Snapshot-forked joint candidate evaluation. At each decision step, the policy samples 𝑘 candidate responses for every intersection and parses them into actions. Instead of scoring each sampled action independently, the method aligns candidates across intersections into 𝑘 joint action vectors (each with actions for all intersections) and evaluates each vector by forking the current simulator snapshot. Each fork starts from the same environment state but executes a different sampled joint action, allowing the method to compare candidate action sets under a common traffic condition. 
+
+Short-horizon discounted return. For each forked candidate 𝑐 , the simulator is rolled out for a short horizon 𝐻 . After the first jointly sampled action is executed, subsequent actions are resampled from the current policy at later steps. The candidate score is the dis-counted return 
+
+𝐺 (𝑐 ) 
+
+> 𝑡
+
+= 
+
+> 𝐻 −1
+
+∑︁ 
+
+> 𝜏 =0
+
+𝛾 𝜏 𝑟 (𝑐 )  
+
+> 𝑡 +𝜏
+
+,
+
+where 𝛾 is the discount factor and 𝑟 (𝑐 ) 
+
+> 𝑡 +𝜏
+
+is the congestion-based network reward observed at rollout step 𝑡 + 𝜏 in candidate fork 𝑐 .
+
+Local, neighborhood, and global reward mixing. The per-step reward is computed from a mixed congestion cost that combines local in-tersection congestion, neighboring congestion, and global network congestion. Let 𝑚 𝑖 denote the local congestion metric at intersec-tion 𝑖 (for example, incoming queue length or pressure), let ¯𝑚 N ( 𝑖 )
+
+denote the mean metric over the neighbors of 𝑖 , and let ¯𝑚 V denote the mean metric over the whole network. The reward is defined DGLight: DQN-Guided GRPO Fine-Tuning of Large Language Models for Traffic Signal Control 
+
+from the negative mixed cost 
+
+𝑟 𝑡 = − 1
+
+|V | ∑︁ 𝑖 ∈ V 
+
+
+
+𝛼𝑚 𝑖 + 𝛽 ¯𝑚 N ( 𝑖 ) + ( 1 − 𝛼 − 𝛽 ) ¯𝑚 V
+
+
+
+,
+
+where 𝛼 and 𝛽 are hyperparameters that control the relative con-tribution of local and neighborhood congestion. This construction encourages decisions that reduce both immediate local congestion and broader network imbalance. 
+
+Projection back to per-intersection action scores. Because GRPO train-ing still expects prompt-level rewards for individual sampled re-sponses, the joint candidate returns must be projected back to action-level scores. For each intersection 𝑖 and each action 𝑎 ∈ 𝐴 ,let C𝑖,𝑎 be the set of joint candidates whose parsed action at inter-section 𝑖 equals 𝑎 . The induced action score is defined as the mean return of those candidates: 
+
+˜𝑄 𝑖,𝑡 (𝑎 ) = 1
+
+|C 𝑖,𝑎 |∑︁ 𝑐 ∈ C 𝑖,𝑎 
+
+𝐺 (𝑐 ) 
+
+> 𝑡
+
+,
+
+with a fallback reward used when no sampled candidate proposes action 𝑎 . The resulting vector ˜q𝑖,𝑡 plays the same role in GRPO training as the critic score vector q𝑖,𝑡 in the main method, but it is obtained indirectly through joint rollout evaluation. 
+
+Collect-then-train split. In implementation, the variant is organized as a collect-then-train pipeline. A rollout stage first saves prompt records, selected actions, and projected action-score vectors ob-tained from snapshot-forked candidate evaluation. The GRPO stage then reloads these records and fine-tunes the LLM policy using the same prompt-conditioned reward lookup mechanism as in the main method. 
+
+## A.2 Sample Prompt 
+
+You are an expert in traffic management. A traffic light regulates a four-way intersection with northern, southern, eastern, and western approaches, each containing two lanes: one for through traffic and one for left-turns. Each lane is further divided into three segments. Segment 1 is the closest to the intersection. Segment 2 is in the middle. Segment 3 is the farthest. In a lane, there may be early queued vehicles and approaching vehicles traveling in different segments. Early queued vehicles have already arrived at the intersection and await passage permission. Approaching vehicles will arrive at the intersection in the future. The traffic light has 4 signal phases. Each signal relieves vehicles’ flow in a group of two specific lanes. Available signal phases: - ETWT: Eastern and western through lanes. - NTST: Northern and southern through lanes. - ELWL: Eastern and western left-turn lanes. - NLSL: Northern and southern left-turn lanes. Current intersection state: Signal: ETWT Relieves: Eastern and western through lanes. - Early queued: 0 (East), 1 (West), 1 (Total) - Segment 1: 0 (East), 0 (West), 0 (Total) - Segment 2: 1 (East), 0 (West), 1 (Total) - Segment 3: 0 (East), 2 (West), 2 (Total) - Neighbor incoming totals: 2 (East), 1 (West), 3 (Known total), 2/2 available Signal: NTST Relieves: Northern and southern through lanes. - Early queued: 0 (North), 0 (South), 0 (Total) - Segment 1: 0 (North), 0 (South), 0 (Total) - Segment 2: 0 (North), 0 (South), 0 (Total) - Segment 3: 1 (North), 0 (South), 1 (Total) - Neighbor incoming totals: NA (North), 3 (South), 3 (Known total), 1/2 available Signal: ELWL Relieves: Eastern and western left-turn lanes. - Early queued: 0 (East), 0 (West), 0 (Total) - Segment 1: 0 (East), 0 (West), 0 (Total) - Segment 2: 0 (East), 0 (West), 0 (Total) - Segment 3: 0 (East), 1 (West), 1 (Total) - Neighbor incoming totals: 2 (East), 1 (West), 3 (Known total), 2/2 available Signal: NLSL Relieves: Northern and southern left-turn lanes. - Early queued: 0 (North), 0 (South), 0 (Total) - Segment 1: 0 (North), 0 (South), 0 (Total) - Segment 2: 0 (North), 0 (South), 0 (Total) - Segment 3: 0 (North), 0 (South), 0 (Total) - Neighbor incoming totals: NA (North), 3 (South), 3 (Known total), 1/2 available The state description above lists: - The group of lanes relieved under each traffic light phase. - The number of early queued vehicles in the allowed lanes of each signal. - The number of approaching vehicles in different segments of the allowed lanes of each signal. - Neighbor incoming totals from adjacent intersections for each phase. - ‘NA‘ means that adjacent side has a virtual/missing neighbor and is excluded from ‘Known total‘. Question: Yu 
+
+Which is the most effective traffic signal that will most significantly improve the traffic condition during the next phase? Note: - Traffic congestion is primarily dictated by early queued vehicles, with the most significant impact. - You must pay the most attention to lanes with long queue lengths. - It is not urgent to consider vehicles in distant segments, since they are unlikely to reach the intersection soon. Requirements: - Think step by step. - You can only choose one of the signals listed above. - Step 1: Provide a brief analysis identifying the optimal traffic signal. - Step 2: After finishing the analysis, answer with your chosen signal. - Include exactly one final decision tag in this format: <signal>PHASE</signal>, where PHASE is one of: ETWT, NTST, ELWL, NLSL.
