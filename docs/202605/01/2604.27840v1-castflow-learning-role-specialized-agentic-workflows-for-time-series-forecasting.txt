@@ -1,0 +1,748 @@
+Title: CastFlow: Learning Role-Specialized Agentic Workflows for Time Series Forecasting
+
+URL Source: https://arxiv.org/pdf/2604.27840v1
+
+Published Time: Fri, 01 May 2026 01:11:24 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+> IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 1
+
+# CastFlow: Learning Role-Specialized Agentic Workflows for Time Series Forecasting 
+
+Bokai Pan , Mingyue Cheng , Zhiding Liu , Shuo Yu , Xiaoyu Tao , Yuchong Wu , Qi Liu , Member, IEEE, 
+
+Defu Lian , Member, IEEE, and Enhong Chen , Fellow, IEEE 
+
+Abstract —Recently, large language models (LLMs) have shown great promise in time series forecasting. However, most existing LLM-based forecasting methods still follow a static generative paradigm that directly maps historical observations to future values in a single pass. Under this paradigm, forecasting is constrained by limited temporal pattern extraction, single-round acquisition of contextual features, one-shot forecast generation, and lack of support from ensemble forecasts. To address these limitations, in this work, we propose CastFlow, a dynamic agentic forecasting framework that enables multi-view temporal pattern extraction, multi-round contextual features acquisition, iterative forecast refinement, and forecasting with ensemble forecasts. First, CastFlow organizes the forecasting process into planning, action, forecasting, and reflection, establishing an agentic work-flow. Second, this workflow is supported by a memory module that retrieves prior experience and a multi-view toolkit that constructs diagnostic evidence and provides a reliable ensemble forecast baseline. Third, CastFlow adopts a role-specialized design that combines general-purpose reasoning with specialized numerical forecasting. Under this design, a frozen LLM preserves general-purpose reasoning, while a fine-tuned domain-specific LLM performs evidence-guided numerical forecasting based on the ensemble forecast baseline, rather than from scratch. To optimize a fine-tuned domain-specific LLM, we further develop a two-stage workflow-oriented training that combines supervised fine-tuning (SFT) and reinforcement learning with verifiable rewards (RLVR). To evaluate the effectiveness of CastFlow, we conduct extensive experiments on diverse datasets and show that it achieves superior overall results against strong baselines. We hope that this work can serve as a step toward more adaptive and accurate time series forecasting. 
+
+Index Terms —Time series forecasting, large language models, agentic forecasting, reinforcement learning, tool use. 
+
+I. I NTRODUCTION 
+
+# TIME series forecasting is a fundamental task in data-driven decision-making for real-world infrastructures, ranging from renewable energy generation forecasting [1] to streamflow forecasting [2]. Given historical observations, the task aims to predict future values for one or multiple variables over a predefined horizon under complex temporal dynamics and evolving environments [3], [4]. In practice, time series often exhibit strong non-stationarity, short- and long-term dependencies, regime shifts, and complex cross-
+
+Bokai Pan, Mingyue Cheng, Zhiding Liu, Shuo Yu, Xiaoyu Tao, Yu-chong Wu, Qi Liu, Defu Lian, and Enhong Chen are affiliated with the State Key Laboratory of Cognitive Intelligence, University of Science and Technology of China, Hefei 230026, China. Email: {bkpan, zhiding, yu12345, txytiny, yuchongwu }@mail.ustc.edu.cn, {mycheng, qiliuql, lian-defu, cheneh }@ustc.edu.cn. The source code is available at https://github. com/Forever-Pan/CastFlow. 
+
+variable interactions [4]–[6]. These properties make accurate forecasting difficult over time and across domains [5], [7]. Over the past years, forecasting methods have evolved from classical statistical models such as ARIMA [8] and ETS [9] to machine learning approaches such as support vector regression [10], tree-based boosting methods [11], [12], and feature-based forecasting strategies [13]. This evolution has extended to deep learning architectures [14]–[18], and more recently to time series foundation models [19]–[21] and large language model (LLM)-based methods [22]–[24]. Recent LLM-based methods further extend forecasting beyond static pattern matching by introducing explicit reasoning over tem-poral dynamics [25], multimodal language modeling for time series tasks [26], [27], and agentic forecasting with planning and tool use [28], [29]. However, despite these advances, most LLM-based forecasting methods still follow a static generative paradigm that directly maps historical observations to future values in a single pass [30]. Consequently, this static paradigm offers limited capacity for temporal pattern extraction, only single-round access to contextual features, one-shot generation of future values, and little room for leveraging ensemble fore-casts. Importantly, because this paradigm relies on a single-model design, it often struggles to jointly preserve general-purpose reasoning ability and numerical forecasting perfor-mance. In practice, training-free methods usually preserve the general-purpose reasoning ability of LLMs but often fall short in numerical accuracy [23], whereas fine-tuning methods can improve numerical forecasting performance [31], [32] while tending to narrow general-purpose reasoning ability and weaken cross-domain generalization [33]. As a result, the cen-tral difficulty of current LLM-based forecasting lies in jointly maintaining general-purpose reasoning capacity and numerical forecasting performance within a unified framework. These limitations pose several challenges. First, replacing this static generative paradigm with a dynamic forecasting process is nontrivial [30], because the framework must decide what information to inspect, when to invoke tools, and how to update intermediate reasoning states [34], rather than simply producing one-shot outputs. Second, effective tool use in time series forecasting cannot be achieved by simply equipping an LLM with tools. The toolkit must be task-relevant, numerically reliable, and tightly coupled with task needs [25], [28], while also avoiding redundant operations, unstable interactions, and information leakage from unavailable future observations [35]. Third, iterative forecast refinement is desirable for reliable forecasting [36] but difficult to implement in a principled way. Without a proper workflow, the framework may accumulate           
+
+> arXiv:2604.27840v1 [cs.LG] 30 Apr 2026 IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 2a. Training-Free M ethods
+> Historical Data
+> b. Fine-Tuning Method s
+> c. Agentic Workflow Methods
+> Large Language Model Predicted Values
+> Historical Data Fine-tuned Model Predicted Values
+> Historical Data Predicted Values
+> Toolkit
+> Planning
+> Forecasting Action
+> Refle ction
+> Memory
+> SFT+RLVR
+> Fig. 1. Comparison among training-free, fine-tuning, and agentic work-flow methods. CastFlow combines role-specialized reasoning with workflow-oriented training and shifts forecasting from one-shot generation to evidence-guided correction supported by a memory module and a multi-view toolkit.
+
+errors across steps, incur excessive inference cost, or fail to convert diagnostic feedback into improved numerical forecast-ing [29], [32]. Fourth, workflow design introduces another layer of difficulty, because planning, action, forecasting, and reflection must be coordinated as a coherent process rather than a loose collection of modules [37]. In addition, the overall workflow must support stable interaction across these modules, so that retrieved experience, tool-derived evidence, interme-diate decisions, and numerical forecasting outputs remain consistent throughout the overall process [25], [37]. These challenges make it difficult to jointly preserve adaptability and forecasting accuracy in a unified framework. To address these challenges, we develop CastFlow, a dy-namic agentic forecasting framework that reformulates fore-casting as a workflow-driven process with multi-view temporal pattern extraction, multi-round contextual features acquisition, iterative forecast refinement, and forecasting with ensemble forecasts. As illustrated in Fig. 1, CastFlow organizes the fore-casting process into planning, action, forecasting, and reflec-tion, establishing an agentic workflow. Within this framework, a frozen LLM is used for planning and reflection, while a fine-tuned domain-specific LLM is used for numerical forecasting. We adopt this role-specialized design because it avoids forcing a single model to optimize conflicting objectives at once, preserves the general-purpose reasoning ability of the frozen LLM, and allows the forecasting model to focus on domain-specific numerical adaptation. To support this workflow, we introduce a memory module that retrieves distilled planning trajectories and tool use patterns to provide prior experience for reasoning, together with a multi-view toolkit that constructs diagnostic evidence and provides a reliable ensemble forecast baseline. Under this workflow, the forecasting model performs evidence-guided numerical forecasting based on the ensemble forecast baseline, rather than from scratch. This design im-proves numerical stability and shifts forecasting from one-shot generation to evidence-guided correction. We further optimize the framework through a two-stage workflow-oriented training that combines supervised fine-tuning (SFT) and reinforcement learning with verifiable rewards (RLVR), where SFT aligns reasoning signals and tool-derived evidence with numerical forecasting, and RLVR further refines this alignment through verifiable workflow feedback. Extensive experiments on di-verse datasets show that CastFlow achieves superior results against strong baselines and provides an effective path toward more adaptive and accurate time series forecasting. In summary, our main contributions are as follows:  
+
+> •
+
+We propose a role-specialized reasoning paradigm for agentic time series forecasting, unifying general-purpose reasoning with specialized numerical forecasting.  
+
+> •
+
+We develop CastFlow, a dynamic agentic forecasting framework with a memory module and a multi-view toolkit, transforming forecasting into an evidence-guided decision process through workflow coordination.  
+
+> •
+
+We introduce a two-stage workflow-oriented training based on SFT and RLVR, and demonstrate its effective-ness across diverse real-world benchmarks. II. R ELATED WORK 
+
+A. Traditional Time Series Forecasting 
+
+Time series forecasting has evolved from classical statistical modeling to machine learning methods, deep learning architec-tures, and, more recently, foundation models [3], [4]. Classical statistical approaches such as ARIMA [8] and ETS [9] char-acterize trend, seasonality, and temporal dependence through explicit structural assumptions, and remain important because of their interpretability, efficiency, and strong inductive bi-ases [5]. Machine learning methods further expanded the fore-casting toolbox by combining supervised learning algorithms with lagged observations, covariates, and engineered temporal features, with representative directions including support vec-tor regression [10], tree-based boosting methods [11], [12], and feature-based forecasting strategies [13]. Deep learning substantially reduced reliance on manual feature engineering and broadened the architectural design space of forecasting models. Within this paradigm, existing studies have explored diverse architectures [5], [38], [39], including linear models, convolution-based models [18], Transformer variants [17], [40], and state-space models [41]. Representative models such as N-HiTS [42], ETSformer [43], iTransformer [17], and ConvTimeNet [18] show that competitive forecasting performance can emerge from different architectural biases rather than a single dominant backbone. More recently, foun-dation models such as Chronos [19], TimesFM [20], and Sundial [21] have demonstrated promising zero-shot and cross-domain forecasting ability through large-scale pretraining. De-spite these advances, most traditional forecasting frameworks remain model-centric. They typically formulate forecasting as a direct mapping from historical observations to future values, providing limited support for test-time interaction, explicit evidence acquisition, and iterative revision [30]. 
+
+B. LLM-Based Time Series Forecasting 
+
+Recent large language model (LLM)-based forecasting stud-ies have adapted language models to time series forecast-ing through prompt reformulation, input reprogramming, and semantic alignment. PromptCast [22] reformulates numeri-cal sequences as textual prompts and casts forecasting as a IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 3
+
+prompt-based generation problem. Time-LLM [23] reprograms frozen language models with patch-level temporal embed-dings, enabling temporal sequences to interact with pretrained semantic space. Related methods such as S 2IP-LLM [31] and TokenCast [44] further explore semantic alignment and token-based modeling for time series forecasting. At the same time, analyses of LLM-based time series modeling have pointed out that text-native tokenization and next-token generation remain imperfect fits for continuously valued temporal signals [45]. In response to these limitations, more recent studies increas-ingly formulate forecasting as a reasoning-driven or workflow-oriented forecasting process rather than a static input-output mapping. TimeReasoner [25] studies slow-thinking temporal reasoning, TimeSeriesScientist [28] develops an agentic frame-work for time series analysis, and AlphaCast [29] reformulates forecasting as an interaction-driven reflective process. Be-yond these non-RL reasoning and workflow-oriented efforts, Time-R1 [32] further introduces reinforcement fine-tuning to strengthen multi-step temporal reasoning, while Cast-R1 [37] formulates forecasting as a tool-augmented sequential decision problem that supports evidence acquisition and multi-round interaction. Taken together, these studies move LLM-based forecasting from prompt-based sequence generation toward multi-step reasoning, tool use, and workflow-oriented fore-casting with explicit reasoning traces. However, most current methods still face the central difficulty of jointly maintaining general-purpose reasoning capacity and numerical forecasting performance within a unified model, especially when dynamic tool use and iterative correction must be carried out under temporal distribution shifts [30], [37]. 
+
+C. Evolution of LLMs and Agentic Techniques 
+
+Recent progress in agentic forecasting is also rooted in broader advances in LLM reasoning, tool use, memory, and post-training. Toolformer [46] shows how language models can learn to invoke external tools, ReAct [34] interleaves reasoning with actions, and DEPS [47] supports interactive planning in complex environments. Subsequent work further strengthened reflection, memory, and self-improvement mech-anisms. Self-Refine [48] studies iterative refinement through self-feedback, while Reflexion [49] introduces verbal rein-forcement and episodic memory to support self-correction across reasoning trajectories. In parallel, post-training methods such as STaR [50], DeepSeek-R1 [51], and Qwen3 [52] have advanced reasoning through self-improvement and reinforce-ment learning (RL), showing that slow-thinking behavior can be elicited and stabilized beyond simple supervised imitation. These developments are increasingly influencing time series forecasting and analysis [53]. Position-level discussions have argued for moving beyond model-centric prediction toward agentic time series forecasting [30]. Against this broader methodological backdrop, related temporal studies further show how LLM techniques can be extended beyond conven-tional forecasting settings. InstructTime++ [26] demonstrates the value of multimodal language modeling for time series tasks, while AnomaMind [35] extends tool-augmented rea-soning to time series anomaly detection through a structured workflow and adaptive feature preparation. Recent frameworks such as TimeOmni-1 [54] and AlphaAgentEvo [55] further explore reward-driven reasoning and self-evolving agentic RL in temporal scenarios. Overall, the field is moving from static prediction toward workflow-centric frameworks that integrate reasoning, tools, memory, and learning within a unified work-flow for time series forecasting [56]. III. P RELIMINARIES 
+
+A. Problem Formulation 
+
+In this section, we formulate time series forecasting in CastFlow as a sequential agentic forecasting process supported by an ensemble forecast baseline and multi-view diagnostic evidence. Given a dataset D = {(xi, yi)}Ni=1 with a lookback window xi ∈ RL×C and a future horizon yi ∈ RH×C , our goal is to learn a reasoning policy πθ that produces refined forecasts through a structured workflow. Unlike conventional approaches f : x → ˆy that generate forecasts through direct mapping, CastFlow starts from a reliable ensemble forecast baseline and performs iterative, evidence-guided refinement. The policy generates a trajectory τ = ( s1, a 1, . . . , s M , a M ),where sj and aj denote the intermediate state and action at step 
+
+j, respectively, and M is the total number of decision steps. These intermediate steps may involve diagnosing trend shifts or filtering noise via a multi-view toolkit, ultimately leading to a refined forecast ˆy. This formulation shifts the objective from merely minimizing point-wise error to optimizing the sequential decision trajectory, ensuring that forecasting is both statistically grounded and evidence-guided. From a decision-theoretic perspective, this sequential formulation also captures the non-negative value of multi-round evidence acquisition. Let Om = {o1, . . . , o m} denote the tool observations collected after m interactions, and define the optimal risk as 
+
+R⋆m = inf   
+
+> f∈F
+
+E[ℓ(y, f (x, Om))] .
+
+Since a predictor using Om+1 = Om ∪ { om+1 } can always ignore the observation om+1 , we have R⋆m+1 ≤ R⋆m under leakage-free tool execution. This observation explains why CastFlow reformulates forecasting as a multi-round evidence acquisition process rather than a one-shot prediction problem. 
+
+B. Markov Decision Process Formulation 
+
+To implement this agentic framework, we model the fore-casting process as a Markov Decision Process defined by the tuple (S, A, P, R). Within this framework, the state space S characterizes the agent’s context at step j as sj =(x, ˆybase , Mretrieved , Hj ). This state includes the raw input sequence x, the ensemble forecast baseline ˆybase , the retrieved prior experience Mretrieved from the strategy library, and the historical trajectory Hj , which records prior tool observations and reasoning steps up to the current iteration. The ensemble forecast baseline ˆybase is initialized as ∅ until it is produced by the action module. To address the conflict between semantic reasoning and numerical precision, we employ a hierarchical action space A = Adiscrete ∪ A continuous , where planning actions aplan ∈ Adiscrete invoke diagnostic modules and IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 4Forecast Prompt                       
+
+> Planning
+> Input Output
+> Memory M odule
+> Multi-view Toolkit
+> Action Forecasting Refle ction
+> Group
+> Querying Tool Response
+> SFT Warmup GRPO
+> Strategy
+> Retrieval
+> Historical
+> Strategy
+> <think>
+> Response
+> Rollout
+> Bas e Model
+> thinking process
+> SFT Model SFT Model Fine-tuned Model
+> Domain
+> Knowledge
+> Lookback
+> Window
+> Retrieval Window Tool-call Results Model Response
+> Forecast
+> Window
+> Memory Construction
+> Planning
+> Parallel Exploration
+> Optimized
+> Trajectory
+> Append Reward
+> Advantage
+> Tool
+> Information
+> Evidence
+> Extraction
+> Format
+> Checking
+> Result
+> Assessing
+> Tool
+> Scheduling
+> explanation
+> Self-Correction
+> <think> <think> <think> <think> </think>
+> <think> <think> <answer> <think> <think> </answer>
+> Frozen Model
+> Construction
+> Fine-tuned
+> Model Precision
+> Judgment
+> Foundational Anchorer Statistical and Spectral
+> Profiler Dynamics Monitor Residual Diagnoser
+> Tool
+> Invocation
+> Based on the lead-lag
+> effects, we refine the
+> forecast baseline.
+> Interpretable
+> Forecasting
+> Strategy
+> Generating
+> date target
+> 00:00:00 125.34
+> 00:15:00 234.56
+> 00:30:00 189.23
+> Tool-use Experience
+
+Fig. 2. Overview of CastFlow. The framework orchestrates a planning-action-forecasting-reflection loop via a multi-view toolkit and a memory module. The optimization training progresses from memory construction to supervised fine-tuning (SFT) and group relative policy optimization (GRPO) refinement. 
+
+refinement actions arefine ∈ Acontinuous guide quantitative adjustments to the forecast baseline. In implementation, these refinement actions are realized through token-level gener-ation by the forecasting module. The transition dynamics 
+
+P(sj+1 | sj , a j ) are governed by the execution of the selected tools and the subsequent appending of observations to Hj . Finally, the optimization is guided by a composite reward mechanism R(τ ) that enforces strict structural validity while evaluating both the absolute precision of the refined trajectory and its relative gain against the initial baseline. This formulation explicitly incentivizes strategies that effectively combine ensemble forecasting with diagnostic evidence to achieve measurable forecasting improvements. IV. M ETHODOLOGY 
+
+In this section, we present CastFlow, a dynamic agentic fore-casting framework that combines general-purpose reasoning with specialized numerical forecasting. This role-specialized design transforms time series forecasting from static one-shot generation into a dynamic, evidence-guided decision process. 
+
+A. Framework Overview 
+
+As illustrated in Fig. 2, CastFlow integrates a multi-view toolkit, a memory module, and four workflow stages: planning, action, forecasting, and reflection. During the forecasting process, the framework queries the strategy memory to re-trieve relevant historical patterns. Guided by these retrieved strategies, the planning module utilizes a frozen large lan-guage model (LLM) to conduct general-purpose reasoning for tool scheduling. Subsequently, the action module invokes the toolkit to gather diagnostic evidence and an ensemble forecast baseline. The forecasting module, implemented as a fine-tuned domain-specific LLM, then performs evidence-guided numerical forecasting by integrating this baseline with the gathered evidence. Finally, the reflection module assesses forecast quality and supports iterative refinement to enforce structural validity and evidence alignment. 
+
+B. Multi-View Toolkit Construction 
+
+To ground general-purpose reasoning in empirical obser-vations, we construct a multi-view toolkit that transforms raw time series characteristics into interpretable diagnostic signals. This toolkit comprises four functional categories encapsulating eleven specialized tools. 
+
+1) Foundational Anchorer: The foundational anchorer es-tablishes a dependable ensemble forecast baseline by utilizing the model auxiliary tool to extract reliable forecasting priors, thereby preventing the agent from generating numerical values from scratch. This tool implements a cluster-based retrieval mechanism to select an optimal ensemble of forecasting mod-els from a historical case library. Specifically, the historical library is constructed offline by partitioning past time series data into sliding windows and grouping them using K-medoids clustering. Each cluster is represented by a medoid sequence and maintains a historical performance distribution across a diverse model pool. To ensure comprehensive representation, this pool spans three distinct paradigms encompassing clas-sical statistical forecasting methods, advanced deep learning architectures, and pre-trained time series foundation models. During the forecasting process, the newly observed input sequence x is matched against the stored medoids to re-trieve the most relevant optimal cluster C∗. To ensure reliable matching against temporal distortions, this retrieval employs a comprehensive distance metric that integrates dynamic time warping, Euclidean distance, and cosine similarity computed IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 5
+
+over z-score normalized representations. We then define the ensemble forecast baseline ˆybase for the input sequence x as a weighted aggregation of these historical experts: 
+
+ˆybase = X
+
+> k∈C ∗
+
+exp( −L k)
+
+P 
+
+> j∈C ∗
+
+exp( −L j )
+
+!
+
+· fk(x), (1) where fk(x) denotes the forecast of the k-th model asso-ciated with the retrieved cluster. The term Lk denotes the historical validation loss of model fk, which determines the performance-based voting weights derived during the clus-tering phase. This softmax-based formulation ensures that models demonstrating historically superior accuracy on similar temporal patterns receive exponentially higher influence in the ensemble. Ultimately, this aggregation serves as the primary quantitative baseline, establishing a reliable prior for subse-quent evidence-guided refinement. 
+
+2) Statistical and Spectral Profiler: The statistical and spectral profiler delineates the macroscopic numerical bound-aries and inherent predictability of the sequence through four specialized tools, thereby equipping the agent with the context needed to calibrate forecasting confidence and prevent im-plausible extrapolation. The statistical analysis tool calculates fundamental metrics including mean μ, standard deviation σ,and boundary extrema to validate forecasting ranges. The basic statistics tool extends this by extracting advanced features like the median absolute deviation MAD = median (|xi − ˜x|) for bias correction, where ˜x is the sequence median. To evaluate the inherent predictability and noise level of the data, it computes the spectral entropy: 
+
+Sspec (x) = −
+
+> ⌊L/ 2⌋
+
+X
+
+> k=1
+
+Pk log Pk, (2) where Pk = |F (x)k |2   
+
+> P⌊L/ 2⌋
+> j=1 |F (x)j|2
+
+denotes the normalized power spectral density at frequency k, and F(x)k represents the 
+
+k-th frequency component obtained via the discrete Fourier transform of the lookback window of length L. A higher spectral entropy indicates a sequence resembling white noise, prompting the agent to adopt conservative strategies. To ensure signal reliability, the data quality tool acts as a risk gatekeeper by measuring dropout ratios and defining a strict clipping boundary B = [ μ − κσ, μ + κσ ] when historical sequences exhibit degradation. Finally, the comprehensive feature tool 
+
+aggregates these continuous metrics into an abstract diagnostic state Sstat = ⟨μ, σ, MAD , S spec , B⟩ , ensuring the agent has complete visibility over the overall data distribution. 
+
+3) Dynamics Monitor: The dynamics monitor captures evolving temporal trajectories, structural regime shifts, and multivariate dependencies using a suite of five tools, thereby enabling the agent to adapt its refinement strategy in response to sudden disruptions rather than blindly extrapolating his-torical inertia patterns. The trend analysis tool quantifies the overall trajectory by calculating the linear slope inline as 
+
+m = 
+
+> P(t−¯t)( xt−¯x)P(t−¯t)2
+
+to evaluate trend direction. The change-point trend tool serves as a critical correction mechanism to detect structural breaks, computing the first-order difference 
+
+∆xt = xt − xt−1 and the second-order difference ∆2xt =∆xt −∆xt−1 to predict early momentum reversals. For multi-variate dependencies, the cross-channel tool and the exogenous analysis tool evaluate lead-lag dependencies and cross-channel associations. We quantify cross-channel dependency using the time-shifted Pearson correlation function: 
+
+ρx,y (∆ t) = 
+
+P
+
+> t
+
+(xt − ¯x)( yt+∆ t − ¯y)
+
+pP 
+
+> t
+
+(xt − ¯x)2 P
+
+> t
+
+(yt+∆ t − ¯y)2 , (3) where ∆t denotes the lead-lag shift between the target variable 
+
+x and the auxiliary variable y, while ¯x and ¯y are their respective global temporal means. This formulation enables the agent to identify leading indicators and incorporate ex-ternal adjustment criteria into subsequent forecast refinement. Complementing these quantitative metrics, the event sum-mary tool provides a macroscopic qualitative analysis by mapping the sequence into a discrete semantic space Et ∈{rise , fall , flat , oscillation }, allowing the agent to apply logical directional constraints based on the dominant abstract pattern. 
+
+4) Residual Diagnoser: The residual diagnoser employs an autoregressive residual tool to isolate uncaptured nonlinearities and systematic biases in the initial baseline, thereby exposing specific structural deficiencies and guiding targeted numerical compensation. To achieve this, the tool fits a proxy autore-gressive process to the raw input sequence and extracts the corresponding residual error component: 
+
+ϵt = xt − c +
+
+> p
+
+X
+
+> i=1
+
+ϕixt−i
+
+!
+
+, (4) where c is the intercept constant, ϕi represents the learned autoregressive coefficients, and p indicates the optimal lag order determined by information criteria. By analyzing this residual sequence, the tool extracts the residual mean μϵ =
+
+> 1
+> L−p
+
+PLt=p+1 ϵt to detect systematic lag. It further computes the first-order residual autocorrelation r1 =  
+
+> PLt=p+2 ϵtϵt−1
+> PLt=p+1 ϵ2
+> t
+
+to diagnose unmodeled dependencies. This allows the agent to recognize whether simple linear extrapolation fails to capture complex dynamics, guiding higher-order compensation and tail-risk preservation. Crucially, to prevent unintended future-data leakage, this diagnostic tool is deployed only during the training phase and is strictly bypassed during testing. 
+
+C. Agentic Forecasting Workflow 
+
+The CastFlow framework interconnects planning, action, forecasting, and reflection through a memory-supported work-flow. This workflow formulates time series forecasting as a sequential decision process that couples general-purpose reasoning with specialized numerical forecasting. To prevent the planning module from generating unstable tool schedules in a zero-shot setting, we augment this stage with a dedicated memory module. This memory stores distilled procedural knowledge, allowing the agent to ground current tool orches-tration decisions in successful historical reasoning trajectories. To build the strategy memory, the framework expands an initial planning result into K parallel exploration paths for each training instance. By evaluating the forecasts generated under these candidate strategies against the ground truth, IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 6
+
+the framework identifies and archives the optimal reasoning trajectory. We define each memory entry as a structural tu-ple e = ⟨x, A ∗, O ∗, τ ∗⟩, preserving the input sequence x,the optimal tool execution schedule A∗, the corresponding diagnostic outputs O∗, and the final model response τ ∗. The optimal trajectory τ ∗ is selected by minimizing the overall mean squared error (MSE) over the entire future forecasting horizon H for each training instance: 
+
+τ ∗ = arg min  
+
+> τ∈T valid
+
+1
+
+H · C
+
+> H
+
+X
+
+> h=1
+
+ˆy(τ ) 
+
+> t+h
+
+− yt+h
+
+> 22
+
+, (5) where Tvalid represents the subset of generated candidate trajectories that successfully pass strict formatting and logic validation constraints. This optimal memory entry is then indexed via vector similarity to enable precise retrieval during the forecasting process. During the forecasting process, the input interface encodes the lookback window and queries the strategy memory for relevant historical tool strategies. The framework retrieves memory items satisfying the boundary condition sim (x, xe) ≥
+
+η, where η is a predefined similarity threshold. The planning module acts as the central control unit, utilizing a frozen LLM to map retrieved strategies into a structured tool sched-ule. This schedule explicitly delineates mandatory baseline-tracking tools and dynamically selected optional diagnostic tools tailored to the current sequence. Directed by this sched-ule, the action module interfaces with the multi-view toolkit to translate the plan into an ensemble forecast baseline ˆybase 
+
+alongside diagnostic evidence Ddiag . The forecasting module, implemented as a fine-tuned domain-specific LLM, then inte-grates retrieved strategies and localized temporal evidence to generate the final forecast under the current workflow. The workflow is closed by the reflection module, which functions as a quality gatekeeper for output reliability. It employs a dual-check mechanism combining a deterministic format verification indicator If ormat ∈ { 0, 1} with a logic evaluation indicator Ilogic ∈ { 0, 1} driven by the frozen model. If any inconsistency is detected such that If ormat · Ilogic = 0 ,the module triggers a feedback loop that routes the process back to the planning phase for iterative refinement. This self-correction process is strictly bounded by a maximum retry limit to prevent infinite loops, ensuring that the final output maintains structural validity and evidence alignment. 
+
+D. Role-Specialized Reasoning Architecture 
+
+The reasoning architecture of CastFlow follows a selective training strategy that fine-tunes only the forecasting module while freezing the planning and reflection modules. This con-figuration preserves the stability of semantic tool scheduling and logic verification while enabling the specialized forecaster to capture domain-specific temporal patterns for high-precision numerical forecasting. To operationalize this strategy, Cast-Flow organizes the overall reasoning process through role spe-cialization rather than assigning all cognitive responsibilities to a single model. Under this design, the frozen planning and reflection modules preserve general-purpose reasoning, while the trainable forecasting module carries domain-oriented spe-cialized reasoning. The action module does not itself perform reasoning. Instead, it serves as an execution interface that de-terministically follows the planning result, invokes the selected tools, and returns the resulting ensemble forecast baseline and diagnostic evidence to support downstream forecasting and verification across the forecasting workflow. 
+
+1) Role-Specialized Cognitive Architecture: To resolve the inherent conflict between language generation and numerical regression, we organize the reasoning framework into two selectively partitioned parameter spaces with distinct optimiza-tion objectives. The general-purpose layer operates entirely within the frozen parameter space Θf rozen . By utilizing the unaltered weights of the foundational model, the planning and reflection modules retain broad semantic reasoning capabil-ities to process natural language tool descriptions, retrieve relevant historical strategies, and evaluate logical consistency without suffering from catastrophic forgetting. Conversely, the specialized numerical engine operates within the tunable parameter space θtuned . This selective parameter partitioning ensures that the framework avoids forcing a single model to simultaneously balance semantic generation and numerical fitting. By focusing gradient updates exclusively on θtuned ,the forecasting module learns to bridge the representation gap, mapping qualitative structural signals returned by the toolkit into precise quantitative adjustments. As a result, CastFlow does not separate reasoning and forecasting into isolated pipelines. Instead, it assigns them complementary roles within a collaborative architecture, while the action module functions as a non-parametric execution interface between planning and forecasting across the full workflow. 
+
+2) General-Purpose Reasoning: General-purpose reason-ing in CastFlow is instantiated in the planning and reflection modules, both of which are driven by the frozen model. The process begins with the planning phase, where the frozen planner evaluates the input sequence x together with the re-trieved historical strategies Mretrieved . Based on this context, the planner generates a structured tool execution schedule 
+
+A = {a1, a 2, . . . , a M } by maximizing the joint probability over the vocabulary space: P (A | x, Mretrieved ; Θ f rozen ) = 
+
+QMi=1 P (ai | a<i , x, Mretrieved ; Θ f rozen ), where ai represents the discrete token for the selected tool at step i. Through this process, the planner does not directly output numerical forecasts. Instead, it determines which diagnostic tools should be executed and how the subsequent forecasting stage should be grounded before numerical prediction is attempted. After the tool schedule is produced, the action module deterministically executes the selected tools and constructs the corresponding execution context, including the ensemble forecast baseline ˆybase and the multi-view diagnostic evidence 
+
+Ddiag . This step is guided by the planner and is deterministic rather than reasoning-driven. Once a candidate forecast is generated, the reflection module performs general-purpose rea-soning for output verification and self-correction. The frozen evaluator computes a binary validation score v ∈ {0, 1}
+
+by combining deterministic formatting rules with semantic IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 7
+
+reasoning over the generated forecast: 
+
+v = If ormat (ˆ y) · Ilogic (ˆ y, Ddiag ), (6) where the indicator If ormat ensures exact sequence length compliance and Ilogic verifies alignment with the diagnostic signals. If the validation score evaluates to v = 0 , the reflection module generates natural language feedback to update the prompt context and triggers a guided self-correction loop for revision. To guarantee computational termination, the itera-tive feedback loop counter c strictly halts the process when 
+
+c ≥ Cmax , where Cmax defines the maximum retry limit. In this way, the frozen model supports both forward planning and backward verification, thereby preserving general-purpose reasoning throughout the workflow. 
+
+3) Domain-Oriented Specialized Reasoning: Domain-oriented specialized reasoning in CastFlow is carried by the forecasting module. Unlike the frozen planner and evaluator, this module is explicitly trained to transform domain-specific evidence into accurate numerical forecasting. Its input is not the raw history alone, but the complete execution context produced by the workflow, including the original sequence 
+
+x, the ensemble forecast baseline ˆybase , and the multi-view diagnostic evidence Ddiag returned by the action module. Therefore, the forecasting module does not generate numerical values from scratch. Instead, it performs domain-oriented reasoning over a structured forecasting context that has already been organized by planning and grounded by tool execution. Under this formulation, the forecasting module serves as the synthesis engine that converts retrieved strategies and diagnostic evidence into quantitative refinement under ex-plicit domain-specific constraints. We formalize this evidence-guided refinement as a conditional generation process optimiz-ing the final numerical forecasting: 
+
+ˆy = arg max 
+
+> ˜y
+
+log P (˜ y | ˆybase , Ddiag , x; θtuned ) , (7) where ˜y denotes a candidate forecast sequence, and the output probability distribution is explicitly conditioned on the ensemble forecast baseline and the extracted evidence to guide continuous numerical alignment. To make this refinement explicit, let ebase = y − ˆybase denote the baseline residual and let ∆θ = ˆ y − ˆybase denote the evidence-guided correction produced by the forecasting module. Then y − ˆy = ebase −∆θ ,and the change in squared error can be written as 
+
+∥ˆy − y∥22 − ∥ ˆybase − y∥22 = ∥∆θ ∥22 − 2⟨ebase , ∆θ ⟩.
+
+Hence, the refinement improves the ensemble forecast baseline whenever 2⟨ebase , ∆θ ⟩ > ∥∆θ ∥22. This condition shows that effective correction requires both residual-direction alignment and controlled correction magnitude, which motivates the combination of a reliable baseline, diagnostic evidence, and reward-guided refinement in CastFlow. Because θtuned is optimized specifically for forecasting, the module learns to interpret statistical constraints, temporal dynamics, residual cues, and retrieved procedural hints in a domain-adaptive manner. Consequently, the specialized reasoning process does not replace general-purpose reasoning, but builds directly on it during forecasting. Instead, it operationalizes the guidance pro-duced by the frozen modules into evidence-guided numerical refinement, enabling the final forecast to remain both logically grounded and quantitatively precise under the given evidence. 
+
+E. Workflow-Oriented Training 
+
+To train the specialized forecasting module for expert numerical reasoning, we adopt a workflow-oriented training strategy that progressively refines the model from behavioral imitation to autonomous precision alignment. This supervised fine-tuning (SFT)-then-reinforcement learning with verifiable rewards (RLVR) paradigm is essential for resolving the precision-reasoning dilemma. Relying solely on SFT restricts the model to mimicking the teacher’s behavior, fundamentally limiting its ability to explore the continuous numerical space for optimal accuracy. Conversely, applying RLVR directly from scratch often leads to severe format collapse and unstable exploration. Therefore, SFT serves to establish a reliable reasoning structure and protocol compliance, while the subse-quent RLVR phase pushes the model beyond simple imitation to explicitly maximize forecasting precision through trial-and-error during policy optimization. Formally, the training target can be viewed as trajectory-level policy optimization under the workflow-induced sequential decision process: 
+
+J(πθ ) = Eτ ∼πθ [R(τ )] ,
+
+where τ = ( s1, a 1, . . . , s M , a M ) denotes the full workflow trajectory. This objective emphasizes that CastFlow does not optimize an isolated forecast token or a single regression output alone; instead, it optimizes the trainable forecasting policy under the complete workflow trajectory that includes planning, evidence acquisition, refinement, and verification. 
+
+1) Supervised Fine-Tuning: The process begins with SFT to address the cold-start problem. We construct a high-quality dataset by extracting the optimal reasoning trajectories archived during the memory construction phase. Specifically, after building the memory module, we integrate it into the complete framework and execute the full workflow using a powerful teacher model, such as Grok 4. For each training instance, we capture the complete input context, including the ensemble forecast baseline and multi-view evidence, and pair it with the teacher model’s output, which comprises both the step-by-step reasoning trace and the final numerical answer. The response that yields the minimum error during parallel exploration is then selected to form the SFT training corpus. Fine-tuning the local model on this refined corpus minimizes the negative log-likelihood loss inline as LSF T =
+
+−E[P 
+
+> j
+
+log πθ (wj | w<j , Cexec )] , where wj represents the discrete generated tokens, ensuring that the agent masters the structural protocols required for subsequent RLVR while ac-quiring the foundational ability to accurately interpret domain-specific diagnostic signals. 
+
+2) Reinforcement Learning with Verifiable Rewards: Build-ing upon this foundation, we employ group relative policy optimization (GRPO), a critic-free RL algorithm, to transition the model toward maximizing forecasting precision. Unlike traditional proximal policy optimization that relies on a sep-arate value network, GRPO samples a group of outputs for IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 8                                                                                 
+
+> TABLE I SUMMARY OF THE BENCHMARK DATASETS FOR TIME SERIES FORECASTING . ”D IM ”DENOTES THE TOTAL NUMBER OF RECORDED COLUMNS ,
+> INCLUDING THE TIMESTAMP COLUMN ,WHILE THE FEATURE LIST REPORTS ONLY THE TARGET VARIABLE AND COVARIATES . T HE DATA SPLIT RATIO FOR ALL DATASETS IS STRICTLY SET TO 7:1:2 FOR TRAINING ,VALIDATION ,AND TESTING .Dataset Domain Frequency Dim LHStride Features (Target & Covariates) BE Electricity Market 1h 4168 24 48 Electricity price, Generation forecast, System load forecast DE Electricity Market 1h 4168 24 48 Electricity price, Wind power forecast, Amprion zonal load forecast NP Electricity Market 1h 4168 24 48 Electricity price, Grid load forecast, Wind power forecast FR Electricity Market 1h 4168 24 48 Electricity price, Generation forecast, System load forecast PJM Electricity Market 1h 4168 24 48 Electricity price, System load forecast, Zonal COMED load forecast ETTh Power Grid 1h 896 96 48 Oil temperature, High useful load, High useless load, Middle useful load, Middle useless load, Low useful load, Low useless load ETTm Power Grid 15min 896 96 96 WP Renewable Energy Generation 15min 896 96 96 Real power, Direct radiation, Wind direction 80m, Wind speed 80m, Temperature 2m, Relative humidity 2m, Precipitation SP Renewable Energy Generation 15min 896 96 96 MOPEX Streamflow 1day 696 96 48 Streamflow discharge, Mean areal precipitation, Climatic potential evaporation, Maximum air temperature, Minimum air temperature
+
+each prompt and estimates the baseline directly from these multiple rollouts. For a given set of sampled trajectories, it computes the normalized advantage inline as Ai = Ri−μR 
+
+> σR
+
+,where μR and σR represent the mean and standard deviation of the group rewards. This lightweight formulation significantly reduces memory overhead while incentivizing the agent to autonomously refine its logic paths beyond simple supervised imitation under verifiable groupwise relative reward signals across sampled reasoning trajectories. The optimization is driven by a composite reward mech-anism designed to strictly enforce structural validity while incentivizing the agent to outperform the ensemble forecast baseline. We formally define the reward function R(τ ) for a reasoning trajectory τ as a piecewise combination of format penalization and contrastive performance evaluation. Let V
+
+denote the set of structurally valid trajectories satisfying the required output format:          
+
+> R(τ) =
+> (−P violation ,τ / ∈ V ,Rabs (Lagent ) + Clip
+> 
+> λ·Lbase −L agent
+> ν,−δ, δ
+> 
+> ,τ∈ V .(8)
+
+where Pviolation represents a severe negative penalty applied immediately to trajectories outside V, such as JSON parsing failures or forecasting length mismatches. For structurally valid outputs, the final composite reward comprises an absolute utility function and a relative contrastive gain. The absolute term Rabs decays smoothly inline as Rabs (ϵ) = 1 − α sin 
+
+ πϵ 
+
+> 2γ
+
+
+
+for errors below a dataset-specific empirical upper bound γ,shifting to an exponential decay function for more severe deviations. The core innovation lies in designing the con-trastive relative term, which calculates the improvement of the agent error Lagent against the baseline error Lbase . By scaling this difference with a multiplier λ and a dataset-specific normalization factor ν, and clipping it within the strict boundary [−δ, δ ], the optimization landscape explicitly encourages the agent to actively leverage diagnostic evidence to rectify baseline lag or bias. This contrastive objective ensures that the specialized module learns to function as a true refinement engine, synthesizing semantic context to achieve numerical accuracy superior to pure extrapolation. V. E XPERIMENTS 
+
+In this section, we conduct a comprehensive evaluation of CastFlow across diverse forecasting benchmarks, comparing it against state-of-the-art baselines to demonstrate its effective-ness in both short-term and long-term scenarios. 
+
+A. Experimental Settings 1) Datasets: We evaluate our framework on a diverse set of real-world benchmarks covering varying horizons, multiple sampling frequencies, and complex contextual dependencies. A comprehensive summary of all datasets, including their dimensions, target variables, and specific configurations, is provided in Table I. For short-term forecasting, we employ five regional datasets from the EPF benchmark [57], specifically BE, DE, FR, NP, and PJM, each containing a target electricity price series and two market-specific exogenous forecast series. In the long-term setting, the widely used ETTh and ETTm datasets [58] are utilized to monitor transformer tempera-ture and load variations under different time granularities. To capture the dynamics of renewable energy generation, we adopt the Windy Power (WP) and Solar Power (SP) datasets [1], which align real power generation records with multi-dimensional meteorological conditions. Additionally, the MOPEX dataset [2] is included for streamflow forecasting, featuring streamflow series supported by climatic factors. For rigorous evaluation, all multivariate time series datasets are strictly split chronologically into training, validation, and testing sets with a consistent ratio of 7:1:2. 
+
+2) Baselines: To provide a comprehensive evaluation, we compare CastFlow against 21 representative baselines span-ning five distinct methodological paradigms, covering both conventional and emerging approaches, from classical fore-casting to recent reasoning-oriented frameworks under a uni-fied evaluation protocol: (1) statistical models: Prophet [59] and ARIMA [8]; (2) machine learning models: XGBoost [11] and LightGBM [12]; (3) deep learning forecasters: Auto-former [14], DLinear [15], PatchTST [16], iTransformer [17], TimeXer [57], and ConvTimeNet [18]; (4) foundation models: Chronos [19], TimesFM [20], and Sundial [21]; (5) large IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 9
+
+TABLE II MSE AND MAE RESULTS ON A COMPREHENSIVE BENCHMARK SUITE SPANNING ELECTRICITY MARKETS , POWER GRIDS , RENEWABLE ENERGY GENERATION , AND STREAMFLOW , EVALUATING BOTH SHORT - AND LONG -TERM HORIZONS . B EST RESULTS ARE BOLDED AND SECOND -BEST RESULTS ARE UNDERLINED , DEMONSTRATING THE MODEL ’S EFFECTIVENESS UNDER CROSS -DOMAIN JOINT TRAINING .Settings Short-term Forecasting Long-term Forecasting Dataset BE DE NP FR PJM ETTh ETTm WP SP MOPEX Metric MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE Prophet 992.90 16.94 320.63 13.25 57.79 5.00 1035.70 14.42 52.26 5.53 46.70 4.59 21.18 3.11 8071.24 56.06 64.81 6.44 12.40 2.50 ARIMA 869.14 17.04 372.91 11.82 55.51 4.45 964.00 13.22 33.02 4.00 10.88 2.43 2.71 1.17 2106.64 28.77 80.48 4.60 9.19 1.85 XGBoost 1344.39 16.44 227.01 10.21 28.31 3.24 1044.82 10.14 30.36 3.86 13.37 2.96 3.41 1.37 2384.63 37.99 33.85 3.50 6.91 1.68 LightGBM 1168.62 15.71 231.44 9.57 30.92 3.38 933.84 9.96 29.63 3.88 12.22 2.75 2.91 1.26 2290.27 34.81 29.50 2.80 9.63 1.84 Autoformer 891.02 16.62 331.37 13.33 46.11 4.86 934.55 13.37 77.59 6.43 11.60 2.64 4.23 1.57 2568.13 37.01 39.14 4.34 6.17 1.96 DLinear 658.66 12.84 239.98 12.84 32.22 3.84 811.62 10.45 42.16 4.65 8.51 2.24 2.63 1.14 1932.59 29.33 19.06 2.74 5.26 1.33 PatchTST 627.27 11.44 208.93 10.04 24.64 3.27 797.42 9.13 31.88 4.17 8.40 2.17 2.62 1.11 2270.10 32.47 19.44 2.78 5.36 1.44 iTransformer 606.71 11.25 230.05 10.23 27.10 3.44 940.51 11.10 35.14 4.37 8.31 2.14 3.14 1.28 2064.60 29.90 17.96 2.67 4.88 1.34 TimeXer 703.00 10.70 252.05 10.26 27.31 3.44 834.86 9.38 25.88 3.65 8.77 2.20 2.56 1.11 2170.25 31.92 20.12 2.92 4.83 1.28 ConvTimeNet 621.73 10.98 231.26 10.80 28.13 3.62 882.85 8.97 28.71 3.79 8.62 2.18 2.71 1.16 2081.37 28.52 23.22 3.10 5.07 1.29 Chronos 625.88 9.63 223.24 10.00 24.39 3.21 812.40 8.24 25.70 3.63 9.40 2.25 2.75 1.18 2269.43 29.63 79.28 4.57 5.29 1.31 TimesFM 784.98 10.92 219.57 9.98 25.11 3.20 870.17 8.84 33.99 4.14 9.20 2.26 2.78 1.15 2228.19 29.84 45.91 3.37 5.58 1.35 Sundial 651.50 11.00 264.72 10.71 28.68 3.36 942.46 8.54 30.72 3.99 9.44 2.32 3.21 1.24 2168.81 31.22 100.40 6.61 5.15 1.42 Time-LLM 729.68 11.88 253.97 10.85 33.05 3.71 936.46 11.51 35.84 4.32 8.04 2.08 2.57 1.13 2833.24 38.05 17.25 2.68 5.77 1.44 PromptCast 824.27 13.38 293.24 10.93 43.16 3.93 1105.16 14.42 47.62 5.58 9.46 2.82 4.25 1.60 2626.89 36.20 18.21 2.84 6.70 1.59 TokenCast 654.38 11.48 232.21 10.84 31.49 3.59 963.09 11.82 32.37 3.92 8.28 2.17 2.50 1.10 2521.39 34.29 18.13 2.74 5.52 1.39 S2IP-LLM 701.24 11.89 313.82 11.15 29.67 3.42 872.55 10.93 35.67 4.16 9.68 2.39 3.01 1.29 2497.38 33.13 18.46 2.96 6.29 1.58 TimeReasoner 691.28 11.62 272.19 10.77 31.27 3.62 899.47 11.01 34.38 4.22 9.14 2.18 4.04 1.57 2228.24 31.57 20.91 2.98 5.92 1.46 Time-R1 635.23 10.23 210.28 9.89 26.28 3.35 842.19 10.92 27.35 3.80 8.02 2.04 2.80 1.11 2054.88 30.13 17.42 2.67 5.83 1.35 TimeSeriesScientist 906.68 14.94 245.40 10.39 46.31 4.16 904.65 12.71 45.40 5.39 9.09 2.24 5.28 1.61 2551.19 33.59 25.82 3.14 5.60 1.42 AlphaCast 653.98 10.71 248.98 10.23 24.16 3.19 804.89 9.10 26.53 3.59 8.47 2.21 2.48 1.16 2131.02 30.22 18.89 2.80 5.19 1.43 CastFlow 546.87 9.60 200.47 9.50 23.92 3.11 707.96 8.16 27.45 3.74 8.00 2.03 2.36 1.04 1719.99 27.40 16.90 2.50 3.60 1.19 
+
+language model (LLM)-based and agentic frameworks: Time-LLM [23], PromptCast [22], TokenCast [44], S 2IP-LLM [31], TimeReasoner [25], Time-R1 [32], TimeSeriesScientist [28], and AlphaCast [29]. These baselines provide a solid basis for evaluating our method across diverse benchmarks. 
+
+3) Implementation Details: We utilize Grok 4 [60] as the frozen backbone model for general-purpose reasoning during both training and testing phases, which also facilitates experi-ence generation as a teacher model during memory construc-tion. Meanwhile, Qwen3-4B [52] is employed specifically as the trainable local LLM for specialized numerical forecasting, configured with a max completion length of 5,000 tokens. For computational consistency, each individual experiment is conducted on 2 NVIDIA A800 GPUs. We implement the training pipeline using the transformers Trainer [61] for the supervised stage and the Agent Lightning framework [62] for the reinforcement learning with verifiable rewards (RLVR) stage. The process consists of two phases: (1) supervised fine-tuning (SFT) with a learning rate of 5×10 −5 and batch size of 8, running for 1 epoch in cross-domain joint training; and (2) RLVR using group relative policy optimization (GRPO) [63] with a group size of G = 8 , temperature of 1.0, and learning rate of 2 × 10 −6. To ensure full policy adaptability, the KL penalty coefficient is set to β = 0 .0. The RLVR stage spans 3 epochs in cross-domain joint training. For evaluation, we set the lookback window L = 168 and horizon H = 24 for short-term tasks, while long-term tasks use L = 96 and H = 96 . All methods are evaluated using the same chronological splits, target variables, and forecasting horizons. For methods that support exogenous inputs, the same available covariates are provided; for target-only baselines, only the target series is used. We follow official implemen-tations or recommended configurations whenever available, including model-specific training schedules, early stopping, preprocessing, and prompt construction. Trainable baselines are fitted on the training split, while remaining hyperparame-ters and early-stopping criteria are selected on the validation split without test-set information. For prompt- or LLM-based baselines, contextual inputs are constructed according to their original protocols but restricted to the same available forecast-ing information, including the lookback window and supported covariates, without future observations or test labels. When model-specific preprocessing or normalization is applied, all reported metrics are computed after inverse transformation to the original target scale. CastFlow retains the original magnitude values in its forecasting context without explicit input-output normalization strategies such as RevIN [64]. 
+
+B. Main Results 
+
+The performance evaluation in Table II demonstrates that CastFlow achieves superior accuracy across the vast majority of benchmarks, exhibiting distinct advantages in different forecasting horizons. This result remains encouraging given the breadth of the comparison, which spans statistical, machine learning, deep learning, foundation, LLM-based, and agentic baselines across short- and long-term settings. In long-term scenarios, the framework achieves the best results across all five datasets, effectively mitigating the error accumulation that plagues traditional autoregressive models, with particu-larly notable gains on WP and MOPEX. In short-term tasks, CastFlow achieves the best results on 4 out of 5 datasets. By reformulating forecasting as a dynamic agentic forecast-ing framework, CastFlow effectively addresses the limitations of task-specific architectures like PatchTST and foundation IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 10                                                                                                        
+
+> TABLE III ABLATION STUDY OF CAST FLOW COMPONENTS . “ W/OTOOLKIT ”REMOVES EXTERNAL TOOLS ,EFFECTIVELY DISABLING THE DEPENDENT PLANNING MECHANISM ,AND RELIES SOLELY ON INTERNAL PARAMETRIC KNOWLEDGE ; “ W/OMEMORY ”REMOVES THE RETRIEVAL MECHANISM ACTING AS A TRAINING STABILIZER ; “ W/OREFLECTION ”EXCLUDES SELF -CORRECTION . F ULL MODEL ACHIEVES THE BEST OVERALL PERFORMANCE .Settings Short-term Forecasting Long-term Forecasting Metrics Variants BE DE NP FR PJM ETTh ETTm WP SP MOPEX MSE w/o Reflection 1027.76 394.83 38.64 801.89 45.06 35.97 20.51 5102.29 22.72 5.18 w/o Toolkit 836.24 358.33 31.21 724.87 42.33 23.71 17.68 3517.03 21.46 4.54 w/o Memory 551.54 204.54 24.67 712.30 28.30 8.45 2.41 1820.92 17.49 4.63 Full Model 546.87 200.47 23.92 707.96 27.45 8.00 2.36 1719.99 16.90 3.60
+> MAE w/o Reflection 15.35 12.44 4.07 10.55 5.47 6.62 4.27 43.48 3.85 1.79 w/o Toolkit 13.53 11.50 3.62 9.46 4.77 3.55 2.86 37.52 2.96 1.36 w/o Memory 9.62 9.77 3.14 8.22 3.79 2.18 1.08 28.69 2.55 1.38 Full Model 9.60 9.50 3.11 8.16 3.74 2.03 1.04 27.40 2.50 1.20
+
+models such as Sundial. While conventional models focus on mapping sequences through static one-step function ap-proximation, CastFlow’s iterative planning and action allow it to adaptively navigate diverse data characteristics. Regarding the suboptimal performance on PJM, where CastFlow trails slightly behind strong baselines such as Chronos, TimeXer, and AlphaCast, we attribute this gap to two primary factors. First, our cross-domain joint training prioritizes distilling generalized reasoning rules over overfitting the specific high-frequency volatilities inherent to PJM. Second, specific dataset characteristics, such as the ambiguous correlation between PJM’s exogenous variables and forecasting targets, limit the efficacy of the multi-view toolkit’s adjustment strategies com-pared to strong baselines like TimeXer and Chronos. Despite this local trade-off, CastFlow provides a more robust alternative to existing agentic forecasting frameworks. Unlike AlphaCast or TimeReasoner, which rely on direct LLM invocations for numerical generation, CastFlow integrates a reinforcement-learned decision module that optimizes the rea-soning trajectory. This approach overcomes the numerical limitations of LLMs by employing an evidence-guided re-finement mechanism based on an ensemble forecast baseline, where the agent acts as a reasoning layer over a reliable ensemble forecast baseline established by the foundational anchorer. Through workflow-oriented RLVR, the agent learns to utilize the multi-view toolkit and retrieve experience from the strategy memory, ensuring that improvements are driven by traceable evidence under complex temporal shifts rather than mere memorization of local patterns. 
+
+C. Ablation Studies 1) Component Ablation: To evaluate the contribution of each core component in CastFlow, we conduct a compre-hensive ablation study across diverse energy and streamflow benchmarks. The results in Table III show that the full model consistently achieves the highest forecasting accuracy on both mean squared error (MSE) and mean absolute error (MAE), validating the essential synergy between the multi-view toolkit, strategy memory, and self-correction. The most substantial performance degradation occurs when the reflective validation mechanism is removed. Fundamentally, without the structural safeguard of iterative self-correction, the agent occasionally produces formatting inconsistencies or sequence length mis-matches. To maintain pipeline continuity, such violations inevitably trigger naive fallback mechanisms, such as mean imputation, to fill empty forecasting windows, which lead to severe numerical error spikes. This is particularly evident in the MSE metric for complex and volatile scenarios like the WP and BE datasets, where these fallbacks cause catastrophic deviations. Secondarily, the absence of reflection also hinders the dynamic refinement of tool scheduling and compromises the overall quality of strategy memory construction. Further-more, excluding the multi-view toolkit forces the framework to rely solely on internal parametric knowledge. This limitation prevents the agent from grounding its reasoning in diagnostic evidence such as trend analysis and the ensemble forecast baseline, visibly reducing overall precision in both absolute and squared errors. Finally, omitting the strategy memory removes a critical stabilizer providing distilled historical strate-gies, resulting in suboptimal reasoning behaviors and increased MAE across all observed forecasting horizons. This pattern underscores their complementary contributions to forecasting. 
+
+2) Multi-View Toolkit Category Ablation: To investigate the granular contributions of specific tool clusters within the multi-view toolkit, we categorize the individual tools into four functional modules based on their diagnostic objectives: the foundational anchorer, the statistical and spectral profiler, the dynamics monitor, and the residual diagnoser. We conduct a leave-one-category-out ablation study across all benchmark datasets, with the comprehensive results presented in Table IV. The evaluation demonstrates that the foundational anchorer is arguably the most critical component. Omitting this module, which is responsible for retrieving and synthesizing the ensem-ble forecast baseline from historical models, triggers the most severe performance degradation across nearly all datasets. This substantial drop underscores the absolute necessity of establishing a reliable ensemble forecast baseline to ground the agent’s subsequent evidence-guided refinement. The toolkit ablation results further show that the full model achieves optimal performance on the vast majority of datasets, validating the synergistic design of the toolkit. Together with the anchorer, the profiler, monitor, and diagnoser collabora-tively provide multi-dimensional diagnostic signals, enabling the specialized forecasting module to effectively rectify biases IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 11 
+
+TABLE IV ABLATION STUDY OF THE MULTI -V IEW TOOLKIT CATEGORIES . T HE EVALUATION CONFIRMS THE CRITICAL ROLE OF THE FOUNDATIONAL ANCHORER AND THE SYNERGISTIC EFFECTIVENESS OF THE COMPLETE TOOLKIT . B EST RESULTS ARE HIGHLIGHTED IN BOLD .Settings Short-term Forecasting Long-term Forecasting Metrics Variants BE DE NP FR PJM ETTh ETTm WP SP MOPEX MSE w/o Anchorer 697.35 270.36 28.50 786.70 47.89 17.30 3.53 2718.42 20.17 5.67 w/o Profiler 548.56 201.87 24.16 675.67 28.15 7.88 2.33 1821.36 17.42 4.69 w/o Monitor 547.23 200.90 24.66 695.90 28.57 7.90 2.43 1890.65 19.38 4.52 w/o Diagnoser 553.86 201.67 24.48 710.00 28.18 8.08 2.38 1805.12 17.49 4.54 Full Model 546.87 200.47 23.92 707.96 27.45 8.00 2.36 1719.99 16.90 3.60 
+
+MAE w/o Anchorer 13.37 11.16 3.53 10.55 4.85 3.00 1.36 35.05 2.62 1.35 w/o Profiler 9.60 9.68 3.11 7.59 3.78 2.03 1.05 28.40 2.51 1.37 w/o Monitor 9.62 9.66 3.15 7.88 3.82 2.04 1.08 28.96 2.45 1.36 w/o Diagnoser 9.68 9.69 3.12 8.20 3.78 2.07 1.06 28.39 2.53 1.36 Full Model 9.60 9.50 3.11 8.16 3.74 2.03 1.04 27.40 2.50 1.19 MAE              
+
+> 10.0
+> 9.5
+> 2.50
+> 2.25
+> 2.00 BE DE ETTh SP
+> w/o RLVR w/o SFT Full Model
+> Datasets
+> MSE
+> 28.0
+> 25.0
+> 4.00
+> 3.00
+> 2.00 NP PJM ETTm MOPEX
+> Datasets
+
+Fig. 3. Effectiveness of the two-stage workflow-oriented training. We compare the performance of the full model against variants without SFT and without RLVR across both MAE and MSE evaluations. 
+
+and capture complex, non-stationary dynamics. Interestingly, on specific datasets such as FR and ETTh, we observe that ablating the profiler or the monitor occasionally yields marginally lower MSE compared to the complete toolkit. We attribute this phenomenon to the inherent trade-offs of agentic reasoning: in certain specialized scenarios, highly compre-hensive diagnostic signals may introduce minor informational noise or conflicting semantic constraints, causing the agent to deviate slightly from a simpler adjustment path. Nevertheless, these localized variations highlight domain-specific charac-teristics rather than a structural flaw. The complete toolkit consistently prevents the substantial performance degradation observed when core modules are missing, ensuring CastFlow maintains robust, generalized performance. 
+
+3) Training Strategy Ablation: As illustrated in Fig. 3, the effectiveness of our two-stage workflow-oriented training is clearly evidenced by the superior performance of the full model compared to variants omitting SFT or RLVR across both MAE and MSE evaluations. Integrated training con-sistently achieves the lowest error rates across all evaluated domains, confirming that both phases are indispensable for robust forecasting. The noticeable decrease in precision when SFT is absent highlights its foundational role in establishing domain-specific knowledge and ensuring the model accurately interprets time series semantics. Even more pronounced is the performance degradation following RLVR removal, which triggers substantial increases in both MSE and MAE, thereby validating this reinforcement stage as the core mechanism for NP     
+
+> BE
+> DE
+> FR
+> PJM
+> MOPEX
+> WP
+> SP
+> ETTh
+> ETTm
+> 1.0x
+> 1.25x
+> 1.5x NP
+> BE
+> DE
+> FR
+> PJM
+> MOPEX
+> WP
+> SP
+> ETTh
+> ETTm
+> 1.0x
+> 1.4x
+> 1.8x
+> 2.2x
+> (a) Normalized MAE (b) Normalized MSE
+> LLM Agent Only Anchorer Only CastFlow (Collaborative)
+
+Fig. 4. Comparative analysis of forecasting performance across different model configurations, normalized against the full CastFlow framework. (a) Normalized MAE and (b) Normalized MSE. The radar charts illustrate that the reasoning agent alone exhibits severe precision deficits (outermost dashed line), while the collaborative architecture consistently achieves superior accu-racy across all error metrics and datasets. 
+
+developing sophisticated, high-precision refinement strategies. Through GRPO, the agent learns to optimize its reasoning trajectory based on continuous performance feedback. This dynamic process enables the framework to successfully bridge the gap between initial statistical estimates and precise final numerical forecasting, while effectively overcoming the pre-cision limitations typical of zero-shot generation. 
+
+D. Model Architecture and Backbone Analysis 1) Impact of Reasoning Backbones and Collaborative Ar-chitecture: To investigate the distinct capabilities of different model scales and validate the necessity of our collaborative framework, we evaluate three specific configurations across all benchmarks: (1) LLM Agent Only, where Grok 4 agentically utilizes the diagnostic toolkit but relies on its own generative capabilities for numerical forecasting without an ensemble forecast baseline; (2) Anchorer Only, which bypasses the agentic planning phase and extracts forecasting directly from an ensemble of specialized time series architectures; and (3) CastFlow, our complete collaborative framework synthesizing semantic reasoning with specialized numerical refinement. As illustrated in Fig. 4, normalized MAE and MSE comparisons IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 12 1.7B 4B 8B   
+
+> Model Parameters
+> 0.96
+> 0.98
+> 1.00
+> 1.02
+> 1.04
+> Average Normalized MSE
+> NP
+> BE
+> DE
+> FR
+> PJM
+> MOPEX
+> WP
+> SP
+> ETTh
+> ETTm
+> Qwen3-1.7B
+> Qwen3-4B
+> Qwen3-8B
+> Llama-3.2-3B
+> Mistral-7B 1.00
+> 1.02
+> 1.04
+> 1.06
+> 1.08
+> 1.10
+> Normalized MSE (vs Qwen3-4B)
+> (a) Scaling Law in Qwen3 Family (b) Cross-Family Performance Heatmap
+
+Fig. 5. Performance comparison of different local base models optimized within the CastFlow framework. (a) Scaling dynamics within the Qwen3 fam-ily, showing that scaling beyond 4B parameters yields diminishing returns. (b) Cross-family heatmap illustrating the normalized MSE of various foundation models against Qwen3-4B, highlighting the consistent stability of the chosen backbone across heterogeneous datasets. 
+
+reveal a stark contrast in capabilities. The LLM Agent Only configuration consistently exhibits the highest error rates, pushing the boundary toward the outermost edges of the radar charts. This performance gap underscores the inherent difficulties LLMs face when performing high-precision con-tinuous numerical regression, even when augmented with rich text-based diagnostic evidence. While functioning effectively as semantic planners, they fundamentally struggle with fine-grained numerical execution. Conversely, the Anchorer Only configuration provides a highly competitive and robust baseline. By aggregating diverse forecasting architectures ranging from classical statistical fore-casting methods to modern sequence models, it establishes a reliable prior. However, operating without the reflective and strategic tool use capabilities of the reasoning agent, it lacks the contextual adaptability required to anticipate sudden regime shifts or complex exogenous impacts, resulting in higher errors on volatile datasets such as PJM and WP. This comparison separates the contribution of the ensemble forecast baseline from that of the collaborative workflow, showing that the baseline alone remains competitive but is insufficient to match the full framework under dynamic temporal varia-tions. Ultimately, the collaborative architecture of CastFlow bridges this gap, achieving the lowest error rates across all evaluated domains. By delegating ensemble forecast baseline construction to the foundational anchorer and constraining the generalist reasoning model to conduct evidence-based trajectory refinement, the framework alleviates the zero-shot numerical limitations of LLMs. This synergistic effect sug-gests that strategically coupling a reasoning backbone with a numerical execution module provides a more precise and robust paradigm for time series forecasting than relying on single-model architectures alone. 
+
+2) Impact of Local Base Models: To justify the selection of the local execution backbone and evaluate the scalabil-ity of our two-stage workflow-oriented training, we conduct a comprehensive comparison across diverse locally trained base models. Specifically, we strictly control the experimental variables by employing the identical frozen Grok 4 as the reasoning agent, while substituting the trainable numerical module. The evaluation spans the Qwen3 family (1.7B, 4B, 8B) to assess internal scaling laws, alongside leading open-source alternatives in the 3B to 7B parameter classes, including MAE            
+
+> 10.5
+> 9.5
+> 3.0
+> 2.5
+> 2.0
+> Qwen3-4B (Train ing -Free)
+> 10.0
+> Grok 4(Train ing -Free) Qwen3-4B (Fine-Tuned)
+> BE DE ETTh SP
+> Datasets
+> MSE
+> 26.5
+> 24.5
+> 4.5
+> 2.9
+> 2.3
+> 25.5
+> NP PJM ETT mMOPEX
+> Datasets
+
+Fig. 6. Impact of training states. Comparative analysis of forecasting error (MAE and MSE). The fine-tuned Qwen3-4B consistently outperforms both its training-free counterpart and the larger proprietary Grok 4 model. 
+
+Llama-3.2-3B and Mistral-7B. As illustrated in Fig. 5(a), analyzing the scaling dynamics within the Qwen3 architecture under controlled changes in model capacity reveals a distinct performance plateau. Transitioning from the 1.7B to the 4B parameter model yields a substantial and uniform reduction in forecasting error across all ten benchmarks, confirming that sufficient parametric capacity is essential for effectively internalizing the diagnostic evidence provided by the multi-view toolkit. However, beyond this point, scaling further to the 8B model produces only marginal overall aggregate gains. Notably, on specific datasets such as DE and ETTh, the 8B variant even underperforms the 4B model. We attribute this to the phenomenon of representation overfitting during the RLVR phase, where larger parameter spaces may inadvertently over-optimize on localized training rewards at the expense of generalized robustness. Considering the substantial increase in computational overhead and training duration associated with the 8B model, Qwen3-4B is selected as the practical local backbone, offering a favorable balance between reasoning precision and deployment efficiency. Furthermore, the cross-family performance heatmap in Fig. 5(b) validates the architectural choice among comparable open-source models. While counterparts like Llama-3.2-3B and Mistral-7B exhibit competitive capabilities, occasionally achieving slight margins on specific electricity datasets like BE or DE, they lack cross-domain consistency. Qwen3-4B demon-strates superior stability, maintaining consistently low relative error rates across highly heterogeneous domains, from high-frequency electricity pricing to low-frequency streamflow. This robust generalization ability ensures that our collaborative framework is not rigidly bound to a single data distribution, establishing Qwen3-4B as the most reliable local forecasting backbone for universal time series forecasting. 
+
+3) Impact of Training States: Having established the ef-ficacy of Qwen3-4B as the optimal local backbone within our collaborative architecture, we further investigate how its training state influences forecasting precision compared to a training-free generalist model. We compare our fine-tuned model against its training-free version and a proprietary model as illustrated in Fig. 6. In a training-free setting, the proprietary Grok 4 model exhibits superior accuracy across benchmarks like BE and SP compared to the base Qwen3-4B. This suggests that vast parameter scales provide a more reliable baseline for zero-shot reasoning. However, proprietary models still struggle with precise forecasting without specialized adaptation. Sig-IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 13 Ground Tru th Ensemble Baseline CastFlow(Training-Free) CastFlow(Fine-Tuned)          
+
+> Fig. 7. Qualitative comparison of forecasting trajectories across different optimization stages. The progression from the ensemble baseline to the fine-tuned CastFlow model demonstrates the systematic correction of temporal lag, smoothing bias, and extreme value alignment. MAE
+> MAE
+> BE DE ETTh SP
+> Datasets
+> (b)
+> MSE
+> MSE
+> NP PJM ETTm MOPEX
+> Datasets
+> (a)
+> Fig. 8. Evaluation of strategy memory mechanisms. (a) Impact of memory update strategies, highlighting the precision of the append approach over merging. (b) Sensitivity of forecasting performance to the memory retrieval scale K.
+
+nificantly, targeted training under the same workflow-oriented setting can surpass this gap. Following our two-stage training, the trained Qwen3-4B consistently outperforms the training-free proprietary model across all plotted datasets. Notable gains occur in complex energy datasets where the trained small model achieves lower error rates. This reversal underscores that domain-specific RLVR is more critical for precision in capturing temporal dynamics and non-stationary shifts than raw model size. These findings validate that our framework distills expertise into a compact backbone, enabling it to transcend larger generalist models. 
+
+4) Forecasting Trajectory Dynamics: To intuitively illus-trate the progressive enhancement achieved by our framework, Fig. 7 presents a qualitative visualization of forecasting trajec-tories across different optimization stages. The ensemble base-line typically captures the macroscopic temporal trends but fre-quently exhibits smoothing bias and systematic lag, struggling to map sharp turning points or extreme volatility. By introduc-ing the generalist reasoning agent, the training-free CastFlow configuration successfully applies semantic diagnostic signals to rectify these initial deviations, significantly pulling the trajectory closer to the ground truth. It effectively corrects directional delays and amplifies peak magnitudes. However, restricted by the inherent constraints of zero-shot numerical generation, it occasionally leaves minor localized residuals and struggles with precise phase alignment. Ultimately, the fine-tuned CastFlow model bridges this final precision gap. Through targeted RLVR, the specialized backbone learns to tightly wrap the forecasting around the ground truth, accurately fitting high-frequency fluctuations and extreme values while successfully eliminating residual phase shifts, thereby ensuring strict temporal fidelity even across highly volatile forecasting windows. This visual progression confirms that while semantic reasoning establishes a correct directional adjustment, domain-specific local fine-tuning is indispensable for achieving struc-tural alignment and high numerical precision under rapidly evolving real-world temporal conditions. 
+
+E. Strategy Memory Mechanisms 1) Impact of Memory Update Strategies: To evaluate agen-tic memory evolution, we investigate two update mechanisms: the merge strategy and the append strategy. As illustrated in Fig. 8(a), several insights regarding memory maintenance emerge. The results demonstrate the append strategy consis-tently outperforms the merge strategy, particularly in short-term tasks like BE and DE. By adding successful trajectories as discrete entries rather than fusing them with existing medoids, the append strategy effectively preserves the diversity of refined experiences. In contrast, the merge strategy exhibits higher error rates, suggesting that merging distinct temporal patterns blurs domain-specific procedural memory and reduces retrieval accuracy. Furthermore, the performance gap is more pronounced in high-volatility datasets, whereas results remain comparable in stable scenarios. This indicates that incremen-tally adding new patterns is crucial for capturing complex non-stationary time series dynamics. 
+
+2) Sensitivity of Memory Retrieval Scale: To investigate the impact of historical context on reasoning, we conduct a sensi-tivity analysis on the retrieval parameter K ∈ { 1, 3, 5, 7}. As illustrated in Fig. 8(b), the influence of retrieved memories on forecasting is highly dataset-dependent. For volatile datasets like BE and SP, MSE remains remarkably consistent across different retrieval scales. This stability suggests that a minimal set of high-quality refined experiences suffices to guide agentic refinement without further context altering decision logic. In contrast, other benchmarks exhibit a distinct non-linear relationship. These datasets show initial gains as K increases, indicating that referencing more historical trajectories allows the backbone to better triangulate stable corrective actions. However, beyond a certain threshold, gains plateau or show marginal degradation. This reversal suggests that while suffi-cient context is necessary, excessive information can introduce redundant noise that complicates reasoning. Consequently, we adopt a balanced retrieval scale to ensure robust performance while maintaining runtime efficiency. IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 14 The agent is initialized with a high-precision forecasting task for the Belgium Electricity Market (BE) dataset . The input consists 
+
+of a 168-hour historical sequence with a 1-hour resolution. The objective is to generate a rigorous 24-hour forecast that maintains 
+
+the statistical properties of the series while adapting to real-time market fluctuations .
+
+Rather than relying on raw generation, the agent consults its memory ,
+
+retrieving several medoids of successful past interventions to select 
+
+and prioritize the appropriate diagnostic toolset for specific context .
+
+Tool 1: Model Auxiliary Tool 
+
+The tool establishes a high-quality 
+
+ensemble forecast baseline. 
+
+Tool 2: Exogenous Analysis Tool 
+
+The tool identifies correlations with 
+
+Generation and System Load. 
+
+Tool 3: Event Summary Tool 
+
+The tool verifies a ris ing patter n
+
+to enforce macro-trend constraints. 
+
+Tool 4: Cross-Channel Tool 
+
+The tool detects lead-lag effects for 
+
+preemptive bias correction. 
+
+Task Specification 
+
+Memory 
+
+Bias Correction: Applies a +0.8 residual correction to 
+
+midday peaks to align with abnormal load forecasts. 
+
+Lag Compensation: Implements a +0.3 early boost to 
+
+synchronize the signal following 0.67-step lead. 
+
+Result: The final forecast closely matches the ground 
+
+truth by bridging statistical priors and dynamic shifts. 
+
+Agentic Reasoning Trace 
+
+Refinement Logic : The LLM fuses memory with diagnostics 
+
+to rectify systematic errors :
+
+Fig. 9. Case study of CastFlow on the BE dataset. CastFlow uses memory to orchestrate the multi-view toolkit and establish an ensemble forecast baseline. Its reasoning trace applies peak and lag adjustments to align priors with real-world shifts. TABLE V PERFORMANCE COMPARISON OF DIFFERENT CONTRASTIVE REWARD DESIGNS . T HE HYBRID MSE REWARD CONSISTENTLY ACHIEVES THE BEST PERFORMANCE . B EST RESULTS ARE HIGHLIGHTED IN BOLD .Reward Design BE DE SP ETTh MSE MAE MSE MAE MSE MAE MSE MAE Absolute MSE 549.38 9.68 201.54 9.49 17.26 2.52 8.09 2.08 Relative MSE 551.78 9.61 202.85 9.54 17.07 2.52 8.10 2.08 Hybrid MSE 546.87 9.60 200.47 9.50 16.90 2.50 8.00 2.03         
+
+> Absolute MAE 552.55 9.62 205.13 9.80 17.19 2.52 8.02 2.08
+
+F. Optimization Dynamics and Reward Formulation 1) Impact of Reward Function: The contrastive reward design is pivotal for guiding the agent toward meaningful forecasting refinements. As shown in Table V, the hybrid formulation integrating absolute and relative MSE achieves the best overall performance on the evaluated datasets. This design provides a comprehensive optimization signal: the absolute component guarantees a solid lower bound for general forecasting accuracy, while the relative component explicitly forces the agent to leverage multi-view diagnostic evidence to surpass the ensemble forecast baseline. In contrast, relying on either absolute or relative MSE alone leads to suboptimal re-sults, failing to balance global error magnitude with the utility of agent interventions. Furthermore, using absolute MAE as the primary reward signal generally results in the highest error rates. This indicates that MSE-based formulations are more effective at penalizing large deviations and guiding the RLVR agent toward statistically rigorous outcomes characterized by superior numerical stability and forecasting precision. 
+
+2) Convergence Analysis: The optimization progression under GRPO is shown in Fig. 10. The training reward exhibits a steady upward trend, with rapid initial ascent followed by a stable plateau. This trajectory confirms that the policy explores the action space to prioritize reasoning paths with higher forecasting accuracy. Such convergence suggests that the contrastive reward mechanism provides a directional signal, 100 200 300 400 500     
+
+> Steps
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> Training Reward
+> Reward
+> 100 200 300 400 500
+> Steps
+> 1500
+> 2000
+> 2500
+> 3000
+> Response Length
+> Length
+
+Fig. 10. Optimization process under GRPO. Rising reward and bounded response-length fluctuations demonstrate that performance gains stem from improved quality rather than verbosity. 
+
+guiding the agent to transition from basic imitation to com-plex interaction-driven refinement strategies. Significantly, the average response length initially expands as the agent learns to formulate comprehensive reasoning chains, subsequently tran-sitioning into dynamic fluctuations within a bounded range. This two-phase evolution indicates that the agent first masters the diagnostic protocols, and then dynamically adapts its reasoning steps to varying sequence complexities, successfully avoiding the trap of reward hacking through meaningless verbosity. Instead, performance gains stem from qualitative improvements, where the agent generates targeted, evidence-based refinements to rectify systematic biases. The decoupling of monotonic reward growth from response length validates that our optimization yields compact and informative reason-ing traces, ensuring runtime computational overhead remains controlled while maximizing overall forecasting precision. 
+
+G. Case Study 
+
+Fig. 9 illustrates CastFlow’s internal reasoning logic for a forecasting task on the BE dataset, using a 168-hour input window and a 24-hour forecast horizon. The resulting forecast preserves the statistical properties of the series while adapting to short-term market fluctuations. By leveraging memory, the agent moves beyond direct generation and retrieves successful IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 15  
+
+> Fig. 11. Tool usage heatmap across diverse datasets, showing the activation frequency of tools across benchmarks.
+
+historical interventions to strategically prioritize a specialized multi-view toolkit. Following a step-by-step reasoning trace, the framework first establishes a dependable ensemble forecast baseline using the model auxiliary tool . It then synthesizes multi-source evidence by invoking the exogenous analysis tool 
+
+to identify correlations with generation and system load, the 
+
+event summary tool to verify the rising macro-trend pattern, and the cross-channel tool to detect lead-lag dependencies. Guided by these comprehensive diagnostics, the agent applies targeted qualitative refinements, including corrective boosts to midday peaks and early shifts for synchronization. In the displayed case, these refinements correspond to a +0 .8 correc-tion around abnormal midday load patterns and a +0 .3 early adjustment following a detected 0.67 -step lead. This evidence-driven process effectively counteracts the smoothing bias and temporal lag typical of autoregressive models, enabling the final trajectory to better track the ground truth while remaining grounded in interpretable diagnostic evidence. To analyze tool use behavior under cross-domain joint training, Fig. 11 presents the tool usage heatmap during the training phase across diverse datasets. Notably, this visualiza-tion displays only nine of the eleven available tools. The model auxiliary tool and the exogenous analysis tool are excluded from this frequency distribution because they function as mandatory components executed uniformly across all instances to compute the ensemble forecast baseline and process essen-tial external covariates, respectively. Examining the dynami-cally selected tools, we observe that volatility-heavy datasets, such as BE, exhibit a higher overall frequency of invocations because the agent must manage frequent market fluctuations through intensified diagnostics like the basic statistics tool and the changepoint trend tool . Regarding the multi-view toolkit itself, universal tools like the comprehensive feature tool and the trend analysis tool are used most frequently, especially on DE and BE datasets, as they establish a necessary statistical foundation for all forecasting domains. In contrast, semantic tools like the event summary tool are invoked less frequently because they are activated only when macro-trend constraints are required to verify dominant patterns. Ultimately, this dual-layer approach allows CastFlow to bridge the gap between generalized priors and specialized real-world time series dy-namics across diverse forecasting datasets. VI. C ONCLUSION 
+
+In this work, we present CastFlow, a dynamic agentic forecasting framework designed to address the tension be-tween general-purpose reasoning and specialized numerical forecasting by reformulating time series forecasting from static one-shot generation into a dynamic, evidence-guided decision process through a structured workflow. By leveraging a role-specialized design that assigns complementary roles to general-purpose reasoning and specialized numerical forecast-ing, CastFlow enables the framework to orchestrate diagnostic tools and perform evidence-guided numerical forecasting using retrieved strategies and multi-view evidence provided by the memory module and toolkit. Our workflow-oriented training further equips the specialized forecasting LLM to refine the en-semble forecast baseline using multi-view diagnostic evidence. Extensive evaluations across diverse benchmarks demonstrate that CastFlow achieves superior overall results against strong baselines. These findings suggest that modeling forecasting as an agentic process with role-specialized reasoning and workflow-oriented training provides an effective and adaptive alternative to conventional model-centric formulations. REFERENCES [1] iFLYTEK AI Challenge, “2025 iflytek renewable power forecasting challenge (wind and solar),” https://challenge.xfyun.cn/topic/info?type= renewable-power-forecast&option=ssgy&ch=dwsf259, 2025, accessed: Apr. 30, 2026. [2] J. Schaake, S. Cong, and Q. Duan, “US MOPEX data set,” Lawrence Livermore National Laboratory, Livermore, CA, USA, Tech. Rep., 2006. [3] M. Cheng, Z. Liu, X. Tao, Q. Liu, J. Zhang, T. Pan, S. Zhang, P. He, X. Zhang, D. Wang et al. , “A comprehensive survey of time series forecasting: Concepts, challenges, and future directions,” TechRxiv ,2025. [Online]. Available: https://doi.org/10.36227/techrxiv.174430535. 53879341/v1 [4] X. Qiu, J. Hu, L. Zhou, X. Wu, J. Du, B. Zhang, C. Guo, A. Zhou, C. S. Jensen, Z. Sheng, and B. Yang, “TFB: Towards comprehensive and fair benchmarking of time series forecasting methods,” Proceedings of the VLDB Endowment , vol. 17, no. 9, pp. 2363–2377, 2024. [5] Y. Wang, H. Wu, J. Dong, Y. Liu, M. Long, and J. Wang, “Deep time series models: A comprehensive survey and benchmark,”                            
+
+> arXiv preprint arXiv:2407.13278 ,2024. [Online]. Available: https: //arxiv.org/abs/2407.13278 [6] Y. Li, R. Yu, C. Shahabi, and Y. Liu, “Diffusion convolutional recurrent neural network: Data-driven traffic forecasting,” in International Conference on Learning Representations , 2018. [Online]. Available: https://openreview.net/forum?id=SJiHXGWAZ [7] K. Benidis, S. S. Rangapuram, V. Flunkert, Y. Wang, D. C. Maddix, C. Turkmen, J. Gasthaus, M. Bohlke-Schneider, D. Salinas, L. Stella
+> et al. , “Deep learning for time series forecasting: Tutorial and literature survey,” ACM Computing Surveys , vol. 55, no. 6, pp. 1–36, 2022. [8] R. J. Hyndman and Y. Khandakar, “Automatic time series forecasting: The forecast package for R,” Journal of Statistical Software , vol. 27, no. 3, pp. 1–22, 2008. [9] J. Gardner, Everette S., “Exponential smoothing: The state of the art,”
+> Journal of Forecasting , vol. 4, no. 1, pp. 1–28, 1985. [10] N. I. Sapankevych and R. Sankar, “Time series prediction using support vector machines: A survey,” IEEE Computational Intelligence Magazine ,vol. 4, no. 2, pp. 24–38, 2009. [11] T. Chen and C. Guestrin, “XGBoost: A scalable tree boosting system,” in Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining , 2016, pp. 785–794. [12] G. Ke, Q. Meng, T. Finley, T. Wang, W. Chen, W. Ma, Q. Ye, and T.-Y. Liu, “LightGBM: A highly efficient gradient boosting decision tree,” in
+> Advances in Neural Information Processing Systems , vol. 30, 2017. [13] G. Bontempi, S. Ben Taieb, and Y.-A. Le Borgne, “Machine learning strategies for time series forecasting,” in Business Intelligence: Second European Summer School, eBISS 2012, Brussels, Belgium, July 15– 21, 2012, Tutorial Lectures , ser. Lecture Notes in Business Information Processing. Springer, 2013, vol. 138, pp. 62–77. IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 16
+
+[14] H. Wu, J. Xu, J. Wang, and M. Long, “Autoformer: Decomposition transformers with auto-correlation for long-term series forecasting,” in 
+
+Advances in Neural Information Processing Systems , vol. 34, 2021, pp. 22 419–22 430. [15] A. Zeng, M. Chen, L. Zhang, and Q. Xu, “Are transformers effective for time series forecasting?” in Proceedings of the AAAI Conference on Artificial Intelligence , vol. 37, no. 9, 2023, pp. 11 121–11 128. [16] Y. Nie, N. H. Nguyen, P. Sinthong, and J. Kalagnanam, “A time series is worth 64 words: Long-term forecasting with transformers,” in 
+
+International Conference on Learning Representations , 2023. [Online]. Available: https://openreview.net/forum?id=Jbdc0vTOcol [17] Y. Liu, T. Hu, H. Zhang, H. Wu, S. Wang, L. Ma, and M. Long, “iTransformer: Inverted transformers are effective for time series forecasting,” in International Conference on Learning Representations ,2024. [Online]. Available: https://openreview.net/forum?id=JePfAI8fah [18] M. Cheng, J. Yang, T. Pan, Q. Liu, Z. Li, and S. Wang, “ConvTimeNet: A deep hierarchical fully convolutional model for multivariate time series analysis,” in Companion Proceedings of the ACM on Web Conference 2025 , 2025, pp. 171–180. [19] A. F. Ansari, L. Stella, C. Turkmen, X. Zhang, P. Mercado, H. Shen, O. Shchur, S. S. Rangapuram, S. P. Arango, S. Kapoor, J. Zschiegner, D. C. Maddix, H. Wang, M. W. Mahoney, K. Torkkola, A. G. Wilson, M. Bohlke-Schneider, and Y. Wang, “Chronos: Learning the language of time series,” Transactions on Machine Learning Research , 2024. [Online]. Available: https://openreview.net/forum?id=gerNCVqqtR [20] A. Das, W. Kong, R. Sen, and Y. Zhou, “A decoder-only foundation model for time-series forecasting,” in Proceedings of the 41st International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 235. PMLR, 2024, pp. 10 148–10 167. [Online]. Available: https://proceedings.mlr.press/v235/das24c.html [21] Y. Liu, G. Qin, Z. Shi, Z. Chen, C. Yang, X. Huang, J. Wang, and M. Long, “Sundial: A family of highly capable time series foundation models,” in Proceedings of the 42nd International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 267. PMLR, 2025, pp. 39 295–39 317. [Online]. Available: https://proceedings.mlr.press/v267/liu25be.html [22] H. Xue and F. D. Salim, “PromptCast: A new prompt-based learning paradigm for time series forecasting,” IEEE Transactions on Knowledge and Data Engineering , vol. 36, no. 11, pp. 6851–6864, 2024. [23] M. Jin, S. Wang, L. Ma, Z. Chu, J. Y. Zhang, X. Shi, P.-Y. Chen, Y. Liang, Y.-F. Li, S. Pan, and Q. Wen, “Time-LLM: Time series forecasting by reprogramming large language models,” in International Conference on Learning Representations , 2024. [Online]. Available: https://openreview.net/forum?id=Unb5CVPtae [24] D. Cao, F. Jia, S. O. Arik, T. Pfister, Y. Zheng, W. Ye, and Y. Liu, “TEMPO: Prompt-based generative pre-trained transformer for time series forecasting,” in International Conference on Learning Representations , 2024. [Online]. Available: https://openreview.net/ forum?id=YH5w12OUuU [25] M. Cheng, J. Wang, D. Wang, X. Tao, Q. Liu, and E. Chen, “Can slow-thinking LLMs reason over time? empirical studies in time series forecasting,” in Proceedings of the Nineteenth ACM International Con-ference on Web Search and Data Mining , 2026, pp. 99–110. [26] M. Cheng, X. Tao, H. Zhang, Q. Liu, and E. Chen, “InstructTime++: Time series classification with multimodal language modeling via implicit feature enhancement,” arXiv preprint arXiv:2601.14968 , 2026. [Online]. Available: https://arxiv.org/abs/2601.14968 [27] F. Jia, K. Wang, Y. Zheng, D. Cao, and Y. Liu, “GPT4MTS: Prompt-based large language model for multimodal time-series forecasting,” in 
+
+Proceedings of the AAAI Conference on Artificial Intelligence , vol. 38, no. 21, 2024, pp. 23 343–23 351. [28] H. Zhao, X. Zhang, J. Wei, Y. Xu, Y. He, S. Sun, and C. You, “TimeSeriesScientist: A general-purpose AI agent for time series analysis,” arXiv preprint arXiv:2510.01538 , 2025. [Online]. Available: https://arxiv.org/abs/2510.01538 [29] X. Zhang, T. Gao, M. Cheng, B. Pan, Z. Guo, Y. Liu, and X. Tao, “AlphaCast: A human wisdom-LLM intelligence co-reasoning framework for interactive time series forecasting,” arXiv preprint arXiv:2511.08947 , 2025. [Online]. Available: https://arxiv.org/abs/2511. 08947 [30] M. Cheng, X. Tao, Q. Liu, Z. Guo, and E. Chen, “Position: Beyond model-centric prediction – agentic time series forecasting,” 
+
+arXiv preprint arXiv:2602.01776 , 2026. [Online]. Available: https: //arxiv.org/abs/2602.01776 [31] Z. Pan, Y. Jiang, S. Garg, A. Schneider, Y. Nevmyvaka, and D. Song, “S 2IP-LLM: Semantic space informed prompt learning with LLM for time series forecasting,” in Proceedings of the 41st International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 235. PMLR, 2024, pp. 39 135–39 153. [Online]. Available: https://proceedings.mlr.press/v235/pan24c.html [32] Y. Zhou, Y. Luo, M. Cheng, Q. Liu, J. Wang, D. Wang, and E. Chen, “Time series forecasting as reasoning: A slow-thinking approach with reinforced LLMs,” arXiv preprint arXiv:2506.10630 , 2025. [Online]. Available: https://arxiv.org/abs/2506.10630 [33] H. Li, L. Ding, M. Fang, and D. Tao, “Revisiting catastrophic forgetting in large language model tuning,” in Findings of the Association for Computational Linguistics: EMNLP 2024 . Miami, Florida, USA: Association for Computational Linguistics, 11 2024, pp. 4297–4308. [Online]. Available: https://aclanthology.org/2024.findings-emnlp.249/ [34] S. Yao, J. Zhao, D. Yu, N. Du, I. Shafran, K. R. Narasimhan, and Y. Cao, “ReAct: Synergizing reasoning and acting in language models,” in 
+
+International Conference on Learning Representations , 2023. [Online]. Available: https://openreview.net/forum?id=WE vluYUL-X [35] X. Tao, Y. Wu, M. Cheng, Z. Guo, and T. Gao, “AnomaMind: Agentic time series anomaly detection with tool-augmented reasoning,” 
+
+arXiv preprint arXiv:2602.13807 , 2026. [Online]. Available: https: //arxiv.org/abs/2602.13807 [36] Z. Liu, M. Cheng, G. Zhao, J. Yang, Q. Liu, and E. Chen, “Improving time series forecasting via instance-aware post-hoc revision,” arXiv preprint arXiv:2505.23583 , 2025. [Online]. Available: https://arxiv.org/abs/2505.23583 [37] X. Tao, M. Cheng, C. Jiang, T. Gao, H. Zhang, and Y. Liu, “Cast-R1: Learning tool-augmented sequential decision policies for time series forecasting,” arXiv preprint arXiv:2602.13802 , 2026. [Online]. Available: https://arxiv.org/abs/2602.13802 [38] B. Li, Y. Luo, Z. Liu, J. Zheng, J. Lv, and Q. Ma, “HyperIMTS: Hypergraph neural network for irregular multivariate time series forecasting,” in Proceedings of the 42nd International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 267. PMLR, 2025, pp. 35 502–35 518. [Online]. Available: https://proceedings.mlr.press/v267/li25bl.html [39] Q. Huang, Z. Zhou, K. Yang, Z. Yi, X. Wang, and Y. Wang, “TimeBase: The power of minimalism in efficient long-term time series forecasting,” in Proceedings of the 42nd International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 267. PMLR, 2025, pp. 26 227–26 246. [Online]. Available: https://proceedings.mlr.press/v267/huang25az.html [40] Y. Chen, N. C´ espedes, and P. Barnaghi, “A closer look at transformers for time series forecasting: Understanding why they work and where they struggle,” in Proceedings of the 42nd International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 267. PMLR, 2025, pp. 7763–7780. [Online]. Available: https://proceedings.mlr.press/v267/chen25f.html [41] M. A. Ahamed and Q. Cheng, “TimeMachine: A time series is worth 4 mambas for long-term forecasting,” in ECAI 2024: 27th European Conference on Artificial Intelligence, Including 13th Conference on Prestigious Applications of Intelligent Systems, PAIS 2024, Proceedings ,ser. Frontiers in Artificial Intelligence and Applications, vol. 392. IOS Press, 2024, pp. 1688–1695. [42] C. Challu, K. G. Olivares, B. N. Oreshkin, F. Garza, M. M. Canseco, and A. Dubrawski, “N-HiTS: Neural hierarchical interpolation for time series forecasting,” in Proceedings of the AAAI Conference on Artificial Intelligence , vol. 37, no. 6, 2023, pp. 6989–6997. [43] G. Woo, C. Liu, D. Sahoo, A. Kumar, and S. Hoi, “ETSformer: Exponential smoothing transformers for time-series forecasting,” in 
+
+International Conference on Learning Representations , 2023. [Online]. Available: https://openreview.net/forum?id=5m 3whfo483 [44] X. Tao, S. Zhang, M. Cheng, D. Wang, T. Pan, B. Pan, C. Zhang, and S. Wang, “From values to tokens: An LLM-driven framework for context-aware time series forecasting via symbolic discretization,” arXiv preprint arXiv:2508.09191 , 2025. [Online]. Available: https://arxiv.org/abs/2508.09191 [45] N. Gruver, M. Finzi, S. Qiu, and A. G. Wilson, “Large language models are zero-shot time series forecasters,” in Advances in Neural Information Processing Systems , vol. 36, 2023, pp. 19 622–19 635. [46] T. Schick, J. Dwivedi-Yu, R. Dess` ı, R. Raileanu, M. Lomeli, E. Hambro, L. Zettlemoyer, N. Cancedda, and T. Scialom, “Toolformer: Language models can teach themselves to use tools,” in Advances in Neural Information Processing Systems , vol. 36, 2023, pp. 68 539–68 551. [47] Z. Wang, S. Cai, G. Chen, A. Liu, X. Ma, and Y. Liang, “Describe, explain, plan and select: Interactive planning with LLMs enables open-world multi-task agents,” in Advances in Neural Information Processing Systems , vol. 36, 2023. [Online]. IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 17 
+
+Available: https://proceedings.neurips.cc/paper files/paper/2023/hash/ 6b8dfb8c0c12e6fafc6c256cb08a5ca7-Abstract-Conference.html [48] A. Madaan, N. Tandon, P. Gupta, S. Hallinan, L. Gao, S. Wiegreffe, U. Alon, N. Dziri, S. Prabhumoye, Y. Yang, S. Gupta, B. P. Majumder, K. Hermann, S. Welleck, A. Yazdanbakhsh, and P. Clark, “Self-refine: Iterative refinement with self-feedback,” in Advances in Neural Infor-mation Processing Systems , vol. 36, 2023, pp. 46 534–46 594. [49] N. Shinn, F. Cassano, A. Gopinath, K. Narasimhan, and S. Yao, “Reflexion: Language agents with verbal reinforcement learning,” in 
+
+Advances in Neural Information Processing Systems , vol. 36, 2023, pp. 8634–8652. [50] E. Zelikman, Y. Wu, J. Mu, and N. Goodman, “STaR: Bootstrapping rea-soning with reasoning,” in Advances in Neural Information Processing Systems , vol. 35, 2022, pp. 15 476–15 488. [51] D. Guo, D. Yang, H. Zhang, J. Song, P. Wang, Q. Zhu, R. Xu, R. Zhang, S. Ma, X. Bi, X. Zhang, X. Yu, Y. Wu, Z. F. Wu, Z. Gou, Z. Shao, Z. Li, Z. Gao, A. Liu et al. , “DeepSeek-R1 incentivizes reasoning in LLMs through reinforcement learning,” Nature , vol. 645, no. 8081, pp. 633– 638, 2025. [52] A. Yang, A. Li, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Gao, C. Huang, C. Lv et al. , “Qwen3 technical report,” arXiv preprint arXiv:2505.09388 , 2025. [Online]. Available: https://arxiv.org/abs/2505.09388 [53] X. Zhang, R. R. Chowdhury, R. K. Gupta, and J. Shang, “Large language models for time series: A survey,” in Proceedings of the Thirty-Third International Joint Conference on Artificial Intelligence, IJCAI-24 , K. Larson, Ed. International Joint Conferences on Artificial Intelligence Organization, 8 2024, pp. 8335–8343, survey Track. [Online]. Available: https://doi.org/10.24963/ijcai.2024/921 [54] T. Guan, Z. Meng, D. Li, S. Wang, C.-H. H. Yang, Q. Wen, Z. Liu, S. M. Siniscalchi, M. Jin, and S. Pan, “TimeOmni-1: Incentivizing complex reasoning with time series in large language models,” in 
+
+International Conference on Learning Representations , 2026. [Online]. Available: https://openreview.net/forum?id=kOIclg7muL [55] Z. Tang, X. Yin, W. Chen, Z. Chen, Y. Zheng, W. Ye, K. Wang, and L. Lin, “AlphaAgentEvo: Evolution-oriented alpha mining via self-evolving agentic reinforcement learning,” in International Conference on Learning Representations , 2026. [Online]. Available: https://openreview.net/forum?id=lNmZrawUMu [56] Y. Jiang, Z. Pan, X. Zhang, S. Garg, A. Schneider, Y. Nevmyvaka, and D. Song, “Empowering time series analysis with large language models: A survey,” in Proceedings of the Thirty-Third International Joint Conference on Artificial Intelligence, IJCAI-24 . International Joint Conferences on Artificial Intelligence Organization, Aug. 2024, pp. 8095–8103, survey Track. [Online]. Available: https: //doi.org/10.24963/ijcai.2024/895 [57] Y. Wang, H. Wu, J. Dong, G. Qin, H. Zhang, Y. Liu, Y. Qiu, J. Wang, and M. Long, “TimeXer: Empowering transformers for time series fore-casting with exogenous variables,” in Advances in Neural Information Processing Systems , vol. 37, 2024, pp. 469–498. [58] H. Zhou, S. Zhang, J. Peng, S. Zhang, J. Li, H. Xiong, and W. Zhang, “Informer: Beyond efficient transformer for long sequence time-series forecasting,” in Proceedings of the AAAI Conference on Artificial Intelligence , vol. 35, no. 12, 2021, pp. 11 106–11 115. [59] S. J. Taylor and B. Letham, “Forecasting at scale,” The American Statistician , vol. 72, no. 1, pp. 37–45, 2018. [60] xAI, “Grok 4 Model Card,” xAI, Model Card, aug 2025. [Online]. Available: https://data.x.ai/2025-08-20-grok-4-model-card.pdf [61] T. Wolf, L. Debut, V. Sanh, J. Chaumond, C. Delangue, A. Moi, P. Cistac, T. Rault, R. Louf, M. Funtowicz, J. Davison, S. Shleifer, P. von Platen, C. Ma, Y. Jernite, J. Plu, C. Xu, T. Le Scao, S. Gugger, M. Drame, Q. Lhoest, and A. M. Rush, “Transformers: State-of-the-art natural language processing,” in Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing: System Demonstrations . Association for Computational Linguistics, 2020, pp. 38–45. [Online]. Available: https://aclanthology.org/2020.emnlp-demos. 6/ [62] X. Luo, Y. Zhang, Z. He, Z. Wang, S. Zhao, D. Li, L. K. Qiu, and Y. Yang, “Agent lightning: Train ANY AI agents with reinforcement learning,” arXiv preprint arXiv:2508.03680 , 2025. [Online]. Available: https://arxiv.org/abs/2508.03680 [63] Z. Shao, P. Wang, Q. Zhu, R. Xu, J. Song, X. Bi, H. Zhang, M. Zhang, Y. K. Li, Y. Wu, and D. Guo, “DeepSeekMath: Pushing the limits of mathematical reasoning in open language models,” arXiv preprint arXiv:2402.03300 , 2024. [Online]. Available: https://arxiv.org/abs/2402.03300 [64] T. Kim, J. Kim, Y. Tae, C. Park, J.-H. Choi, and J. Choo, “Reversible instance normalization for accurate time-series forecasting against distribution shift,” in International Conference on Learning Representations , 2022. [Online]. Available: https://openreview.net/ forum?id=cGDAkQo1C0p 
+
+Bokai Pan is a senior undergraduate student at the University of Science and Technology of China (USTC), where he will receive his B.E. degree in 2026. He will subsequently pursue his master’s degree with the State Key Laboratory of Cognitive Intelligence at USTC. His research focuses on the emerging paradigm of agentic time series forecast-ing, with a particular emphasis on reinforcement learning for sequential decision-making and the de-sign of tool-augmented reasoning frameworks. 
+
+Mingyue Cheng received the Ph.D. degree in data science from the University of Science and Tech-nology of China (USTC). He is currently an As-sociate Researcher with USTC, affiliated with the State Key Laboratory of Cognitive Intelligence and the School of Computer Science and Technology. His research interests include time series analysis, tabular data mining, recommender systems, large language models, and agentic AI, with a focus on intelligent healthcare and AI for Science. Dr. Cheng has published papers in leading conferences and journals, including KDD, WWW, SIGIR, WSDM, ICDM, IJCAI, and IEEE Transactions on Knowledge and Data Engineering (TKDE). He was the recipient of the Best of WSDM 2025 and the USTC Hongzhuan Young Talent award in 2025. He has also served on the program committees of major conferences and as a reviewer for international journals. 
+
+Zhiding Liu received the B.E. degree in computer science from the University of Science and Tech-nology of China (USTC), China, in 2021. He is currently working toward a Ph.D. degree in the School of Computer Science and Technology at the University of Science and Technology of China (USTC). His main research interests include time series analysis, data mining, and recommender sys-tems. He has published papers in refereed conference proceedings as the first author, such as NeurIPS, KDD, WWW, and ICDM. 
+
+Shuo Yu received the B.E. degree in computer sci-ence from the University of Science and Technology of China (USTC), Hefei, China, where he is cur-rently pursuing the master’s degree with the School of Artificial Intelligence and Data Science and the State Key Laboratory of Cognitive Intelligence. His research interests include retrieval-augmented gen-eration and LLM agents. He has authored or co-authored several papers in premier conferences such as CIKM and WWW. IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE 18 
+
+Xiaoyu Tao is currently pursuing the Ph.D. degree in Computer Science at the University of Science and Technology of China (USTC), Hefei, China. She is with the State Key Laboratory of Cognitive Intelligence. Her current research focuses on time series data mining, multimodal time series model-ing, large language models, and intelligent decision-making. Her research has been published in inter-national journals and conferences, including ACM Transactions on Intelligent Systems and Technology (ACM TIST) and the ACM International Conference on Web Search and Data Mining (WSDM). 
+
+Yuchong Wu is an undergraduate student at the School of Computer Science and Technology, Uni-versity of Science and Technology of China (USTC), where he will receive his B.E. degree in 2026. His research interests include post-training of large lan-guage models, large language model-based agents, and their applications in data mining and retrieval. Currently, he is working on time series anomaly detection. 
+
+Qi Liu received the Ph.D. degree in computer science from the University of Science and Tech-nology of China (USTC), in 2013. He is currently a Professor with USTC and the Vice Director of the State Key Laboratory of Cognitive Intelligence. His general research interests include data mining, knowledge discovery, artificial intelligence, and in-telligent education. His research is supported by the National Science Fund for Excellent Young Scholars and the Youth Innovation Promotion Association of the Chinese Academy of Sciences. He has published more than 100 papers in refereed journals and conference proceedings, such as TKDE, TOIS, TNNLS, NeurIPS, ICML, ICLR, AAAI, and KDD. He is an Associate Editor of the IEEE Transactions on Big Data and Neurocomputing. He has served regularly on the program committees of numerous conferences and is a reviewer for leading academic journals. Dr. Liu is the recipient of the KDD 2018 Best Student Paper Award (Research), the ICDM 2011 Best Research Paper Award, and the Alibaba DAMO Academy Young Fellow. za-
+
+rning 
+
+ss of 
+
+EE Transac-
+
+22. 
+
+on Sciences ,
+
+no. 10, 
+
+f the 26th ry Data 
+
+Human 
+
+A survey 
+
+mation 
+
+tems: an 
+
+rence on 
+
+1–6. 
+
+computing 
+
+vey 
+
+ol. 6, pp. 
+
+Science y (UTS) Sci-rests ecom-He has con-bConf, . This ment 
+
+omputer tute of rrently Mac-or to join-ked as rch Fel-His re-ystems, ervice EEE. 
+
+ent of ngji Uni-com-earning, ficial in-papers e area WW, IJ-
+
+China in 1994 and PhD degree from the Uni-versity of Melbourne, Australia in 2002, all in computer science. She is currently a Professor in the School of Computing Technologies, RMIT University, Melbourne, Australia. Her research interests include data science, data mining, text mining and computational linguistics. 
+
+Qi Zhang received his PhD degree from Bei-jing Institute of Technology China under the dual PhD program of Beijing Institute of Technology and University of Technology Sydney Australia. He is currently pursuing his second PhD de-gree at the Data Science Institute, University of Technology Sydney Australia. His research interests focus on collaborative filtering, sequen-tial recommendation, debiasing recommenda-tion, learning to hash, and MTS analysis. 
+
+Quan Z. Sheng is a full Professor and Head of School of Computing at Macquarie University, Sydney, Australia. His research interests include big data analytics, service oriented computing, and Internet of Things. Michael holds a PhD degree in computer science from the University of New South Wales. He is the recipient of ARC Future Fellowship in 2014, Chris Wallace Award for Outstanding Research Contribution in 2012, and Microsoft Fellowship in 2003. 
+
+Mehmet A. Orgun received the BSc and MSc degrees in computer science and engineering from Hacettepe University, Ankara, Turkey in 1982 and 1985, respectively; and the PhD de-gree from the University of Victoria, Canada, in 1991. He is currently a Professor at Macquarie University, Sydney, Australia. His research in-terests include knowledge discovery, multiagent systems, trusted systems and temporal reason-ing. He is a senior member of the IEEE. 
+
+Longbing Cao received a PhD degree in pattern recognition and intelligent systems and another in computing sciences. He is a professor and ARC Future Fellow (Level 3) with the University of Technology Sydney. His research interests include AI, data science, analytics and machine learning, behavior informatics and their enter-prise applications. He has more than 300 pub-lications and he is a senior member of IEEE. 
+
+Defu Lian is a professor in the School of Com-puter Science and Technology, University of Sci-ence and Technology of China (USTC), Hefei. He received the B.E. and Ph.D. degrees in com-puter science from University of Science and Technology of China (USTC) in 2009 and 2014, respectively. His research interest includes spa-tial data mining, recommender systems, and learning to hash. 
+
+Defu Lian (Member, IEEE) received the B.E. de-gree in computer science and technology and the Ph.D. degree in computer applications technology from the University of Science and Technology of China (USTC), in 2009 and 2014, respectively. He is currently a Professor and a Vice Dean of the School of Computer Science and Technology, USTC. His research interests include data mining, recommender systems, high-dimensional vector retrieval, retrieval-augmented large language models, large language model agents, and scientific intelligence. He has published more than 160 papers in refereed journals and conference pro-ceedings, including TPAMI, TKDE, TOIS, AIJ, KDD, WWW, ICML, ICLR, NeurIPS, SIGIR, AAAI, and IJCAI. He is the recipient of the National Science Fund for Excellent Young Scholars. He received the Best Paper Runner-Up Award at APWeb 2016, was named a Best Paper Candidate at WWW 2021, and received the Best Paper Award at WISE 2022. 
+
+Enhong Chen (IEEE Fellow) received the Ph.D. degree from the University of Science and Tech-nology of China (USTC), in 1996. He is currently a Professor and the Vice Dean of the Faculty of Information and Intelligence, USTC, and is also a CCF Fellow. His research areas include data min-ing, machine learning, and artificial intelligence. His research is supported by the National Science Foun-dation for Distinguished Young Scholars of China. He has published more than 300 papers in refereed conferences and journals, including TPAMI, TKDE, TNNLS, TOIS, ICML, NeurIPS, KDD, SIGIR, and AAAI. He is an associate editor of the IEEE TKDE, IEEE TSMCS, ACM TIST, and WWWJ. He has served regularly on the organization and program committees of numerous conferences, including as a program co-chair of ICKG 2020 and PAKDD 2022. Dr. Chen received the Best Application Paper Award at KDD 2008, the Best Student Paper Award at KDD 2018 and KDD 2024, and the Best Research Paper Award at ICDM 2011.

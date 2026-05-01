@@ -1,0 +1,1129 @@
+Title: A Hybridizable Neural Time Integrator for Stable Autoregressive Forecasting
+
+URL Source: https://arxiv.org/pdf/2604.21101v2
+
+Published Time: Wed, 29 Apr 2026 01:20:15 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# A Hybridizable Neural Time Integrator for Stable Autoregressive Forecasting 
+
+Brooks Kinch 1, Xiaozhe Hu 2, Yilong Huang 1, Martine Dyring Hansen 3,4,Sunniva Meltzer 3,5, Nathaniel D. Hamlin 6, David Sirajuddin 6,Eric C. Cyr 6 and Nathaniel Trask 1,61Mechanical Engineering and Applied Mechanics, University of Pennsylvania, Philadelphia, PA, USA 
+
+> 2
+
+Department of Mathematics, Tufts University, Medford, MA, USA 
+
+> 3
+
+Department of Mathematics and Cybernetics, SINTEF Digital, Oslo, Norway 
+
+> 4
+
+Department of Mathematical Sciences, Norwegian University of Science and Technology, Trondheim, Norway 
+
+> 5
+
+Department of Physics, University of Oslo, Oslo, Norway 
+
+> 6
+
+Sandia National Laboratories, Albuquerque, NM, USA Correspondence: ntrask@seas.upenn.edu 
+
+Abstract 
+
+For autoregressive modeling of chaotic dynamical systems over long time horizons, the stability of both training and inference is a major challenge in building scien-tific foundation models. We present a hybrid technique in which an autoregressive transformer is embedded within a novel shooting-based mixed finite element scheme, exposing topological structure that enables provable stability. For forward problems, we prove preservation of discrete energies, while for training we prove uniform bounds on gradients, provably avoiding the exploding gradient problem. Combined with a vision transformer, this yields latent tokens admitting structure-preserving dynamics. We outperform modern foundation models with a 65 × reduction in model parameters and long-horizon forecasting of chaotic systems. A ”mini-foundation” model of a fusion component shows that 12 simulations suffice to train a real-time surrogate, achieving a 9 ,000 × speedup over particle-in-cell simulation. 
+
+# 1 Introduction 
+
+Transformer-based autoregressive modeling has rapidly extended from language [1] to video prediction [2] and more recently to scientific simulation [3, 4, 5, 6]. Such data-driven ap-proaches can achieve near real-time forecasting on modest GPU resources, enabling ensemble simulations that would previously have been impractical even with exascale computing. Still, their success is primarily restricted to domains where massive historical data are available, 1
+
+> arXiv:2604.21101v2 [cs.LG] 28 Apr 2026
+
+such as weather forecasting [7, 8], leading many to believe these to be prerequisites for con-structing a scientific foundation model [9, 10, 6]. The fundamental numerical stability of these models is a major concern: forecasts may abruptly fail for small changes in the rollout window, with no theoretical basis to diagnose whether failures stem from insufficient data or intrinsic architectural instability [11]. Efforts to learn temporal dynamics from data have evolved through several architectural eras. Early approaches used LSTMs [12] and reservoir computing [13] for low-dimensional systems, while connections between residual networks and numerical integrators [14, 15] moti-vated neural ODEs [16] as a means of leveraging ODE theory within forecasting architectures. More recently, transformers have been applied to both low-dimensional dynamics [17] and spatiotemporal video prediction via sliding window (SWin) vision transformers [18, 19]. Yet producing stable forecasts over horizons significantly exceeding the training window remains an open challenge [20, 11]: transformers lack mathematical structure for stability analysis, while neural ODEs suffer exploding gradients during long-horizon training, and both par-ticularly struggle with sparse data and chaotic dynamics essential to physical simulation. Furthermore, the premise that scale alone drives performance in foundation models [21] has been challenged in scientific domains, where complex geometries, operating conditions, and stringent accuracy requirements may preclude assembling sufficiently large training cor-pora [22, 10]. In conventional numerical analysis, techniques that incorporate physical structure and geometric properties of the underlying dynamics have proven invaluable for designing sim-ulators with stability guarantees. Geometric integrators [23] preserve symplectic structure or energy to ensure long-term stability, but require problem-specific construction for known classes of ODEs. Finite element discretizations in time offer desirable variational struc-ture, though adoption has been largely confined to spacetime methods in relativistic and high-order settings [24, 25, 26, 27]. Separately, mortar methods [28] couple independent subdomain solutions via Lagrange multipliers to enforce continuity, with specializations pre-serving local conservation [29, 30, 31, 32]; shooting methods [33] combine initial value solvers with root-finding for boundary value problems. Both have been employed exclusively in spa-tial settings. We seek in this work to combine elements of these approaches to design an autoregressive architecture which inherits the beneficial properties of structure-preserving numerical methods, while leveraging the expressivity of transformers to extract complex nonlinear dynamics from data. We address these challenges by embedding learned neural dynamics within a mixed fi-nite element framework based on finite element exterior calculus (FEEC) [34]. Our mixed finite element time discretization naturally yields the staggered structure of geometric in-tegrators, while a novel temporal mortar formulation extends the mortar framework from boundary value to initial value problems for the first time. Short trajectory segments are coupled via Lagrange multipliers that stably transfer energy between rollout domains, while a transformer prescribes expressive nonlinear dynamics as a function of state. The FEEC machinery provides topological scaffolding with provable stability guarantees independent of rollout length, suggesting that architectural structure encoding physical priors can substitute for data scale. Here we prove that this construction preserves discrete energies (Theorem 2) and that gradients remain uniformly bounded in time independent of rollout length (Theorem 4), 2provably avoiding the exploding gradient problem. On the Lorenz attractor, the method stably forecasts for 10,000 Lyapunov times, reproducing the invariant measure far beyond what neural ODEs can achieve. Paired with a vision transformer for end-to-end latent dynamics, our model matches state-of-the-art accuracy on a shear flow benchmark with 65 ×
+
+fewer parameters than PhysiX. Finally, a “mini-foundation” model of a pulsed power fusion component, trained from only 12 particle-in-cell simulations, achieves a 9 ,000 × speedup and enables real-time design iteration. The scheme is illustrated in Figure 1. 
+
+# 2 Results 
+
+We consider two scenarios for learning dynamics of the form (1), illustrated in Figure 1. In the first, time series forecasting , given time series data D = {u(ti)}Di=0 , we learn θ via gradient-based optimization of the autoregressive rollout; we demonstrate the method’s abil-ity to forecast pathological systems, including chaotic and stiff dynamics, and to preserve long-term dynamics for systems with periodic orbits. In the second, vision transformer em-bedding , given field data D = {f (x, t i)}Di=0 , we encode u(ti) = {Z[f (xj , t i)] }Ntok  
+
+> j=0
+
+as tokens of a sliding window (SWin) vision transformer and jointly learn the embedding Z and the dy-namics N , yielding a parsimonious latent space that admits structure-preserving dynamics; we outperform state-of-the-art vision transformers for video prediction and learn real-time surrogates of chaotic plasma physics simulators from very sparse datasets. In both settings, our transformer architecture supports a conditioning parameter μ that enables learning pa-rameterized dynamics across a family of systems: in the time series setting, a family of reduced-order fluid models parameterized by Reynolds number; in the vision transformer setting, a family of plasma physics surrogates parameterized by voltage drop across the gap. Practically, μ provides a mechanism to adapt a model to a given operating condition or design parameter, enabling real-time design iteration and optimization. The primary theoretical contributions of the work are summarized in Section 4 with proofs provided in Appendix C. 
+
+## 2.1 Low-dimensional ODEs 
+
+We validate on the Lorenz system ( σ, ρ, β ) = (10 , 28 , 8/3), whose largest Lyapunov exponent 
+
+λ1 ≈ 0.91 yields a Lyapunov timescale τλ ≈ 1.1. The model is trained on a single trajectory spanning 10,000 Lyapunov timescales and autoregressively rolled out from the same initial condition for the same duration; the minibatching scheme and model setup are described in Methods and Appendix D. As expected for chaotic dynamics, pointwise trajectory accuracy degrades beyond O(1) Lyapunov times, but the learned trajectory remains confined to the correct attractor through-out the rollout with no blowup or drift to spurious fixed points (Figure 2a). Quantitatively, Figure 2b shows that the model recovers the exponential distribution of inter-lobe switching intervals, faithfully reproducing the attractor’s invariant measure. Capturing these statistics requires stable training and rollout through hundreds of Lyapunov times, highlighting the practical implication of Theorem 4 for treating chaotic dynamics. 3(b)  
+
+> (a) (c) (d)
+
+Figure 1: Sketch of the learning architecture. (a) Two finite element spaces are used to discretize u (top) and J = ˙ u (bottom) over each rollout domain Ω i. Mortars λi,i 
+
+and λi,i +1 enforce initial conditions and continuity across rollout domains, while a cross-attention transformer prescribes dynamics ¨ u = N (u, ˙u). (b) Training over a short window provides mathematically guaranteed rollout stability for long periods, allowing us to fit stable dynamics to time series data. (c) The FEM machinery can be jointly trained with a SWin transformer, identifying an embedding which admits structure-preserving dynamics in the latent space. (d) The resulting encodings can be used for forecasting, with latent codes which are remarkably parameter efficient and stable for long time horizons. 4(a) (c) (e) (b) (d) Figure 2: Forecasting from time series of chaotic and parametric physics. (a) 
+
+Though expectedly inaccurate for Lyapunov timescales > 1, we obtain qualitative agreement with the Lorenz attractor. (b) Quantitatively, however, we recover the anticipated expo-nential distribution for switching statistics between lobes of the attractor. This highlights the remarkable stability in training and rollout, as accuracy and training must propagate through hundreds of Lyapunov timescales. (c) To highlight the conditioning process, we learn a POD model from PCA projections of an LES model, parameterized by Reynolds number , to obtain a family of real-time models. (d) Training from observation of PCA coefficients over a few periods of oscillation allows indefinite stable forecasting far beyond the timescale observed in training. (e) To highlight conditioning, we evaluate lift and drag on the cylinder as Reynolds number is varied, illustrating the ability to construct real-time dynamic surrogates parameterized by physical/design parameters. 5(b) (c) 
+
+> (a)
+
+Figure 3: Pulsed power fusion digital twin. We build a complex digital twin of a pulsed power fusion system, conditioning on the voltage across the gap to control the plasma density distribution. This represents a challenging multi-field, multiphysics system at the state-of-the-art for conventional modeling. (a) PIC simulations spanning 150 CPU-hours each are processed into fields for training data; resulting models may be solved in under a minute. 
+
+(b) The vision transformer is able to robustly capture fine details of the flow; shown here are islands of charge with shear instability which orbit the accumulating plasma ball following the backward facing step. (c) For optimal performance, mass will be advected downstream without impinging on the opposite wall, which would cause a catastrophic short circuit. The model accurately predicts mass distribution across the channel conditioned on the voltage drop, allowing real time exploration of a common challenging design problem. 6(a) (b) (c) Figure 4: Shear Flow Benchmark from The Well. (a) For one of the test trajectories from this benchmark problem: a comparison between the target solutions for the tracer field (top) and the decoded model rollout (bottom), for a sampling of time snapshots. (b) The evolution of the VRMSE metric on the training and test datasets as a function of training iteration. Over the full training run (8 days on a single H200), the model did not overfit. 
+
+(c) The VRMSE for our model, as a function of rollout prediction horizon, compared to two PhysiX models and The Well’s provided standard benchmark for this problem (C-U-Net). Our HNODE model consists of a 66 million (total) parameter encoder/decoder pair, with an additional 3.2 million parameter transformer to evolve the latent space; PhysiX is a 4.5 billion parameter model. 72.2 Forecasting reduced-order fluid dynamics with PCA decom-position 
+
+Nine simulations for flow past a cylinder were generated using PyFR [35] for Reynolds numbers 60–800; full details of the simulation setup are provided in Appendix E.2. The field data are compressed into the leading 64 PCA modes, and a conditioned HNODE model is trained on these reduced coordinates with Reynolds number as the conditioning parameter (see Methods). The fully-trained model can be rolled out indefinitely, well past the length of the training window. 
+
+## 2.3 End-to-end training for vision transformer dynamics 
+
+When a linear basis like PCA is insufficient, we employ a learned Swin-Transformer en-coder/decoder [19, 36] that maps field data into a flat latent space where the HNODE model evolves dynamics (Figure 1c,d). All three components (encoder, latent dynamical model, and decoder) are trained simultaneously end-to-end; the training procedure and architec-tural details are described in Methods and Appendix D. In Figure 4, we show the result of this procedure as applied to the 2D periodic incompress-ible shear flow benchmark problem taken from [37]. This dataset consists of 1120 trajectories of 200 time steps each, with 224 held out for testing. Their initial conditions vary, as well as the Reynolds and Schmidt numbers, which we use to condition the latent model. For this problem, we train directly on the variance-normalized RMSE (VRMSE). As shown in Figure 4c, our model achieves 2–3 × lower VRMSE than PhysiX across prediction horizons, despite using 65 × fewer parameters. A nearly identical procedure is applied to the 2D inner MITL (magnetically insulated transmission line) dataset, a pulsed power fusion component on the Z-machine at Sandia National Laboratories (3), simulated by a computationally intensive particle-in-cell (PIC) calculation [38]. This dataset, described in detail in Appendix E, comprises an ensemble of 12 simulations across three voltage levels, each processed into a 600 × 100 × 7 tensor of electromagnetic and plasma fields at 11 ,991 time steps. An identical encoder and decoder architecture are used, with the latent dynamical model conditioned on the applied voltage. In order to more sharply resolve the plasma features qualitatively, the training criterion in this case was the L1 reconstruction loss. Each PIC simulation requires approximately 150 CPU-hours; the trained surrogate produces a full trajectory in under one minute, a 9,000 × speedup that enables real-time design iteration. The full dataset totals 1.1 TB, while the trained model occupies 4 GB, a 275 × compression into a generative surrogate that synthesizes new trajectories at unseen operating conditions. 
+
+# 3 Discussion 
+
+The central finding of this work is that embedding an autoregressive transformer within a structure-preserving finite element scaffold can provide dramatically enhanced stability, trainability, and sample-efficiency compared to state-of-the-art architectures. As shown in our analysis, the FEEC discretization admits a summation-by-parts principle through which 8energy is stably transferred across domains. The practical reduction from PhysiX (a 4.5 B parameter model whose Video SWin backbone was pretrained on Kinetics-400 [19]) to a 69 M parameter model trained on a handful of trajectories marks a 65 × reduction in model size, which is of particular interest as the scientific community is investing large amounts of compute and data into training scientific foundation models [22]. At a practical level, with a theoretical guarantee of training stability in hand, it is possible to diagnose that the bottleneck in performance is a lack of model capacity or data, rather than intrinsic architectural instability. This can be attributed to the fact that embedding into structure-preserving dynamics induces an inductive bias towards regularity in the encoding of field evolution; while conventional transformer architectures’ performance is tied purely to the quality of encoding and a Markov transition prediction, our architecture is able to make use of learned latent dynamics to make do with substantially lighter-weight encodings. The MITL result highlights the practical implications of this parameter efficiency when constructing surrogates for complex, chaotic systems. The shear flow benchmark from The Well [37] provides 1120 trajectories for a relatively simple 2D fluid system, yet for production-scale simulations such as the MITL particle-in-cell calculations, each run may consume thou-sands of node-hours on leadership-class facilities, making datasets of comparable size pro-hibitively expensive. Our MITL surrogate trains on just 12 simulations, underscoring the need for sample-efficient methods that can achieve responsible stewardship of the comput-ing resources required to build scientific foundation models. From a design perspective, the MITL result illustrates a regime where conventional projection-based reduced order models would fail, yet we are still able to develop surrogates that explore design choices for complex engineering systems. Beyond speedup, the trained surrogate compresses 1.1 TB of simula-tion data into a 4 GB model, a 275 × reduction; crucially, this is not static compression but a generative model that can interpolate between the training voltage levels to produce trajec-tories at operating conditions never simulated. Fusion components are a prime example, as individual models exist for each component, but tight bidirectional coupling of the holistic system remains an open challenge. Outside the context of machine learning, the present work constitutes fundamental con-tributions to the theory of structure-preserving discretizations of dynamical systems. The mixed finite element construction we present is novel, and exposes a natural connection to staggered geometric integrators; here the nodal- and edge-based finite element spaces cor-respond naturally to the staggered arrangement of variables in symplectic integrators. The temporal mortar formulation is also novel, and represents a first extension of the mortar method to initial value problems. The theoretical analysis of stability, energy preservation, and bounded gradients are also novel, which we anticipate will be of interest to the numerical analysis community beyond machine learning. While this work demonstrates the value of finite element constructions for stable autore-gressive schemes, forecast quality is ultimately limited by the encoding and capacity of the transformer. As shown in the shear flow case, for a periodic fluid system we may extrapolate indefinitely past the training data, as the fluid state remains confined to the attractor. For MITL, the energy of the system increases as mass accumulates in the gap, eventually leading to states not seen in training. To extrapolate into unseen regimes, one would need to identify a physics-based model for field evolution beyond autoregressive forecasting (e.g. by learning a PDE [39]). Training these models represents a substantial computational cost (8 days on a 9single H200 GPU for the shear flow model), restricting their usefulness to “inside-the-loop” configurations such as digital twinning, design optimization or uncertainty quantification, where repeated forward evaluation amortizes the upfront expense. At a practical level, back-propagating through FEM discretizations, though simple to execute, introduces com-plexity outside the standard backpropagation framework. Finally, the accuracy achieved on complex systems like MITL relies on the expressive capability of the vision transformer; for intricate engineering geometries, emerging transformer architectures may be needed that realize similar capabilities beyond rectilinear domains (e.g. [40, 41]). 
+
+# 4 Methods 
+
+We briefly summarize the scheme, deferring finer discussion of architectural details and proofs to Appendices C and D. Consider the identification of autonomous nonlinear dynamics of the form: ¨u = N (u, ˙u; θ), u(t = 0) = u0, ˙u(t = 0) = v0 (1) where u(t) ∈ R is the state, and N is a nonlinear function with trainable parameters θ.We seek a solution for t ∈ Ω = [0 , T ], and partition the domain into N rollout domains Ωi = [ ti, t i+1 ], i = 0 , · · · , N . To this end, for each time interval Ω i = [ ti, t i+1 ], we further divide it into subintervals Ω i,k = ( ti,k , t i,k +1 ) where ti = ti, 0 < t i, 1 < · · · < t i,M = ti+1 . Note 
+
+ti,M = ti+1 = ti+1 ,0 for i = 0 , · · · , N − 1. Our strategy is to construct a mixed finite element discretization of the dynamics on each rollout domain by introducing an auxiliary variable 
+
+J = ˙ u, multiplying by test functions q and v, and applying integration by parts over Ω i,
+
+i = 0 , · · · , N − 1: (Ji, v ) + ( ui, v ′) = λi,i +1 v(ti+1 ) − λi,i v(ti),
+
+(J′ 
+
+> i
+
+, q ) − (N [ui, J i; θ], q ) = 0 ,Ji(ti) = Ji−1(ti),λi,i = λi−1,i ,
+
+(2) where ( ui, q ) ∈ Q ih ⊆ L2 are piecewise constant and ( Ji, v ) ∈ V ih ⊆ H1 are piecewise linear based on the subdivisions Ω i,k for each Ω i. Additionally, λi,i , λ i,i +1 ∈ R are the mortar variables. This scheme functions similarly to a conventional shooting method. The mortars 
+
+λi,i and λi,i +1 impose Dirichlet conditions on ui at the rollout boundary, which serves as an optimal control/Lagrange multiplier to enforce the initial conditions of the current rollout (ui(ti), J i(ti)) = ( λi−1,i , J i−1(ti)). Solving this system yields a prediction of ( λi,i +1 , J i(ti+1 )) which serves as the initial conditions ( ui+1 (ti+1 ), J i+1 (ti+1 )) for the next rollout domain Ω i+1 .In this manner the scheme can be rolled out autoregressively over N sequentially decoupled nonlinear solves. To avoid variational crimes [42] when discretizing the nonlinear term, we employ a transformer that maps directly from degrees of freedom ( Qih × V ih) → Q ih rather than defining the nonlinearity in a pointwise sense. In the following, we drop the subscript 
+
+i whenever it is clear that we are considering the time interval Ω i.The spaces Vih and Qih are specifically chosen to obtain the 1D de Rham complex [34] satisfying an exact pointwise time derivative ( ddt Vih ⊆ Q ih) and an exact treatment of the 10 fundamental theorem of calculus (see Appendix A for details). As a consequence, the scheme admits the following summation-by-parts (SBP) lemma (shown in Lemma 1):  
+
+> N−1
+
+X 
+
+> i=0
+> M−1
+
+X
+
+> k=0
+
+"Z ti,k +1 
+
+> ti,k
+
+Jv dt + ( ui,k − ui,k +1 )v(ti,k +1 )
+
+#
+
+= uN −1,M −1v(tN −1,M ) − u0,0v(t0,0). (3) This identity represents a discrete integration-by-parts property and is crucial to the method’s success; it allows us to demonstrate that energy is stably transferred across rollout domains as a telescoping sum, thereby preventing error aggregation. Combined with the variational structure in (2), we obtain a topological scaffolding that encompasses the transformer, provid-ing a framework to prove the scheme’s stability and structure-preserving properties; we defer these formal theorems and proofs to Appendix C. Notably, the derivatives of the solution (u, J )t=T with respect to the parameters θ remain uniformly bounded in time, independent of the number of rollouts N . This ensures stable training over long time-series data without the risk of exploding gradients, addressing a notorious challenge for neural ODE techniques when forecasting over long horizons in chaotic or stiff systems. We denote the kth piecewise constant on time interval Ω i as ui,k , which is considered as the constant approximation of u on the kth subinterval of Ω i, and the corresponding nodal quantities at ti,k as Ji,k , which is the approximation of J at ti,k .In the next lemma, we present the summation by parts formula on the single time interval Ωi, which implies a global energy principle on the whole time domain. 
+
+Lemma 1 (Discrete summation by parts formula) . For a single time interval Ωi we have the summation by parts formula  
+
+> M−1
+
+X
+
+> k=0
+
+"Z ti,k +1 
+
+> ti,k
+
+Jv dt + ( ui,k − ui,k +1 )v(ti,k +1 )
+
+#
+
+= ui,M −1v(ti,M ) − ui, 0v(ti, 0). (4) Summing over i = 0 , · · · , N − 1, this local principle (4) yields a global energy principle  
+
+> N−1
+
+X 
+
+> i=0
+> M−1
+
+X
+
+> k=0
+
+"Z ti,k +1 
+
+> ti,k
+
+Jv dt + ( ui,k − ui,k +1 )v(ti,k +1 )
+
+#
+
+= uN −1,M −1v(tN −1,M ) − u0,0v(t0,0). (5) From this result we can show that the model has the capacity to both: (1) preserve a discrete energy for a class of nonlinear Hamiltonian systems and (2) provide energy stability for dissipative dynamics. Those are summarized in the following two theorems. 
+
+Theorem 2 (Discrete energy preservation) . Consider a nonlinearity of the form N = V ′(u),such that V ′(u) ∈ Q ih if u ∈ Q ih, then the scheme preserves the following discrete energy 
+
+12∥J∥2
+
+tN
+
+> t0
+
+− 
+
+> N−1
+
+X 
+
+> i=0
+> M−1
+
+X
+
+> k=0
+
+V ′(ui,k ) ( ui,k +1 − ui,k ) = 0 . (6) This discrete energy corresponds to a discrete version of the Stieltjes integral 
+
+Z tN
+
+> t0
+
+ddt
+
+12∥J∥2 dt −
+
+Z tN
+
+> t0
+
+V ′(u) d u =
+
+12∥J∥2
+
+tN
+
+> t0
+
+− [V (u(tN )) − V (u(t0))] .
+
+11 Theorem 3 (Energy stability for dissipative dynamics) . Define the discrete energy variation on the ith rollout as 
+
+δEi =
+
+12∥J∥2
+
+ti+1 
+
+> t=ti
+
+− 
+
+> M−1
+
+X
+
+> k=0
+
+V ′(ui,k ) ( ui,k +1 − ui,k ) ,
+
+and consider an elliptic bilinear form ai : Qih × Q ih → R on Ωi. For a nonlinearity given by 
+
+(N , q ) = ai(πJ, q ) + ( V ′(u), q ),
+
+where π is L2 projection from Qih → V ih, the total energy of N rollouts satisfies  
+
+> N−1
+
+X
+
+> i=0
+
+δEi ≤ 0.
+
+These two results establish the existence of specific choices of N that guarantee long-term stability. Surprisingly, we observe that the transformer is able to identify long-term stable dynamics without enforcing any assumed Hamiltonian/elliptic structure in the nonlinearity. Finally, in the primary result of this work, we prove that our scheme avoids the so-called exploding gradients problem that plagues deep architectures and prevents other methods from processing long time-series data. 
+
+Theorem 4 (Uniform boundedness of transformer gradients under long rollouts) . Assume: 1. The (dg P0/P1)-pair satisfies a discrete inf–sup condition. 2. The partial derivatives of the transformer prescribing the nonlinearity with respect to the input state (ˆ u, ˆJ) are uniformly bounded. Let the mesh size of each time interval [ti−1, t i] be h and time interval size be ∆t = ti − ti−1.Thus, h = ∆ t/M , where M is the number of divisions of each time interval. The final time is T . Then we have the following bound of the local Jacobian that is independent of N , the number of rollouts. 
+
+∂yN
+
+∂θ ≤ Ch −3/2Rmax 
+
+
+
+ec TM − 1
+
+
+
+.
+
+Remark 1. In a conventional ODE solve, we take h → 0 and seek convergence to a contin-uum ODE. In our setting, we fix a finite h ≫ 0 which corresponds to the number of inter-mediate stages the transformer has access to within a single autoregressive domain. This is more analogous to, e.g., the number of stages of a Runge-Kutta scheme. Thus, the stability follows from treating h as a fixed constant and taking the number of rollouts N arbitrarily large. 
+
+12 4.1 Training details 
+
+Time series forecasting (Lorenz and cylinder). Training uses a neural ODE-style minibatching scheme: windows of the training data are selected at random from the tra-jectory, along with their exact initial conditions, to form each training batch. For the Lorenz system, each window spans one Lyapunov time (110 data points divided into 11 subdomains); data are generated by solving the Lorenz equations with SciPy odeint using adaptive timestepping. For the cylinder flow, a PCA decomposition across the full dataset yields 64 leading modes that serve as reduced coordinates; minibatching proceeds identically except that initial J values are set via central finite differences on the PCA coefficients. Sim-ulations are run for 6000 time steps, sufficient for all Reynolds numbers to reach statistical steady state. Details of the cylinder simulations and dataset are provided in Appendix E.2. 
+
+Vision transformer embedding (shear flow and MITL). A Swin-Transformer en-coder reduces each input frame to a flat latent vector; three adjacent frames initialize u
+
+and J via central finite differences, and the HNODE model is rolled out autoregressively in the latent space. A randomly sampled subset of the rollout is decoded back to pixel space and compared to the training data to compute the loss. The encoder, latent dynamical model, and decoder are trained jointly end-to-end. To minimize hyperparameter tuning, the architecture adheres to the choices in [19] and the autoencoder structure of [36], with skip connections removed as they are not applicable to our framework. Full architectural specifications are provided in Appendix D. 
+
+# 5 Data availability 
+
+All data supporting the findings of this study are available from the corresponding author upon reasonable request. 
+
+# 6 Code availability 
+
+Code for reproducing the results is available at https://github.com/PIMILab/hnode. 
+
+# 7 Acknowledgements 
+
+Kinch acknowledges support from the Department of Energy SciDAC program under award DE-AC02-09CH11466 (High-fidelity Digital Models for Fusion Pilot Plant Design, Stell-Foundary). Trask, Cyr and Huang acknowledge support from the Department of Energy ASCR MMICCs program under award DE-SC-0023163 (SEA-CROGS: Scalable, Efficient, and Accelerated Causal Reasoning Operators, Graphs, and Spikes). This work performed in part at Sandia National Laboratories and Pacific Northwest National Laboratory was sup-ported by the U.S. Department of Energy, Office of Science, Office of Advanced Scientific Computing Research through the SEA-CROGS project (PNNL Project No. 80278). Hansen and Meltzer are supported by the Research Council of Norway, through the projects PhysML 13 (project no. 338779) and MMSIML (project no. 346003). Sandia National Laboratories is a multimission laboratory managed and operated by National Technology & Engineering Solutions of Sandia, LLC, a wholly owned subsidiary of Honeywell International Inc., for the U.S. Department of Energy’s National Nuclear Security Administration under contract DE-NA0003525. This paper describes objective technical results and analysis. Any subjec-tive views or opinions that might be expressed in the paper do not necessarily represent the views of the U.S. Department of Energy or the United States Government (Sandia report number SAND2026-20209O). 
+
+# 8 Author contributions 
+
+B.K. : Conceptualization, Methodology, Software, Validation, Investigation, Data cura-tion, Writing – original draft, Visualization. Y.H. : Software, Validation, Investigation, Data curation, Visualization. X.H. : Conceptualization, Methodology, Software, Valida-tion, Formal analysis, Writing – original draft, Supervision. M.D.H. : Conceptualiza-tion,methodology,investigation. S.M. : Conceptualization,methodology,investigation. N.D.H. :Data curation. D.S. : Data curation. E.C.C. : Validation, Data curation. N.T. : Con-ceptualization, Methodology, Software, Investigation, Resources, Writing – original draft, Supervision, Project administration, Funding acquisition. 
+
+# 9 Competing interests 
+
+The authors declare no competing interests. 
+
+# A Mixed FEM fundamentals 
+
+We denote the L2-inner product on an interval Ω = [ a, b ] by ( f, g )Ω = R ba f g dt, and the corresponding trace term on ∂Ω by ⟨f, g ⟩∂Ω = f (b)g(b) − f (a)g(a). Note that this term usually appears when we apply integration by parts and is not the usual inner product on 
+
+∂Ω. We drop the subscript when the domain of integration is clear. When expanding a function in a basis, e.g., {ϕi(x)}, we use ˆ · to denote basis coefficients, e.g. u(x) = P
+
+> i
+
+ˆuiϕi(x), and naturally denote the vector representation of a function u as ˆ u. We regularly adopt the Einstein summation convention, in which repeated indices imply a sum (e.g. Aij xj := P
+
+> j
+
+Aij xj ). For a given function space V = span {ϕi}, we denote the mass matrix ( MV )ij =(ϕi, ϕ j ). We interchangeably denote time derivatives ˙ x = x′ = dx 
+
+> dt
+
+.
+
+## A.1 Finite element exterior calculus 
+
+We employ mixed finite elements to decompose second-order differential equations into a sys-tem of geometrically compatible first-order equations; for background see [34, 43]. Consider the time interval Ω i = ( ti, t i+1 ) with boundary ∂Ωi = {ti, t i+1 }, where 0 = t0 < t 1 < · · · <tN = T . We introduce a mixed finite element space Vih = Qih ⊗V ih ⊗M ih, where Qih ⊆ L2(Ω i), 14 Vih ⊆ H1(Ω i), and Mih ⊂ R2 will be used to model the solution ui, its derivative Ji, and the restriction of ui to ∂Ωi, respectively. Our goal is to construct a discretization for a general class of initial value problems on Ω i. The solution on Ω 0 will provide initial data for Ω 1, and so forth. In this FEEC context, we specifically refer to one such increment of Ω i as a rollout ,and our goal is to obtain a scheme which remains stable independent of the total number of rollouts .For each time interval Ω i = ( ti, t i+1 ), we further divide it into subintervals Ω i,k =(ti,k , t i,k +1 ) where ti = ti, 0 < t i, 1 < · · · < t i,M = ti+1 . Note ti,M = ti+1 = ti+1 ,0 for 
+
+i = 0 , · · · , N − 1. We choose Qih = dg P0, the space of piecewise discontinuous constants, 
+
+Vih = P1, the piecewise linear nodal Lagrange elements, and Mih, the space of point evalua-tions on the endpoints {ti, t i+1 }. We denote h = max  
+
+> i
+
+hi where hi = max  
+
+> k
+
+|ti,k +1 − ti,k |, and ∆T = max  
+
+> i
+
+|ti+1 − ti|. For the sake of simplicity, we consider uniform time intervals and subintervals in our analysis. However, in practice, one could employ nonuniform h and ∆ T .We associate with Vih and Qih nodal and cell average degrees of freedom, respectively. As a basis, we adopt the notation Qih ⊗ V ih ⊗ M ih = span {(ψ0
+
+> a
+
+, ψ 1 
+
+> b
+
+, ϕ c)}a,b,c .We note that the time derivative ddt : Vih → Q ih is surjective, therefore this pair of elements yields a strong time derivative defined in a pointwise sense. This is the simplest example of a de Rham complex formed by the lowest-order Whitney forms [34, 44]. For the mortar schemes considered in this paper, Vih and Qih are classically chosen as d- and ( d − 1)-dimensional Whitney forms. In one dimension, the de Rham complex trivially reduces to the P1 × dg P0 pair that we use here, and so for the remainder of this paper we work with elementary shape functions with no assumed knowledge of FEEC. Denote by δ : RM +1 → RM the adjacency matrix on Ω i mapping from oriented cell boundaries to cells. From the fundamental theorem of calculus, the adjacency matrix encodes the dual of an exact time derivative operator ; for any v ∈ V ih, dv 
+
+> dt
+
+∈ Q ih. Unlike finite difference schemes, this operator is exact and incurs no approximation error, and can be used to build up second-order time derivatives with desirable properties as well. We summarize key properties of mixed Galerkin discretization of second-order time derivatives that will be used when we formulate and analyze the learning problem. 
+
+Theorem 5. Let u, q ∈ Q ih, J, v ∈ V ih, and λ, μ ∈ M ih. Then the following two identities, respectively, encode strong and weak time derivatives as products of the time derivative mass matrix and adjacency matrix. 
+
+(J′, q ) = ˆ q⊺δ ˆJ. 
+
+(u, v ′) = ˆ v⊺δ⊺ ˆu. 
+
+Consider the following mixed Galerkin discretization of the Poisson problem with Dirichlet data. Find (u, J ) ∈ Q ih × V ih such that for any (q, v ) ∈ Q ih × V ih,
+
+(J, v ) + ( u, v ′) = ⟨uD, v ⟩,
+
+(J′, q ) = ( f, q ),
+
+where uD ∈ M ih is Dirichlet data and f ∈ Q ih is the forcing term. The standard Galerkin procedure yields the following system 
+
+Lˆu := δ⊺M−1 
+
+> V
+
+δˆu = MQ ˆf + M−1 
+
+> V
+
+MM ˆuD.
+
+15 The stiffness matrix L corresponds to a discretized Hodge Laplacian operator, which is non-singular and symmetric positive definite with Poincar´ e inequality 
+
+ˆu⊺MQ ˆu ≤ Cp ˆu⊺Lˆu, 
+
+where Cp is independent of h.Proof. Note that the time derivative operator ddt : Vih 7 → Q ih. Then, its matrix representation 
+
+D ∈ RM ×(M +1) is defined as 
+
+Dij = ( ddtψ1 
+
+> j
+
+, ϕ 0 
+
+> i
+
+) = 
+
+
+
+− 1 
+
+> h
+
+, if j = i,  
+
+> 1
+> h
+
+, if j = i + 1 ,
+
+0, otherwise. On the other hand, it is easy to compute that MQ = diag( h, · · · , h ). Therefore, (J′, q ) = ˆ q⊺MQD ˆJ = ˆ q⊺δ ˆJ, 
+
+where we use the fact that MQD = δ based on the calculation above. Similarly, we have (u, v ′) = ˆ v⊺δ⊺ ˆu and the definition of L follows naturally. The discrete version of the Poincar´ e inequality follows directly from the fact that our choice of Vih × Q ih is an inf-sup stable pair for the mixed formulation in 1D. Thus, we obtain sparse linear algebraic blocks ( MV , MQ, MM, δ) amenable to analysis which can be integrated into automatically differentiable machine learning architectures. 
+
+# B Discrete model form 
+
+## B.1 Matrix formulation of the learning problem 
+
+We now express the learning problem in terms of matrix building blocks. For a function 
+
+Ji ∈ V ih, let its vector representation be ˆJi = ( Ji, 0, J i, 1, · · · , J i,M )⊺, where Ji,k ≈ Ji(ti,k ). Similarly, for a function ui ∈ Q ih, let ˆ ui = ( ui, 0, u i, 1, · · · , u i,M −1)⊺ be its vector representation, where ui,k is the constant approximation of ui on subinterval [ ti,k , t i,k +1 ]. Then we have 
+
+MV ˆJi + δ⊺ ˆui − eM +1 λi,i +1 + e1λi,i = 0
+
+δ ˆJi + MQ bN (ˆ ui, ˆJi; θ) = 0,Ji, 0 − Ji−1,M = 0 ,λi,i − λi−1,i = 0 .
+
+(7) where eM +1 = (0 , · · · , 0, 1) ⊺ ∈ RM +1 and e1 = (1 , 0, · · · , 0) ⊺ ∈ RM +1 , and bN denotes the modal coefficients of the nonlinearity, output by a transformer with trainable parameters θ.Set Yi = ( ˆJi, ˆui, λ i,i +1 , λ i,i ) and Yi−1 = ( ˆJi−1, ˆui−1, λ i−1,i , λ i−1,i −1). Equations (7) define a nonlinear mapping 
+
+H(X; Z, θ ) : R2M +3 × R2M +3 × RNp 7 → R2M +3 ,
+
+16 and is equivalent to 
+
+H(Yi; Yi−1, θ ) = 0. (8) Next we define several matrices that are useful for our theoretical analysis later. 
+
+Ji := ∂H ∂X X=Yi,Z =Yi−1
+
+=
+
+
+
+MV δ⊺ −eM +1 e1
+
+δ 0 0 0e⊺ 
+
+> 1
+
+0⊺ 0 0
+
+0⊺ 0⊺ 0 1
+
+ +
+
+
+
+0 0 0 0MQ∂ˆj bN MQ∂ˆu bN 0 00⊺ 0⊺ 0 0
+
+0⊺ 0⊺ 0 0
+
+ =: J + hNi,
+
+where we use the fact that MQ = hI and we further define: 
+
+K := ∂H ∂Z X=Yi,Z =Yi−1
+
+=
+
+
+
+0 0 0 00 0 0 0
+
+−e⊺  
+
+> M+1
+
+0⊺ 0 0
+
+0⊺ 0⊺ −1 0
+
+ .
+
+Finally, we introduce 
+
+Ri = ∂H ∂θ X=Yi,Z =Yi−1
+
+.
+
+For the sake of simplicity, we will consider the autoregressive map from the solution at the final time of one domain to the initial conditions of the next. First, we introduce the restriction to the interface variables yi = ( Ji,M , λ i,i +1 )⊺ and yi−1 = ( Ji−1,M , λ i−1,i )⊺. Note that, if we define 
+
+P =
+
+
+
+eM +1 00 0
+
+0 10 0
+
+ ∈ R(2 M +3) ×2,
+
+then yi = P⊺Yi. We are interested in analyzing the properties of the recurrence relation implicitly defined by (8) 
+
+yi = Φ( yi−1, θ ),
+
+which encodes the solution of the discrete model and restriction to the mortar of the next subdomain. 
+
+# C Proofs of theoretical results 
+
+## C.1 Uniform gradient stability 
+
+We now establish that gradients with respect to parameters remain bounded independent of the number of rollouts. The equation H(X; Z, θ ) = 0 implicitly defines X = F (Z, θ ), which yields 
+
+yi = P⊺F (Pyi−1, θ ) =: Φ( yi−1, θ ).
+
+17 Through implicit differentiation, we compute the Jacobian of Φ as follows, 
+
+∂Φ( yi−1, θ )
+
+∂y = P⊺ ∂F (Z, θ )
+
+∂Z Z=Pyi−1
+
+P = −P⊺ J−1 
+
+> i
+
+K P.
+
+Defining 
+
+KP = −
+
+
+
+0 00 0
+
+1 00 1
+
+ =: −Q,
+
+we have 
+
+∂yi
+
+∂θ = P⊺J−1 
+
+> i
+
+Q∂yi−1
+
+∂θ − PT J−1 
+
+> i
+
+Ri
+
+ .
+
+Therefore, since y0 does not depend on θ, we arrive at 
+
+∂yN
+
+∂θ = − 
+
+> N−1
+
+X
+
+> i=1
+
+" NY
+
+> j=i+1
+
+ P⊺J−1 
+
+> j
+
+Q#
+
+P⊺J−1 
+
+> i
+
+Ri − P⊺J−1 
+
+> N
+
+RN . (9) To bound the local Jacobian ∂yN 
+
+> ∂θ
+
+, we need to bound the terms on the right-hand side of (9) that depend on J−1 
+
+> i
+
+. Given that Ji = J + hNi, in the next two lemmas, we study the inverse of J. Subsequently, J−1 
+
+> j
+
+can be analyzed as a perturbation of J−1.
+
+Lemma 6. Let the mesh size of each time interval [ti−1, t i] be h. The inverse of J is given explicitly by the block matrix 
+
+J−1 =
+
+
+
+0 L1 1 0L2 L3 h1 1
+
+−1⊺ h⊺ 
+
+> 2
+
+1 + 23 h 1
+
+0⊺ 0⊺ 0 1
+
+ ,
+
+where 
+
+L1 =
+
+
+
+0 0 · · · 01 0 · · · 0
+
+... ... . . . ...
+
+1 · · · 1 01 1 · · · 1
+
+
+
+∈ RM +1 ×M , L2 =
+
+
+
+−1 0 · · · 0 0
+
+−1 −1 0 · · · 0
+
+... ... ... . . . ...
+
+−1 −1 · · · −1 0
+
+ ∈ RM ×M +1 
+
+and 
+
+L3 =
+
+ 
+
+> h
+> 6
+
+0 · · · 0 0
+
+h h 
+
+> 6
+
+0 · · · 02h h h 
+
+> 6
+
+· · · 0
+
+... . . . . . . . . . ...
+
+(M − 1) h · · · 2h h h
+
+> 6
+
+
+
+∈ RM ×M , h1 = h
+
+
+
+12
+
+...
+
+M
+
+ − h
+
+6 1, h2 = h
+
+
+
+M
+
+...
+
+21
+
+ − h
+
+6 1.
+
+18 Proof. This can be directly proven by checking JJ −1 = I.
+
+Lemma 7. Let the mesh size of each time interval [ti−1, t i] be h, then 
+
+PT J−1 =
+
+ 0⊺ 1⊺ 1 0
+
+−1⊺ h⊺ 
+
+> 2
+
+1 + 23 h 1
+
+
+
+and PT J−1Q =
+
+ 1 01 + 23 h 1
+
+
+
+.
+
+In addition, we have 
+
+|| P⊺J−1|| = O(h−1/2) and || PT J−1Q|| = O(1 + ch ).
+
+Proof. These results follow directly from Lemma 6. We are now positioned to bound the terms involving J−1 
+
+> i
+
+, assuming the partial derivative terms of bN are bounded. The results are summarized in the following lemma. 
+
+Lemma 8. Let the mesh size of each time interval [ti−1, t i] be h and assume that || Ni|| =
+
+O(1) , then 
+
+|| P⊺J−1 
+
+> i
+
+|| ≤ C1h−1/2 and || PT J−1 
+
+> i
+
+Q|| ≤ CJ(1 + ch ).
+
+Proof. These norm estimates follow directly from the fact that Ji = J + hNi and standard matrix perturbation analysis. Finally, we show that the local Jacobian is bounded independently of N , the number of rollouts. 
+
+Proof of Theorem 4. 
+
+Proof. Taking the norm on both sides of (9) and denoting Rmax = max i ∥Ri∥, we have 
+
+∂yN
+
+∂θ ≤ 
+
+> N−1
+
+X
+
+> i=1
+
+" NY
+
+> j=i+1
+
+P⊺J−1 
+
+> j
+
+Q
+
+#
+
+|| P⊺J−1 
+
+> i
+
+|||| Ri|| + || P⊺J−1 
+
+> N
+
+|||| RN || 
+
+(Lemma 8) ≤ Rmax  
+
+> N−1
+
+X
+
+> i=1
+
+" NY
+
+> j=i+1
+
+CJ(1 + ch )
+
+#
+
+C1h−1/2 + C1h−1/2Rmax 
+
+= C1h−1/2Rmax 
+
+"N −1X
+
+> k=0
+
+Ck 
+
+> J
+
+(1 + ch )k
+
+#
+
+≤ Ch −1/2Rmax  
+
+> N−1
+
+X
+
+> k=0
+
+(1 + ch )k
+
+≤ Ch −1/2Rmax 
+
+(echN − 1) 
+
+ch 
+
+≤ Ch −3/2Rmax 
+
+
+
+ec TM − 1
+
+
+
+,
+
+where we use the facts that h = ∆ t/M and ∆ tN = T . This completes the proof. 19 C.2 Nonlinear Hamiltonian system 
+
+We now provide the proof of Theorem 2 for the case of a generic nonlinear potential N =
+
+V ′(u). 
+
+Proof of Theorem 2. 
+
+Proof. On the time interval Ω i, testing the second equation of 2 by q = πJ , where π is the 
+
+L2 projection from Vih to Qih, we obtain 0 = ( J′, πJ ) − (V ′(u), πJ ) = ( J′, J ) − (V ′(u), J ), (10) where the projection πJ has been replaced by J since both J′ and V ′(u) are elements of Qih.On subinterval [ ti,k , t i,k +1 ], the first term on the left hand side of (10) produces the following kinetic energy increment, (J′, J ) =  
+
+> M−1
+
+X
+
+> k=0
+
+Z ti,k +1 
+
+> ti,k
+
+12ddt∥J∥2 dt = 
+
+> M−1
+
+X
+
+> k=0
+
+12∥J∥2
+
+ti,k +1 
+
+> ti,k
+
+=
+
+12∥J∥2
+
+ti,M 
+
+> ti, 0
+
+.
+
+The second term on the left hand side of (10) requires the discrete summation by parts formula. On a single subinterval [ ti,k , t i,k +1 ] of subdomain Ω i, since u = ui,k is constant on this interval, so is V ′(u) by our assumption, thus, (V ′(u), J ) =  
+
+> M−1
+
+X
+
+> k=0
+
+V ′(ui,k )
+
+Z ti,k +1 
+
+> ti,k
+
+J dt. (11) Applying Lemma 1 with v ≡ 1 on [ tik, t ik+1 ] and 0 elsewhere shows that the integral of J over a finite element equals the jump of u:
+
+Z ti,k +1 
+
+> ti,k
+
+J dt = ui,k +1 − ui,k .
+
+Therefore (V ′(u), J ) =  
+
+> M−1
+
+X
+
+> k=0
+
+V ′(ui,k ) ( ui,k +1 − ui,k ), (12) which is a discrete approximation to the Stieltjes integral R ti+1  
+
+> ti
+
+V ′(u)du = V (u(ti+1 )) −
+
+V (u(ti)). We thus arrive at the discrete energy on Ω i,
+
+12∥J∥2
+
+ti+1 
+
+> ti
+
+− 
+
+> M−1
+
+X
+
+> k=0
+
+V ′(ui,k ) ( ui,k +1 − ui,k ) = 0 .
+
+Then (6) follows after summing over all time intervals Ω i, i = 0 , · · · , N − 1. 
+
+Remark 2. If V ′(u) /∈ Q ih even if u ∈ Q ih, we can define a piecewise constant projec-tion operator ΠQ such that ΠQV ′(u) ∈ Q ih. Then (6) still holds with V ′(ui,k ) replaced by 
+
+ΠQV ′(ui,k ).
+
+20 Remark 3. For a general nonlinear potential V , the discrete potential energy  
+
+> N−1
+
+X 
+
+> i=0
+> M−1
+
+X
+
+> k=0
+
+V ′(ui,k ) ( ui,k +1 − ui,k )
+
+does not simplify to V (u(tN )) − V (u(t0)) at finite mesh size. Instead, the sum is a discrete Riemann-Stieltjes representation of the potential energy increment and is exactly conserved 
+
+by the scheme. In the special case where V is quadratic and the consequent forcing is linear, 
+
+V ′(u) is constant on each time element, so that  
+
+> N−1
+
+X 
+
+> i=0
+> M−1
+
+X
+
+> k=0
+
+V ′(ui,k ) ( ui,k +1 − ui,k ) = V (u(tN )) − V (u(t0)) 
+
+holds exactly on the mesh. In this case, the discrete Hamiltonian coincides exactly with the continuous Hamiltonian 12 ∥J∥2 − V (u).
+
+## C.3 Dissipative systems 
+
+To treat dissipative dynamical systems, we consider the addition of an abstract bilinear form 
+
+ai : Qih × Q ih → R, which induces a norm || · || ai as follows 
+
+∥q∥2 
+
+> a
+
+:= a(q, q ). (13) As an example, the bilinear form associated with a linear dissipative oscillator ai(p, q ) = 
+
+β(p, q ), β > 0, p, q ∈ Q ih, satisfies this property. If we choose the following ansatz (N [u, J ], q ) = ai(πJ, q ) − (V ′(u), q ), (14) then the second equation of (2) becomes, (J′, q ) + ai(πJ, q ) − (V ′(u), q ) = 0 . (15) The additional bilinear form a provides the stability and allows us to obtain the following energy stable result. 
+
+Proof of Theorem 3. 
+
+Proof. The proof is essentially the same as the proof of Theorem 2. On the time interval Ω i,testing (15) by q = πJ , we obtain 0 = ( J′, πJ ) + ai(πJ, πJ ) − (V ′(u), πJ ) = ( J′, J ) + ∥πJ ∥2 
+
+> ai
+
+− (V ′(u), J ).
+
+Following the same argument in the proof of Theorem 2 and moving the ∥πJ ∥2 
+
+> a
+
+term to the other side, we naturally arrive at 
+
+12∥J∥2
+
+ti+1 
+
+> ti
+
+− 
+
+> M−1
+
+X
+
+> k=0
+
+V ′(ui,k ) ( ui,k +1 − ui,k ) = −∥ πJ ∥2 
+
+> ai
+
+.
+
+21 Table 1: Training configuration for all experiments. All models are optimized with SOAP [46] ( precondition frequency = 10, weight decay = 10 −4).                                               
+
+> Problem State dim. Encoding Cond. ( z)NMBatch LR Loss Train time Lorenz 3——11 10 1024 10 −4MSE 3 days Flow past a cylinder 64 PCA (fixed) log Re 8464 10 −3MSE 1 day Shear flow 64 Swin (learned) log Re ,log Sc 40 5810 −4VRMSE 8 days Inner MITL 64 Swin (learned) V32 8810 −4L1 12 days
+
+Therefore, summing over all time intervals Ω i, i = 0 , · · · , N − 1, we have  
+
+> N−1
+
+X
+
+> i=0
+
+Ei = − 
+
+> N−1
+
+X
+
+> i=0
+
+∥πJ ∥2 
+
+> ai
+
+≤ 0. (16) This completes the proof. 
+
+Remark 4. The discrete energy dissipation (16) provides a discrete version of the following energy dissipation result on the continuous level 
+
+Z tN
+
+> t0
+
+ddt
+
+12∥J∥2 dt −
+
+Z tN
+
+> t0
+
+V ′(u) d u ≤ 0.
+
+Remark 5. Similarly, for the general case that V ′(u) /∈ Q ih, (16) still holds with V ′(ui,k )
+
+replaced by ΠQV ′(ui,k ).
+
+# D Learning architecture and hyperparameter details 
+
+This appendix provides specifications of the neural network architectures and training pro-cedures used in our experiments. 
+
+## D.1 Transformer architecture for N
+
+We use a highly “local” transformer architecture shown in Figure 5 in order to learn the non-linearity which evolves the dynamics. The state vector at any point in time, ˆ u is “decoded” by a transformer architecture with respect to itself, the values of ˆJ on either side only (see Figure 1a), as well as any global parametric conditioning information. A relatively small transformer is applied in a weight-sharing fashion M times for each subdomain, so that the resulting Jacobian needed for the nonlinear solve is sparse by construction. 
+
+# E Dataset descriptions 
+
+## E.1 Low-dimensional ODE benchmarks 
+
+The Lorenz system ( σ, ρ, β ) = (10 , 28 , 8/3) was integrated using SciPy odeint with adaptive timestepping. A single trajectory of 10 ,000 Lyapunov timescales was used for training. 22 Figure 5: A schematic diagram of the transformer model used to learn system dynamics. For each example in the paper, Nblocks = 3, the model dimension is 256, 4 attention heads are used, and tanh activations are used throughout. Dynamic tanh (“DyT”, [45]) are used in place of standard layer norms to improve training speed. The total number of trainable parameters is 3.2 million. 23 E.2 Flow past a cylinder 
+
+Nine simulations of 2D incompressible flow past a unit-diameter circular cylinder were gen-erated using PyFR [35], an open-source discontinuous Galerkin (DG) code. The cylinder is centered at the origin in a domain spanning x ∈ [−10 , 20], y ∈ [−10 , 10]. The mesh consists of 60 circumferential quadrilateral elements near the wall, with the first quadrature point placed at y+ = 1, followed by 8 additional quad layers with a radial growth factor of 1 .1. Beyond these structured layers, an unstructured triangular mesh remains fine in the wake region and gradually coarsens toward the far field. The freestream conditions are u∞ = 1, v∞ = 0, p∞ = 1. Reynolds number is varied by changing the kinematic viscosity ν while keeping u∞ and the cylinder diameter L fixed, for Re ∈ { 60 , 80 , 100 , 150 , 200 , 300 , 400 , 600 , 800 }. Initial conditions are obtained from the po-tential flow solution, which is independent of viscosity, allowing the same initialization across all runs. A third-order artificial compressibility Navier-Stokes solver ( ac-navier-stokes ) is used with characteristic Riemann invariant boundary conditions ( ac-char-riem-inv ) and a time step of ∆ t = 0 .01 (maximum CFL ≈ 0.3). Point cloud data of the velocity and pressure fields ( u, v, p ) are exported at intervals of ∆t = 0 .1. Each simulation is run for 6000 output steps, sufficient for all Reynolds numbers to reach statistical steady-state. Lift and drag forces are computed at each time step by integrating wall shear stress and pressure over the cylinder surface, and cross-checked against PyFR’s built-in soln-plugin-fluidforce . A PCA decomposition across the full dataset retains the leading 64 modes, which serve as the reduced-order state for the latent dynamical model. 
+
+## E.3 Shear flow from The Well 
+
+The 2D periodic incompressible shear flow benchmark was taken from [37]. The dataset consists of 1120 trajectories of 200 time steps each (224 held out for testing), with varying initial conditions, Reynolds numbers, and Schmidt numbers. 
+
+## E.4 2D Inner MITL (pulsed power fusion component) 
+
+Simulation of high-voltage magnetically insulated transmission lines (MITL) is essential to design and operation of the Z-machine at Sandia National Laboratories. While modeled as a coaxial cable, the levels of electromagnetic energy involved lead to a computationally costly transient multiscale simulation with complex boundary conditions, particle flows, and electrodynamics. Developing a predictive data-driven model would enable rapid turnaround predictions to facilitate design exploration. Figure 6 depicts the domain used for a series of particle-in-cell (PIC) simulations of a 2D representation of the inner MITL on the Z-machine (see [47] for a computational exploration of this model). The system is driven by an electric field placed on the “input” boundary. The EM wave propagates into the gap between the cathode and anode from the left to the right (the Poynting flux points to the right parallel to the cathode). Electrons from the cathode and anode are emitted into the cavity forming a plasma using a space charge limited (SCL) boundary condition. The boundary conditions for the electric field are perfect electrical 24 conductors, with the exception of the “input” boundary. The “output” boundary closes the circuit between the anode and cathode and represents the Z-machine target. A good design mitigates electrons crossing the gap between the cathode and anode. As a result, the center of mass of the electrons prior to the expanded region is of interest to analysts and will be used as a quantity of interest for our purposes. The Empire-PIC application [38] was used to simulate this problem with 55 ,065 triangular elements and 59 ,958 time steps over 10 ns. Three different values specifying the peak of the electric field on the input boundary were used: 0 .9 MV, 1 .0 MV, and 1 .1 MV. At each point in this parameter space, 4 different random seeds yielded an ensemble of simulations. Every 5 time steps the particle location data was averaged into electron density and velocity fields stored at each cell center, along with two components of the electric field and the magnetic field out of the plane. At the 11 ,991 stored time step values the unstructured mesh data was uniformly sampled onto a regular 600 × 100 grid. The field data is stored as a channel dimension, as well as a mask indicating which points are inside the domain, resulting in a 600 × 100 × 7 dimensional tensor at each time step.             
+
+> Anode
+> Cathode
+> Non-emitting Input
+> Output
+> 3.25
+> 8.25
+> 3.25 15
+> 50
+> E·n=f(t)
+> E·n= 0, SCL
+> E·n= 0
+
+Figure 6: MITL domain geometry. Schematic of the 2D inner MITL simulation domain showing the cathode, anode, input boundary (driven electric field), and output boundary (Z-machine target). Boundary condition types are indicated in the legend: dotted lines denote the driven electric field E · n = f (t), solid lines denote perfect electrical conductor with space charge limited emission ( E · n = 0, SCL), and dashed lines denote perfect electrical conductor boundaries ( E · n = 0). Dimensions are in mm. 
+
+# References 
+
+[1] Vaswani, A. et al. Attention Is All You Need. arXiv e-prints arXiv:1706.03762 (2017). 
+
+1706.03762 .[2] Dosovitskiy, A. et al. An image is worth 16x16 words: Transformers for image recogni-tion at scale. In International Conference on Learning Representations (ICLR) (2021). ArXiv:2010.11929. [3] Brandstetter, J., Worrall, D. & Welling, M. Message passing neural pde solvers. In In-ternational Conference on Learning Representations (ICLR) (2022). ArXiv:2202.03376. 25 [4] Herde, M. et al. Poseidon: Efficient foundation models for PDEs. Advances in Neural Information Processing Systems (NeurIPS) (2024). ArXiv:2405.19101. [5] McCabe, M. et al. Multiple physics pretraining for physical surrogate models. Advances in Neural Information Processing Systems (NeurIPS) (2024). ArXiv:2310.02994. [6] Subramanian, S. et al. Towards foundation models for scientific machine learning: Char-acterizing scaling and transfer behavior. Advances in Neural Information Processing Systems (NeurIPS) (2024). ArXiv:2306.00258. [7] Lam, R. et al. Learning skillful medium-range global weather forecasting. Science 382 ,1416–1421 (2023). [8] Bodnar, C. et al. A foundation model for the Earth system. Nature (2025). [9] Carter, J. et al. Advanced research directions on AI for science, energy, and secu-rity: Report on summer 2022 workshops. Tech. Rep. ANL-22/91, Argonne National Laboratory (2023). [10] Choi, Y. et al. Defining foundation models for computational science: A call for clarity and rigor. arXiv preprint arXiv:2505.22904 (2025). [11] Lippe, P., Veeling, B., Perdikaris, P., Turner, R. & Brandstetter, J. PDE-refiner: Achieving accurate long rollouts with neural PDE solvers. Advances in Neural In-formation Processing Systems 36 (2023). [12] Vlachas, P. R., Byeon, W., Wan, Z. Y., Sapsis, T. P. & Koumoutsakos, P. Data-driven forecasting of high-dimensional chaotic systems with long short-term memory networks. 
+
+Proceedings of the Royal Society A 474 , 20170844 (2018). [13] Pathak, J., Hunt, B., Girvan, M., Lu, Z. & Ott, E. Model-free prediction of large spatiotemporally chaotic systems from data: A reservoir computing approach. Physical Review Letters 120 , 024102 (2018). [14] Haber, E. & Ruthotto, L. Stable architectures for deep neural networks. Inverse Prob-lems 34 , 014004 (2018). [15] E, W. A proposal on machine learning via dynamical systems. Communications in Mathematics and Statistics 5, 1–11 (2017). [16] Chen, R. T., Rubanova, Y., Bettencourt, J. & Duvenaud, D. K. Neural ordinary differential equations. Advances in neural information processing systems 31 (2018). [17] Geneva, N. & Zabaras, N. Transformers for modeling physical systems. Neural Networks 
+
+146 , 272–289 (2022). [18] Yan, W., Zhang, Y., Abbeel, P. & Srinivas, A. Videogpt: Video generation using VQ-VAE and transformers. arXiv preprint arXiv:2104.10157 (2021). 26 [19] Liu, Z. et al. Swin transformer: Hierarchical vision transformer using shifted windows. 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) 
+
+10012–10022 (2021). [20] Kim, J., Kim, H., Kim, H. G., Lee, D. & Yoon, S. A comprehensive survey of deep learning for time series forecasting: architectural diversity and open challenges. Artificial Intelligence Review 58 , 1–47 (2025). [21] Bommasani, R. et al. On the opportunities and risks of foundation models. arXiv preprint arXiv:2108.07258 (2021). [22] National Academies of Sciences, Engineering, and Medicine. Foundation models for scientific discovery and innovation: Opportunities across the department of energy and the scientific enterprise. Tech. Rep., The National Academies Press, Washington, DC (2025). [23] Hairer, E., Lubich, C. & Wanner, G. Geometric Numerical Integration: Structure-Preserving Algorithms for Ordinary Differential Equations , vol. 31 of Springer Series in Computational Mathematics (Springer, 2006), 2nd edn. [24] Hulbert, G. M. & Hughes, T. J. Space-time finite element methods for second-order hyperbolic equations. Computer Methods in Applied Mechanics and Engineering 84 ,327–348 (1990). [25] Rhebergen, S., Cockburn, B. & van der Vegt, J. J. A space–time hybridizable discon-tinuous Galerkin method for incompressible flows on deforming domains. Journal of Computational Physics 231 , 4185–4204 (2013). [26] Langer, U., Steinbach, O., Tr¨ oltzsch, F. & Yang, H. Unstructured space-time finite element methods for optimal control of parabolic equations. SIAM Journal on Scientific Computing 43 , A744–A771 (2021). [27] Frontin, C. V. et al. Foundations of space-time finite element methods: polytopes, interpolation, and integration. Applied Numerical Mathematics 166 , 92–113 (2021). [28] Bernardi, C., Maday, Y. & Patera, A. T. Domain decomposition by the mortar element method. In Asymptotic and numerical methods for partial differential equations with critical parameters , 269–286 (Springer, 1993). [29] Arbogast, T., Pencheva, G., Wheeler, M. F. & Yotov, I. A multiscale mortar mixed finite element method. Multiscale Modeling & Simulation 6, 319–346 (2007). [30] Quarteroni, A. & Valli, A. Domain Decomposition Methods for Partial Differential Equations (Oxford University Press, 1999). [31] Cockburn, B., Gopalakrishnan, J. & Lazarov, R. Unified hybridization of discontinuous Galerkin, mixed, and continuous Galerkin methods for second order elliptic problems. 
+
+SIAM Journal on Numerical Analysis 47 , 1319–1365 (2009). 27 [32] Jiang, S., Actor, J., Roberts, S. & Trask, N. A structure-preserving domain decompo-sition method for data-driven modeling. arXiv preprint arXiv:2406.05571 (2024). [33] Ascher, U. M., Mattheij, R. M. M. & Russell, R. D. Numerical Solution of Boundary Value Problems for Ordinary Differential Equations . Classics in Applied Mathematics (SIAM, 1995). [34] Arnold, D. N. Finite element exterior calculus (SIAM, 2018). [35] Witherden, F. D., Farber, A. M. & Vincent, P. E. PyFR: An open source framework for solving advection–diffusion type problems on streaming architectures using the flux reconstruction approach. Computer Physics Communications 185 , 3028–3040 (2014). [36] Cao, H. et al. Swin-unet: Unet-like pure transformer for medical image segmentation. 
+
+Computer Vision – ECCV 2022 Workshops 205–218 (2023). [37] Ohana, R. et al. The well: a large-scale collection of diverse physics simulations for machine learning. Advances in Neural Information Processing Systems 37 , 44989–45037 (2024). [38] Bettencourt, M. T. et al. EMPIRE-PIC: a performance portable unstructured particle-in-cell code. Communications in Computational Physics 30 (2021). [39] Kinch, B. et al. Structure-preserving digital twins via conditional neural whitney forms. 
+
+arXiv preprint arXiv:2508.06981 (2025). [40] Wu, H., Luo, H., Wang, H., Wang, J. & Long, M. Transolver: A fast transformer solver for pdes on general geometries. arXiv preprint arXiv:2402.02366 (2024). [41] Shaffer, B. D., Koohy, S., Kinch, B., Hsieh, M. A. & Trask, N. Structure-preserving learning improves geometry generalization in neural pdes. arXiv preprint arXiv:2602.02788 (2026). [42] Strang, G. & Fix, G. J. An analysis of the finite element method (Prentice-Hall, Engle-wood Cliffs, NJ, 1973). [43] Bochev, P. B. & Hyman, J. M. Principles of mimetic discretizations of differential operators. In Compatible spatial discretizations , 89–119 (Springer, 2006). [44] Actor, J. A., Hu, X., Huang, A., Roberts, S. A. & Trask, N. Data-driven whitney forms for structure-preserving control volume analysis. Journal of Computational Physics 496 ,112520 (2024). [45] Zhu, J., Chen, X., He, K., LeCun, Y. & Liu, Z. Transformers without normalization. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 14901–14911 (2025). 28 [46] Vyas, N. et al. Soap: Improving and stabilizing shampoo using adam for language modeling. In Yue, Y., Garg, A., Peng, N., Sha, F. & Yu, R. (eds.) International Conference on Learning Representations , vol. 2025, 93423– 93444 (2025). URL https://proceedings.iclr.cc/paper_files/paper/2025/file/ e988664070e9591f93fdcf605f7dc623-Paper-Conference.pdf .[47] Sirajuddin, D., Hamlin, N. D., Evstatiev, E. G., Hess, M. H. & Cartwright, K. MRT 7365 power flow physics and key physics phenomena: EMPIRE verification suite. Tech. Rep., Sandia National Lab. (SNL-NM), Albuquerque, NM (United States) (2023). 29
