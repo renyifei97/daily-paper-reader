@@ -1,0 +1,1304 @@
+Title: STLGT: A Scalable Trace-Based Linear Graph Transformer for Tail Latency Prediction in Microservices
+
+URL Source: https://arxiv.org/pdf/2604.26422v1
+
+Published Time: Thu, 30 Apr 2026 00:36:44 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# STLGT: A Scalable Trace-Based Linear Graph Transformer for Tail Latency Prediction in Microservices 
+
+# Yongliang Ding 
+
+East China Normal University Shanghai, China ylding@stu.ecnu.edu.cn 
+
+# Qigong Bi 
+
+East China Normal University Shanghai, China qgbi@stu.ecnu.edu.cn 
+
+# Peng Pu 
+
+East China Normal University Shanghai, China ppu@cc.ecnu.edu.cn 
+
+## Abstract 
+
+Accurate end-to-end tail-latency forecasting is critical for proac-tive SLO management in microservice systems. However, modeling long-range dependency propagation and non-stationary, bursty workloads while maintaining inference efficiency at scale remains challenging. We present STLGT ( Scalable Trace-based Linear Graph 
+
+Transformer), a per-API predictor that encodes traces as span graphs for multi-step p95 tail-latency forecasting. STLGT uses a structure-aware linear graph Transformer to propagate cross-service dependencies with inference time linear in span graph size, and a decoupled temporal module to capture workload dynamics. Across a personalized education microservice application and open-source microservice benchmarks [ 10 , 17 ], STLGT improves fore-casting accuracy over PERT-GNN [ 33 ] by 8.5% MAPE on average and achieves up to 12 × faster CPU inference at 𝑁 = 32 , match-ing the maximum span graph size after preprocessing the Alibaba traces [ 17 ]. Ablation studies further demonstrate the effectiveness of each component, especially under bursty traffic. 
+
+## CCS Concepts 
+
+• Computing methodologies → Neural networks ; Supervised learning by regression .
+
+## Keywords 
+
+microservices, tail latency prediction, proactive auto-scaling, dis-tributed tracing, graph Transformer 
+
+ACM Reference Format: 
+
+Yongliang Ding, Qigong Bi, and Peng Pu. 2026. STLGT: A Scalable Trace-Based Linear Graph Transformer for Tail Latency Prediction in Microser-vices. In Proceedings of The 30th International Conference on Evaluation and Assessment in Software Engineering (EASE 2026). ACM, New York, NY, USA, 12 pages. https://doi.org/10.1145/nnnnnnn.nnnnnnn 
+
+## 1 Introduction 
+
+Cloud-native computing has become a foundational paradigm for modern software delivery, with microservices and container tech-nologies serving as its core architectural enablers [ 4, 6 , 7]. Conse-quently, major cloud providers such as Microsoft, IBM, and Alibaba  
+
+> Permission to make digital or hard copies of all or part of this work for personal or classroom use is granted without fee provided that copies are not made or distributed for profit or commercial advantage and that copies bear this notice and the full citation on the first page. Copyrights for components of this work owned by others than the author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or republish, to post on servers or to redistribute to lists, requires prior specific permission and/or a fee. Request permissions from permissions@acm.org.
+> EASE 2026, Glasgow, Scotland, United Kingdom
+> ©2026 Copyright held by the owner/author(s). Publication rights licensed to ACM. ACM ISBN 978-x-xxxx-xxxx-x/YYYY/MM https://doi.org/10.1145/nnnnnnn.nnnnnnn
+
+have adopted Kubernetes-based container orchestration platforms to manage large-scale production systems [ 3, 18 , 19 , 27 , 28 , 30 , 49 ]. This trend is also visible in digital education platforms, where learn-ing, assessment, recommendation, content delivery, and analytics services are increasingly decomposed into independently deployed microservices. Unlike many steady enterprise workloads, educa-tion workloads often contain schedule-driven bursts: online exams, deadline-driven submissions, and synchronous classroom activities can trigger sharp traffic increases within a short time window. Such bursts are difficult to absorb reactively because latency degradation may propagate from assessment APIs to authentication, question-bank, grading, and analytics services, making accurate short-term tail-latency prediction particularly important. Elasticity is a key characteristic of cloud services [ 20 ]. Com-pared with monolithic architectures, microservice-based systems typically comprise hundreds or thousands of service instances de-ployed across homogeneous or heterogeneous clusters, with vir-tualization and containerization abstracting underlying hardware heterogeneity. Elasticity is realized through scaling: resources are provisioned or reclaimed based on runtime metrics (e.g., CPU and memory utilization) to meet QoS requirements while controlling operational costs. As the number of microservices grows rapidly, manual scaling becomes increasingly costly and impractical in lar-ge-scale systems [ 16 ], making auto-scaling a critical capability in modern microservice architectures. Existing auto-scaling approaches generally fall into two cate-gories: reactive and proactive [ 33 ]. Reactive approaches are typi-cally triggered by predefined thresholds or rules and are simple to implement; however, their delayed response to dynamic workload variations often leads to Service Level Objective (SLO) violations. In contrast, proactive approaches aim to anticipate future work-load demands or QoS states and provision resources in advance, thereby reducing the risk of SLO violations. As a result, proactive methods have become an important direction in auto-scaling and cloud resource management research. A typical proactive auto-scaling system consists of two core components: a predictor and a scaling controller. While the de-sign of scaling controllers has been extensively studied—including reinforcement-learning-based controllers (e.g., actor-critic methods) for adaptive resource allocation [ 28 , 31 ]—the modeling capability of predictors remains relatively limited, particularly in complex microservice environments. We highlight three key challenges: (1) C1: Limited global dependency modeling. Many existing predictors either ignore microservice invocation dependen-cies or capture only local neighborhood information, making them insufficient to capture global dependency propagation         
+
+> arXiv:2604.26422v1 [cs.LG] 29 Apr 2026 EASE 2026, 9–12 June, 2026, Glasgow, Scotland, United Kingdom Yongliang Ding et al. Frontend A
+> Frontend B
+> Frontend C
+> Service A
+> Service B
+> Service C
+> Service D
+> Service E
+> Service ...
+> Storage A
+> Cache A
+> Cache ...
+> Storage ...
+> Service ...
+> Client
+> Frontend A /api/hotel/reservation Service A Service E Storage A
+> Service ... Cache A
+> /api/hotel/check Frontend C
+> Service B
+> Service D Service ...
+> different runtime
+> dynamics
+> Cache A
+> Romote Procedure Call (RPC)
+> Normal service Abnormal service
+> ?
+> ?
+> SLO violation happened,
+> but which is the root cause?
+> async calling
+> Deep dependency chain
+> Violation propogation
+> API Request
+> /
+> (a) Violation propagation and root-cause ambiguity in deep microservice dependency chains
+> (b) API-level heterogeneity and parameter-dependent invocation paths in microservice systems
+
+Figure 1: Challenges in Modeling Long-Chain Dependencies and Runtime Heterogeneity in Microservice Call Graphs 
+
+across invocation paths. As a result, prediction errors can ac-cumulate along long dependency chains, which may trigger mis-scaling decisions and ultimately increase the risk of SLO violations in large-scale microservice systems (Fig. 1(a)). (2) C2: Insufficient burst-aware temporal modeling. Many existing approaches implicitly assume workload stationarity or periodicity and rely on short historical windows, limit-ing their ability to capture non-periodic and bursty traffic patterns commonly observed in production environments, especially under traffic hotspots or sudden demand surges. (3) C3: Poor scalability and limited faithfulness to produc-tion characteristics. Existing methods often adopt overly simplified abstractions of service APIs, ignoring heterogene-ity in request rates, parameter-dependent invocation paths, and large number of APIs. Moreover, predictors based on graph neural networks or global attention mechanisms typ-ically incur substantial computational overhead as system scale grows, significantly constraining their applicability in large-scale deployments (Fig.1(b)). To address these challenges, we propose STLGT : a Scalable Tr-ace-based Linear Graph Transformer for proactive microservice tail-latency prediction. STLGT is a scalable, trace-based per-API 
+
+predictor: for each API trace stream, it constructs an API-specific span graph from distributed traces and employs a structure-aware 
+
+linear graph Transformer encoder to capture long-range depen-dency propagation and cross-path influences. This trace-driven partitioning bounds the feature-graph size per prediction instance and avoids graph size blow-up. To model non-stationary and bursty workload dynamics without incurring the overhead of coupled spatiotemporal attention, STLGT decouples global dependency en-coding from temporal dynamics modeling via a dedicated temporal module. We assume the dominant call path of each API is stable within an evaluation period; when the call path changes, the span graph can be refreshed from recent traces. Our contributions are summarized as follows: 
+
+• Trace-based span graph abstraction for tail-latency pr-ediction (solves C1 and C3 ). We introduce an API-level span graph representation and a lightweight span-to-graph con-struction derived from distributed traces, enabling efficient feature alignment for tail-latency prediction. 
+
+• Structure-aware linear graph Transformer for global dependency propagation (solves C1 and C3 ). We design a structure-aware linear graph Transformer encoder whose inference cost scales linearly with graph size while capturing global dependency propagation for tail-latency prediction. 
+
+• Decoupled spatiotemporal modeling for scalable in-ference (solves C2 and C3 ). We decouple global dependency encoding from temporal dynamics modeling through a ded-icated temporal module, avoiding expensive coupled spa-tiotemporal attention and reducing inference complexity to an additive linear form. The remainder of this paper is organized as follows. Section 2 defines the problem. Sections 3 and 4 present the methodology. Section 5 reports experimental results. Section 6 reviews related work, and Section 7 concludes the paper. 
+
+## 2 Problem Definition 
+
+This section formalizes the trace-based microservice p95 tail-latency prediction problem studied in this paper. We define the microservice call graph and distributed tracing primitives ( trace and span ), then define how we induce an API-specific span graph. Since raw traces must be aggregated into window-aligned learning signals in any practical pipeline, we also introduce concise aggregation operators that map traces to the tail-latency label and to node features. Our definitions follow standard distributed tracing terminology [ 5] and prior trace-graph modeling work [33, 44]. 
+
+Definition 1: Microservice Call Graph. For a target API endpoint 
+
+A, we denote G = (V , E) as a directed Microservice Call Graph (MCG) , where V = {𝑠 1, 𝑠 2, . . . , 𝑠 𝑀 } is the set of 𝑀 microservices and E ⊆ V × V is the set of directed invocation relations. An edge 
+
+(𝑠 𝑖 , 𝑠 𝑗 ) ∈ E indicates that microservice 𝑠 𝑖 may invoke microservice 
+
+𝑠 𝑗 via RPC. 
+
+Definition 2: Trace and Span. We discretize time into windows of fixed length Δ and use 𝑡 to index windows. For a target API endpoint A, let T A 
+
+> 𝑡
+
+denote the set of traces of A observed within window 𝑡 . Each trace 𝜏 ∈ T A 
+
+> 𝑡
+
+is uniquely identified by traceID (𝜏 )
+
+and consists of a set of spans Σ(𝜏 ) = {𝜎 𝜏, 1, 𝜎 𝜏, 2, . . . , 𝜎 𝜏, |𝜏 | }, where all spans in Σ(𝜏 ) share the same traceID (𝜏 ) but have distinct spanID s. A span 𝜎 captures one invocation instance in the trace: it indicates that a microservice 𝑠 ∈ V is invoked by a caller microservice 𝑝 ∈ V 
+
+during a time interval [𝑡 1, 𝑡 2]:
+
+𝜎 =  traceID , spanID , 𝑝, 𝑠, 𝑡 1, 𝑡 2
+
+. (1) Spans are connected via parent–child relations, forming a rooted tree that captures causal execution dependencies within a trace. 
+
+Definition 3: API-Induced Span Graph. Given G = (V , E) and a target API A, we induce an API-specific Span Graph GA = (V A,
+
+E A ), where V A = {𝑣 A 
+
+> 1
+
+, 𝑣 A 
+
+> 2
+
+, . . . , 𝑣 A 
+
+> 𝑁
+
+} is a set of 𝑁 execution-stage STLGT: A Scalable Trace-Based Linear Graph Transformer for Tail Latency Prediction in Microservices EASE 2026, 9–12 June, 2026, Glasgow, Scotland, United Kingdom Service A Service B Storage A Cache A Service E Cache A {"timestamp": 1714809600, "api": "/api/...", "trace_metrics": { "qps": 1250, "avg_response_time_ms": 83.4, "p95_response_time_ms": 210.7, ... }, "service_graph": {...} }Spatial Encoder MLP Temporal Decoder 
+
+II. Latency Predictor 
+
+> (Encoder Cache)
+
+monitor & trace tools with service mesh Microservices  
+
+> Service Envoy Service A Service B Storage A Cache A Service E Cache A Service D Storage ... Cache ... Service ... ...
+
+Dynamic Traces Metrics 
+
+> CPU Usage Mem Usage Disk IO Network IO Pod Count ... Timestamp Response Time QPS ... Service Level Trace Level
+
+I. Data Collector 
+
+Figure 2: The overall architecture of STLGT 
+
+nodes and E A encodes their invocation dependencies. Each node 
+
+𝑣 A 
+
+> 𝑖
+
+∈ V A corresponds to a span graph representation of some microservice 𝑠 ∈ V . We define a surjective mapping 𝜋 : V A → V 
+
+that maps each stage node to its corresponding microservice. Since a microservice may be invoked multiple times within a trace, multiple nodes in V A may map to the same microservice, and therefore 
+
+𝑁 ≥ 𝑀 . Each directed edge (𝑣 A 
+
+> 𝑖
+
+, 𝑣 A 
+
+> 𝑗
+
+) ∈ E A indicates that the stage represented by 𝑣 A 
+
+> 𝑖
+
+is a parent of 𝑣 A 
+
+> 𝑗
+
+under the trace-defined span hierarchy. By construction, each span graph edge also corresponds to a valid microservice-level invocation, i.e., (𝜋 (𝑣 A 
+
+> 𝑖
+
+), 𝜋 (𝑣 A
+
+> 𝑗
+
+)) ∈ E . In this paper, we treat both G and GA as time-invariant 
+
+structures, and use the time-dependent trace set T A 
+
+> 𝑡
+
+to capture runtime dynamics in each window. 
+
+Definition 4: Trace Aggregation and Feature Construction. 
+
+We introduce window-level aggregation operators that map raw traces to learning signals. First, the tail-latency label in window 𝑡 
+
+is defined as 
+
+𝑦 A 
+
+> 𝑡
+
+= 𝜌 𝑞 
+
+ T A
+
+> 𝑡
+
+, (2) where 𝜌 𝑞 (·) returns the 𝑞 -quantile of end-to-end trace latencies in 
+
+T A 
+
+> 𝑡
+
+. For simplicity, we fix 𝑞 = 0.95 and predict p95 tail latency in this paper. Second, we extract a trace-common vector cA 
+
+> 𝑡
+
+∈ R𝑑 𝑐 
+
+from T A 
+
+> 𝑡
+
+,
+
+cA 
+
+> 𝑡
+
+= 𝜙 common 
+
+ T A
+
+> 𝑡
+
+, (3) which summarizes API-level workload and performance signals such as throughput, response-time percentiles (p50/p90/p99), and failure ratio. Third, for each stage node 𝑣 A 
+
+> 𝑖
+
+, we extract a span-specific vector uA 
+
+> 𝑡,𝑖
+
+∈ R𝑑 𝑢 by aggregating spans in window 𝑡 that correspond to this stage: 
+
+uA 
+
+> 𝑡,𝑖
+
+= 𝜙 span 
+
+ T A 
+
+> 𝑡
+
+, 𝑣 A
+
+> 𝑖
+
+, (4) which captures fine-grained timing structure within traces, includ-ing normalized start/end time and normalized duration. Finally, let m𝑠 𝑡 ∈ R𝑑 𝑠 denote the service-level metrics of microservice 𝑠 
+
+collected in window 𝑡 . The input feature of stage node 𝑣 A 
+
+> 𝑖
+
+is con-structed as 
+
+xA 
+
+> 𝑡,𝑖
+
+=
+
+h
+
+m𝜋 (𝑣 A  
+
+> 𝑖 )
+> 𝑡
+
+∥ uA
+
+> 𝑡,𝑖
+
+i
+
+, (5) Then we denote XA 
+
+> 𝑡
+
+= [xA
+
+> 𝑡, 1
+
+; . . . ; xA 
+
+> 𝑡,𝑁
+
+] as the node-feature matrix for A in window 𝑡 .
+
+Problem: Tail-Latency Prediction. Given a history length 𝐿 and a prediction horizon 𝐻 , the goal is to learn a predictor 𝑓 𝜃 that predicts the next-𝐻 tail latencies from the past-𝐿 windows: 
+
+ˆyA  
+
+> 𝑡 +1: 𝑡 +𝐻
+
+= 𝑓 𝜃 
+
+
+
+GA, XA  
+
+> 𝑡 −𝐿 +1: 𝑡
+
+, cA 
+
+> 𝑡 −𝐿 +1: 𝑡
+
+
+
+∈ R𝐻 . (6) Here XA  
+
+> 𝑡 −𝐿 +1: 𝑡
+
+denotes the feature sequence {XA 
+
+> 𝑡 −𝐿 +1
+
+, . . . , XA 
+
+> 𝑡
+
+}
+
+constructed from traces and service-level metrics. 
+
+## 3 Data Collector 
+
+In microservice systems, a common and practical way to obtain fine-grained RPC invocation trajectories is through distributed tra-cing [ 5 ]. By instrumenting each incoming request and recording its execution as a collection of causally related spans, tracing sys-tems capture the complete end-to-end execution path across service boundaries, naturally exposing the parent–child relationships and temporal dependencies among RPC calls. In modern cloud-native deployments, service meshes such as Istio [ 35 ] provide transparent tracing support by injecting instrumentation into the data plane via sidecar proxies, enabling request-level observability without requiring application-level code changes. The resulting trace data are typically collected and managed by dedicated backends such as Jaeger [ 36 ], which preserve span hierarchies and timing infor-mation for downstream analysis. As demonstrated in prior works, tracing-based RPC trajectories constitute a reliable and semanti-cally rich foundation for constructing span graphs and reasoning about latency propagation along execution paths. 
+
+## 3.1 Runtime Metrics Definition 
+
+For a microservice cluster, we collect a set of runtime metrics sum-marized in Table 1, covering both service-level and trace-level obser-vations. These metrics are designed to jointly capture the resource provisioning state of the cluster and the execution characteristics of individual API requests, which together form the basis for subse-quent end-to-end latency analysis and modeling. 
+
+Service-level metrics describe the coarse-grained operating con-ditions of individual microservices, independent of specific request executions. They capture resource availability and load conditions from a resource-centric perspective, including service scaling status and resource utilization. Such metrics indicate whether a microser-vice is under-provisioned, resource-constrained, or lightly loaded, and therefore provide essential contextual information for interpret-ing variations in request-level latency. As summarized in Table 1, EASE 2026, 9–12 June, 2026, Glasgow, Scotland, United Kingdom Yongliang Ding et al. 
+
+Table 1: Runtime metrics collected from monitoring and tracing systems. Level Subtype Metric 
+
+Service Level –pod_count cpu_usage_ratio memory_usage_ratio network_rx_bytes network_tx_bytes disk_io_bytes Trace Level 
+
+trace-common 
+
+api_throughput response_latency_p50 response_latency_p90 response_latency_p99 response_latency_avg response_latency_median failure_ratio 
+
+span-specific 
+
+span_start_time_norm span_end_time_norm span_duration_norm we focus on representative indicators of computation, memory pres-sure, and network activity, which are known to be primary factors influencing microservice latency [20, 39, 42, 46]. 
+
+Trace-level metrics characterize the performance of individual API invocation traces and are inherently request-centric. Given a trace 𝜏 , its trace-level representation lies in R𝑑 𝜏 and can be decom-posed as R𝑑 𝜏 -common ⊕ R𝑑 𝜏 -specific . The trace-common component cap-tures API-aware performance indicators, such as request through-put, response-time latency, and failure ratio. These metrics enable fine-grained QoS modeling across different APIs, as distinct APIs of-ten exhibit heterogeneous execution costs and latency expectations. For example, CPU-intensive APIs often exhibit higher tail latency than lightweight request handlers. In contrast, the span-specific com-ponent encodes fine-grained temporal information within a trace, including per-span relative start times and execution durations nor-malized to the trace lifetime. Such metrics reflect the synchronous and asynchronous invocation patterns among microservices, and preserve the internal execution structure of RPC paths [ 33 ]. These span-level signals will be further exploited when constructing the span graphs introduced in the following section. 
+
+## 3.2 Span Graph Construction from Traces 
+
+For a trace 𝜏 , we denote its set of spans as Σ(𝜏 ), where each span record contains the caller microservice ( 𝑝 ), the callee microservice (𝑠 ), and timing information (start/end timestamps and duration). We construct an API-specific Span Graph GA = (V A, E A ) from distributed traces, as summarized in Algorithm 1. This design is inspired by PERT-style trace graphs [ 33 , 44 ] in that it leverages per-request span hierarchies to expose cross-service execution structure. However, unlike PERT/FastPERT which may split each span into multiple stages to explicitly encode request/response ordering and sequential versus parallel calls, we keep a compact node set keyed by trace-defined caller–callee stages and attach normalized start 
+
+Algorithm 1 Span Graph Construction and Feature Aggregation 
+
+Input: MCG G = (V , E) ; service metrics {m𝑠 𝑡 }𝑠 ∈ V ; traces of API 
+
+A in window 𝑡 : T A 
+
+> 𝑡
+
+.
+
+Output: Span graph GA = (V A, E A ); node-feature matrix XA 
+
+> 𝑡
+
+;trace-common context cA 
+
+> 𝑡
+
+. 
+
+> 1:
+
+V A, E A ← ∅ , ∅ 
+
+> 2:
+
+vid ← ∅ ⊲ map: stage node 𝑣 ↦ → row id in XA 
+
+> 𝑡
+> 3:
+
+cA 
+
+> 𝑡
+
+← 𝜙 common (T A 
+
+> 𝑡
+
+) 
+
+> 4:
+
+for all 𝜏 ∈ T A 
+
+> 𝑡
+
+do  
+
+> 5:
+
+for all 𝜎 ∈ Σ(𝜏 ) do  
+
+> 6:
+
+𝑣 ← ( 𝜎. parent , 𝜎. s) 
+
+> 7:
+
+if 𝑣 ∉ vid then  
+
+> 8:
+
+V A ← V A ∪ { 𝑣 } 
+
+> 9:
+
+vid [𝑣 ] ← |V A | 
+
+> 10:
+
+end if  
+
+> 11:
+
+end for  
+
+> 12:
+
+end for  
+
+> 13:
+
+out ← ∅ ⊲ map: caller 𝑝 ↦ → stage nodes (𝑝, ·)  
+
+> 14:
+
+for all 𝑣 = (𝑝, 𝑠 ) ∈ V A do  
+
+> 15:
+
+out [𝑝 ].append (𝑣 ) 
+
+> 16:
+
+end for  
+
+> 17:
+
+for all 𝑣 = (𝑝, 𝑠 ) ∈ V A do  
+
+> 18:
+
+for all 𝑣 ′ ∈ out [𝑠 ] do  
+
+> 19:
+
+E A ← E A ∪ {( 𝑣, 𝑣 ′), (𝑣 ′, 𝑣 )} ⊲ add reverse edges for bidirectional message passing  
+
+> 20:
+
+end for  
+
+> 21:
+
+end for  
+
+> 22:
+
+XA 
+
+> 𝑡
+
+← ∅  
+
+> 23:
+
+for all 𝑣 = (𝑝, 𝑠 ) ∈ V A do  
+
+> 24:
+
+uA 
+
+> 𝑡
+
+(𝑣 ) ← 𝜙 span (T A 
+
+> 𝑡
+
+, 𝑣 ) 
+
+> 25:
+
+𝑖 ← vid [𝑣 ] 
+
+> 26:
+
+XA 
+
+> 𝑡
+
+[𝑖 ] ← [ m𝑠 𝑡 ∥ uA 
+
+> 𝑡
+
+(𝑣 )]  
+
+> 27:
+
+end for  
+
+> 28:
+
+return GA = (V A, E A ), XA 
+
+> 𝑡
+
+, cA
+
+> 𝑡
+
+time, normalized end time, and normalized duration as span-level features. This avoids graph size blow-up and reduces construction overhead, while preserving the execution evidence recorded by tracing and enabling efficient feature alignment for downstream latency prediction. Concretely, given a MCG G = (V , E) and traces T A 
+
+> 𝑡
+
+observed in window 𝑡 , we index each execution-stage node by a pair 𝑣 = (𝑝, 𝑠 )
+
+extracted from spans 𝜎 ∈ Σ(𝜏 ), where 𝑝 = 𝜎. parent and 𝑠 = 𝜎. s.Each unique 𝑣 is added to V A at its first occurrence. To preserve caller-specific contexts, distinct nodes (𝑝 1, 𝑠 ), (𝑝 2, 𝑠 ), . . . are main-tained even for the same callee 𝑠 . To implement the span-specific aggregation 𝜙 span (T A 
+
+> 𝑡
+
+, 𝑣 ), we first aggregate repeated spans that map to the same stage within each trace by taking the earliest nor-malized start time, the latest normalized end time, and the summed normalized duration, then average these per-trace statistics across traces in the window. This produces a stable per-request stage sig-nal and naturally normalizes the aggregated duration by the API throughput in the window. For edge construction, we connect caller–callee stages along the invocation structure. For any stage node 𝑣 = (𝑝, 𝑠 ), we add edges STLGT: A Scalable Trace-Based Linear Graph Transformer for Tail Latency Prediction in Microservices EASE 2026, 9–12 June, 2026, Glasgow, Scotland, United Kingdom 
+
+from 𝑣 to all stages 𝑣 ′ = (𝑠, 𝑢 ) that are invoked by 𝑠 in the same API span graph, and we also add reverse edges to enable bidirectional information flow during graph encoding. 
+
+## 4 Latency Predictor 
+
+Given the API-specific span graph GA = (V A, E A ), time-varying node features X𝑡 −𝐿 +1: 𝑡 and trace-common contexts c𝑡 −𝐿 +1: 𝑡 con-structed in Sec. 3, STLGT factorizes the predictor 𝑓 𝜃 (Eq. 6) into three stages: (i) a linear graph Transformer encoder that produces node representations per time window, (ii) a readout module that aggregates node representations and fuses trace-common context into a fixed-dimensional window embedding, and (iii) a lightweight temporal decoder that predicts the next-𝐻 tail latencies from the last-𝐿 embeddings. 
+
+## 4.1 Spatial Encoder 
+
+Figure 3 shows the spatial encoder pipeline, including our structure-aware module. Let 𝑁 = |V A | and denote the node-feature matrix at time step 𝑡 as X𝑡 = x𝑢 
+
+𝑁 𝑢 =1 ∈ R𝑁 ×𝑑 𝑖𝑛 . We first apply a one-layer MLP to map the input features to the model hidden width 𝑑 :
+
+H(0) 
+
+> 𝑡
+
+= MLP in (X𝑡 ) = 𝜎 (X𝑡 W𝑖𝑛 + b𝑖𝑛 ) ∈ R𝑁 ×𝑑 , (7) where W𝑖𝑛 ∈ R𝑑 𝑖𝑛 ×𝑑 and 𝜎 (·) is a point-wise nonlinearity. 
+
+4.1.1 Structure-aware global mixing via linear attention. Standard softmax self-attention incurs quadratic time in the number of nodes, which quickly becomes a bottleneck on large span graphs. Since our latency predictor runs online in an auto-scaling control loop, inference latency must remain low as 𝑁 grows. Prior work reduces the attention cost by replacing dot-product attention with alter-native mixing operators [ 45 ] or by restricting the attended set via sparse patterns [ 2]. In our setting, each node should still aggregate information from all other nodes within the graph snapshot to capture global dependency propagation. Inspired by SGFormer [ 41 ]and early linear-attention designs for Transformers [ 13 , 15 ], we im-plement a linear global mixing operator that enables dense all-pair mixing without constructing the 𝑁 × 𝑁 attention matrix. Mean-while, each API A induces a time-invariant sparse topology, which provides a strong structural prior for dependency propagation on trace-induced span graphs. We inject this topology into global mix-ing via a one-shot sparse pre-mixing step on keys and values. We compute query /key /value projections: 
+
+Q = 𝜎 (H(0) 
+
+> 𝑡
+
+W𝑄 ), K = 𝜎 (H(0) 
+
+> 𝑡
+
+W𝐾 ), V = H(0) 
+
+> 𝑡
+
+W𝑉 , (8) where W𝑄 , W𝐾 , W𝑉 ∈ R𝑑 ×𝑑 and 𝜎 (·) is a non-negative activation. We use ReLU (·) so that the diagonal normalization D𝑡 remains posi-tive and well-conditioned. To make the global mixing insensitive to feature scale and varying graph sizes across APIs and windows, we follow SGFormer and normalize queries and keys by the Frobenius norm: 
+
+˜Q = Q
+
+∥Q∥ F + 𝜖 , ˜K = K
+
+∥K∥ F + 𝜖 , (9) where ∥ · ∥ F denotes the Frobenius norm and 𝜖 is a small constant for numerical stability. 
+
+Sparse structure-aware pre-mixing (one-shot). Let A ∈ { 0, 1}𝑁 ×𝑁 
+
+be the adjacency matrix of E A constructed in Algorithm 1. We add self-loops and construct a row-stochastic propagation operator: 
+
+ˆA = A + I, ˆD = diag ( ˆA1 ), P = ˆD−1 ˆA. (10) We then apply one-shot pre-mixing controlled by a scalar 𝜌 ∈ [ 0, 1]:
+
+¯K = (1 − 𝜌 ) ˜K + 𝜌 P ˜K, ¯V = (1 − 𝜌 )V + 𝜌 PV . (11) Since P is time-invariant for a fixed API, it can be precomputed and applied once per window. We apply Eq. (11) only once to avoid iterative message passing and keep inference lightweight. 
+
+Linear global mixing with structure-informed summaries. Let 1 ∈
+
+R𝑁 be the all-ones vector, and define the diagonal normalization matrix 
+
+D𝑡 = diag 
+
+
+
+1 + 1
+
+𝑁 ˜Q( ¯K⊤1)
+
+
+
+∈ R𝑁 ×𝑁 . (12) Then the global representations are computed by 
+
+Z𝐺 𝑡 = D−1
+
+> 𝑡
+
+
+
+¯V + 1
+
+𝑁 ˜Q( ¯K⊤ ¯V)
+
+
+
+∈ R𝑁 ×𝑑 . (13) Eq. (13) avoids constructing the 𝑁 × 𝑁 attention matrix by com-puting ¯K⊤ ¯V ∈ R𝑑 ×𝑑 and ¯K⊤1 ∈ R𝑑 once, yielding O( 𝑁𝑑 2) time for fixed width 𝑑 . Together with the one-shot sparse pre-mixing (Eq. (11) ), the overall global mixing costs O(|E A |𝑑 + 𝑁𝑑 2) and introduces no O( 𝑁 2) memory term. Intuitively, ¯K⊤ ¯V is a structure-informed global summary of values across all nodes, and left-multi-plying it by ˜Q distributes this summary to each node; the diagonal matrix D𝑡 provides per-node normalization. This realizes all-pair interaction in linear time, which is important in our setting: tail latency is often dominated by rare long traces with deep and branch-ing call paths, and these cases are also where quadratic attention can become the bottleneck. 
+
+4.1.2 Local propagation via a GCN (GN branch). To capture local dependency propagation on GA , we apply a single graph convo-lution (GCN) layer. Using the self-looped adjacency ˆA and degree matrix ˆD from the pre-mixing step, the local representations are: 
+
+Z𝐿 𝑡 = ˆD− 12 ˆA ˆD− 12 H(0) 
+
+> 𝑡
+
+W𝐿 ∈ R𝑁 ×𝑑 , (14) where W𝐿 ∈ R𝑑 ×𝑑 . Since ˆA is sparse and time-invariant for a fixed call path, Eq. (14) runs in O(|E A |𝑑 ) and can reuse the precomputed normalization. 
+
+Fusion. We fuse global and local representations with a row-wise feed-forward network and a residual connection. Let Z𝑡 = [Z𝐺 𝑡 ∥
+
+Z𝐿 𝑡 ] ∈ R𝑁 ×2𝑑 . We compute a fused update by a two-layer MLP: 
+
+ΔH𝑡 = 𝜎 (Z𝑡 W𝑓 , 1 + b𝑓 , 1)W𝑓 , 2 + b𝑓 , 2 ∈ R𝑁 ×𝑑 , (15) and obtain the final node representations by 
+
+H𝑡 = LN 
+
+
+
+H(0) 
+
+> 𝑡
+
++ ΔH𝑡 
+
+
+
+∈ R𝑁 ×𝑑 , (16) where [· ∥ ·] denotes concatenation, LN (·) is layer normalization applied to each node representation, W𝑓 , 1 ∈ R2𝑑 ×𝑑 and W𝑓 , 2 ∈
+
+R𝑑 ×𝑑 are shared across nodes. The fusion is row-wise and does not introduce any O( 𝑁 2) term. EASE 2026, 9–12 June, 2026, Glasgow, Scotland, United Kingdom Yongliang Ding et al. MLP Structure-aware Linear Attention GCN MLP Readout 
+
+... ...  
+
+> MCG Trace-induced span graph Spatial Encoder with structure-aware linear attention
+
+Figure 3: Spatial encoder architecture of STLGT with the Structure-aware linear attention module. 
+
+Readout and context fusion. We first aggregate node representa-tions into a graph embedding gnode  
+
+> 𝑡
+
+∈ R𝑑 via attention pooling: 
+
+𝛼 𝑡,𝑖 = exp (w⊤ 
+
+> 𝑟
+
+h𝑡,𝑖 )
+
+Í𝑁 𝑗 =1 exp (w⊤ 
+
+> 𝑟
+
+h𝑡,𝑗 ) , gnode  
+
+> 𝑡
+
+=
+
+> 𝑁
+
+∑︁ 
+
+> 𝑖 =1
+
+𝛼 𝑡,𝑖 h𝑡,𝑖 , (17) where h𝑡,𝑖 is the 𝑖 -th row of H𝑡 and w𝑟 ∈ R𝑑 is a learnable vector shared across windows. We then incorporate the trace-common context vector c𝑡 ∈ R𝑑 𝑐 constructed from T A 
+
+> 𝑡
+
+in Sec. 3 to form the window representation used by the temporal decoder: 
+
+¯c𝑡 = 𝜎 (c𝑡 W𝑐 + b𝑐 ) ∈ R𝑑 , g𝑡 = 𝜎 
+
+
+
+[gnode  
+
+> 𝑡
+
+∥ ¯c𝑡 ]W𝑔 + b𝑔 
+
+
+
+∈ R𝑑 , (18) where W𝑐 ∈ R𝑑 𝑐 ×𝑑 and W𝑔 ∈ R2𝑑 ×𝑑 . This design summarizes node-level information first, then fuses trace-level context to provide a compact feature for temporal modeling. 
+
+## 4.2 Temporal Decoder 
+
+Given the history length 𝐿 , we stack the last-𝐿 window representa-tions into a multivariate time series G𝑡 = [g𝑡 −𝐿 +1; . . . ; g𝑡 ] ∈ R𝐿 ×𝑑 .The tail-latency series contains both periodic workload cycles and aperiodic bursts. To model such mixed temporal patterns, we adopt a temporal decoder based on the TimesBlock module of Times-Net [ 40 ], which captures multi-frequency temporal variations by extracting dominant periods from the frequency domain and ag-gregating period-wise representations. We first extend the input to length 𝑇 = 𝐿 + 𝐻 by appending 𝐻 placeholder slots (zero padding), then apply a one-layer MLP to each time step: 
+
+U(0) 
+
+> 𝑡
+
+= MLP ts 
+
+ [G𝑡 ; 0𝐻 ×𝑑 ] ∈ R𝑇 ×𝑑 , (19) where MLP ts (·) is applied row-wise and uses the identity activation. We then apply 𝐵 stacked TimesBlocks with residual connections: 
+
+U(𝑏 +1) 
+
+> 𝑡
+
+= U(𝑏 ) 
+
+> 𝑡
+
++ TimesBlock 
+
+
+
+U(𝑏 )
+
+> 𝑡
+
+
+
+, 𝑏 = 0, . . . , 𝐵 − 1. (20) 
+
+TimesBlock. For a given input U ∈ R𝑇 ×𝑑 , TimesBlock identifies 𝐾 
+
+dominant periods P = {𝑝 1, . . . , 𝑝 𝐾 } from the FFT spectrum and con-structs 𝐾 period-wise representations {U𝑖 }𝐾 𝑖 =1. Each U𝑖 is obtained by padding and reshaping U into a 2D representation, applying a 2D convolutional block, and reshaping it back, following TimesNet. This provides a multi-period inductive bias for capturing periodic components at different frequencies, while the residual stacking in Eq. (20) preserves flexibility for aperiodic deviations. The period-wise representations are then aggregated with softmax-normalized weights 𝜔 𝑖 derived from FFT amplitudes: 
+
+TimesBlock (U) =
+
+> 𝐾
+
+∑︁ 
+
+> 𝑖 =1
+
+𝜔 𝑖 U𝑖 , 𝜔 𝑖 = exp (𝑎 𝑖 )
+
+Í𝐾 𝑗 =1 exp (𝑎 𝑗 ) . (21) 
+
+Prediction head. The decoder output U(𝐵 ) 
+
+> 𝑡
+
+∈ R𝑇 ×𝑑 contains both reconstructed history and prediction slots. We map the last 𝐻 slots to the target tail latency predictions: 
+
+ˆy𝑡 +1: 𝑡 +𝐻 = MLP out 
+
+
+
+U(𝐵 ) 
+
+> 𝑡
+
+[𝐿 + 1 : 𝐿 + 𝐻 ]
+
+
+
+∈ R𝐻 , (22) where MLP out (·) is applied row-wise to map each prediction slot to a scalar latency. 
+
+## 4.3 Quantile Loss 
+
+We focus on p95 latency prediction in this paper and set 𝑞 = 0.95 .We train STLGT using the quantile regression (pinball) loss. Let 
+
+𝑦 𝑡 +ℎ be the ground-truth tail latency at horizon ℎ and ˆ𝑦 𝑡 +ℎ be the prediction. The per-sample quantile loss is defined as 
+
+ℓ𝑞 (𝑦, ˆ𝑦 ) = 𝜓 𝑞 (𝑦 − ˆ𝑦 ), 𝜓 𝑞 (𝑢 ) = max (𝑞𝑢, (𝑞 − 1)𝑢 ). (23) For high quantiles, this asymmetric loss penalizes underestimation more than overestimation, aligning with the goal of tail-latency prediction. Other latency percentiles (such as p50 and p90) are used as input features in the trace-common context c𝑡 . Over a training set of time indices T and horizons ℎ = 1, . . . , 𝐻 , the objective is 
+
+L = 1
+
+|T | 𝐻 ∑︁ 𝑡 ∈ T 
+
+> 𝐻
+
+∑︁ 
+
+> ℎ=1
+
+ℓ𝑞 (𝑦 𝑡 +ℎ, ˆ𝑦 𝑡 +ℎ ) . (24) 
+
+## 5 Experiments 
+
+To evaluate STLGT (Fig. 2) and its key design components (Fig. 3), we conduct experiments to answer the following research questions: 
+
+RQ1: Accuracy. How accurate is STLGT for multi-step p95 tail-latency prediction compared with representative baselines under our mixed workload setting and across datasets? 
+
+RQ2: Ablation. How do the main components of STLGT (Structur-e-aware global mixing, local propagation, trace-aware readout, and temporal decoder) contribute to prediction accuracy? 
+
+RQ3: Efficiency. How efficient is STLGT for online inference on production-scale span graphs, and how does inference latency scale with the number of stage nodes 𝑁 and hidden width 𝑑 ?STLGT: A Scalable Trace-Based Linear Graph Transformer for Tail Latency Prediction in Microservices EASE 2026, 9–12 June, 2026, Glasgow, Scotland, United Kingdom 
+
+Table 2: Dataset statistics. #Win counts window-level samples aggregated over selected trace streams (DSB) or sampled trace subsets (Alibaba). For Alibaba traces, #SVC counts the total number of microservice nodes in the cluster (20K+), while the call subset size per trace ranges from 1 to 10 in [ 17 ]; we sample six representative subset sizes from this range. Dataset #SVC #Streams Δ #Win 
+
+Hotel Reservation (DSB) 17 5 30s 14,400 Social Network (DSB) 26 5 30s 14,400 Alibaba traces 20K+ 6 60s 8,640 
+
+RQ4: Education Applicability. Can STLGT provide accurate and stable prediction for personalized education microservices, espe-cially during exam-oriented traffic bursts? 
+
+## 5.1 Experiment Settings 
+
+5.1.1 Benchmarks and Datasets. 
+
+DeathStarBench microservices. We evaluate STLGT on two open-source microservice applications from DeathStarBench (DSB) [ 10 ]: 
+
+Hotel Reservation (17 microservices) and Social Network (26 micro-services). We enable distributed tracing via Istio (sidecar-based context propagation) with Jaeger as the tracing backend, and collect per-service metrics using Prometheus and cAdvisor together with per-request traces. Following Sec. 3, we aggregate observations into fixed time windows of length Δ = 30 s. For each application, we select five API endpoints and use their dominant call paths for trace collection and model training. We train and evaluate models on each trace stream independently, and report the mean results across the five streams to mitigate endpoint-specific bias. 
+
+Alibaba production traces. We additionally evaluate on the Al-ibaba trace dataset [ 17 ], which provides anonymized production traces with service dependencies and end-to-end latencies. Du et al. [ 8] re-analyze this corpus and report that the per-trace call sub-set size ranges from 1 to 10. Accordingly, we select six subset sizes 
+
+{1, 2, 4, 6, 8, 10 } to cover this range and sample one trace subset for each size. Since the service-level metrics in the Alibaba traces are recorded at 60-second intervals, we set Δ = 60 s. For each subset, we use a 24-hour trace slice, yielding 1,440 windows. We follow the same feature construction procedure as in Sec. 3. 
+
+Edu Platform. We further evaluate STLGT on an internal person-alized education service platform. The platform supports four basic-education subjects and five learning scenarios, covering heteroge-neous teaching activities and learner interactions. Consistent with the DeathStarBench setting, we select two representative teaching scenarios for targeted evaluation, including an exam-oriented sce-nario where many students access authentication, question-bank, submission, and grading services within a narrow time interval. This setting is representative of education platforms because re-quest bursts are often scheduled by course and exam timetables rather than emerging randomly from external user behavior. 
+
+Prediction target. For each call path A and window 𝑡 , the label is the p95 end-to-end trace latency in that window: 𝑦 A 
+
+> 𝑡
+
+= 𝜌 0.95 (T A 
+
+> 𝑡
+
+).Unless otherwise stated, we set history length 𝐿 = 12 and horizon 
+
+𝐻 = 6, i.e., predict the next 𝐻 windows from the past 𝐿 windows. 
+
+5.1.2 Workload Pattern (DeathStarBench). We drive the microser-vices with a single mixed workload generated by Locust [ 37 ]. This workload combines a steady baseline, periodic variation, and short burst injections to emulate realistic production request-rate dy-namics. We schedule a target request rate 𝑟 (𝑡 ) over time as 𝑟 (𝑡 ) =
+
+𝑟 0 + 𝑎 cos (2𝜋𝑡 /𝑃 ) + Δ𝑟 (𝑡 ), where 𝑟 0 sets the nominal load level and the cosine term models regular fluctuations such as diurnal effects. On top of this periodic baseline, we inject burst segments Δ𝑟 (𝑡 ) at random start times to mimic non-periodic yet often event-driven surges (e.g., scheduled flash-sale campaigns). In Locust, each burst is implemented by temporarily spawning additional distributed users for a short interval; we intentionally keep bursts brief and truncate their tails to create abrupt rises and drops in the realized request rate. Fig. 4(a) illustrates an example trace. 0 60 120 180 240        
+
+> Timeline (Minutes)
+> 50
+> 100
+> 150
+> 200
+> Request Rate (RPS)
+> (a) Workload (Period + Burst)
+> 12345678
+> Microservice Count per Path
+> 0
+> 3
+> 6
+> 9
+> 12
+> 15
+> 18
+> 21
+> 24
+> 27
+> Span Graph Node Count
+> (b) Span Graph Node Count
+> vs Microservice Count
+
+Figure 4: Workload and production-trace characteristics. (a) Example request-rate trace generated by Locust with a peri-odic (cosine) baseline plus short burst injections. (b) Empiri-cal distribution of span graph node count versus microservice count per request/path in Alibaba production traces. 
+
+For each application, we run 24 hours of continuous testing, yielding 2,880 windows (with Δ = 30 s). We discard warm-up win-dows and windows with missing/invalid traces. The window counts in Table 2 are aggregated over selected call paths. To bound tracing overhead, we uniformly sub-sample up to 150 traces per call path in each window for feature aggregation, yielding 432,000 sampled traces per call path per day. 
+
+5.1.3 Implementation and Hardware. We deploy a Kubernetes clu-ster on three cloud instances running Ubuntu 22.04, each with 12 CPU cores and 24GB of memory, and run the microservice applica-tions on this cluster. We use a single NVIDIA TITAN RTX GPU for model training and GPU inference benchmarking. Unless otherwise stated, STLGT uses hidden width 𝑑 = 32 (to match baselines), one spatial encoder block as described in Sec. 4, and a TimesNet decoder with 𝐵 = 2 stacked TimesBlocks and 𝐾 = 3 dominant periods. 
+
+5.1.4 Baselines and Variants. 
+
+Baselines. We compare STLGT with a non-graph regression ba-seline GBDT [ 9] and representative trace-graph baselines: PERT-GNN [ 33 ] and FastPERT [ 44 ]. All baselines are trained on the same raw data; when a baseline requires a different graph abstraction (e.g., PERT-style multi-stage splitting), we follow the original construc-tion and only adapt the prediction head to output 𝐻 -step-ahead p95 latency. EASE 2026, 9–12 June, 2026, Glasgow, Scotland, United Kingdom Yongliang Ding et al. 
+
+Ablations. We evaluate STLGT variants by removing or replacing key components: (0) Standard Attention : replace the structure-aware linear attention with standard softmax self-attention; (1) 
+
+w/o Structure-aware : remove the one-shot sparse pre-mixing in Eq. (11) (set 𝜌 = 0); (2) w/o Local : remove the GCN branch in Eq. (14) ; (3) w/o Trace-context : remove c𝑡 from the readout in Eq. (18) ; (4) Linear decoder : replace TimesNet with a linear temporal head. 
+
+5.1.5 Training Details and Evaluation Metrics. We use chronologi-cal splits (70%/15%/15%) to avoid temporal leakage. We repeat each experiment five times with different random seeds and report the mean and standard deviation. Except for GBDT, all neural models are trained with AdamW (learning rate 10 −3, weight decay 10 −4), batch size 32, and early stopping on the validation MAE. GBDT is trained with its standard gradient-boosted-tree objective under the same chronological split, and the validation set is used for model selection. 
+
+Accuracy metrics. We report mean absolute error (MAE) and mean absolute percentage error (MAPE) averaged over the predic-tion horizon ℎ = 1, . . . , 𝐻 .
+
+Efficiency metrics. We report inference latency (ms per window) and throughput (windows/s) for forward passes with batch size 1, measured as the average over 1,000 runs after warm-up. 
+
+## 5.2 Experiment Results 
+
+5.2.1 Overall Accuracy Across Datasets (RQ1). We compare STLGT against GBDT, PERT-GNN, and FastPERT on two DeathStarBench applications, Alibaba production traces, and the Edu Platform. Ta-ble 3 reports the overall results (rows 1–4) along with ablations, where each cell shows the mean and standard deviation over multi-ple runs. Overall, STLGT consistently outperforms all baselines across all four datasets. It achieves MAPE of 10.12% on Social Network, 9.89% on Hotel Reservation, 9.60% on Alibaba traces, and 9.99% on Edu Platform. Compared with PERT-GNN, STLGT reduces MAPE by 9.5%, 9.1%, 7.0%, and 8.3%, respectively, corresponding to an average improvement of 8.5%. Furthermore, the reported standard deviations indicate that these gains are stable and not attributable to random initialization or training noise. Beyond relative error, STLGT also achieves the best MAE among full models on Social Network, Hotel Reservation, and Alibaba traces, further confirming its advantage. These improvements align with the design of STLGT. The spa-tial encoder captures long-range service dependencies through structure-aware global mixing and local propagation, while the temporal decoder models workload evolution across time windows. Under mixed workloads that combine periodic patterns with bursty spikes, this spatiotemporal design enables STLGT to better capture both cross-service latency propagation and rapid fluctuations in request intensity. We also observe a different pattern on the Edu Platform: STLGT achieves the best MAPE, while FastPERT attains a lower MAE. This indicates that STLGT provides stronger relative-error control across latency levels, whereas FastPERT fits the dominant low-latency range more aggressively. For education workloads, this distinction is important because routine learning traffic and exam bursts may occupy different latency regimes; the lower MAPE suggests that STLGT is less biased toward only the most frequent operating range. 
+
+5.2.2 Ablation Study and Design Choices (RQ2). Table 3 reports ab-lation results (rows 5–9) by removing or replacing key components of STLGT. We first examine the effect of the structure-aware linear atten-tion. Compared with standard softmax attention (row 5), it achieves better performance on Social Network and Alibaba traces, while remaining within 1% on Hotel Reservation, indicating that lineariz-ing attention with topology-aware priors preserves accuracy in practice. Removing either the structure-aware pre-mixing ( 𝜌 = 0, row 6) or the trace-context fusion c𝑡 (row 8) consistently degrades per-formance, highlighting the importance of both structural bias and trace-level contextual information. Among all variants, removing local propagation (GCN, row 7) leads to the largest performance drop, suggesting that capturing lo-cal dependency patterns is critical. In addition, replacing TimesNet with a linear temporal head (row 9) further hurts performance, con-firming the necessity of effective temporal modeling under mixed workloads with burst injections. Overall, these results demonstrate that both spatial dependency modeling and temporal dynamics are indispensable for accurate tail-latency prediction. 
+
+5.2.3 Hidden Width Selection Across DSB and Edu (RQ2 and RQ4). 
+
+We vary the hidden width 𝑑 ∈ { 16 , 32 , 64 , 128 } while keeping all other settings fixed. Fig. 5 reports the mean MAPE averaged over multiple runs on (a) the DSB microservice benchmarks, including Social Network and Hotel Reservation, and (b) the Edu Platform. 16   
+
+> 32
+> 64
+> 128
+> hidden width d
+> 9.5
+> 10.0
+> 10.5
+> 11.0
+> 11.5
+> 12.0
+> MAPE (%)
+> (a)
+> Social Network & Hotel Reservation
+> Social Network
+> Hotel Reservation
+> 16
+> 32
+> 64
+> 128
+> hidden width d
+> 9.0
+> 9.5
+> 10.0
+> 10.5
+> 11.0
+> MAPE (%)
+> (b)
+> Edu Platform
+> better
+
+Figure 5: Effect of hidden width 𝑑 on mean MAPE: (a) DSB microservice benchmarks, including Social Network and Ho-tel Reservation; (b) Edu Platform. Lower is better. 
+
+Across both benchmark and education settings, 𝑑 = 16 is too narrow and leads to noticeably higher error, indicating that the model needs sufficient capacity to encode dependency propagation and temporal dynamics. Moving to a moderate width ( 𝑑 = 32 or 
+
+64 ) captures most of the gain: the DSB curves become stable after the hidden representation is sufficiently expressive, while the Edu Platform shows the same preference for a moderate hidden width under education-specific workloads. Increasing the width further to 𝑑 = 128 does not provide consistent benefits and may add opti-mization difficulty and inference cost without introducing useful STLGT: A Scalable Trace-Based Linear Graph Transformer for Tail Latency Prediction in Microservices EASE 2026, 9–12 June, 2026, Glasgow, Scotland, United Kingdom 
+
+Table 3: Overall accuracy and ablation results. Each cell reports mean ± standard deviation over repeated runs. Best is in bold and second-best is underlined. 
+
+Method Social Network Hotel Reservation Alibaba Traces Edu Platform MAPE (%) MAE (ms) MAPE (%) MAE (ms) MAPE (%) MAE (ms) MAPE (%) MAE (ms) 
+
+(1) GBDT [9] 21.73% 
+
+> (±0.38%)
+
+40.13 
+
+> (±0.27)
+
+19.10% 
+
+> (±0.34%)
+
+34.02 
+
+> (±0.31)
+
+19.37% 
+
+> (±0.39%)
+
+13.43 
+
+> (±0.32)
+
+20.05% 
+
+> (±0.33%)
+
+1.60 
+
+> (±0.08)
+
+(2) PERT-GNN [33] 11.18% 
+
+> (±0.44%)
+
+21.37 
+
+> (±0.38)
+
+10.88% 
+
+> (±0.31%)
+
+19.48 
+
+> (±0.26)
+
+10.32% 
+
+> (±0.39%)
+
+7.03 
+
+> (±0.31)
+
+10.89% 
+
+> (±0.27%)
+
+1.24 
+
+> (±0.16)
+
+(3) FastPERT [44] 11.59% 
+
+> (±0.27%)
+
+21.51 
+
+> (±0.20)
+
+10.82% 
+
+> (±0.28%)
+
+19.14 
+
+> (±0.15)
+
+10.86% 
+
+> (±0.22%)
+
+7.57 
+
+> (±0.13)
+
+10.96% 
+
+> (±0.26%)
+
+0.71 
+
+> (±0.05)
+
+(4) STLGT (Ours) 10.12% 
+
+> (±0.16%)
+
+18.93 
+
+> (±0.14)
+
+9.89% 
+
+> (±0.15%)
+
+17.72 
+
+> (±0.13)
+
+9.60% 
+
+> (±0.14%)
+
+6.25 
+
+> (±0.09)
+
+9.99% 
+
+> (±0.12%)
+
+1.42 
+
+> (±0.07)
+
+Ablation Study 
+
+(5) STLGT w/ Standard Attention 10.30% 
+
+> (±0.18%)
+
+18.96 
+
+> (±0.15)
+
+9.86% 
+
+> (±0.14%)
+
+17.07 
+
+> (±0.12)
+
+10.24% 
+
+> (±0.17%)
+
+7.14 
+
+> (±0.10)
+
+10.21% 
+
+> (±0.15%)
+
+0.99 
+
+> (±0.06)
+
+(6) STLGT w/o Structure-aware ( 𝜌 = 0) 10.73% 
+
+> (±0.21%)
+
+19.78 
+
+> (±0.17)
+
+10.69% 
+
+> (±0.19%)
+
+18.41 
+
+> (±0.16)
+
+10.70% 
+
+> (±0.18%)
+
+7.01 
+
+> (±0.11)
+
+11.03% 
+
+> (±0.17%)
+
+0.68 
+
+> (±0.04)
+
+(7) STLGT w/o Local (GCN) 12.14% 
+
+> (±0.28%)
+
+23.03 
+
+> (±0.23)
+
+11.88% 
+
+> (±0.24%)
+
+20.93 
+
+> (±0.20)
+
+11.81% 
+
+> (±0.21%)
+
+7.78 
+
+> (±0.14)
+
+12.16% 
+
+> (±0.20%)
+
+0.94 
+
+> (±0.05)
+
+(8) STLGT w/o Trace-context ( c𝑡 ) 10.57% 
+
+> (±0.19%)
+
+19.82 
+
+> (±0.16)
+
+10.39% 
+
+> (±0.17%)
+
+18.10 
+
+> (±0.14)
+
+10.04% 
+
+> (±0.16%)
+
+7.10 
+
+> (±0.10)
+
+10.51% 
+
+> (±0.14%)
+
+1.01 
+
+> (±0.06)
+
+(9) STLGT w/ Linear Decoder 12.41% 
+
+> (±0.31%)
+
+23.68 
+
+> (±0.25)
+
+11.91% 
+
+> (±0.26%)
+
+21.02 
+
+> (±0.21)
+
+12.38% 
+
+> (±0.24%)
+
+8.64 
+
+> (±0.15)
+
+12.43% 
+
+> (±0.22%)
+
+1.22 
+
+> (±0.07)
+
+signal. We therefore use 𝑑 = 32 as the default because it achieves near-best accuracy while keeping online inference lightweight. 
+
+5.2.4 Inference Scalability (RQ3). We first analyze the Alibaba pro-duction traces to understand the span graph regime in practice. As shown in Fig. 4(b), each trace involves no more than 10 microser-vices and induces span graphs with up to 𝑁 = 32 stage nodes, with a clear long-tail distribution (most graphs are small but some approach the upper end). Moreover, most span graphs are tree-like, so the edge set is sparse (i.e., |E| = O( 𝑁 )). The goal of STLGT is therefore not to be significantly faster than PERT-GNN on tiny span graphs, but to improve scalability and reduce the gap between short-chain and long-chain traces as 𝑁 
+
+grows. This scaling benefit mainly comes from the linear-attention-based spatial encoder, which avoids materializing an 𝑁 ×𝑁 attention matrix. This matters in production: a scheduler typically queries the predictor hundreds or thousands of times per control interval (e.g., across APIs, candidate actions, or trace subsets), so a few large-
+
+𝑁 cases can dominate the end-to-end decision latency. Table 4 compares complexity, model size, and batch-1 inference latency under two representative graph sizes ( 𝑁 = 1 and 𝑁 = 32 ) with 
+
+𝑑 = 32 . Both models have similar latency at 𝑁 = 1, but PERT-GNN scales much more steeply, especially on CPU, due to its O( 𝑁 2𝑑 )
+
+mixing. Although STLGT includes multiple projection matrices and a TimesBlock-based temporal decoder, most parameters are in dense linear/conv layers with high parallelism; in practice, the scalability gap is dominated by the spatial mixing cost. From 𝑁 = 1 to 𝑁 = 32 ,STLGT shows much smaller latency growth (1.5 × on GPU and 3.8 ×
+
+on CPU) than PERT-GNN (2.0 × and 49.7 ×, respectively). 
+
+5.2.5 Case Study: Edu Platform Under Exam Bursts (RQ4). The Edu Platform represents a practical deployment context where work-load bursts are not merely random spikes but are often induced by teaching schedules. During online exams, many students enter the system almost simultaneously, repeatedly access question-bank and submission APIs, and trigger downstream grading or analytics services within a short interval. This produces a sharp increase in request intensity and can amplify tail latency through shared services such as authentication, course management, question re-trieval, submission persistence, and score processing. Accurate p95 prediction in this setting is therefore useful for proactive scaling because a delayed response may directly affect exam fairness and user experience. Table 3 shows that STLGT achieves the lowest MAPE on the Edu Platform (9.99%), improving over PERT-GNN by 8.3% and outper-forming both GBDT and FastPERT in relative-error accuracy. This result indicates that STLGT can track the proportional change of tail latency across routine learning periods and short exam-induced bursts. The advantage mainly comes from two design choices. First, the per-API span graph separates heterogeneous education work-flows, so an exam submission path does not need to share the same representation as lightweight learning-content browsing. Sec-ond, the trace-context readout and temporal decoder jointly model request intensity, recent latency percentiles, and failure-related sig-nals, which are important when exam traffic rises quickly and then falls after the exam window. The Edu Platform also exposes a useful limitation of the results: STLGT has the best MAPE but not the best MAE. FastPERT reports a lower absolute error on this dataset, suggesting that it can fit the dominant low-latency operating range well. However, education op-erators often care about relative degradation during high-pressure intervals, because a similar absolute error can correspond to very different operational risks when latency rapidly moves from rou-tine learning traffic to exam traffic. From this perspective, STLGT’s lower MAPE is more aligned with burst-sensitive early warning, EASE 2026, 9–12 June, 2026, Glasgow, Scotland, United Kingdom Yongliang Ding et al. 
+
+Table 4: Inference scalability comparison between STLGT and PERT-GNN with 𝑑 = 32 . We report asymptotic complexity, model size (#Params), and batch-1 inference latency under two span graph sizes ( 𝑁 = 1 and 𝑁 = 32 , corresponding to the small-graph and upper-tail regimes in Fig. 4(b)). We also report the latency growth from 𝑁 = 1 to 𝑁 = 32 (ratio). Lower growth indicates better scalability and smaller tail impact when the predictor is invoked many times per scheduling decision.                          
+
+> Model Complexity #Params GPU inference latency (ms) CPU inference latency (s)
+> PERT-GNN [33] O ( 𝑁 2𝑑 )0.12M 30.3 →60.72 (2.0 ×)0.21 →10.44 (49.7 ×)
+> STLGT (Ours) O ( | E | 𝑑 +𝑁𝑑 2)0.05M 30.5 →46.0 (1.5 ×)0.22 →0.84 (3.8 ×)
+
+while its slightly higher MAE suggests room for further calibration of the absolute latency level in low-latency periods. Overall, the Edu Platform case supports the applicability of STLGT beyond public microservice benchmarks. It is particularly suitable for education scenarios where predictable schedules create sudden traffic concentration and where proactive prediction must distinguish normal learning activity from exam-time pressure. 
+
+5.2.6 Discussion: Generalization and Topology Drift. STLGT is train-ed per API trace stream and assumes that the dominant call path remains stable within an evaluation period. This design is moti-vated by the observation that, in large-scale microservice systems, SLO violations are typically dominated by a small number of critical request paths. Modeling each critical API trace stream separately allows the predictor to focus on these critical paths, while keeping retraining and adaptation costs manageable when changes occur. Under this formulation, moderate runtime variations—such as service-instance scaling or workload fluctuations that preserve the dominant invocation structure—can be effectively captured through time-varying service metrics and trace-level context features. More importantly, representing each API as a span graph provides a stable and scalable abstraction that naturally partitions a large microservice cluster into per-trace subgraphs, allowing STLGT to remain applicable even as the overall system scales. However, substantial topology drift—for example, persistent call-path switching, service insertion or removal, or routing-policy changes—may weaken the fixed span-graph assumption and de-grade prediction accuracy. In such cases, the API-specific span graph should be re-induced from recent traces, and the predictor should be fine-tuned or retrained on the updated stream. From this perspective, online adaptation to topology drift remains a limitation of the current offline evaluation rather than a solved problem. We note that alternative approaches, such as subgraph partition-ing in SGFormer [ 41 ], aim to improve scalability by splitting large graphs into smaller components. However, our empirical results suggest that such hard partitioning can be unstable for tail-latency prediction, potentially due to heterogeneous feature distributions across request paths in high-dimensional spaces. In contrast, the per-trace modeling strategy adopted by STLGT avoids imposing artificial graph boundaries and instead enables a more faithful rep-resentation of request-specific dependency structures. Moreover, this per-trace design naturally supports system-level composition by combining predictions from multiple trace-specific models with their corresponding topologies to provide more robust and reliable latency estimation. 
+
+## 6 Related Work 
+
+Microservice QoS prediction and performance estimation are fun-damental to cloud-native resource management, enabling proactive auto-scaling [ 27 , 28 , 30 , 38 , 47 ], root cause analysis [ 25 , 26 , 34 , 43 ], and performance diagnosis [ 11 , 14 ]. Among various QoS metrics, tail latency at high percentiles such as p95 and p99 is particularly critical yet difficult to predict in complex microservice systems. Ex-isting studies can be broadly categorized into model-based, learning-based, and graph-based approaches [4, 6]. 
+
+## 6.1 Model-Based Approaches 
+
+Model-based approaches characterize microservice performance us-ing explicit analytical formulations, typically grounded in queueing theory or optimization models [ 12 , 21 , 48 ]. Their primary advan-tages lie in low inference overhead and interpretability, making them suitable for capacity planning and scenarios with limited train-ing data. Representative systems include ATOM [ 12 ] and several studies that allocate resources or decompose SLO budgets through analytical abstractions [1, 21, 48]. However, the effectiveness of model-based approaches critically depends on static modeling assumptions and accurate calibration. In modern production environments, frequent deployment changes, shared-resource interference, and heterogeneous execution behav-iors often violate these assumptions, leading to large estimation errors, particularly for long dependency chains and tail-latency-sensitive workloads [27, 33]. 
+
+## 6.2 Learning-Based Approaches 
+
+Learning-based approaches leverage historical telemetry, such as metrics, logs, and traces, to train predictors for end-to-end QoS and integrate them into closed-loop resource management systems [ 27 , 28 , 46 ]. Prior work has demonstrated their effectiveness in production settings, including QoS-aware auto-scaling [ 46 ], online scaling and SLO mitigation [ 27 , 28 ], bottleneck-aware resource adjustment [ 42 ], and fast recovery under dynamic workloads [ 32 ,39]. Despite their empirical success, learning-based methods face challenges under non-stationary workloads and configuration drift, often requiring frequent retraining and careful operational tuning. Moreover, many predictors rely on coarse-grained service-level aggregates or assume weak dependency structures, limiting their ability to capture cross-service influence propagation, long-chain error accumulation, and heterogeneous API-level invocation behav-iors. STLGT: A Scalable Trace-Based Linear Graph Transformer for Tail Latency Prediction in Microservices EASE 2026, 9–12 June, 2026, Glasgow, Scotland, United Kingdom 
+
+## 6.3 Graph-Based Approaches 
+
+To explicitly model service dependencies, topology-aware appro-aches represent microservice systems as graphs, such as call graphs or trace-derived dependency graphs, and apply graph learning to encode interaction patterns [ 20 , 23 , 33 , 44 ]. DeepScaler [ 20 ] employs spatiotemporal GNNs with adaptive graph learning for system-wide auto-scaling, while GRAF [ 23 , 24 ] learns graph representations to support SLO-oriented proactive resource allocation. PERT-GNN [ 33 ] models latency propagation using Trace-PERT graphs, and related work explores graph-based response-time prediction under different dependency abstractions [22, 29]. While graph-based approaches improve dependency awareness, their modeling power often comes at the cost of scalability. Mes-sage passing or global interaction mechanisms can incur substantial training and inference overhead, and tightly coupled spatiotem-poral designs further exacerbate complexity as system scale and workload dynamics increase [ 20 , 23 , 29 , 33 ]. In contrast, our work targets scalable, trace-driven QoS prediction by capturing global dependency propagation efficiently while decoupling temporal dy-namics modeling to handle non-stationary and bursty workloads at production scale. 
+
+## 7 Conclusion 
+
+Microservice tail-latency forecasting can enable proactive auto-sc-aling, but practical predictors must address two competing chal-lenges simultaneously: achieving high accuracy under non-station-ary workloads and evolving dependency patterns, while remaining efficient enough for frequent inference at cluster scale. We proposed STLGT, a scalable trace-based predictor for multi-step microservice tail-latency prediction. STLGT constructs API-induced span graphs from distributed traces, aligns trace-derived features with service-level metrics, and learns to predict p95 end-to-end latency in future windows. To capture long-range dependency propagation efficiently, STLGT adopts a linear-complexity graph Transformer encoder that combines structure-aware global mixing with lightweight local propagation, while a trace-aware readout and a decoupled temporal decoder model non-stationary workload dy-namics without coupled spatiotemporal attention. Experiments on microservice benchmarks [ 10 ], large-scale production traces [ 17 ], and a personalized education platform show that STLGT improves forecasting accuracy over prior trace-graph baselines, while keep-ing inference overhead manageable as graph size increases. The ed-ucation case further indicates that STLGT is applicable to schedule-driven burst scenarios such as online exams, where accurate p95 prediction is needed before reactive scaling can absorb the traffic surge. Our evaluation suggests that distributed traces contain infor-mative signals for tail-latency forecasting, and that incorporating global context in the span-graph encoder can reduce prediction error. We further find that the proposed linearized, structure-aware design provides a lightweight way to incorporate such global con-text, as supported by ablation results. In future work, we plan to integrate STLGT into a closed-loop serving stack and evaluate end-to-end impact under production-grade auto-scaling controllers. 
+
+## Acknowledgments 
+
+This work was supported by the National Key Research and Devel-opment Program of China under Grant No. 2023YFC3341200. 
+
+## References 
+
+[1] Ataollah Fatahi Baarzi and George Kesidis. 2021. Showar: Right-sizing and efficient scheduling of microservices. In Proceedings of the ACM Symposium on Cloud Computing . Association for Computing Machinery, New York, NY, USA, 427–441. [2] Iz Beltagy, Matthew E Peters, and Arman Cohan. 2020. Longformer: The long-document transformer. arXiv preprint arXiv:2004.05150. [3] Jiabin Chen, Fei Xu, Yikun Gu, Li Chen, Fangming Liu, and Zhi Zhou. 2024. Har-monyBatch: Batching multi-SLO DNN inference with heterogeneous serverless functions. In 2024 IEEE/ACM 32nd International Symposium on Quality of Service (IWQoS) . IEEE, IEEE, Piscataway, NJ, USA, 1–10. [4] Tao Chen, Rami Bahsoon, and Xin Yao. 2018. A Survey and Taxonomy of Self-Aware and Self-Adaptive Cloud Autoscaling Systems. Comput. Surveys 51, 3 (June 2018), 1–40. doi:10.1145/3190507 [5] Thomas Davidson, Emily Wall, and Jonathan Mace. 2023. A qualitative interview study of distributed tracing visualisation: A characterisation of challenges and opportunities. IEEE Transactions on Visualization and Computer Graphics 30, 7 (2023), 3828–3840. [6] Shuiguang Deng, Hailiang Zhao, Binbin Huang, Cheng Zhang, Feiyi Chen, Yinuo Deng, Jianwei Yin, Schahram Dustdar, and Albert Y Zomaya. 2024. Cloud-native computing: A survey from the perspective of services. Proc. IEEE 112, 1 (2024), 12–46. [7] Nicola Dragoni, Saverio Giallorenzo, Alberto Lluch Lafuente, Manuel Mazzara, Fabrizio Montesi, Ruslan Mustafin, and Larisa Safina. 2017. Microservices: yester-day, today, and tomorrow. In Present and Ulterior Software Engineering . Springer International Publishing, Cham, Switzerland, 195–216. [8] Fanrong Du, Jiuchen Shi, Quan Chen, Pu Pang, Li Li, and Minyi Guo. 2025. Generating Microservice Graphs with Production Characteristics for Efficient Resource Scaling. In Proceedings of the 39th ACM International Conference on Supercomputing . Association for Computing Machinery, New York, NY, USA, 895–910. [9] Jerome H Friedman. 2001. Greedy function approximation: a gradient boosting machine. The Annals of Statistics 29, 5 (2001), 1189–1232. [10] Yu Gan et al . 2019. An open-source benchmark suite for microservices and their hardware-software implications for cloud & edge systems. In Proceedings of the 24th International Conference on Architectural Support for Programming Languages and Operating Systems . Association for Computing Machinery, New York, NY, USA, 3–18. [11] Yu Gan, Yanqi Zhang, Kelvin Hu, Dailun Cheng, Yuan He, Meghna Pancholi, and Christina Delimitrou. 2019. Seer: Leveraging big data to navigate the complexity of performance debugging in cloud microservices. In Proceedings of the twenty-fourth international conference on architectural support for programming languages and operating systems . Association for Computing Machinery, New York, NY, USA, 19–33. [12] Alim Ul Gias, Giuliano Casale, and Murray Woodside. 2019. ATOM: Model-driven autoscaling for microservices. In 2019 IEEE 39th International Conference on Distributed Computing Systems (ICDCS) . IEEE, IEEE, Piscataway, NJ, USA, 1994–2004. [13] Weizhe Hua, Zihang Dai, Hanxiao Liu, and Quoc Le. 2022. Transformer quality in linear time. In International conference on machine learning . PMLR, PMLR, Baltimore, MD, USA, 9099–9117. [14] Gabriela Kadlecová, Jovita Lukasik, Martin Pilát, Petra Vidnerová, Mahmoud Safari, Roman Neruda, and Frank Hutter. 2024. Surprisingly strong performance prediction with neural graph features. arXiv preprint arXiv:2404.16551. [15] Angelos Katharopoulos, Apoorv Vyas, Nikolaos Pappas, and François Fleuret. 2020. Transformers are rnns: Fast autoregressive transformers with linear at-tention. In International conference on machine learning . PMLR, PMLR, Virtual Event, 5156–5165. [16] Leonardo Leite, Carla Rocha, Fabio Kon, Dejan Milojicic, and Paulo Meirelles. 2019. A Survey of DevOps Concepts and Challenges. Comput. Surveys 52, 6 (Nov. 2019), 1–35. doi:10.1145/3359981 [17] Shutian Luo, Huanle Xu, Chengzhi Lu, Kejiang Ye, Guoyao Xu, Liping Zhang, Yu Ding, Jian He, and Chengzhong Xu. 2021. Characterizing microservice de-pendency and performance: Alibaba trace analysis. In Proceedings of the ACM Symposium on Cloud Computing . Association for Computing Machinery, New York, NY, USA, 412–426. [18] Yang Luo, Mohan Gao, Zhemeng Yu, Haoyuan Ge, Xiaofeng Gao, Tengwei Cai, and Guihai Chen. 2024. Integrating system state into spatio temporal graph neural network for microservice workload prediction. In Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining . Association for Computing Machinery, New York, NY, USA, 5521–5531. EASE 2026, 9–12 June, 2026, Glasgow, Scotland, United Kingdom Yongliang Ding et al. 
+
+[19] Ashraf Mahgoub, Edgardo Barsallo Yi, Karthick Shankar, Sameh Elnikety, Somali Chaterji, and Saurabh Bagchi. 2022. {ORION } and the three rights: Sizing, bundling, and prewarming for serverless {DAGs }. In 16th USENIX Symposium on Operating Systems Design and Implementation (OSDI 22) . USENIX Association, Berkeley, CA, USA, 303–320. [20] Chunyang Meng, Shijie Song, Haogang Tong, Maolin Pan, and Yang Yu. 2023. Deepscaler: Holistic autoscaling for microservices based on spatiotemporal gnn with adaptive graph learning. In 2023 38th IEEE/ACM International Conference on Automated Software Engineering (ASE) . IEEE, IEEE, Piscataway, NJ, USA, 53–65. [21] Amirhossein Mirhosseini, Sameh Elnikety, and Thomas F Wenisch. 2021. Parslo: A gradient descent-based approach for near-optimal partial slo allotment in microservices. In Proceedings of the ACM Symposium on Cloud Computing . Asso-ciation for Computing Machinery, New York, NY, USA, 442–457. [22] Hoa X Nguyen, Shaoshu Zhu, and Mingming Liu. 2022. Graph-PHPA: graph-based proactive horizontal pod autoscaling for microservices using LSTM-GNN. In 2022 IEEE 11th International Conference on Cloud Networking (CloudNet) . IEEE, IEEE, Piscataway, NJ, USA, 237–241. [23] Jinwoo Park, Byungkwon Choi, Chunghan Lee, and Dongsu Han. 2021. GRAF: A graph neural network based proactive resource allocation framework for SLO-oriented microservices. In Proceedings of the 17th International Conference on emerging Networking EXperiments and Technologies . Association for Computing Machinery, New York, NY, USA, 154–167. [24] Jinwoo Park, Byungkwon Choi, Chunghan Lee, and Dongsu Han. 2024. Graph neural network-based SLO-aware proactive resource autoscaling framework for microservices. IEEE/ACM Transactions on Networking 32, 4 (2024), 3331–3346. [25] Luan Pham, Huong Ha, and Hongyu Zhang. 2024. Baro: Robust root cause analysis for microservices via multivariate bayesian online change point detection. 
+
+Proceedings of the ACM on Software Engineering 1, FSE (2024), 2214–2237. [26] Luan Pham, Hongyu Zhang, Huong Ha, Flora Salim, and Xiuzhen Zhang. 2025. RCAEval: A Benchmark for Root Cause Analysis of Microservice Systems with Telemetry Data. In Companion Proceedings of the ACM on Web Conference 2025 .Association for Computing Machinery, New York, NY, USA, 777–780. [27] Haoran Qiu, Subho S Banerjee, Saurabh Jha, Zbigniew T Kalbarczyk, and Ravis-hankar K Iyer. 2020. {FIRM }: An intelligent fine-grained resource management framework for {SLO-Oriented } microservices. In 14th USENIX symposium on operating systems design and implementation (OSDI 20) . USENIX Association, Berkeley, CA, USA, 805–825. [28] Haoran Qiu, Weichao Mao, Chen Wang, Hubertus Franke, Alaa Youssef, Zbig-niew T Kalbarczyk, Tamer Başar, and Ravishankar K Iyer. 2023. {AWARE }:Automate workload autoscaling with reinforcement learning in production cloud systems. In 2023 USENIX Annual Technical Conference (USENIX ATC 23) . USENIX Association, Berkeley, CA, USA, 387–402. [29] Matías Richart, Juan-Luis Gorricho, Javier Baliosian, Luis M Contreras, Alejandro Muñiz, and Joan Serrat. 2025. LQ-GNN: a Graph Neural Network Model for Response Time Prediction of Microservice-based Applications in the Computing Continuum. IEEE Transactions on Parallel and Distributed Systems 36, 12 (2025), 2566–2577. [30] Krzysztof Rzadca, Pawel Findeisen, Jacek Swiderski, Przemyslaw Zych, Przemys-law Broniek, Jarek Kusmierek, Pawel Nowak, Beata Strack, Piotr Witusowski, Steven Hand, et al. 2020. Autopilot: workload autoscaling at google. In Proceed-ings of the Fifteenth European Conference on Computer Systems . Association for Computing Machinery, New York, NY, USA, 1–16. [31] José Santos, Efstratios Reppas, Tim Wauters, Bruno Volckaert, and Filip De Turck. 2025. Gwydion: Efficient auto-scaling for complex containerized applications in Kubernetes through Reinforcement Learning. Journal of Network and Computer Applications 234 (2025), 104067. [32] Jiuchen Shi, Hang Zhang, Zhixin Tong, Quan Chen, Kaihua Fu, and Minyi Guo. 2023. Nodens: Enabling resource efficient and fast {QoS } recovery of dynamic microservice applications in datacenters. In 2023 USENIX Annual Technical Con-ference (USENIX ATC 23) . USENIX Association, Berkeley, CA, USA, 403–417. [33] Da Sun Handason Tam, Yang Liu, Huanle Xu, Siyue Xie, and Wing Cheong Lau. 2023. Pert-gnn: Latency prediction for microservice-based cloud-native applications via graph neural networks. In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining . Association for Computing Machinery, New York, NY, USA, 2155–2165. [34] Lei Tao, Xianglin Lu, Shenglin Zhang, Jiaqi Luan, Yingke Li, Mingjie Li, Zeyan Li, Qingyang Yu, Hucheng Xie, Ruijie Xu, et al . 2024. Diagnosing performance issues for large-scale microservice systems with heterogeneous graph. IEEE Transactions on Services Computing 17, 5 (2024), 2223–2235. [35] The Istio Authors. 2024. Istio: An Open Platform to Connect, Manage, and Secure Microservices. https://istio.io/ [36] The Jaeger Authors. 2018. Jaeger: End-to-End Distributed Tracing. https://www. jaegertracing.io/ [37] The Locust Authors. 2024. Locust: An Open Source Load Testing Tool . Locust Authors. https://locust.io [38] Zibo Wang, Pinghe Li, Chieh-Jan Mike Liang, Feng Wu, and Francis Y Yan. 2024. Autothrottle: A Practical {Bi-Level } Approach to Resource Management for 
+
+{SLO-Targeted } Microservices. In 21st USENIX Symposium on Networked Systems Design and Implementation (NSDI 24) . USENIX Association, Berkeley, CA, USA, 149–165. [39] Ziliang Wang, Shiyi Zhu, Jianguo Li, Wei Jiang, KK Ramakrishnan, Meng Yan, Xiaohong Zhang, and Alex X Liu. 2024. Deepscaling: Autoscaling microservices with stable cpu utilization for large scale production cloud systems. IEEE/ACM Transactions on Networking 32, 5 (2024), 3961–3976. [40] Haixu Wu, Tengge Hu, Yong Liu, Hang Zhou, Jianmin Wang, and Mingsheng Long. 2023. Timesnet: Temporal 2d-variation modeling for general time series analysis. In International Conference on Learning Representations (ICLR). [41] Qitian Wu, Wentao Zhao, Chenxiao Yang, Hengrui Zhang, Fan Nie, Haitian Jiang, Yatao Bian, and Junchi Yan. 2023. Sgformer: Simplifying and empowering transformers for large-graph representations. Advances in Neural Information Processing Systems 36 (2023), 64753–64773. [42] Shuaiyu Xie, Jian Wang, Bing Li, Zekun Zhang, Duantengchuan Li, and Patrick CK Hung. 2024. PBScaler: A bottleneck-aware autoscaling framework for microservice-based applications. IEEE Transactions on Services Computing 17, 2 (2024), 604–616. [43] Ruyue Xin, Peng Chen, and Zhiming Zhao. 2023. Causalrca: Causal inference based precise fine-grained root cause localization for microservice applications. 
+
+Journal of Systems and Software 203 (2023), 111724. [44] Huanle Xu, Yang Liu, Siyue Xie, Wing Cheong Lau, et al . 2025. FastPERT: To-wards Fast Microservice Application Latency Prediction via Structural Inductive Bias over PERT Networks. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 39. AAAI Press, Palo Alto, CA, USA, 20787–20795. [45] Shuangfei Zhai, Walter Talbott, Nitish Srivastava, Chen Huang, Hanlin Goh, Ruixiang Zhang, and Josh Susskind. 2021. An attention free transformer. arXiv preprint arXiv:2105.14103. [46] Yanqi Zhang, Weizhe Hua, Zhuangzhuang Zhou, G Edward Suh, and Christina Delimitrou. 2021. Sinan: ML-based and QoS-aware resource management for cloud microservices. In Proceedings of the 26th ACM international conference on ar-chitectural support for programming languages and operating systems . Association for Computing Machinery, New York, NY, USA, 167–181. [47] Yanqi Zhang, Zhuangzhuang Zhou, Sameh Elnikety, and Christina Delimitrou. 2024. Ursa: Lightweight resource management for cloud-native microservices. In 
+
+2024 IEEE International Symposium on High-Performance Computer Architecture (HPCA) . IEEE, IEEE, Piscataway, NJ, USA, 954–969. [48] Laiping Zhao, Yanan Yang, Kaixuan Zhang, Xiaobo Zhou, Tie Qiu, Keqiu Li, and Yungang Bao. 2020. Rhythm: component-distinguishable workload deployment in datacenters. In Proceedings of the Fifteenth European Conference on Computer Systems . Association for Computing Machinery, New York, NY, USA, 1–17. [49] Zhiqiang Zhou, Chaoli Zhang, Lingna Ma, Jing Gu, Huajie Qian, Qingsong Wen, Liang Sun, Peng Li, and Zhimin Tang. 2023. AHPA: adaptive horizontal pod autoscaling systems on alibaba cloud container service for kubernetes. In Pro-ceedings of the AAAI conference on artificial intelligence , Vol. 37. AAAI Press, Palo Alto, CA, USA, 15621–15629.

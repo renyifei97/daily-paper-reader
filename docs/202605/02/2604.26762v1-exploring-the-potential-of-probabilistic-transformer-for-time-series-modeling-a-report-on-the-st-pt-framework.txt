@@ -1,0 +1,1366 @@
+Title: Exploring the Potential of Probabilistic Transformer for Time Series Modeling: A Report on the ST-PT Framework
+
+URL Source: https://arxiv.org/pdf/2604.26762v1
+
+Published Time: Thu, 30 Apr 2026 01:07:38 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# EXPLORING THE POTENTIAL OF PROBABILISTIC TRANSFORMER FOR TIME SERIES MODELING :A R EPORT ON THE ST-PT F RAMEWORK 
+
+Zhangzhi Xiong, Haoyi Wu, You Wu, Shuqi Gu, Kan Ren ∗
+
+, Kewei Tu ∗
+
+School of Information Science and Technology, ShanghaiTech University Shanghai Engineering Research Center of Intelligent Vision and Imaging 
+
+{xiongzhzh2023, wuhy1, wuyou2024, gushq2024, renkan, tukw}@shanghaitech.edu.cn 
+
+# ABSTRACT 
+
+The Probabilistic Transformer (PT) establishes that the Transformer’s self-attention plus its feed-forward block is mathematically equivalent to Mean-Field Variational Inference (MFVI) on a 
+
+Conditional Random Field (CRF). Under this equivalence the Transformer ceases to be a black-box neural network and becomes a programmable factor graph: graph topology, factor potentials, and the message-passing schedule are all explicit and inspectable primitives that can be engineered. PT was originally developed for natural language and in this report we investigate its potential for time series. We first lift PT into the Spatio-Temporal Probabilistic Transformer (ST-PT)—a two-dimensional factor graph over channels and time patches—to repair PT’s missing channel axis and weak per-step semantics, and adopt ST-PT as a shared cornerstone backbone. We then identify three distinct properties that PT/ST-PT offers as a factor-graph model and derive three Research Questions, one per property, that probe how each property can be exploited in time series: RQ1. The graph topology and potentials are direct programmable primitives. Can this be used to inject symbolic time-series priors (e.g. periodicity, trend) into ST-PT through structural graph modifications, especially under data scarcity and noise? RQ2. The CRF’s factor matrices are the operator’s potentials. Can an external condition program these factor matrices on a per-sample basis, so that conditional generation becomes structural—instantiating a sample-specific operator—rather than feature-level modulation of a fixed one? RQ3. Each MFVI iteration is a Bayesian posterior update on the factor graph. Can this turn the latent transition of latent-space Auto Regressive (AR) forecasting from an opaque MLP into a principled posterior update, and can a CRF teacher distill its latents into the AR student to counter cumulative error? We give one empirical study per question—few-shot synthetic and real-data forecasting (RQ1), conditional time series generation with our PT-FG( Factor Generation )model on ConTSG-Bench (RQ2), and long-horizon latent-space AR forecasting against classical AR baselines (RQ3). Together, the three studies position ST-PT as a programmable framework whose three levers—graph topology, factor parameterization, and inference protocol—each provide a distinct and decent handle on a different aspect of time series modelling. 
+
+# 1 Introduction 
+
+1.1 Background: An Architecture-Centric Paradigm 
+
+Most contemporary deep time series modeling operates under what we will call the architecture-centric paradigm . The architecture is, in effect, the only knob through which the model can be programmed, and every new piece of structural knowledge demands a new structural trick. A direct consequence is that capability and interface are conflated: one cannot inject a prior, supply a condition, or reshape the inference protocol without inventing a new architecture and hoping the model learns to use it correctly from data alone. 
+
+> ∗
+
+Corresponding authors. 
+
+> arXiv:2604.26762v1 [cs.LG] 29 Apr 2026
+
+Preprint The landscape of Multivariate Time Series Forecasting (MTSF) has shifted decisively from classical statistical models to deep neural architectures [ 1]. Traditional tools such as STL decomposition [ 2 ] and ARIMA [ 3 ] provided interpretability and explicit mechanisms for encoding structural beliefs, but struggled with nonlinearity and high dimensionality. Contemporary research is dominated by architectural innovation: decomposition-based Transformers [ 4 , 5], efficient long-sequence attention [ 6], patch-based tokenization [ 7 ], and channel-as-token inversion [ 8 ], among many others. Most of this work operates under a single implicit assumption: that a sufficiently expressive, purely data-driven architecture can learn all necessary temporal dynamics from sufficiently large datasets. This assumption has drawn scrutiny. DLinear [ 9 ] notably showed that a one-layer linear baseline frequently outperforms sophisticated Transformers, and subsequent analyses [ 10 ] argue that attention’s permutation invariance is fundamentally at odds with the sequential and physical nature of time series, yielding overfitting in noisy or small-sample regimes. The same architecture-centric pattern recurs in time series tasks beyond MTSF. In conditional time series generation, contemporary methods inject the external condition through feature-level modulation of a fixed denoiser—adaptive LayerNorm, cross-attention, classifier-free guidance [ 11 , 12 , 13 , 14 ]—so the network topology is left unchanged and the condition only shifts hidden activations of an otherwise generic backbone. In autoregressive forecasting, both output-space [ 15 , 16 , 17 ] and latent-space [ 18 ] approaches drive the step-to-step transition through a free-form learned module with no explicit Bayesian semantics. Across all three task families, the field lacks a shared, explicit interface through which they can be inspected or engineered. 
+
+1.2 The Probabilistic Transformer and Its Three Primitives 
+
+The Probabilistic Transformer (PT) [ 19 ] establishes a pivotal equivalence: the Transformer’s multi-head self-attention plus its feed-forward block is mathematically equivalant to the mean-field variational inference (MFVI) update of a dependency conditional random field (CRF). Under this re-reading, tokens become latent variables Z, attention heads become per-head dependency variables H, and the feed-forward block corresponds to a global topic factor with auxiliary variables G; unary, ternary, and binary factor matrices are the CRF’s potentials. In this framework, the Transformer transcends its black-box origins, emerging instead as an undirected factor graph governed by a principled inference procedure. By treating graph topology, factor potentials, and the schedule of message-passing iterations as explicit primitives, we move beyond simple end-to-end learning toward a regime of deliberate architectural engineering. This re-reading exposes three programmable primitives that are largely invisible from the standard Transformer view: • (P1) Graph topology and potentials are explicit primitives. A factor graph is built from explicit nodes, edges, and unary / pairwise / higher-order potentials. One can add a latent node, modulate a pairwise potential, or insert a new cross-variable edge without redesigning the architecture. • (P2) Factor matrices are the operator’s potentials. In an ordinary Transformer, weight matrices are interior parameters of an opaque function. Under the CRF view, the corresponding factor matrices define the message-passing operator itself, and sample-specific factor matrices give a sample-specific operator. • (P3) Each layer is a posterior inference step. A PT forward pass is a finite sequence of MFVI iterations, each of which is a Bayesian coordinate-ascent update on the CRF. The latent state at any layer is interpretable as a (factorised) posterior over CRF labels, and the iteration schedule is itself a design choice. These three primitives each opens a distinct programmability angle that is not naturally accessible to a Transformer treated as a neural black box, and each will, after we lift PT to ST-PT, give rise to its own Research Question. 
+
+1.3 From PT to ST-PT: A Cornerstone for Time Series 
+
+PT was originally designed for natural language processing, where sequences are one-dimensional and each token has intrinsic semantic content. Time series are different on two aspects: observations are multivariate, so a channel axis is essential as revealed in iTransformer [ 8]; a single time step carries almost no semantic meaning unless aggregated into patches as revealed in PatchTST [7]. Therefore we extend PT to the Spatio-Temporal Probabilistic Transformer (ST-PT) : a two-dimensional factor graph whose nodes sit at every (channel, time-patch) coordinate, whose ternary factors carry messages along both the temporal and the channel axes, and whose head variables compete over these two directions via a joint softmax. Defined over a 2D spatio-temporal factor graph, ST-PT preserves the expressive power of Transformer-style computation while inheriting all three programmable primitives P1–P3 from PT. The model is a shared framework—the cornerstone —that we use for the following three research questions. 2Preprint 
+
+1.4 Three Motivations, Three Research Questions 
+
+Each of the three primitives in 1.2 raises a concrete question about how to use ST-PT in time series modelling, and each question is anchored in a different existing paradigm whose limitations the corresponding primitive is well-positioned to address. We label the three studies RQ1, RQ2, RQ3 and use these labels consistently throughout the report. 
+
+RQ1 — Graph as the prior interface (built on P1). Existing approaches inject domain priors into deep time-series models implicitly, through architectural choices: decomposition blocks [ 4, 5], sparse attention patterns [ 6], or task-specific spatio-temporal networks [ 20 ]. Each new type of prior demands a new architectural trick, with no shared interface [ 21 , 22 ]. Primitive P1 turns the factor graph itself into the prior interface, raising the question: can well-known symbolic time-series priors—e.g., periodicity, trend, lag—be injected into ST-PT through structural modifications of the factor graph (added nodes, modulated potentials, new pairwise edges) rather than through architectural hacks, and when does such an injection actually pay off? We will conduct study on this question via controlled data-scarce and noise perturbed experiment setting. 
+
+RQ2 — Factors as the condition interface (built on P2). Existing conditional time series generators consume the external condition through feature-level modulation of a fixed denoiser (adaptive LayerNorm, cross-attention, classifier-free guidance) [ 11 , 12 , 13 , 14 ]: the network topology is unchanged, and only hidden activations are shifted or reweighted. Primitive P2 makes the factor matrices themselves the natural site at which a condition can act, raising the question: can the condition instead generate the factor matrices, so that each condition instantiates a different CRF—and hence a different message-passing operator—rather than merely modulating one? We will instantiate this idea as the Probabilistic Transformer Factor Generating (PT-FG) model and evaluate it on ConTSG-Bench [23] against other conditional generators. 
+
+RQ3 — MFVI as the latent-transition interface (built on P3). Existing autoregressive forecasters, whether output-space [ 15 , 16 , 17 ] or latent-space [ 18 ], drive their step-to-step transition through a free-form learned module without explicit Bayesian semantics, and offer no built-in remedy for the exposure bias common to any AR rollout. Primitive P3 makes each ST-PT layer a Bayesian posterior update, raising the question: can MFVI on the extended ST-PT factor graph supply latent-space AR with a principled posterior update that fuses observation evidence, transition prior, cross-channel messages, etc? And can a CRF teacher (an encoder MFVI over the full history-plus-future sequence, available at training time) distill its latents into the AR student to counter exposure bias? We evaluate the resulting model on classical long-horizon benchmarks against output-space AR baselines. 
+
+1.5 Contributions and Positioning 
+
+Our contribution is the exposition of ST-PT as a programmable framework and a coordinated empirical investigation of three uses of it under three distinct motivations. Concretely: • We articulate ST-PT as a 2D spatio-temporal extension of PT and identify three programmable levers—graph topology and potentials, factor-matrix parameterization, and MFVI inference protocol—through which it becomes a programmable framework rather than a single model. • We implement and evaluate one study per Research Question: RQ1 (graph-level priors for few-shot fore-casting; synthetic and real data, with a noise-robustness analysis and an honest scoping result on real data); 
+
+RQ2 (condition-programmable factors PT-FG for conditional generation; 10 ConTSG benchmarks with a compositional-generalization ablation); and RQ3 (MFVI-based latent-space AR forecasting; long-horizon benchmarks against AR baselines). 
+
+# 2 Related Work 
+
+Probabilistic Transformer (PT) Our work is theoretically grounded in the Probabilistic Transformer (PT) [ 19 ]in the context of natural language processing. PT establishes a fundamental mathematical equivalence between the Transformer’s self-attention mechanism and Mean-Field Variational Inference (MFVI) in a Dependency Conditional Random Field (CRF). This insight reinterprets the Transformer not as a neural network, but as a structured probabilistic graphical model. While PT was originally designed to capture syntactic dependencies in text, we would like to extend its potential for time series modeling. We note that the name “Probabilistic Transformer” is also used by [ 24 ] for a Transformer that outputs probabilistic (distributional) forecasts for time series; despite the shared terminology, that work is essentially unrelated to ours, since our foundation is the MFVI/CRF equivalence established by [19]. 3Preprint 
+
+Multivariate Time Series Forecasting. Multivariate time series forecasting has evolved from Vector Autoregression and ARIMA [ 3, 2] to a rich family of deep architectures [ 1]. Early Transformer variants focused on reducing the quadratic complexity of self-attention [ 25 , 6 , 26 ], followed by decomposition-based approaches [ 4, 5, 27 , 28 ], patch-based tokenization [ 7 ], channel-as-token inversion [ 8], and MLP-mixing-style models [ 29 , 30 ]. Despite their sophistication, these models treat the network as a fixed black box and do not provide an explicit interface for injecting structured prior knowledge. The empirical dominance of the linear baseline DLinear [ 9] and the theoretical critique in [10] suggest that raw expressive power is not a substitute for an appropriate inductive bias. 
+
+Time Series Forecasting under Data Scarcity. Under data scarcity, the dominant strategies compensate with external data . Meta-learning adapts MAML-style objectives to temporal tasks [ 31 , 32 ], and time-series foundation models such as TimeGPT [ 33 ], large pretrained LM-repurposing approaches [ 34 , 35 ], and in-context fine-tuning [ 36 ] leverage massive source corpora. These paradigms assume statistical overlap between source and target; under pronounced domain shift their benefits diminish. A complementary and less—explored direction is to compensate with structural human knowledge instead of external data—precisely the setting in which the prior-injection capability of ST-PT (RQ1) is most relevant [37]. 
+
+Injecting Prior Knowledge into Time Series Models. Prior-knowledge injection has followed several disconnected threads. Physics-informed neural networks enforce governing equations as soft loss constraints [ 38 ]. Domain-specific models fuse physical mechanisms with statistical backbones, as in heat demand prediction [ 39 ]. Graph-based models inject spatial topology as a hard inductive bias, exemplified by DCRNN for traffic forecasting [ 20 ]. These approaches are effective in their niches but share no theoretical interface [ 21 ]. Crucially, [ 22 ] observed that naïve hard-coding often 
+
+underperforms learned representations inside Transformers, motivating a principled integration mechanism of the kind ST-PT offers. 
+
+Conditional Time Series Generation. Conditional time series generation (ConTSG) has progressed from class-conditioned GAN/VAE baselines such as TTS-CGAN [ 40 ] and TimeVQVAE [ 41 ] to attribute-conditioned diffusion and transformer denoisers including TimeWeaver [ 11 ], WaveStitch [ 42 ], and TEdit [ 43 ], and further to text-conditioned generation including VerbalTS [ 12 ], T2S [ 13 ], BRIDGE [ 14 ], and DiffuSETS [ 44 ]. Almost all these works inject the condition through feature-level modulation of a fixed denoiser (adaptive LayerNorm, cross-attention, classifier-free guidance). Our RQ2 study departs from this line by using the condition to instantiate the denoiser’s factor matrices, so that different conditions yield different CRFs. A recent benchmark ConTSG-Bench [ 23 ] provides standardized head-to-head evaluation across these methods. 
+
+Autoregressive Forecasting and Latent-Space AR. Autoregressive forecasters split into two camps. Output-space AR —probabilistic models such as DeepVAR [ 15 ] and recurrent alternatives such as LSTM [ 16 ] and LSTNet [ 17 ]— regresses or samples a concrete next-step value or patch at every step. Thus, the per-step latent is effectively collapsed into the output space and inter-step information flow is mediated solely by whatever the recurrent state retains; resolution is bounded by the patch length and the cross-step bandwidth is bounded by the recurrent hidden size. Models inspired by NextLat [ 18 ], a Latent-space AR paradigm, attempt to predict in a learned latent space to mitigate these resolution and bandwidth bottlenecks. However, their latent transitions are typically parameterized as opaque, free-form neural modules rather than structurally explicit Bayesian inference steps. While these latents may theoretically approximate belief states, the lack of an explicit inference mechanism leaves no principled computational site at which to organically fuse cross-channel evidence or external priors during rollout. Our RQ3 study replaces the latent transition with posterior inference on the ST-PT factor graph and uses a full-sequence CRF teacher to distill oracle latents against exposure bias. 
+
+# 3 Preliminaries: PT and the ST-PT Cornerstone 
+
+3.1 Problem Formulation 
+
+Given a multivariate time series X = {x1, . . . , xT } ∈ RT ×N with T time steps and N channels, the forecasting task predicts the next S steps Y = {xT +1 , . . . , xT +S } ∈ RS×N . The conditional generation task further assumes a condition vector c and asks for generating samples whose distribution is consistent with the data and with c. The autoregressive forecasting task specializes the forecasting problem by producing Y one patch at a time and recursively :at step k the model feeds its own previously emitted predictions ˆxT +1 , . . . , ˆxT +k−1 (or, in latent-space variants, their latent encodings) back as input to infer the next patch ˆxT +k.4Preprint 
+
+3.2 Probabilistic Transformer, Revisited 
+
+PT [ 19 ] describes computation as MFVI on a CRF with three groups of latent variables: token-level discrete labels 
+
+{Zi}, per-head dependency variables {H(c) 
+
+> i
+
+}, and per-token global variables {Gi}. Three families of potentials define the CRF: unary potentials ϕu(Zi) that couple Zi to local evidence; ternary potentials ϕ(c) 
+
+> t
+
+(H(c) 
+
+> i
+
+, Z i, Z j ) that couple 
+
+H(c) 
+
+> i
+
+to a candidate target Zj ; and binary potentials ϕb(Zi, G i) that couple Zi to a global topic Gi. Under MFVI, the Z, H, G marginals are approximated by factorized distributions q(Z), q (H), q (G), and iterative coordinate-ascent updates take the following form (writing ψ⋆ = log ϕ⋆ for the log-potentials): 
+
+q(H(c) 
+
+> i
+
+= j) ∝ exp  F (c) 
+
+> i
+
+(j), (1) with F (c) 
+
+> i
+
+(j) = X
+
+> a,b
+
+q(Zi = a) q(Zj = b) ψ(c) 
+
+> t
+
+(j, a, b ), (2) 
+
+q(Zi = a) ∝ ϕu(Zi = a) exp  Gi(a) Y 
+
+> g
+
+ϕb(a, g )q(Gi=g), (3) with Gi(a) = X
+
+> c
+
+X
+
+> j
+
+q(H(c) 
+
+> i
+
+= j) X
+
+> b
+
+q(Zj = b) ψ(c) 
+
+> t
+
+(j, a, b ). (4) Equations (2) and (4) are the two messages that cross each ternary factor in one MFVI iteration: the forward message 
+
+F (from Z to H) scores every candidate parent j by aggregating pairwise compatibility under the current Z beliefs, and softmax normalization of F over j produces q(H); the backward message G (from the updated H back to Z) collects the weighted ternary-factor evidence that each position should absorb into its Z-belief. The unary potential ϕu supplies local evidence, and the binary potential ϕb contributes a q(Gi)-weighted coupling to the global topic variable. [ 19 ]shows that with a low-rank tensor decomposition of ψ(c) 
+
+> t
+
+, equation (2) takes the form of a scaled dot-product attention score, softmax over j in equation (1) reproduces the attention weights, and the Z update in equation (3) —together with 
+
+G from equation (4) —reproduces the feed-forward block of a Transformer. Damping the update of q(Z) simulates a residual connection. The forward pass of a Transformer is therefore a fully specified message-passing procedure on a CRF whose factor matrices are learned jointly with the task objective. 
+
+3.3 Why PT Does Not Directly Fit Multivariate Time Series 
+
+Two gaps prevent a naïve application of PT to multivariate time series: 1. No channel axis. PT was designed for one-dimensional token sequences. Multivariate series have N channels whose inter-dependencies are themselves a central modelling target [8]. 2. Weak per-token semantics. A single time step is not analogous to a word—it carries almost no semantic content in isolation [7]. 
+
+3.4 ST-PT Cornerstone Model 
+
+ST-PT addresses all these gaps by lifting PT’s factor graph to two dimensions. The structure of ST-PT is presented in Figure 1. The model consists of the following components and designs: 
+
+Unary Factor and Z variables The input raw data will be Z-normalized and then sliced into small patches. For one patch consisting of ps observed data point, there will be a unary factor expressed by a MLP. The Z node connecting the patch can be therefore somehow regarded as an embedding. After iterations of information update, Z variables will be feed into a simple MLP to predict the future time series sequence. 
+
+Binary Factor and G variables In original Probability Transformer paper, the variant of vanilla PT adds G variables and binary factors to simulate FFN and is adopted here. The binary factor here is a matrix and will be used in the matrix multiplication in the information conveyance formula. Note that one Z variable’s H only connects to those Z variables who either share the same channel or timestep, and doesn’t connect to itself. 
+
+Ternary Fector and H variables H variables models the dependency relationship, and ternary factor is used to quantify and evaluate the dependency. In our implementation, we have two ternary factor matrices, one for the same-channel patches dependency and one for the same-timestep patches dependency. 5Preprint 𝐀 𝐀𝐀 
+
+> 𝐀 𝐀𝐀
+
+𝐀 𝐀𝐀 
+
+𝐀 𝐀𝐀 
+
+𝐀 𝐀 𝐀 
+
+𝐀 𝐀𝐀 
+
+𝐀 𝐀𝐀 
+
+𝐀 𝐀𝐀 𝐀 𝐀 𝐀 
+
+Time Step 
+
+> Channel
+> 𝐀 𝐀 𝐀
+> 𝐀 𝐀 𝐀
+
+𝐀 𝐀 𝐀 
+
+> 𝐀 𝐀 𝐀
+> 𝐀 𝐀𝐀
+> 𝐀 𝐀𝐀
+> 𝐀 𝐀 𝐀
+> 𝐀 𝐀 𝐀
+> 𝐀 𝐀𝐀
+> 𝐀 𝐀𝐀
+> 𝐀 𝐀𝐀
+> 𝐀 𝐀𝐀
+
+Channel 1 
+
+Channel 2 
+
+Channel 3 
+
+Unary Factor 
+
+Binary Factor 
+
+Ternary Factor 
+
+Channel Dependecney 
+
+(Same Time Step) 
+
+Timestep Dependency 
+
+(Same Channel) 
+
+# Patch 
+
+Figure 1: Structure of ST-PT: a 2D factor graph on (channel i, time-patch t) coordinates with Z/H/G latent variables, unary/ternary/binary factors, and a joint softmax over temporal and cross-channel dependencies. Let p be the patch length and P = T /p the number of patches along the time axis. The input is reshaped into 
+
+X = {xi,t } ∈ RN ×P ×p with xi,t ∈ Rp. A learnable unary map ϕu embeds each patch into a d-dimensional hidden state. Patches restore local semantic content and reduce complexity, following PatchTST [7]. ST-PT places one Z-node, one H-node, and one G-node at every coordinate (i, t ) where i ∈ [N ] is a channel and 
+
+t ∈ [P ] is a patch index. Each H(c) 
+
+> i,t
+
+may point either to a same-channel patch (temporal dependency) or to a same-timestep patch in a different channel (cross-channel dependency). Two disjoint sets of ternary potentials are instantiated, 
+
+(U time , V time ) and (U chan , V chan ), yielding respective message-F scores F time 
+
+> i,t,c
+
+(s) and F chan  
+
+> i,t,c
+
+(j). Distinct from designs that alternate between time and channel mixing, like TSMixer [ 29 ] and MLPMixer [ 45 ], ST-PT normalizes temporal and channel candidates jointly :
+
+q H(c)
+
+> i,t
+
+ = softmax 
+
+ 1
+
+> λH
+
+F time 
+
+> i,t,c
+
+(·), F chan  
+
+> i,t,c
+
+(·)
+
+, (5) so that the two kinds of dependency compete on equal footing within a single message. The resulting messages Gtime 
+
+and Gchan are then fed into the Z update together with the global topic message Gbinary from ϕb and the unary ϕu(xi,t ).Rotary position embeddings (RoPE) are applied along both axes, with separate parameter sets for the time and channel directions. This distinguishes a temporal shift from a channel shift without coupling them into a single one-dimensional position. The encoder iterates K rounds of the MFVI-style update with damping. The final Z beliefs are projected through an MLP head to produce the forecasting (or denoising) output. This cornerstone model is the backbone used in all three RQs below. 
+
+# 4 Three Research Questions: ST-PT as a Programmable Framework 
+
+The three RQs introduced in Section 1.4 share a single technical theme: ST-PT’s three distinct levers— graph , parameters ,and inference protocol —each unlock a modelling regime that opaque Transformers do not cleanly support. Each RQ is matched with one study experiment in Section 5. 
+
+4.1 RQ1: Graph-level Prior Injection Claim. The factor graph of ST-PT is itself the interface for injecting symbolic priors. Domain knowledge can be expressed by structural modifications to the graph, yielding energy-landscape shaping that is principled rather than ad-hoc. Here we take four forms of prior as study subject. 6Preprint RQ1 RQ3 
+
+# Periodicity : Period Bias Matrix 
+
+# Trend 
+
+# Lag 
+
+# Channel Ind : Cross Group Mask 
+
+𝐀 𝐀𲠀 
+
+𝐀 𝐀𲠀 
+
+> 𝐀 𝐀𲠀 +𝐀
+> 𝐀 𝐀𲠀 +𝐀
+> Markov Node
+
+𝐀 𝐀 𲠀 
+
+> 𝐀 𝐀 𲠀 +𝐀
+
+# Binary Factor 
+
+Cross 
+
+Channel 
+
+# Single-Step 
+
+# MFVI 
+
+Cache (Past as evidence )𝐀 𝐀𵀀𝐀 
+
+global topic (G node) 
+
+𝐀 𝐀𳰀𝐀 𝐀 𝐀 +𝐀 
+
+𝐀 𝐀𴐀𳰀𴰀 
+
+𝐀𭀀𝐀 𝐀𴐀𳰀𴰀 𝐀 𝐀 𝐀 𝐀𴐀𵀀𰠀𝐀 
+
+𝐀 𝐀 
+
+𝐀 𝐀 𝐀 𵀀𴐀𴐀𝐀 
+
+𝐀 𝐀𴐀𳰀𴰀 for the next step  
+
+> & Add to
+
+𝐀 𝐀𵀀𝐀  
+
+> Add to
+
+# 𝐀 
+
+evidence 
+
+dependency (H node) 
+
+# Loss 𝐀𠀀𝐀 (𝐀 , 𝐀 )𠀀𡠀𝐀𝐀𝐀 ℎ𝐀 1(𝐀 𝐀 𝐀 𝐀 , 𝐀 𝐀 𝐀 𝐀 𝐀 ℎ𝐀 𝐀 ) &
+
+> damping
+
+Figure 2: (a) Three graph-level mechanisms for injecting symbolic priors into ST-PT’s factor graph (RQ1, Section 4.1): 
+
+periodicity multiplies the temporal message-F logits by a per-channel cosine similarity matrix (potential modulation); 
+
+trend augments the graph with a per-channel latent HMM chain coupled to Z (node augmentation); lag adds new bilinear pairwise edges between causally linked channels at a known temporal offset (factor engineering). (b) Computation flow of the RQ3 latent-space AR model (Section 4.3, Appendix G): a causal encoder MFVI turns the history patches into a latent cache, and each AR step infers the next-slice latent by a single-step MFVI update that fuses a dual-pathway unary (re-encoded prediction + transition prior), temporal messages from the cache, cross-channel messages among the simultaneous new latents, and a global topic. 
+
+Four priors as study subjects. We select four canonical time-series priors— periodicity , trend , lag , and channel-independence —as the study subjects of RQ1, and realise each one as a concrete graph-level modification of the ST-PT factor graph, as illustrated in Figure 2. Each prior has its own modelling mechanism, acting on a different site of the graph. The detailed implementation of these priors can be referred to Appendix B. • Potential modulation (periodicity prior). For each channel i we construct a per-channel period bias matrix 
+
+Pi ∈ RP ×P whose entries encode cosine similarity between patches under the known period(s) of that channel. The temporal message F time is multiplied element-wise by Pi, biasing the message-passing to respect the known periodicities. No new nodes or factors are added. • Node augmentation (trend prior). We introduce a second layer of latent nodes Mi,t , one per (i, t ), with a Markovian pairwise potential and an observation potential that ties Mi,t to Zi,t . The resulting extended graph behaves like an explicit hidden Markov model coupled to the original ST-PT, and injects a smooth-trend inductive bias. • Factor engineering (lag prior). For each pair of causally-related channels (A, B ) with known lag τ we add a new pairwise potential ϕAB (ZA,t , Z B,t +τ ), implemented as a learnable bilinear form. This adds a new edge class to the factor graph, carrying messages across channels with a temporal offset, without disturbing the existing time and channel ternary factors. • Edge masking (channel-independence prior). Given a declared channel-group partition G = {G1, . . . , G K },we mask the cross-channel message F chan so that only intra-group messages survive, i.e. the cross-group entries are set to −∞ before the joint softmax. In graph terms, this amounts simply to deleting a subset of cross-channel edges emanating from the H-nodes, namely those that would otherwise connect H-nodes belonging to different groups. The modification acts on the support of an existing message rather than introducing new structure: admissible cross-channel edges are kept untouched while cross-group edges are forbidden outright, encoding a hard independence assumption between the declared channel groups. 
+
+Expected regime. Under Bayesian intuition, each prior’s pay-off depends on whether its structural assumption carries information the data cannot already supply on its own: a prior helps most when training samples are scarce, when noise dominates, or when its assumption matches the dominant signal, and its marginal contribution is diluted when the data is abundant and already exhibits multiple overlapping patterns. This expectation applies directly to the periodicity, trend, and lag priors, each of which inscribes a specific structural assumption into the factor graph. The channel-independence 7Preprint prior sits in a subtly different regime: because its modification only forbids cross-group H-edges that the unrestricted ternary attention is otherwise free to pass, its benefit exists only when the data-driven attention would in fact allocate non-trivial mass to those now-forbidden edges; if the data itself already down-weights cross-group links, the mask is redundant. We report this case (Section 5.2) to delineate what kind of prior ST-PT’s graph interface does and does not benefit from. 
+
+4.2 RQ2: Condition-Programmable Factors Claim. ST-PT’s factor matrices are not auxiliary hyperparameters; they are the CRF’s potentials. By letting an external condition generate these matrices on a per-sample basis, we obtain a structural form of conditioning whose effect is to instantiate a different CRF—and hence a different message-passing operator—for each condition. This modeling philosophy contrasts with the feature-level modulation (adaptive LayerNorm, cross-attention, classifier-free guidance) used by existing conditional diffusion time-series generators [12, 13, 14, 42] and can be similar with Hypernet [46]. 
+
+Factor generator design (PT-FG). The condition is first encoded into a hidden control vector h via 
+
+h = MLP  Wcc + TimeEmb( t), (6) where t is the diffusion timestep. h then drives three generators: 
+
+Unary conditioner. Produces patch-wise scale, shift, and segment gate vectors (s, b, gseg ) from h, yielding an adaptive LayerNorm-style modulation of the initial Z states. 
+
+Ternary basis generator. For each of {U time , V time , U chan , V chan } we maintain a shared base matrix U0 plus K
+
+learnable basis matrices {Bk}. The condition predicts coefficients αk(h) and row/column scales, yield-ing U(h) = ( U0 + P 
+
+> k
+
+αk(h)Bk) ⊙ r(h) ⊙ c(h)⊤. Basis mixing is far more parameter-efficient than a full hypernetwork. 
+
+Binary topic generator. A similar basis-decomposition generator produces the global topic factor W(h).
+
+Diffusion training. The condition-generated factors define a sample-specific ST-PT denoiser ϵθ (xt, t, c). Training minimizes the standard noise-prediction loss; classifier-free guidance is supported through null-condition dropout. Crucially, the condition programs which CRF is doing the denoising, not merely where the denoiser attends. 
+
+Why this matters for compositional generalization. Consider controllable generation over multiple structured attributes. In feature-modulation approaches, the interaction among attributes is mediated solely by hidden activations and can easily memorize training co-occurrences. Under the CRF view, the factors act as the operator of an inference procedure; if each attribute independently contributes basis coefficients and scales, a novel combination of attributes naturally synthesize a novel operator. The empirical study in Section 5.3 confirms that enforcing independent attribute encoding (as opposed to multi-head cross-talk among attribute embeddings) improves compositional generalization but still underperforms text condition encoding which is consistent with the observation in ConTSG-Bench [23]. 
+
+4.3 RQ3: MFVI-based Latent-Space Autoregressive Forecasting Claim. Output-space AR forecasters (e.g., DeepVAR [ 15 ], LSTM-AR [ 16 ], LSTNet [ 17 ]) commit to a concrete next-step value or patch at every step, so cross-step information flow is mediated entirely by whatever the recurrent state retains. Latent-space AR [ 18 ] decouples rollout from per-step output commitment, but its latent transition is a free-form learned module without explicit Bayesian semantics. ST-PT instead makes the latent update an explicit 
+
+posterior inference step on an extended factor graph, fusing observation evidence, transition prior, temporal cache, cross-channel messages and a global topic through principled message passing, and uses a full-sequence CRF teacher to distil oracle latents into the AR student. 
+
+Design intuition. Three modelling choices do the work, each pinned to a specific expected effect. (i) A posterior-inference latent transition. Replacing a free-form transition module with one MFVI iteration forces the rolled-out latent to live in the same belief space as the encoder’s latents, so the long-range temporal, cross-channel, and topic structure already captured by the encoder is reused directly at rollout time instead of being re-learned by a bespoke transition module. (ii) A dual-pathway unary. Splitting the new slice’s unary into a transition-prior term and an observation-likelihood term supplies the ingredient pair that any posterior update requires; each term alone has a specific failure mode (discussed below) that the other term corrects. (iii) A CRF teacher built from the same operator. Afull-sequence encoder MFVI is available at training time and lives in the student’s own belief space, so it provides a same-operator oracle that can directly supervise the student’s rolled-out latents , not only its outputs—without a second model or a learned alignment. 8Preprint 
+
+Dual-pathway evidence. At each AR step k we infer a new latent zP +k+1 by running a single-step MFVI iteration. The “unary” for the new slice is the sum of two pathways: • (i) Patch unary. The predicted patch ˆxP +k = MLP pred (zP +k) is re-encoded through the unary map ϕu. This grounds the AR step in the observation space and forces commitment. • (ii) Transition prior. A learned MLP pψ (zP +k) generates a latent-space shortcut. Unlike patch unary, it bypasses the patch-length bottleneck and preserves high-dimensional information. Both evidence sources enter the MFVI update together with: (iii) temporal messages from cached past latents (the 
+
+U time factors act on a causal cache that includes all P observed patches and all previously inferred future patches); (iv) cross-channel messages from the simultaneous latents at other channels; and (v) the global topic message. 
+
+Why two pathways. The patch unary passes through a d → p → d projection ( d = 256 , p = 8 ), so anything absent from the p-dimensional patch is dropped at every step; using only this pathway would shrink the effective cross-step information bandwidth to p floats and cause fine-grained latent context to be forgotten after one step. The transition prior avoids this bottleneck but is entirely internal, with no per-step tie to a realisable observation, so using only this pathway leaves nothing that prevents the rollout from drifting into a self-consistent but data-inconsistent region of latent space. Combining them realises a standard prior + likelihood pair: the transition prior is the dynamic prior on the next latent, the patch unary is the observation-level likelihood, and MFVI fuses them into a posterior. The other three message sources (cache, cross-channel, topic) are context for this update—the same role they play inside the encoder. 
+
+CRF teacher distillation. During training the full history-plus-ground-truth-future sequence is available; we run a parallel MFVI on the full sequence to obtain oracle posteriors zteacher    
+
+> P+1: P+Sf
+
+. Crucially, the RQ3 encoder MFVI is causal 
+
+along the time axis (position t attends only to s ≤ t, implemented as an additive −∞ mask on the upper triangle of the time-axis message-F logits); since both teacher and student use the same causal operator, their history-position latents (t < P ) are identical , and the two paths can differ only at the Pf future positions—where the teacher has ground-truth patch-unary evidence while the student has only its self-rolled predictions. The distillation loss therefore acts only on the future positions, pulling the student’s self-rolled posterior toward the teacher’s oracle-informed one; in practice we use either a KL-divergence-like term under the SquaredSoftmax normalization or a SmoothL1/cosine combination. Because the teacher and the student share the same MFVI operator and the same factor matrices, adn the distillation amounts to telling the student what its own posterior would have been if it could see the future, which can be regarded as a principled antidote to cumulative error without introducing a qualitatively different network at training time. 
+
+Why this is a natural training signal. Because the teacher and the student are produced by the same MFVI operator— differing only in that the teacher’s input includes the future—their latents live in the same belief space, so a direct element-wise match between them is already commensurable and needs no alignment layer. Operationally this places the supervision on the student’s beliefs rather than on its inputs or outputs: the student’s inputs remain self-rolled at training time (unlike teacher forcing, which aligns inputs but leaves a train/test input-distribution mismatch), while each rolled-out latent is pulled toward what the student’s own operator would produce with future visibility—attacking exposure bias from the posterior side rather than the input side. 
+
+Model and computation flow. Concretely, the RQ3 model (full pseudocode in Appendix G) reuses the ST-PT ternary and binary factors of Section 3 and deploys them in three coordinated phases. Phase 1 — encoder MFVI on history. The history patches are embedded by the shared unary ϕu and passed through Kenc rounds of a causal MFVI (a −∞ mask on the upper triangle of the time-axis message-F logits), yielding a latent cache Zstu ∈ RN ×P ×d that summarises every history position under the same 2D factor graph as the cornerstone encoder. Phase 2 — AR rollout. For k = 1 , . . . , P f
+
+the model (a) reads the most recent cached latent zP +k−1 and emits the next patch ˆxk = MLP pred (zP +k−1); (b) forms the new slice’s unary as the dual-pathway sum upatch +utrans with upatch = ϕu(ˆ xk) and utrans = pψ (zP +k−1); (c) runs a 
+
+SingleStepMFVI —one round of the same causal update restricted to the single new time slice—which fuses this unary with temporal messages from the cache, cross-channel messages from the simultaneous new latents at other channels, and the global topic message, producing znew ; (d) damps zP +k = α z P +k−1 + (1 − α) znew and appends it to the cache, so that the next step reads it as context (closing the AR loop on the latent side). Phase 3 (training only) — CRF teacher. 
+
+On the concatenated sequence [Xhist ∥ Y], a parallel encoder MFVI with the same causal operator and the same factor matrices produces teacher latents Zteacher ; because the operator is causal, the teacher’s and student’s history-position latents coincide exactly, so the distillation loss acts only on the Pf future positions. The total training objective is 
+
+MSE( ˆY, Y) + λlatent Ldistill . At inference only Phases 1–2 run; Figure 2(b) illustrates the overall computation flow. 
+
+What is new compared to latent AR in general. Three structural differences are worth highlighting: 9Preprint 1. The latent transition is not a stand-alone MLP but a fully specified Bayesian update on a factor graph with rich temporal and cross-channel structure. 2. Training and inference share the MFVI operator; the teacher latent is reached by the same dynamics as the student, merely with different evidence. 3. The approach carries CRF semantics into the latent space: the latent is not an arbitrary continuous vector but a (softened) probability distribution over CRF labels, which gives the distillation loss a clear meaning. 
+
+# 5 Experiments 
+
+5.1 Cornerstone Validation: ST-PT for Long-Term Forecasting 
+
+Before activating any RQ-specific lever, we validate that the bare ST-PT cornerstone is itself a competitive long-term forecaster, so that the RQ1–RQ3 gains and losses reported below are differential effects on top of a reasonable backbone rather than artefacts of an under-trained one. We evaluate ST-PT on the standard 7-dataset long-term forecasting suite (Weather, Electricity, Traffic, ETTh1, ETTh2, ETTm1, ETTm2) at horizons {96 , 192 , 336 , 720 }, against strong 2023-era baselines: TSMixer [ 29 ], TimeMixer [ 30 ], PatchTST [ 7], TimesNet [ 47 ], and Crossformer [ 48 ]. Table 1 reports Test MSE / MAE averaged over the four horizons; the full per-horizon table and experimental setting are in Appendix E. Table 1: Cornerstone validation: long-term forecasting on seven benchmarks, Test MSE / MAE averaged over four horizons {96 , 192 , 336 , 720 } (lower is better). The bare ST-PT cornerstone is broadly comparable to strong 2023 baselines on every benchmark, without any RQ-specific lever activated. Per-horizon raw numbers and the experimental setting are in Appendix E.                                                                                                      
+
+> Dataset ST-PT (Ours) TSMixer TimeMixer PatchTST TimesNet Crossformer MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE Weather 0.245 0.276 0.225 0.264 0.222 0.262 0.241 0.264 0.251 0.294 0.380 0.442 Electricity 0.177 0.273 0.160 0.257 0.156 0.247 0.159 0.253 0.193 0.304 0.186 0.283 Traffic 0.446 0.289 0.408 0.284 0.388 0.263 0.391 0.264 0.620 0.336 0.542 0.283 ETTh1 0.437 0.434 0.412 0.428 0.411 0.423 0.413 0.434 0.495 0.450 0.600 0.557 ETTh2 0.368 0.399 0.355 0.401 0.316 0.384 0.324 0.381 0.371 0.404 0.564 0.548 ETTm1 0.393 0.403 0.347 0.375 0.348 0.376 0.353 0.382 0.400 0.406 0.514 0.511 ETTm2 0.283 0.332 0.267 0.322 0.256 0.316 0.256 0.317 0.291 0.333 0.621 0.510
+
+On all seven benchmarks the bare ST-PT cornerstone tracks the 2023 strong baselines within a few percent on both MSE and MAE, never lagging any single dataset by a large margin. We therefore treat the cornerstone as a reasonable starting backbone for the three RQ-specific studies that follow. 
+
+5.2 RQ1: Priors for Few-Shot and Noise Regimes Setup. We construct three synthetic datasets (Lag, Periodicity, Trend) each instantiated at three sample sizes N ∈{150 , 1500 , 15000 }. Lag data has enc _in = 6 with paired channels (0 , 1) , (2 , 3) , (4 , 5) and known lag τ = 8 ;Periodicity and Trend data have enc _in = 10 and seq _len = pred _len = 96 as in standard long-term forecasting benchmarks. Baselines are DLinear [ 9], iTransformer [ 8], PatchTST [ 7], and the vanilla ST-PT cornerstone. The three additive prior variants (ST-PT+Lag, ST-PT+Period, ST-PT+Trend) follow the graph modifications described in Section 4.1; the restrictive channel-independence probe (ST-PT+Indep) is evaluated on the Lag task only, where the ground-truth channel partition is known. Full construction details for the three synthetic datasets are given in Appendix C and more details on the settings of following experiments can be referred to Appendix D. 
+
+Synthetic few-shot results (Tables 2 and 3). On the three synthetic tasks, all three additive prior-injected ST-PT variants beat the vanilla ST-PT cornerstone in the data-scarce N = 150 regime, and the advantage gradually shrinks as 
+
+N grows—exactly what Bayesian intuition predicts once data compensates for the missing prior. Classical Transformer baselines (iTransformer) fail catastrophically at N = 150 ; DLinear is competitive but is dominated by ST-PT on every task. The fourth, restrictive channel-independence probe, however, produces essentially no change over the vanilla cornerstone on Lag data at any sample size (Table 3): even though the masked partition exactly matches the ground-truth channel pairs, enforcing the mask neither helps nor hurts, indicating that the unrestricted ternary attention already concentrates cross-channel messages inside the causal pairs on its own and the mask is simply redundant. The synthetic 10 Preprint Table 2: Few-shot synthetic forecasting (Test MSE, lower is better). Prior-injected ST-PT variants are strongest at 
+
+N = 150 , with the advantage shrinking as N grows.                                                    
+
+> Task NST-PT ST-PT+Prior iTransformer PatchTST DLinear Lag 150 0.261 0.219 0.654 0.295 0.465 1500 0.021 0.019 0.235 0.049 0.167 15000 0.0026 0.0023 0.235 0.009 0.027 Periodicity 150 0.230 0.222 0.580 0.250 0.455 1500 0.216 0.213 0.221 0.238 0.209 15000 0.194 0.195 0.193 0.201 0.201 Trend 150 0.611 0.497 1.779 0.625 0.919 1500 0.113 0.080 0.459 0.164 0.148 15000 0.064 0.061 0.065 0.115 0.133
+
+Table 3: Channel-independence probe on the Lag task (Test MSE). The mask enforces the ground-truth 
+
+(0 , 1) , (2 , 3) , (4 , 5) channel partition on top of the ST-PT cornerstone; ST-PT+Lag is reproduced from Table 2 as an additive-prior reference. Enforcing the mask produces no measurable change over vanilla ST-PT at any sample size—the failed-probe case of RQ1.             
+
+> NST-PT ST-PT+Indep (probe) ST-PT+Lag (reference) 150 0.261 0.262 0.219
+> 1500 0.021 0.021 0.019
+> 15000 0.0026 0.0026 0.0023
+
+side of RQ1 therefore gives a clean three-success-plus-one-failure picture: priors that add matched structure help when data is scarce; a prior that only removes freedom does not help when the data-driven model already imposes the same restriction. 
+
+Noise robustness (Table 4). We sweep the noise amplitude and compute the MSE gap ∆ = MSE( vanilla ) −
+
+MSE( prior ). Two qualitatively different behaviours emerge. For Lag and Periodicity priors, ∆ shrinks as the noise amplitude grows, but remains non-negative; the prior’s advantage erodes but never reverses. For the Trend prior, ∆
+
+expands with noise—the prior becomes more valuable as the signal-to-noise ratio deteriorates, because a smooth-trend bias is exactly the inductive bias needed to denoise additive random walks. Table 4: Noise-robustness summary: MSE gap ∆ = MSE( vanilla ) − MSE( prior ). Lag/Periodicity gaps shrink with noise; the Trend gap grows .                             
+
+> Prior Low noise →High noise Trend of ∆
+> Lag +0 .049 (n= 0 .05 )→+0 .011 (n= 0 .50 )shrinking (still positive) Periodicity +0 .003 (n= 0 .00 )→+0 .000 (n= 1 .00 )shrinking (still positive) Trend +0 .043 (n= 0 .10 )→+0 .143 (n= 0 .80 )expanding (prior is noise-robust)
+
+Real-data study under varying training-sample fractions (Table 5). We evaluate the Trend prior on six real-world benchmarks (ETTh1/2, ETTm1/2, Weather, Exchange) against the vanilla ST-PT cornerstone under two training-sample budgets: p5 uses only 5% of the standard training split, while p100 uses the full training split. The overall gain from prior modelling on real data is currently not pronounced . In the p5 (scarce) regime, the Trend prior yields a modest consistent improvement on the three benchmarks with a visually clear low-frequency component—with ETTh1 improving from 0.619 → 0.601 as a representative instance, and similar small wins on ETTh2 and Weather—while remaining neutral or slightly harmful on the other three. In the p100 (full-data) regime, the differences collapse to within ±0.02 MSE on every dataset and no robust win remains. We read this as evidence that the real-world gain from any single structural prior is likely modulated by several factors simultaneously: (a) whether the dataset admits the assumed structure at all (seasonality-dominated ETTm1/m2 and near-random-walk Exchange do not), (b) how data-scarce the training budget is (the advantage largely vanishes at p100), and (c) how dominant the prior’s target pattern is relative to other overlapping patterns in the series. When any of these is unfavourable, the marginal contribution of a single prior dilutes toward zero on real data. A fuller scoping of RQ1 11 Preprint Table 5: Real-data prior study with varying training-sample fractions. p5 / p100 denote runs that use 5% / 100% of the standard training split, respectively. Metrics are Test MSE / MAE. The Trend prior helps on ETTh1, ETTh2 and Weather at p5—datasets with trend-dominated low-frequency structure—and becomes neutral or slightly harmful at p100, consistent with the synthetic scaling law that prior advantage shrinks as N grows.                                          
+
+> Dataset (training budget) ST-PT MSE / MAE ST-PT+Trend MSE / MAE ETTh1 (p5) 0.619 / 0.536 0.601 /0.529
+> ETTh1 (p100) 0.381 /0.401 0.383 / 0.404 ETTh2 (p5) 0.347 / 0.371 0.342 / 0.371 ETTh2 (p100) 0.286 /0.340 0.305 / 0.361 ETTm1 (p5) 0.482 /0.443 0.492 / 0.447 ETTm1 (p100) 0.317 /0.359 0.318 / 0.361 ETTm2 (p5) 0.189 /0.273 0.192 / 0.279 ETTm2 (p100) 0.175 / 0.263 0.177 / 0.263
+> Weather (p5) 0.178 / 0.221 0.173 /0.218
+> Weather (p100) 0.161 / 0.210 0.159 /0.209
+
+would therefore need to combine multiple priors and to control each of these factors more carefully than the present study does. 
+
+5.3 RQ2: Condition-Programmable Factors on ConTSG-Bench Setup. We evaluate PT-FG on the ConTSG-Bench suite [ 23 ], covering ten datasets that span synthetic control (Synth-U, Synth-M), sensor data (AirQuality Beijing, Istanbul Traffic, TelecomTS), electrical load (ETTm1), weather (Weather-Conceptual, Weather-Morphological) and physiological signals (PTB-XL-Conceptual, PTB-XL-Morphological). Base-lines are the standard ConTSG generators: Bridge [ 14 ], DiffuSETS [ 44 ], T2S [ 13 ], TEdit [ 43 ], Text2Motion [ 49 ], TimeVQVAE [ 41 ], TimeWeaver [ 11 ], TTSCGAN [ 40 ], VerbalTS [ 12 ], and WaveStitch [ 42 ]. Each method is evaluated on six fidelity metrics used in [ 23 ]: DTW (dynamic time warping), CRPS (continuous ranked probability score), ACD 
+
+(auto-correlation discrepancy), SD (skewness discrepancy), KD (kurtosis discrepancy), and MDD (marginal distribution discrepancy); lower is better for all six. More details of following experiments can be referred to D and raw numbers (mean ±std over three seeds for baselines; single run for PT-FG) are provided in Appendix F. 
+
+Rank-based summary (Table 6). Because the six metrics live on very different scales (e.g., MDD ∼ 10 −2 vs. 
+
+KD ∼ 10 3 on some datasets) and non-condition-aware generators can degenerate to extremely large values on pathological cases, we summarize performance with per-(dataset, metric) rank averaged across datasets. Specifically, for each of the 10 ×6 = 60 evaluation pairs we rank the 11 methods ( 1 = best, 11 = worst; missing values are assigned the worst rank). Table 6 reports the per-metric average rank, the overall average, and the number of top-1 finishes. PT-FG achieves the best overall average rank ( 2.78 ), the best mean rank on four of six metrics (DTW, CRPS, MDD, as well as a decisive 1.10 on CRPS), and accumulates 24 /60 top-1 finishes—more than VerbalTS ( 7) and Text2Motion ( 6)combined. Table 6: Conditional time series generation on ConTSG-Bench: per-(dataset, metric) average rank across the 10 datasets (lower is better; 1 = best, 11 = worst). Last two columns report the overall average rank and the number of top-1 finishes out of 10 ×6 = 60 (dataset, metric) pairs. Raw numbers (mean ±std over three seeds for baselines and for PT-FG) are in Appendix F.                                                                                                 
+
+> Method DTW CRPS ACD SD KD MDD Avg rank #Top-1 Bridge 4.90 5.70 2.70 6.30 7.30 7.10 5.67 7DiffuSETS 6.70 6.30 6.20 6.80 5.90 7.40 6.55 5T2S 10.50 10.70 8.50 6.90 6.10 10.00 8.78 1TEdit 6.10 4.70 4.80 5.20 6.20 3.60 5.10 1Text2Motion 3.50 3.50 7.90 5.70 3.00 3.70 4.55 6TimeVQVAE 4.10 6.50 7.80 6.40 8.60 8.60 7.00 3TimeWeaver 7.20 6.40 5.00 5.90 6.80 5.60 6.15 1TTSCGAN 7.80 8.50 9.90 6.40 7.10 7.30 7.83 3VerbalTS 4.00 3.70 3.90 3.90 3.80 3.80 3.85 7WaveStitch 9.40 8.90 4.90 8.50 7.60 7.10 7.73 2PT-FG (ours) 1.80 1.10 4.40 4.00 3.60 1.80 2.78 24
+
+12 Preprint Table 7: Compositional ablation under RQ2. The text-only variant (C) leads overall; among attribute-only variants, independent encoding (B) materially outperforms cross-talk (A) on compositional splits. Higher is better for the accuracy column; lower is better for DTW and CRPS.                     
+
+> Variant acc_norm (all) DTW CRPS Composition gap (tail −head) A (Attr + cross-talk) 0.252 12.65 0.611 +0 .043
+> B (Attr, no cross-talk) 0.347 11.36 0.511 −0.025
+> C (Text-only) 0.460 11.30 0.544 −0.034
+> D (Text +Attr fusion) 0.159 13.77 0.555 +0 .086
+
+A few qualitative observations are worth highlighting. (i) PT-FG’s leading margin is largest on the shape-sensitive metrics DTW, CRPS and MDD—precisely the metrics that directly reflect distributional and waveform fidelity, which is where condition-programmable factor instantiation should pay off; on CRPS in particular PT-FG’s mean rank of 
+
+1.10 means it is top-1 on 9 of the 10 datasets. (ii) On the three “statistical moment” metrics—ACD, SD, KD—PT-FG remains strong but does not dominate: Bridge is marginally better on auto-correlation (ACD mean rank 2.70 ) and VerbalTS is marginally better on skewness/kurtosis (SD rank 3.90 , comparable on KD). These gaps are small and suggest a minor engineering direction (e.g., a smoothness-aware unary or a moment-matching auxiliary loss) rather than a fundamental shortcoming of the factor-programming view. (iii) Condition-heavy baselines like T2S and WaveStitch, which rely on heavy text embedding pipelines but keep the denoiser topology fixed, rank near the bottom on the fidelity metrics, consistent with our RQ2 thesis that structural conditioning is more robust than purely feature-level modulation on ConTSG-Bench. 
+
+Compositional ablation under RQ2 (Table 7). To probe compositional generalization, consistent with the setting in ConTSG-Bench [ 23 ], we split the condition space by Hamming distance from training compositions (head: Hamming 
+
+= 1 , tail: Hamming ≥ 2) and compare four conditioning strategies inside PT-FG: attribute-only conditioning with multi-head cross-talk among attribute embeddings; attribute-only with independent attribute encoding (no cross-talk); pre-computed text embedding only (LongCLIP-style); and concatenation-based fusion of text and attributes. Results are reported in terms of overall accuracy, DTW, CRPS and FID. Two conclusions stand out. First, C outperforms all attribute-conditioning variants: a pre-trained text encoder already encodes compositional semantics, effectively serving as a “free” composition prior. Second, among the two attribute-only variants, B (independent encoding) beats A (cross-talk) by a wide margin on every metric. Under the CRF view this is natural: when each attribute independently contributes basis coefficients, novel combinations produce novel operators by coefficient superposition; adding cross-talk among attributes encourages the model to memorize training co-occurrences. Variant D’s collapse is a training-stability failure of the concatenation-based fusion—a negative result that motivates gated fusion in future work. 
+
+5.4 RQ3: Latent-Space AR Forecasting Setup. We evaluate the MFVI-based latent AR model on standard long-horizon benchmarks: ETTh1, ETTh2, ETTm1, ETTm2, Weather, and ECL (electricity consumption load), at prediction lengths {96 , 192 }. Baselines are classical AR models suitable for multivariate time series: DeepVAR [ 15 ], LSTM-AR [ 16 ], and LSTNet [ 17 ]. All methods share the same input history window; hyperparameters follow the respective original papers. We report Test MSE/MAE. 
+
+Results (Table 8). Across all 10 dataset–horizon combinations with complete logs, the MFVI-based latent AR model is the best on every row. Relative improvements over the strongest baseline range from 5% (ETTm2 at pred _len = 96 )to more than 10% (ETTh2 at pred _len = 192 , where the CRF-teacher latent consistency provides an especially strong supervisory signal). 
+
+Summary and Analysis. Four patterns in Table 8 are worth highlighting; together they line up with the RQ3 design claims. 
+
+(1) Consistent wins across every dataset and horizon. The MFVI-based latent AR model leads on all 12 dataset–horizon combinations in MSE (and on MAE, where recorded). Improvements over the strongest baseline—essentially always LSTNet—range from 2.8% (Weather, pl = 192) to 15 .4% (ETTm1, pl = 192). Improvements over DeepVAR and LSTM-AR are much larger but less informative, because those two baselines are themselves unstable on several rows. 
+
+(2) The gap to LSTNet widens at the longer horizon on four of six datasets. On ETTh2, ETTm1, ETTm2, and ECL the relative improvement over LSTNet grows from pl = 96 to pl = 192 (e.g., ETTm2: 5.4% → 12 .4% ; ETTm1: 13 Preprint Table 8: Long-horizon autoregressive forecasting on six benchmarks at pred _len ∈ { 96 , 192 }. Baseline columns are Test MSE only (MAE not available in the source logs); our MFVI-based latent AR model reports both Test MSE and Test MAE. The MFVI-based latent AR model leads on every dataset–horizon combination in MSE.                                                                                  
+
+> Dataset pred _len DeepVAR LSTM-AR LSTNet MFVI Latent AR (ours) MSE MSE MSE MSE MAE ETTh1 96 0.673 0.471 0.419 0.398 0.416
+> ETTh1 192 0.765 0.537 0.464 0.446 0.445
+> ETTh2 96 0.600 0.380 0.330 0.300 0.349
+> ETTh2 192 0.514 0.651 0.414 0.369 0.394
+> ETTm1 96 1.807 0.530 0.357 0.316 0.355
+> ETTm1 192 0.843 0.546 0.421 0.356 0.377
+> ETTm2 96 0.309 0.221 0.186 0.176 0.258
+> ETTm2 192 1.424 0.302 0.291 0.255 0.309
+> Weather 96 6.689 0.200 0.165 0.158 0.204
+> Weather 192 9.010 0.255 0.212 0.206 0.248
+> ECL 96 0.314 0.285 0.150 0.143 0.236
+> ECL 192 0.413 0.368 0.170 0.156 0.246
+
+11 .5% → 15 .4% ; ECL: 4.7% → 8.2% ). The advantage thus compounds precisely in the horizon regime where any free-form latent-AR baseline accumulates the most cumulative error. Because cumulative error is the failure mode specifically targeted by the CRF teacher distillation—which supplies a future-informed oracle on the student’s rolled-out 
+
+latents rather than on its outputs—this expansion is the empirical fingerprint of the exposure-bias mitigation argued in Section 4.3. 
+
+(3) Baseline landscape. DeepVAR [ 15 ] diverges on high-dimensional or multi-scale data (Weather 6.689 and 9.010 ;ETTm1 at pl = 96, 1.807 ), and LSTM-AR [ 16 ] is typically 10 –50% worse than LSTNet in MSE, with a few rows exceeding 2× (ECL, ETTh2 pl = 192). LSTNet [ 17 ] is the only uniformly reliable baseline across the suite, so we treat the LSTNet delta as the substantive comparison; the DeepVAR and LSTM-AR deltas mostly reflect their own instability rather than additional credit to our design. 
+
+(4) Two partial outliers (ETTh1 and Weather). On ETTh1 and Weather the improvement narrows at the longer horizon (5.0% → 3.9% and 4.2% → 2.8% ), in contrast to the four datasets above. A plausible reading is that Weather’s long-horizon signal is dominated by very low-frequency components that both LSTNet and the latent AR model already track close to the signal-to-noise floor, and ETTh1 has comparatively smooth baseline dynamics, so the CRF-teacher correction has less slack to work with. This is a honest caveat: RQ3 is designed to mitigate cumulative latent drift , not the floor set by irreducible noise. Taken together, patterns (1) and (2) corroborate the three design pillars of Section 4.3: the posterior-inference latent transition and the dual-pathway unary bound per-step drift (pattern 1), and the CRF teacher distillation supplies the widening long-horizon advantage (pattern 2). Pattern (4) confirms that the remaining advantage is largest where exposure bias is the dominant failure mode, as predicted, and narrows where the noise floor takes over. 
+
+# 6 Discussion 
+
+6.1 When Each Lever Pays Off 
+
+The three RQs are not equally useful in every regime. The summary is as follows: • The graph lever (RQ1) is most valuable when data is scarce, when noise is severe, or when the prior’s structural assumption matches the dominant signal. It is largely neutral on multi-pattern moderately-sized real-world data, a regime where the likelihood already carries enough information for the ST-PT backbone to succeed on its own. • The parameter lever (RQ2) is most valuable for conditional generation with structured conditioning signals (attributes, text). Its advantage over feature-level modulation grows when compositional generalization across conditions is demanded. • The inference-protocol lever (RQ3) is most valuable for autoregressive forecasting, especially at long horizons where cumulative error dominates. 14 Preprint 
+
+6.2 Unifying Insight 
+
+The three RQs share a single insight: ST-PT’s CRF semantics let us interpret Transformer computation as programmable, and the programmability has layers. Graphs, parameters, and inference protocols are the three layers exposed here. A Transformer treated purely as a neural black box cannot distinguish them; a Transformer treated as a CRF can, and each layer gives a different handle on a different modelling problem—one per RQ. 
+
+6.3 Limitations 
+
+Several limitations remain. (i) RQ1. On the synthetic side, the four priors show a mixed picture: the three structural-assumption priors (periodicity, trend, lag) help in the data-scarce regime, while the channel-independence prior produces no gain because the unrestricted ternary attention already respects the intended partition. On real data, the net gain of a single prior is currently not pronounced and is simultaneously modulated by data scarcity, the structural match between dataset and prior, and the dominance of the prior’s target pattern among multiple overlapping patterns. More broadly, several of the priors have limited effectiveness even in the few-shot regime unless they are backed by careful, fine-grained design choices (per-channel period maps, HMM hyperparameters, explicit lag-pair declarations, etc.); in that sense the factor-graph interface reduces the problem of prior injection to a set of concrete design choices, but does not eliminate the need to make them well. Single-pattern priors therefore do not, by themselves, advance the state of the art on mature forecasting benchmarks. (ii) RQ3. Two cost-side caveats apply to the latent AR model. First, the CRF teacher distillation requires a per-batch full-sequence forward pass at training time which largely raises the training cost. Second—and more importantly at deployment time—an autoregressive rollout is inherently sequential over the Pf
+
+future patches, so the inference time of our latent AR model, and the performance as well in fact, is substantially worse than that of direct forecasters (TSMixer, TimeMixer, PatchTST, etc.) that emit the entire prediction horizon in a single forward pass. We accordingly do not frame the RQ3 results as a performance challenge to direct-forecast models: the study is deliberately scoped to the autoregressive regime, and its goal is to understand what improvements and insights ST-PT’s factor-graph view can bring within that regime, not to win head-to-head against direct-prediction architectures. 
+
+6.4 Future Directions 
+
+Several directions follow naturally from the present work. (a) Joint activation of all three levers. We have not attempted to combine priors with condition-programmable factors or latent AR on a single backbone; jointly activating multiple levers is conceptually natural but technically non-trivial, and would test whether the three gains stack or interfere. (b) Porting RQ1-style priors back into standard Transformer-based models. The graph-level prior mechanisms of RQ1 (potential modulation, node augmentation, factor engineering) are formulated against the CRF that ST-PT exposes, but their structural content is model-agnostic: a periodicity bias states which positions should attend to which, a trend prior states which smoothness should be rewarded, and a lag prior states which pairs should interact at a known temporal offset. Porting these statements back to Transformer-based models that do not expose a factor-graph interface is non-trivial—one needs to identify the right “adaptation surface” (attention biases, auxiliary losses, structured positional embeddings, or architectural hooks) that reproduces the target message-passing effect without a CRF—but if solved, it would generalise the insight of RQ1 well beyond the PT family and promote the graph-level prior interface from a model-specific feature to a broadly applicable injection interface . This sounds like a promising and, to our knowledge, largely open direction. (c) Hybrid with foundation-model pretraining. Combining the priors with foundation-model-style pretraining and hybrid objectives (e.g., latent consistency plus masked-patch pretraining) could bring the data-scarce-regime benefits of RQ1 to pretrained backbones, and could provide a cleaner disentanglement of the contributions of priors and of scale. 
+
+# 7 Conclusion 
+
+We have presented a unified report on the Spatio-Temporal Probabilistic Transformer as a programmable framework for time series modelling. Starting from the PT view that attention is MFVI on a CRF, we lifted PT to a two-dimensional factor graph suitable for multivariate series, and—driven by three distinct motivations—formulated three Research Questions, each addressed by activating a different programmable lever of the underlying CRF: RQ1 (prior-knowledge motivation, graph lever) for few-shot forecasting via prior injection; RQ2 (condition-utilization motivation, parameter lever) for compositional conditional generation via factor programming; and RQ3 (latent-space motivation, inference-protocol lever) for latent-space AR via MFVI posterior inference. The collection of findings—including a three-success-plus-one-failure synthetic picture and an inconclusive but informative real-data scoping for RQ1— suggests that PT’s factor-graph perspective is a practical and broadly useful instrument for structured time series modelling, and that ST-PT is a convenient starting point for future work that combines all three levers on a single backbone. 15 Preprint 
+
+# References 
+
+[1] Bryan Lim and Stefan Zohren. Time-series forecasting with deep learning: a survey. Philosophical transactions of the royal society a: mathematical, physical and engineering sciences , 379(2194), 2021. [2] Robert B Cleveland, William S Cleveland, Jean E McRae, and Irma Terpenning. Stl: A seasonal-trend decomposi-tion. J. off. Stat , 6(1):3–73, 1990. [3] Robert H Shumway and David S Stoffer. Arima models. In Time series analysis and its applications: with R examples , pages 75–163. Springer, 2017. [4] Haixu Wu, Jiehui Xu, Jianmin Wang, and Mingsheng Long. Autoformer: Decomposition transformers with auto-correlation for long-term series forecasting. Advances in neural information processing systems , 34:22419–22430, 2021. [5] Tian Zhou, Ziqing Ma, Qingsong Wen, Xue Wang, Liang Sun, and Rong Jin. Fedformer: Frequency enhanced decomposed transformer for long-term series forecasting. In International conference on machine learning , pages 27268–27286. PMLR, 2022. [6] Haoyi Zhou, Shanghang Zhang, Jieqi Peng, Shuai Zhang, Jianxin Li, Hui Xiong, and Wancai Zhang. Informer: Beyond efficient transformer for long sequence time-series forecasting. In Proceedings of the AAAI conference on artificial intelligence , volume 35, pages 11106–11115, 2021. [7] Yuqi Nie, Nam H Nguyen, Phanwadee Sinthong, and Jayant Kalagnanam. A time series is worth 64 words: Long-term forecasting with transformers. arXiv preprint arXiv:2211.14730 , 2022. [8] Yong Liu, Tengge Hu, Haoran Zhang, Haixu Wu, Shiyu Wang, Lintao Ma, and Mingsheng Long. itransformer: Inverted transformers are effective for time series forecasting. arXiv preprint arXiv:2310.06625 , 2023. [9] Ailing Zeng, Muxi Chen, Lei Zhang, and Qiang Xu. Are transformers effective for time series forecasting? In 
+
+Proceedings of the AAAI conference on artificial intelligence , volume 37, pages 11121–11128, 2023. [10] Yufa Zhou, Yixiao Wang, Surbhi Goel, and Anru R Zhang. Why do transformers fail to forecast time series in-context? arXiv preprint arXiv:2510.09776 , 2025. [11] Sai Shankar Narasimhan, Shubhankar Agarwal, Oguzhan Akcin, Sujay Sanghavi, and Sandeep Chinchali. Time weaver: A conditional time series generation model. arXiv preprint arXiv:2403.02682 , 2024. [12] Shuqi Gu, Chuyue Li, Baoyu Jing, and Kan Ren. Verbalts: Generating time series from texts. In Forty-second International Conference on Machine Learning , 2025. [13] Yunfeng Ge, Jiawei Li, Yiji Zhao, Haomin Wen, Zhao Li, Meikang Qiu, Hongyan Li, Ming Jin, and Shirui Pan. T2s: High-resolution time series generation with text-to-series diffusion models. arXiv preprint arXiv:2505.02417 ,2025. [14] Hao Li, Yu-Hao Huang, Chang Xu, Viktor Schlegel, Renhe Jiang, Riza Batista-Navarro, Goran Nenadic, and Jiang Bian. Bridge: Bootstrapping text to control time-series generation via multi-agent iterative optimization and diffusion modeling. arXiv preprint arXiv:2503.02445 , 2025. [15] Valentin Flunkert, David Salinas, and Jan Gasthaus. Deepar: Probabilistic forecasting with autoregressive recurrent networks. CoRR , abs/1704.04110, 2017. [16] Sepp Hochreiter and Jürgen Schmidhuber. Long short-term memory. Neural Computation , 9(8):1735–1780, 1997. [17] Guokun Lai, Wei-Cheng Chang, Yiming Yang, and Hanxiao Liu. Modeling long-and short-term temporal patterns with deep neural networks. In The 41st international ACM SIGIR conference on research & development in information retrieval , pages 95–104, 2018. [18] Jayden Teoh, Manan Tomar, Kwangjun Ahn, Edward S Hu, Pratyusha Sharma, Riashat Islam, Alex Lamb, and John Langford. Next-latent prediction transformers learn compact world models. arXiv preprint arXiv:2511.05963 ,2025. [19] Haoyi Wu and Kewei Tu. Probabilistic transformer: A probabilistic dependency model for contextual word representation. In Findings of the Association for Computational Linguistics: ACL 2023 , pages 7613–7636, 2023. [20] Yaguang Li, Rose Yu, Cyrus Shahabi, and Yan Liu. Diffusion convolutional recurrent neural network: Data-driven traffic forecasting. arXiv preprint arXiv:1707.01926 , 2017. [21] Peter W Battaglia, Jessica B Hamrick, Victor Bapst, Alvaro Sanchez-Gonzalez, Vinicius Zambaldi, Mateusz Malinowski, Andrea Tacchetti, David Raposo, Adam Santoro, Ryan Faulkner, et al. Relational inductive biases, deep learning, and graph networks. arXiv preprint arXiv:1806.01261 , 2018. 16 Preprint [22] Natalia Koliou, Tatiana Boura, Stasinos Konstantopoulos, George Meramveliotakis, and George Kosmadakis. Comparing prior and learned time representations in transformer models of timeseries, 2024. [23] Shaocheng Lan, Shuqi Gu, Zhangzhi Xiong, and Kan Ren. Contsg-bench: A unified benchmark for conditional time series generation. arXiv preprint arXiv:2603.04767 , 2026. [24] Binh Tang and David S Matteson. Probabilistic transformer for time series analysis. Advances in neural information processing systems , 34:23592–23608, 2021. [25] Shiyang Li, Xiaoyong Jin, Yao Xuan, Xiyou Zhou, Wenhu Chen, Yu-Xiang Wang, and Xifeng Yan. Enhancing the locality and breaking the memory bottleneck of transformer on time series forecasting. Advances in neural information processing systems , 32, 2019. [26] Shizhan Liu, Hang Yu, Cong Liao, Jianguo Li, Weiyao Lin, Alex X Liu, and Schahram Dustdar. Pyraformer: Low-complexity pyramidal attention for long-range time series modeling and forecasting. In International conference on learning representations , 2021. [27] Gerald Woo, Chenghao Liu, Doyen Sahoo, Akshat Kumar, and Steven Hoi. Etsformer: Exponential smoothing transformers for time-series forecasting. arXiv preprint arXiv:2202.01381 , 2022. [28] Tian Zhou, Ziqing Ma, Qingsong Wen, Liang Sun, Tao Yao, Wotao Yin, Rong Jin, et al. Film: Frequency improved legendre memory model for long-term time series forecasting. Advances in neural information processing systems ,35:12677–12690, 2022. [29] Si-An Chen, Chun-Liang Li, Nate Yoder, Sercan O Arik, and Tomas Pfister. Tsmixer: An all-mlp architecture for time series forecasting. arXiv preprint arXiv:2303.06053 , 2023. [30] Shiyu Wang, Jiawei Li, Xiaoming Shi, Zhou Ye, Baichuan Mo, Wenze Lin, Shengtong Ju, Zhixuan Chu, and Ming Jin. Timemixer++: A general time series pattern machine for universal predictive analysis. arXiv preprint arXiv:2410.16032 , 2024. [31] Chelsea Finn, Pieter Abbeel, and Sergey Levine. Model-agnostic meta-learning for fast adaptation of deep networks. In International conference on machine learning , pages 1126–1135. PMLR, 2017. [32] Tomoharu Iwata and Atsutoshi Kumagai. Few-shot learning for time-series forecasting. arXiv preprint arXiv:2009.14379 , 2020. [33] Azul Garza, Cristian Challu, and Max Mergenthaler-Canseco. Timegpt-1. arXiv preprint arXiv:2310.03589 , 2023. [34] Ming Jin, Shiyu Wang, Lintao Ma, Zhixuan Chu, James Y Zhang, Xiaoming Shi, Pin-Yu Chen, Yuxuan Liang, Yuan-Fang Li, Shirui Pan, et al. Time-llm: Time series forecasting by reprogramming large language models. 
+
+arXiv preprint arXiv:2310.01728 , 2023. [35] Tian Zhou, Peisong Niu, Liang Sun, Rong Jin, et al. One fits all: Power general time series analysis by pretrained lm. Advances in neural information processing systems , 36:43322–43355, 2023. [36] Abhimanyu Das, Matthew Faw, Rajat Sen, and Yichen Zhou. In-context fine-tuning for time-series foundation models. arXiv preprint arXiv:2410.24087 , 2024. [37] Chenqi Li, Timothy Denison, and Tingting Zhu. A survey of few-shot learning for biomedical time series. IEEE Reviews in Biomedical Engineering , 18:192–210, 2024. [38] Zhongkai Hao, Songming Liu, Yichi Zhang, Chengyang Ying, Yao Feng, Hang Su, and Jun Zhu. Physics-informed machine learning: A survey on problems, methods and applications. arXiv preprint arXiv:2211.08064 , 2022. [39] Yiwen Zhang, Xiangning Tian, Yazhou Zhao, Chaobo Zhang, Yang Zhao, and Jie Lu. A prior-knowledge-based time series model for heat demand prediction of district heating systems. Applied Thermal Engineering ,252:123696, 2024. [40] Xiaomin Li, Anne Hee Hiong Ngu, and Vangelis Metsis. Tts-cgan: A transformer time-series conditional gan for biosignal data augmentation. arXiv preprint arXiv:2206.13676 , 2022. [41] Daesoo Lee, Sara Malacarne, and Erlend Aune. Vector quantized time series generation with a bidirectional prior model. arXiv preprint arXiv:2303.04743 , 2023. [42] Aditya Shankar, Lydia Chen, Arie van Deursen, and Rihan Hai. Wavestitch: Flexible and fast conditional time series generation with diffusion models. Proceedings of the ACM on Management of Data , 3(6):1–25, 2025. [43] Baoyu Jing, Shuqi Gu, Tianyu Chen, Zhiyu Yang, Dongsheng Li, Jingrui He, and Kan Ren. Towards editing time series. Advances in Neural Information Processing Systems , 37:37561–37593, 2024. [44] Yongfan Lai, Jiabo Chen, Qinghao Zhao, Deyun Zhang, Yue Wang, Shijia Geng, Hongyan Li, and Shenda Hong. Diffusets: 12-lead ecg generation conditioned on clinical text reports and patient-specific information. Patterns ,6(10):101291, October 2025. 17 Preprint [45] Ilya O Tolstikhin, Neil Houlsby, Alexander Kolesnikov, Lucas Beyer, Xiaohua Zhai, Thomas Unterthiner, Jessica Yung, Andreas Steiner, Daniel Keysers, Jakob Uszkoreit, et al. Mlp-mixer: An all-mlp architecture for vision. 
+
+Advances in neural information processing systems , 34:24261–24272, 2021. [46] David Ha, Andrew Dai, and Quoc V Le. Hypernetworks. arXiv preprint arXiv:1609.09106 , 2016. [47] Haixu Wu, Tengge Hu, Yong Liu, Hang Zhou, Jianmin Wang, and Mingsheng Long. Timesnet: Temporal 2d-variation modeling for general time series analysis. arXiv preprint arXiv:2210.02186 , 2022. [48] Yunhao Zhang and Junchi Yan. Crossformer: Transformer utilizing cross-dimension dependency for multivariate time series forecasting. In The eleventh international conference on learning representations , 2023. [49] Guy Tevet, Sigal Raab, Brian Gordon, Yonatan Shafir, Daniel Cohen-Or, and Amit H Bermano. Human motion diffusion model. arXiv preprint arXiv:2209.14916 , 2022. 18 Preprint 
+
+# A Message Passing in ST-PT: Full Derivation 
+
+This appendix expands the cornerstone message-passing of Section 3 with a full MFVI derivation, starting from the CRF potentials and ending with a closed-form display of all updates actually used in the implementation. The PT base equations (1) –(4) are reused verbatim; we specialise them to the 2D factor graph of Section 3, make the two message families ( F time , F chan ) explicit, and show how a low-rank decomposition of the ternary potentials brings the final form back to a (jointly normalized) scaled dot-product attention. 
+
+A.1 Factor graph and potentials 
+
+Let N be the number of channels, P = T /p the number of time patches of length p, d the hidden size, C the number of attention heads, and dh = d/C the per-head size. At every coordinate (i, t ) ∈ [N ]×[P ] we instantiate three latent variables: • Zi,t ∈ Rd: a continuous (softened) label 2 carrying the local belief at (i, t );• H(c) 
+
+> i,t
+
+: a per-head dependency pointer whose range covers every admissible parent of (i, t ), i.e. every patch in the same channel and every patch at the same time in another channel; • Gi,t ∈ Rd: a per-token global topic variable coupled to Zi,t via a binary factor. Three families of log-potentials define the CRF: 
+
+ψu
+
+ Zi,t 
+
+ = log ϕu
+
+ Zi,t 
+
+ = MLP u(xi,t ), (7) 
+
+ψ(c)
+
+> t
+
+ H(c) 
+
+> i,t
+
+= ( i′, t ′), Z i,t , Z i′,t ′
+
+ =
+
+
+
+ψ(c)
+
+> time
+
+(Zi,t , Z i,t ′ ), i′ = i (temporal edge ),ψ(c)
+
+> chan
+
+(Zi,t , Z i′,t ), t′ = t, i ′̸ = i (cross-channel edge ),
+
+−∞ , otherwise ,
+
+(8) 
+
+ψb
+
+ Zi,t , G i,t 
+
+ = log ϕb
+
+ Zi,t , G i,t 
+
+. (9) The −∞ branch in (8) enforces the “same-channel or same-timestep, and never self” edge rule of Section 3. The two admissible branches correspond to the two disjoint ternary-factor families (U time , V time ) and (U chan , V chan ) instantiated in the cornerstone model. 
+
+A.2 Mean-field update: forward message F
+
+Applying the generic PT update (2) to the specialised potential (8) , the forward message from Z to H(c) 
+
+> i,t
+
+splits into two parts depending on which branch of the potential is used. For a temporal candidate parent (i, s ) with s̸ = t:
+
+F time 
+
+> i,t,c
+
+(s) = X
+
+> a,b
+
+q(Zi,t = a) q(Zi,s = b) ψ(c)
+
+> time
+
+(a, b ), (10) and for a cross-channel candidate parent (j, t ) with j̸ = i:
+
+F chan  
+
+> i,t,c
+
+(j) = X
+
+> a,b
+
+q(Zi,t = a) q(Zj,t = b) ψ(c)
+
+> chan
+
+(a, b ). (11) All other parents give F = −∞ (inadmissible under the edge rule), and are absorbed into the softmax normalization below. 
+
+Low-rank decomposition. We parameterise each ternary log-potential as a bilinear form through learnable matrices 
+
+U, V ∈ Rd×dh (one pair per head and per axis): 
+
+ψ(c)
+
+> time
+
+(a, b ) = 1
+
+√dh
+
+ Utime ,(c)a⊤ Vtime ,(c)b, ψ(c)
+
+> chan
+
+(a, b ) = 1
+
+√dh
+
+ Uchan ,(c)a⊤ Vchan ,(c)b. (12) 
+
+> 2
+
+Following PT, the Z variable is formally categorical over a finite label set; at inference the mean-field marginal q(Zi,t ) is equivalently represented by its expectation Zi,t ∈ Rd, which is what every message below consumes. We abuse notation and write 
+
+Zi,t for that expectation throughout. 
+
+19 Preprint Substituting (12) into (10)–(11) and using linearity of expectation Zi,t = P 
+
+> a
+
+q(Zi,t = a) · a,
+
+F time 
+
+> i,t,c
+
+(s) = 1
+
+√dh
+
+ Utime ,(c)Zi,t 
+
+⊤ Vtime ,(c)Zi,s 
+
+ =: 1
+
+√dh
+
+ qtime ,(c)
+
+> i,t
+
+⊤ktime ,(c) 
+
+> i,s
+
+, (13) 
+
+F chan  
+
+> i,t,c
+
+(j) = 1
+
+√dh
+
+ Uchan ,(c)Zi,t 
+
+⊤ Vchan ,(c)Zj,t 
+
+ =: 1
+
+√dh
+
+ qchan ,(c)
+
+> i,t
+
+⊤kchan ,(c) 
+
+> j,t
+
+. (14) Equation (13) is a scaled dot-product between a time-axis query at (i, t ) and a time-axis key at (i, s ); equation (14) is the analogous score along the channel axis at the same time step. Each head c thus carries its own Q/K projections for both axes, separately parameterised so that time-direction and channel-direction similarities are never conflated. 
+
+A.3 Joint softmax for q(H)
+
+The space of admissible parents of (i, t ) is Pi,t = {(i, s ) : s̸ = t} ∪ { (j, t ) : j̸ = i}, of size (P −1)+( N −1) . ST-PT deliberately normalises the H softmax over this entire set at once, rather than alternating time-only and channel-only mixing as MLPMixer [ 45 ] and TSMixer [ 29 ] do. Substituting the concatenated score vector into (1) and absorbing a dummy temperature λH (set to 1 in our implementation) gives: 
+
+q H(c) 
+
+> i,t
+
+= ( i′, t ′) = exp   1 
+
+> λH
+
+Fi,t,c (i′, t ′)X 
+
+> (s) : s̸=t
+
+exp   1 
+
+> λH
+
+F time 
+
+> i,t,c
+
+(s) + X  
+
+> (j) : j̸=i
+
+exp   1 
+
+> λH
+
+F chan  
+
+> i,t,c
+
+(j) (15) where Fi,t,c (i′, t ′) equals F time 
+
+> i,t,c
+
+(t′) if i′ = i and F chan  
+
+> i,t,c
+
+(i′) if t′ = t. Two facts are worth recording here. First, the joint denominator means that temporal and cross-channel candidates compete on equal footing for every unit of dependency mass, so the model can dynamically redistribute attention between axes per position and per head . Second, any mask (e.g. the channel-independence mask of Appendix B.4 or the time-axis causal mask used in RQ3, Appendix G) enters simply as an additive −∞ term on Fi,t,c prior to the softmax. 
+
+A.4 Backward message G and Z update 
+
+Specialising (4) to the two branches of (8) , the message coming back into (i, t ) decomposes as the sum of a temporal and a cross-channel contribution: 
+
+Gtime  
+
+> i,t
+
+(a) = X
+
+> c
+
+X
+
+> s̸=t
+
+q H(c) 
+
+> i,t
+
+= ( i, s ) X 
+
+> b
+
+q(Zi,s = b) ψ(c)
+
+> time
+
+(a, b ), (16) 
+
+Gchan  
+
+> i,t
+
+(a) = X
+
+> c
+
+X 
+
+> j̸=i
+
+q H(c) 
+
+> i,t
+
+= ( j, t ) X 
+
+> b
+
+q(Zj,t = b) ψ(c)
+
+> chan
+
+(a, b ). (17) Applying the low-rank decomposition (12) again and exchanging sums, P 
+
+> b
+
+q(Zi,s = b) · ψ(c)
+
+> time
+
+(a, b ) =(Utime ,(c)a)⊤ktime ,(c) 
+
+> i,s
+
+/√dh, so the backward message along each axis is exactly a standard attention output read in the Z-space: 
+
+Gtime  
+
+> i,t
+
+(a) = 1
+
+√dh
+
+ Utime ,(c)a⊤X
+
+> c
+
+X
+
+> s̸=t
+
+q H(c) 
+
+> i,t
+
+= ( i, s ) ktime ,(c)
+
+> i,s
+
+| {z } 
+
+> attention-weighted time key, head c
+
+=:  Utime ,(c)a⊤ ˜mtime  
+
+> i,t
+
+, (18) 
+
+Gchan  
+
+> i,t
+
+(a) = 1
+
+√dh
+
+ Uchan ,(c)a⊤X
+
+> c
+
+X 
+
+> j̸=i
+
+q H(c) 
+
+> i,t
+
+= ( j, t ) kchan ,(c)
+
+> j,t
+
+| {z } 
+
+> attention-weighted channel key, head c
+
+=:  Uchan ,(c)a⊤ ˜mchan  
+
+> i,t
+
+. (19) The binary topic factor contributes a separate message Gbinary  
+
+> i,t
+
+(a) = log Q 
+
+> g
+
+ϕb(a, g )q(Gi,t =g), which under a Gaussian-family parameterisation of ϕb reduces to a standard feed-forward transformation of Zi,t (PT’s FFN identification, cf. Section 3). Substituting these three messages into the generic Z update (3) and writing the result in expectation form Zi,t ←
+
+Eq(Zi,t )[Zi,t ], we obtain the ST-PT coordinate-ascent update: 
+
+Z new  
+
+> i,t
+
+= (1 −α) Zi,t + α σ 
+
+
+
+ϕu(xi,t )
+
+| {z }
+
+> unary
+
++ ˜mtime 
+
+> i,t
+
+| {z } 
+
+> temporal
+
++ ˜mchan 
+
+> i,t
+
+| {z } 
+
+> cross-channel
+
++ FFN( Zi,t )
+
+| {z }
+
+> topic
+
+
+
+(20) 20 Preprint where σ is the Z-space normalisation 3 and α ∈ (0 , 1) is the damping coefficient introduced in Section 3 that makes a single MFVI iteration resemble a residual Transformer block. 
+
+A.5 Summary of the ST-PT iteration 
+
+Collecting equations (13) , (14) , (15) , (18) , (19) , and (20) , one MFVI iteration of the ST-PT cornerstone is the following sequence of operations, applied in parallel over every (i, t ):1. Q/K projections (both axes, all heads). qtime ,(c) 
+
+> i,t
+
+, ktime ,(c) 
+
+> i,t
+
+, qchan ,(c) 
+
+> i,t
+
+, kchan ,(c) 
+
+> i,t
+
+← { U, V}(·,c )Zi,t .2. Forward messages. Compute F time 
+
+> i,t,c
+
+(s) via (13) for all s̸ = t and F chan  
+
+> i,t,c
+
+(j) via (14) for all j̸ = i.3. Joint softmax. Concatenate the two vectors and take a single softmax over the combined (P −1)+( N −1) 
+
+candidates (15) , yielding q(H(c) 
+
+> i,t
+
+); optional additive −∞ masks (e.g. causal (G) or channel-independence (B.4) )enter here. 4. Backward messages. Form ˜mtime  
+
+> i,t
+
+and ˜mchan  
+
+> i,t
+
+by (18) – (19) (both are attention-weighted sums of keys from the admissible parents), then apply the per-head output projection implicit in U(·,c )⊤.5. Topic message. Apply the binary-factor FFN to Zi,t .6. Damped Z update. Combine unary, both backward messages, and topic message by (20). Under the low-rank decomposition (12) and the joint softmax (15) , steps 1–4 are exactly a two-axis, jointly-normalized multi-head attention, and the combination in step 6 is exactly a residual Transformer block with damping α. Equivalently: every “architectural trick” of a spatio-temporal Transformer corresponds, term-by-term, to a specific factor or message on the ST-PT factor graph. This is the identification that licenses the three programmable levers (P1/P2/P3 in Section 1.4): modifying a factor, a potential, or the iteration protocol is a mathematically well-defined operation on the CRF, not a heuristic patch to an opaque network. 
+
+# B Prior Implementation Details 
+
+This appendix expands Section 4.1 with the concrete mathematical form of each prior used in the “Directory of Priors”. Throughout, Z ∈ RB×N ×P ×d denotes the Z-node belief tensor over batch B, channels N , time patches P , and hidden size d. All three priors are added at each MFVI iteration. 
+
+B.1 Periodicity Prior (Potential Modulation) Mechanism. For each channel i we assume a set of known (possibly empty) periods Ti = {Ti, 1, T i, 2, . . . } expressed in raw time steps. Let p be the patch length; each period is rescaled to the patch grid as ˜Ti,k = Ti,k /p . We build a per-channel similarity matrix Pi ∈ RP ×P whose entries encode the cosine of the patch-index difference under the channel’s periods: 
+
+Pi[s, t ] = 
+
+
+
+1
+
+|T i|
+
+P 
+
+> k
+
+cos 2π(s − t)˜Ti,k 
+
+!
+
+, Ti̸ = ∅,
+
+1, Ti = ∅.
+
+(21) A channel with no known period (e.g., a pure-noise channel) contributes a uniform matrix, effectively disabling the prior for that row. 
+
+Where the prior acts. The matrix Pi is used as a multiplicative modulation of the temporal message-F logits produced by the ternary factors. Specifically, during each iteration, for every (i, c, s, t ) the original score F time 
+
+> i,t,c
+
+(s)
+
+is replaced by F time 
+
+> i,t,c
+
+(s) · γ · Pi[s, t ], where γ is a global scale ( γ = 5 .0 in our experiments). This operates at both the calculate_messageF stage (so that the dependency softmax q(H) respects the known periodicity) and the downstream calculate_messageG stage (so that the message back to Z is also periodicity-weighted).     
+
+> 3Practically σis a (squared-)softmax or layer-norm over the dlabel dimensions, depending on implementation variant; the cornerstone uses a softmax with fixed temperature suggested in the original PT paper.
+
+21 Preprint 
+
+Graph-theoretic interpretation. Multiplying F time by Pi is equivalent to reshaping the temporal ternary potential as 
+
+ϕ(c) 
+
+> t
+
+(H(c) 
+
+> i,t
+
+= ( i, s ), Z i,t , Z i,s ) ←− ϕ(c) 
+
+> t
+
+(·) · exp(log γ + log Pi[s, t ]) , (22) i.e., adding a known-periodic bias to the log-potential. No new nodes or factors are introduced; this is the purest form of the “potential modulation” mechanism. 
+
+B.2 Trend Prior (Node Augmentation with an Explicit HMM) Mechanism. We introduce a second layer of latent nodes {Mi,t }i,t of dimension dm (dm = 64 in our experiments). The augmented graph adds two families of factors for each channel i:• a binary observation potential ϕ(i) 
+
+> B
+
+(Zi,t , M i,t ) parameterized by a per-channel matrix B(i) ∈ Rdm×d that couples Mi,t to the corresponding Zi,t ;• a binary Markovian transition potential ϕ(i) 
+
+> K
+
+(Mi,t , M i,t +1 ) parameterized by a per-channel matrix K(i) ∈
+
+Rdm×dm linking consecutive M -nodes along time. The M -nodes form an HMM over time within each channel; parameters are not shared across channels, enabling channel-specific trend styles. Within a single MFVI iteration the M beliefs are updated with damping as 
+
+q(Mi,t ) ← 12
+
+qprev (Mi,t ) + AbsNorm 
+
+
+
+q(Mi,t −1) · K(i) + q(Mi,t +1 ) · K(i)⊤ + q(Zi,t ) · B(i)⊤| {z }
+
+> message from neighbors
+
+ , (23) and the resulting “message back to Z” that joins the cornerstone’s unary/ternary/topic messages is 
+
+mtrend  
+
+> i,t
+
+(a) = X
+
+> g
+
+q(Mi,t = g) · B(i)
+
+> g,a
+
+. (24) 
+
+What the prior encodes. Two regimes of K(i) are interesting: a K(i) close to the identity (plus noise) biases the 
+
+M -chain toward slow, smooth transitions and hence yields a smooth-trend prior over Z; a diagonal K(i) with power-law decay corresponds to a fading-memory prior. We initialize B(i), K(i) from N (0 , 0.22), which in practice recovers a smooth-trend bias without imposing it at initialization; the prior structure enters through the topology of the augmented graph (shared across-time Markov edges) rather than through a particular numeric setting. 
+
+Relation to classical HMMs. Unlike a standalone HMM, the M -chain in our setting is coupled to the Transformer-style ternary factors of the cornerstone model: the Z-nodes receive messages from both the M -chain and the time/channel ternary factors in every iteration. This is why the trend prior expands its advantage under noise (Sec-tion 5.2): the HMM layer filters trend while the ternary factors still capture cross-channel and long-range patterns on their own. 
+
+B.3 Lag Prior (Factor Engineering) Mechanism. Given a set of known lagged relations R = {(Ak, B k, τ k)}Rk=1 —each stating that channel Ak at time t
+
+causally drives channel Bk at time t + τk—we add, for each relation, a new bilinear pairwise potential 
+
+ϕ(k)lag (ZAk ,t , Z Bk , t +τk ) = exp 
+
+
+
+Z⊤ 
+
+> Ak,t
+
+W(k)ZBk , t +τk
+
+
+
+, W(k) ∈ Rd×d. (25) Lags are expressed in raw time steps; the effective patch-level lag δk = τk/p may be fractional, so we apply linear interpolation between the two neighbouring patch indices ⌊δk⌋ and ⌈δk⌉.
+
+Message contribution. Under MFVI the new potential adds, for each k, the extra mean-field message 
+
+mlag ,k Bk , ⌊t+δk ⌋ = (1 − βk) · η · W(k)⊤q(ZAk ,t ) and mlag ,k Bk , ⌈t+δk ⌉ = βk · η · W(k)⊤q(ZAk ,t ), (26) where βk = ( t + δk) − ⌊ t + δk⌋ is the interpolation weight and η is a global strength (set to 200 in our code, chosen so that the lag messages are comparable in magnitude to the existing channel messages). W(k) is initialized from 
+
+N (0 , 0.02 2).22 Preprint 
+
+Graph-theoretic interpretation. Unlike the periodicity prior (which only modulates an existing potential) and the trend prior (which augments the graph with new nodes), the lag prior adds new edges with a temporal offset into the factor graph. In the CRF picture, this is the cleanest form of “factor engineering”: neither topology nor node set of the cornerstone is changed, but a new pairwise potential is superposed on top. Its benefit is largest when the lag structure is rare (few pairs), the lag is long, and the baseline ternary attention would have to discover the causal offset purely from data. 
+
+B.4 Channel-Independence Prior (Edge Masking, Restrictive Probe) Mechanism. Given a declared channel-group partition G = {G1, . . . , G K } of the N channels (each channel belongs to exactly one group), we mask the cross-channel message-F logits so that only intra-group messages survive. Concretely, for every head c and every position (i, t ), the cross-channel score F chan  
+
+> i,t,c
+
+(j) is replaced by 
+
+F chan  
+
+> i,t,c
+
+(j) ←− 
+
+F chan  
+
+> i,t,c
+
+(j), if channels i and j belong to the same group in G,
+
+−∞ , otherwise, (27) so that after the joint softmax over time- and channel-candidates the cross-group channel edges carry no weight. No new nodes, no new potentials, and no new edges are introduced. 
+
+Why it is restrictive rather than additive. Unlike the periodicity, trend, and lag priors, this prior adds no new information to the graph: it only removes freedom by forbidding a subset of edges. The expected benefit therefore exists only if the unrestricted ternary attention would otherwise learn harmful cross-group edges that the data does not support; if the data-driven softmax already down-weights those edges, the mask is redundant. The experimental result on Lag data (Section 5.2, Table 3) confirms the latter: even though the mask is perfectly aligned with the ground-truth 
+
+(0 , 1) , (2 , 3) , (4 , 5) pairs, the masked Test MSE is indistinguishable from that of the vanilla cornerstone at every N . We include this probe so that the graph-level prior interface is not oversold: adding structure that the data can already infer on its own does not help. 
+
+# C Synthetic Dataset Construction for RQ1 
+
+The three synthetic datasets used in Section 5.2 are generated by closed-form procedures that deliberately bake a single structural regularity (lag / periodicity / trend) into the data, so that the corresponding ST-PT prior can be evaluated in isolation. Each dataset is generated at three sample sizes N ∈ { 150 , 1500 , 15000 } and split 70% / 10% / 20% into train / val / test. Every sample has length L = 192 , giving seq _len = pred _len = 96 . Random parameters (phase, slope, period choice, impulse direction) are resampled independently per sample, so the structural property is the only invariant across samples. 
+
+C.1 Lag Dataset 
+
+A 6-channel dataset with three causal pairs, each with fixed lag τ = 8 . Within a sample, every pair is generated by a prescribed transformation of a source channel into a target channel shifted by τ time steps, and low-amplitude Gaussian noise is added to both channels. • Group A (Ch0 → Ch1). Ch0 is a modulated sine, sin(2 πt/T base + φ) with Tbase = 24 and random phase 
+
+φ ∼ U [0 , 2π), multiplied by a slow cosine envelope whose frequency is drawn from {1, 0.5}; Ch1 is Ch0 delayed by τ .• Group B (Ch2 → Ch3). Ch2 is a periodic impulse train with a random period drawn from {16 , 20 , 24 }, a random phase offset, and a random sign ±1; Ch3 is the cumulative step response triggered τ steps after each impulse. • Group C (Ch4 → Ch5). Ch4 is a sawtooth wave with period 30 ; Ch5 is an affine transform m·Ch4 + b (random 
+
+m ∈ {− 2, 0.5, 2}, b ∈ U [−1, 1] ) delayed by τ .
+
+C.2 Periodicity Dataset 
+
+A 10 -channel dataset where each channel is built from sinusoids with channel-specific periods that match the per-channel period map consumed by the periodicity prior. The ten channels span four regimes: • Basic periods (Ch0–Ch2). Pure sinusoids or cosines at periods {24 , 12 , 48 }.23 Preprint • Harmonics and beating (Ch3–Ch4). Ch3 is a fundamental-plus-second-harmonic mixture ( T = 24 and T = 12 ); Ch4 is a beating pattern from T = 24 and T = 20 superposition. • Noise robustness (Ch5–Ch8). Periodic signals from the above regimes contaminated by either white noise or red (AR(1), α = 0 .9) noise. • No-period control (Ch9). Pure red noise with no periodic structure, used to verify that declaring “no period” for a channel causes the prior to fall back to a uniform similarity matrix rather than injecting spurious bias. A random phase shift is drawn per sample, so the ground-truth periods are invariant across samples but their alignment is not. 
+
+C.3 Trend Dataset 
+
+A 10 -channel dataset designed to test whether a smooth-trend prior can extrapolate a variety of curvature regimes. Time is normalised so that the history window covers t ∈ [0 , 1] and the forecast window covers t ∈ [1 , 2] . The ten channels span: • Linear baselines (Ch0–Ch2). Positive-, negative-, and gentle-slope linear trends with slopes perturbed per sample. • Convex growth (Ch3–Ch6). Quadratic, exponential, cubic, and noise-masked quadratic growth, testing extrapolation of a positive second derivative—including a noise-masked case where the history window visually looks linear but has non-zero curvature. • Concave decay (Ch7–Ch9). Logarithmic, square-root, and saturating-inverse curves, testing extrapolation under a negative second derivative. Each sample draws small multiplicative perturbations on the slope and curvature coefficients, and a global white-noise floor (std 0.1) is added on top. We emphasise that these datasets are not intended as realistic benchmarks; they are controlled testbeds in which the success criterion for an RQ1 prior is whether it captures the one structural regularity the dataset isolates. 
+
+# D Implementation Details and Hyperparameters 
+
+D.1 Few-Shot Forecasting (RQ1) Synthetic datasets. Full per-channel construction for the Lag, Periodicity, and Trend datasets is given in Appendix C. In summary: Lag has Nvar = 6 channels with three causal pairs at τ = 8 ; Periodicity has Nvar = 10 channels with per-channel known periods and noise regimes; Trend has Nvar = 10 channels spanning linear baselines, convex growth, and concave decay. Each task is generated at N ∈ { 150 , 1500 , 15000 } with a 70 /10 /20 train / val / test split. 
+
+Training setup. Input length seq _len = 96 ; label length label _len = 48 ; prediction length pred _len = 96 ;
+
+dmodel = 64 ; dff = 128 ; patch length p = 8 unless otherwise stated; h = 8 attention heads; K = 3 MFVI iterations. Optimizer: Adam with initial learning rate 10 −3 and cosine decay; batch size 32 ; maximum 10 epochs with early stopping on validation MSE. Data are instance-normalized with RevIN. All models (vanilla ST-PT, prior variants, baselines) use identical input windows and prediction horizons for a fair comparison. 
+
+Noise robustness sweep. For each task, noise amplitude is introduced by adding i.i.d. Gaussian noise with standard deviation σnoise scaled by the per-channel signal standard deviation; σnoise takes the values given in the x-column of Table 4. 
+
+Real-data datasets. ETTh1, ETTh2, ETTm1, ETTm2, Weather, Exchange are used in their standard train/val/test split; short-horizon setting has pred _len = 5 , long-horizon setting has pred _len = 100 . Input length is the standard 
+
+336 for ETT and 512 for Weather/Exchange; other hyperparameters follow the synthetic setup. 
+
+D.2 Condition-Programmable Factors (RQ2, PT-FG) Denoiser architecture. Patch length p = 8 ; hidden size dmodel = 128 ; topic width dff = 256 ; 4 dynamic PT blocks; 8
+
+heads; 16 basis matrices for the binary topic factor and 8 basis matrices for each of the four ternary factors (time U, V ;channel U, V ). The condition hidden dimension matches dmodel .24 Preprint 
+
+Condition encoder. For text-conditioned settings we consume a pre-computed LongCLIP-style text embedding of dimension 1024 . For attribute-conditioned settings each discrete attribute is embedded separately and concatenated (no multi-head cross-talk in the default best configuration). The diffusion timestep embedding is a sinusoidal encoding added to the projected condition vector. 
+
+Diffusion training. v-prediction parameterization, quadratic β-schedule with T = 1000 training steps (sampling uses Tsample = 50 DDIM steps). Classifier-free guidance with null-condition dropout pnull = 0 .1 during training and guidance scale 1.5 at inference. Optimizer: AdamW, learning rate 10 −4, batch size 64 , maximum 250 epochs with early stopping on validation loss. A spectral auxiliary loss with weight λspec = 0 .1 is added to the diffusion loss. 
+
+Compositional ablation (Table 7). The four ablation variants A–D share the denoiser architecture above. Variant A inserts a single multi-head self-attention layer (with residual) among the attribute embeddings before projection; variant B uses identical embeddings but omits the self-attention layer; variant C uses only the text embedding; variant D concatenates the text embedding and the attribute embeddings and projects the result through a small MLP (2048 → 1024 ). Variant D exhibits early-stopping around epoch 33 (vs. 180 –212 for the others), indicative of training instability. 
+
+D.3 MFVI-Based Latent-Space AR (RQ3) Architecture. The model reuses the cornerstone’s ternary and binary factors and adds: (i) a stepwise AR decoder that shares the ternary factors with the encoder but maintains its own topic modeling module; (ii) a 2-layer MLP transition prior pψ : Rd → Rd (hidden dim d, GELU activation); (iii) a learnable damping coefficient α = σ(damping_logit ).Hidden size dmodel = 256 ; patch length p = 8 ; e_layers = 2 encoder MFVI iterations; d_layers = 2 single-step decoder iterations; h = 8 heads. The latent consistency loss weight is λlatent = 0 .1.
+
+Training setup. Standard long-term forecasting split on ETTh1/2, ETTm1/2, Weather, ECL. Input length 336 for ETTh* and Weather, 512 for ECL. Prediction lengths {96 , 192 }. Optimizer: AdamW with learning rate 5 · 10 −4, cosine decay, batch size 32 , maximum 50 epochs with early stopping on validation MSE. During training, each forward pass evaluates (i) the AR student for the prediction loss and (ii) the full-sequence encoder MFVI for the teacher latents; the teacher path is under torch.no_grad after the shared unary embedding. 
+
+Baselines. DeepVAR, LSTM-AR, and LSTNet are trained on the same data splits with their default hyperparameters from the original implementations; AutoTimes and TCN-AR variants are excluded because their test-time metrics were not consistently available in our training logs at the time of this report. 
+
+# E ST-PT Validation: Full Per-Horizon Results and Setting 
+
+Setting. We follow the standard long-term forecasting protocol. Seven datasets are used (Weather, Electricity, Traffic, ETTh1, ETTh2, ETTm1, ETTm2) under their canonical train/val/test splits. Four forecasting horizons are evaluated: 
+
+pred _len ∈ { 96 , 192 , 336 , 720 }. Numbers are obtained under hyperparameter search; the look-back length is searched per (dataset, model). Test MSE and Test MAE are reported; lower is better. Our method is the ST-PT cornerstone as specified in Section 3, with no RQ-specific lever activated. 
+
+Training and evaluation details. Inputs are channel-wise Z-normalized using statistics fitted on the training split and reverse-normalized before evaluation. The cornerstone hyperparameters are patch length p = 8 , hidden size dmodel = 256 ,
+
+h = 8 attention heads per axis, Kenc = 2 MFVI iterations with a learnable damping coefficient α = σ(logit ); RoPE is applied separately along the time and channel axes as described in Section 3. Training uses AdamW with cosine decay, batch size 32 , and MSE loss on the denormalized output, early-stopped on validation MSE with a patience of 5 epochs. TSMixer entries are reprinted from the TSMixer paper [ 29 ], and TimeMixer, PatchTST, TimesNet, and Crossformer entries are reprinted from the TimeMixer paper [ 30 ], which reproduces all four under a unified protocol and supplies them as the de-facto comparison numbers for this benchmark suite. 25 Preprint Table 9: Full cornerstone performace validation: Searched hyperparameter results (Test MSE / MAE) on seven datasets at four forecasting horizons (fh), under hyperparameter search. The ST-PT cornerstone is compared with five strong 2023-era baselines. TSMixer numbers are from the TSMixer paper [ 29 ]; TimeMixer , PatchTST , TimesNet , and 
+
+Crossformer numbers are from the TimeMixer paper [30] 
+
+Models ST-PT (Ours) TSMixer TimeMixer PatchTST TimesNet Crossformer 2023 2023 2023 2023 2023 Dataset hf MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE Weather 96 0.159 0.208 0.145 0.198 0.147 0.197 0.149 0.198 0.172 0.220 0.232 0.302 192 0.209 0.254 0.191 0.242 0.189 0.239 0.194 0.241 0.219 0.261 0.371 0.410 336 0.267 0.295 0.242 0.280 0.241 0.280 0.306 0.282 0.246 0.337 0.495 0.515 720 0.344 0.345 0.320 0.336 0.310 0.330 0.314 0.334 0.365 0.359 0.526 0.542 Electricity 96 0.144 0.241 0.131 0.229 0.129 0.224 0.129 0.222 0.168 0.272 0.150 0.251 192 0.160 0.258 0.151 0.246 0.140 0.220 0.147 0.240 0.184 0.322 0.161 0.260 336 0.174 0.270 0.161 0.261 0.161 0.255 0.163 0.259 0.198 0.300 0.182 0.281 720 0.230 0.321 0.197 0.293 0.194 0.287 0.197 0.290 0.220 0.320 0.251 0.339 Traffic 96 0.415 0.277 0.376 0.264 0.360 0.249 0.360 0.249 0.593 0.321 0.514 0.267 192 0.433 0.282 0.397 0.277 0.375 0.250 0.379 0.256 0.617 0.336 0.549 0.252 336 0.452 0.290 0.413 0.290 0.385 0.270 0.392 0.264 0.629 0.336 0.530 0.300 720 0.482 0.308 0.444 0.306 0.430 0.281 0.432 0.286 0.640 0.350 0.573 0.313 ETTh1 96 0.376 0.400 0.361 0.392 0.361 0.390 0.370 0.400 0.384 0.402 0.418 0.438 192 0.428 0.426 0.404 0.418 0.409 0.414 0.413 0.429 0.436 0.429 0.539 0.517 336 0.480 0.450 0.420 0.431 0.430 0.429 0.422 0.440 0.638 0.469 0.709 0.638 720 0.464 0.460 0.463 0.472 0.445 0.460 0.447 0.468 0.521 0.500 0.733 0.636 ETTh2 96 0.278 0.335 0.274 0.341 0.271 0.330 0.274 0.337 0.340 0.374 0.425 0.463 192 0.370 0.396 0.339 0.385 0.317 0.402 0.314 0.382 0.231 0.322 0.473 0.500 336 0.408 0.424 0.361 0.406 0.332 0.396 0.329 0.384 0.452 0.452 0.581 0.562 720 0.417 0.440 0.445 0.470 0.342 0.408 0.379 0.422 0.462 0.468 0.775 0.665 ETTm1 96 0.315 0.358 0.285 0.339 0.291 0.340 0.293 0.346 0.338 0.375 0.361 0.403 192 0.381 0.395 0.327 0.365 0.327 0.365 0.333 0.370 0.374 0.387 0.387 0.422 336 0.406 0.412 0.356 0.382 0.360 0.381 0.369 0.392 0.410 0.411 0.605 0.572 720 0.468 0.448 0.419 0.414 0.415 0.417 0.416 0.420 0.478 0.450 0.703 0.645 ETTm2 96 0.173 0.261 0.163 0.252 0.164 0.254 0.166 0.256 0.187 0.267 0.275 0.358 192 0.245 0.308 0.216 0.290 0.223 0.295 0.223 0.296 0.249 0.309 0.345 0.400 336 0.306 0.348 0.268 0.324 0.279 0.330 0.274 0.329 0.321 0.351 0.657 0.528 720 0.409 0.410 0.420 0.422 0.359 0.383 0.362 0.385 0.408 0.403 1.208 0.753 
+
+# F ConTSG-Bench Per-Dataset Raw Results 
+
+This appendix provides the raw (per-dataset) numerical results that back the rank-based summary in Table 6. All metrics are lower-is-better. Baseline entries are mean ±sample-std across three random seeds; PT-FG entries are mean ±sample-std across seeds {42 , 142 , 242 }. A dash (—) indicates that the corresponding metric could not be recovered from the log. All ten tables are presented together for ease of cross-referencing. Apart from PT-FG (ours), all baseline numbers in the tables below are reprinted from the ConTSG-Bench paper [23]. Table 10: Synth-U. 
+
+Model DTW CRPS ACD SD KD MDD Bridge 5.884 ±0.404 0.517 ±0.015 0.031 ±0.012 0.097 ±0.078 0.642 ±0.056 0.028 ±0.000 DiffuSETS 5.684 ±0.800 0.439 ±0.016 0.055 ±0.011 0.140 ±0.138 0.833 ±0.865 0.020 ±0.005 T2S 27.264 ±17.270 1.926 ±1.364 0.049 ±0.010 0.496 ±0.411 0.783 ±0.430 0.036 ±0.017 TEdit 6.928 ±1.026 0.631 ±0.140 0.066 ±0.001 0.163 ±0.107 0.288 ±0.115 0.022 ±0.006 Text2Motion 5.048 ±0.088 0.435 ±0.016 0.082 ±0.007 0.072 ±0.041 0.205 ±0.067 0.015 ±0.003 TimeVQVAE 4.773 ±0.004 0.461 ±0.002 0.080 ±0.002 0.046 ±0.024 0.776 ±0.017 0.025 ±0.001 TimeWeaver 5.982 ±0.755 0.548 ±0.104 0.074 ±0.010 0.047 ±0.018 0.521 ±0.177 0.021 ±0.006 TTSCGAN 8.690 ±0.068 0.636 ±0.017 0.285 ±0.002 0.104 ±0.058 0.135 ±0.073 0.023 ±0.005 VerbalTS 4.885 ±0.159 0.448 ±0.017 0.060 ±0.004 0.032 ±0.025 0.374 ±0.060 0.016 ±0.002 WaveStitch 13.837 ±7.071 1.181 ±0.619 0.049 ±0.026 0.124 ±0.110 0.340 ±0.163 0.035 ±0.014 PT-FG (ours) 4.842 ±0.031 0.433 ±0.002 0.073 ±0.000 0.050 ±0.005 0.342 ±0.004 0.013 ±0.000 
+
+26 Preprint Table 11: Synth-M. 
+
+Model DTW CRPS ACD SD KD MDD Bridge 12.558 ±1.073 0.596 ±0.025 0.058 ±0.024 0.138 ±0.170 0.422 ±0.247 0.029 ±0.000 DiffuSETS 10.234 ±0.851 0.458 ±0.022 0.041 ±0.019 0.085 ±0.071 0.160 ±0.141 0.021 ±0.003 T2S 38.741 ±11.492 1.678 ±0.682 0.075 ±0.036 0.397 ±0.117 1.495 ±0.172 0.031 ±0.005 TEdit 9.978 ±0.629 0.466 ±0.023 0.056 ±0.006 0.031 ±0.007 0.255 ±0.109 0.016 ±0.002 Text2Motion 9.777 ±0.177 0.441 ±0.007 0.076 ±0.013 0.057 ±0.046 0.248 ±0.047 0.014 ±0.001 TimeVQVAE 9.243 ±0.188 0.488 ±0.013 0.073 ±0.003 0.028 ±0.015 0.631 ±0.113 0.021 ±0.001 TimeWeaver 9.730 ±0.334 0.466 ±0.031 0.058 ±0.007 0.051 ±0.021 0.176 ±0.154 0.016 ±0.001 TTSCGAN 13.451 ±0.169 0.658 ±0.012 0.265 ±0.000 0.099 ±0.046 0.645 ±0.032 0.040 ±0.001 VerbalTS 10.118 ±0.652 0.474 ±0.053 0.051 ±0.002 0.041 ±0.032 0.193 ±0.060 0.015 ±0.000 WaveStitch 16.094 ±2.092 0.784 ±0.103 0.054 ±0.023 0.215 ±0.134 0.303 ±0.233 0.014 ±0.004 PT-FG (ours) 9.321 ±0.019 0.431 ±0.001 0.051 ±0.000 0.062 ±0.002 0.358 ±0.012 0.011 ±0.000 
+
+Table 12: AirQuality Beijing. 
+
+Model DTW CRPS ACD SD KD MDD Bridge 7.078 ±0.209 0.327 ±0.010 0.034 ±0.007 0.209 ±0.056 0.737 ±0.069 0.029 ±0.001 DiffuSETS 6.371 ±0.111 0.309 ±0.005 0.047 ±0.005 0.119 ±0.017 0.360 ±0.118 0.025 ±0.002 T2S 29.786 ±18.323 1.644 ±0.808 0.108 ±0.026 0.348 ±0.144 1.535 ±0.262 0.038 ±0.004 TEdit 6.757 ±0.106 0.305 ±0.003 0.037 ±0.008 0.098 ±0.017 0.514 ±0.082 0.021 ±0.001 Text2Motion 5.947 ±0.022 0.314 ±0.001 0.052 ±0.002 0.144 ±0.066 0.500 ±0.019 0.025 ±0.000 TimeVQVAE 6.481 0.318 — — — 0.047 ±0.020 TimeWeaver 6.971 ±0.469 0.310 ±0.015 0.040 ±0.009 0.366 ±0.372 1.116 ±0.938 0.022 ±0.001 TTSCGAN 7.779 ±0.100 0.427 ±0.012 0.145 ±0.001 0.355 ±0.026 1.139 ±0.085 0.041 ±0.002 VerbalTS 6.731 ±0.111 0.308 ±0.008 0.043 ±0.007 0.166 ±0.062 0.646 ±0.076 0.024 ±0.002 WaveStitch 8.196 ±0.420 0.401 ±0.044 0.050 ±0.006 0.448 ±0.074 3.699 ±2.380 0.026 ±0.002 PT-FG (ours) 6.259 ±0.011 0.287 ±0.000 0.039 ±0.000 0.242 ±0.005 0.581 ±0.010 0.019 ±0.000 
+
+Table 13: ETTm1. 
+
+Model DTW CRPS ACD SD KD MDD Bridge 8.080 ±0.171 0.550 ±0.009 0.107 ±0.021 0.493 ±0.032 3.352 ±0.066 0.027 ±0.002 DiffuSETS 8.200 ±0.596 0.592 ±0.093 0.142 ±0.086 8.533 ±11.365 258.72 ±428.35 0.042 ±0.013 T2S 69.319 ±39.256 5.395 ±3.403 0.115 ±0.132 1.127 ±1.530 3.133 ±1.877 0.054 ±0.006 TEdit 7.875 ±0.057 0.539 ±0.020 0.169 ±0.050 0.749 ±0.185 3.879 ±0.398 0.023 ±0.006 Text2Motion 8.560 ±0.596 0.530 ±0.035 0.111 ±0.042 0.865 ±1.188 8.836 ±13.631 0.024 ±0.005 TimeVQVAE 7.540 ±0.060 0.537 ±0.010 0.053 ±0.018 1.952 ±0.199 9.304 ±5.151 0.036 ±0.003 TimeWeaver 10.463 ±1.117 0.723 ±0.108 0.084 ±0.042 1.031 ±0.202 4.196 ±0.916 0.028 ±0.010 TTSCGAN 11.116 ±3.434 0.863 ±0.268 0.303 ±0.000 1.486 ±0.130 4.867 ±0.074 0.040 ±0.013 VerbalTS 9.728 ±2.634 0.668 ±0.168 0.158 ±0.085 1.784 ±1.009 4.599 ±2.960 0.031 ±0.016 WaveStitch 9.853 ±1.112 0.662 ±0.100 0.052 ±0.026 0.810 ±0.684 2.110 ±1.826 0.035 ±0.004 PT-FG (ours) 6.917 ±0.048 0.459 ±0.004 0.043 ±0.003 0.625 ±0.160 0.607 ±0.224 0.015 ±0.000 
+
+Table 14: Istanbul Traffic. 
+
+Model DTW CRPS ACD SD KD MDD Bridge 8.298 ±1.982 0.525 ±0.070 0.029 ±0.002 0.481 ±0.256 0.150 ±0.194 0.036 ±0.005 DiffuSETS 8.571 ±3.957 0.528 ±0.255 0.147 ±0.088 2.235 ±1.591 12.996 ±11.174 0.041 ±0.019 T2S 21.861 ±8.202 1.126 ±0.417 0.245 ±0.033 0.319 ±0.346 1.518 ±1.070 0.028 ±0.007 TEdit 8.722 ±0.351 0.496 ±0.003 0.031 ±0.001 0.289 ±0.183 0.299 ±0.228 0.018 ±0.002 Text2Motion 3.748 ±0.197 0.260 ±0.005 0.057 ±0.010 0.145 ±0.080 0.078 ±0.075 0.010 ±0.002 TimeVQVAE 9.824 ±0.869 0.693 ±0.036 0.202 ±0.200 0.322 ±0.126 2.062 ±2.235 0.040 ±0.005 TimeWeaver 8.927 ±0.326 0.498 ±0.011 0.027 ±0.004 0.206 ±0.146 0.515 ±0.159 0.020 ±0.001 TTSCGAN 12.090 ±0.943 0.649 ±0.063 0.340 ±0.002 0.110 ±0.173 0.316 ±0.382 0.021 ±0.006 VerbalTS 3.936 ±0.724 0.250 ±0.031 0.024 ±0.006 0.132 ±0.175 0.092 ±0.155 0.011 ±0.001 WaveStitch 10.775 ±2.371 0.640 ±0.229 0.022 ±0.014 0.496 ±0.509 0.582 ±0.823 0.018 ±0.009 PT-FG (ours) 3.458 ±0.013 0.234 ±0.001 0.039 ±0.001 0.065 ±0.006 0.105 ±0.010 0.010 ±0.000 
+
+27 Preprint Table 15: TelecomTS. 
+
+Model DTW CRPS ACD SD KD MDD Bridge 13.805 ±0.361 0.537 ±0.005 0.049 ±0.011 0.949 ±0.400 9.113 ±2.349 0.033 ±0.009 DiffuSETS 9.908 ±1.026 0.367 ±0.041 0.051 ±0.023 0.726 ±0.440 5.620 ±2.334 0.024 ±0.006 T2S 44.384 ±24.553 1.831 ±0.929 0.104 ±0.046 0.511 ±0.363 7.417 ±1.474 0.035 ±0.010 TEdit 14.355 ±0.785 0.524 ±0.025 0.066 ±0.020 0.519 ±0.270 8.374 ±1.404 0.024 ±0.003 Text2Motion 8.728 ±0.233 0.295 ±0.011 0.079 ±0.019 0.990 ±0.519 6.903 ±7.445 0.013 ±0.001 TimeVQVAE 14.029 ±0.131 0.615 ±0.008 0.094 ±0.005 0.622 ±0.541 9.242 ±5.111 0.036 ±0.004 TimeWeaver 14.714 ±0.785 0.557 ±0.039 0.040 ±0.002 0.513 ±0.436 7.886 ±1.046 0.027 ±0.003 TTSCGAN 14.068 ±0.484 0.599 ±0.038 0.097 ±0.002 0.677 ±0.112 7.160 ±0.068 0.034 ±0.005 VerbalTS 11.878 ±5.174 0.426 ±0.190 0.068 ±0.012 0.746 ±0.457 3.051 ±2.188 0.024 ±0.012 WaveStitch 15.179 ±0.892 0.573 ±0.044 0.036 ±0.013 9.114 ±7.850 520.83 ±673.31 0.025 ±0.003 PT-FG (ours) 8.698 ±0.011 0.288 ±0.000 0.088 ±0.001 1.656 ±0.013 6.501 ±0.178 0.011 ±0.000 
+
+Table 16: Weather Conceptual. 
+
+Model DTW CRPS ACD SD KD MDD Bridge 15.717 ±0.663 0.405 ±0.027 0.034 ±0.003 19.567 ±0.089 2320.63 ±0.56 0.021 ±0.000 DiffuSETS 67.225 ±64.594 1.136 ±0.715 0.138 ±0.060 19.121 ±0.273 2317.85 ±1.54 0.040 ±0.000 T2S 128.763 ±112.845 4.150 ±3.606 0.093 ±0.010 18.813 ±0.222 2315.78 ±3.18 0.030 ±0.012 TEdit 12.136 ±0.175 0.254 ±0.006 0.034 ±0.008 23.440 ±3.557 2362.11 ±232.11 0.009 ±0.001 Text2Motion 10.292 ±0.109 0.251 ±0.002 0.050 ±0.007 18.120 ±0.091 2298.91 ±3.65 0.008 ±0.000 TimeVQVAE 15.655 ±0.088 0.451 ±0.009 0.071 ±0.016 19.034 ±0.117 2319.52 ±4.11 0.026 ±0.001 TimeWeaver 12.558 ±0.807 0.263 ±0.019 0.042 ±0.011 30.757 ±5.029 2618.78 ±427.46 0.009 ±0.001 TTSCGAN 18.131 ±0.205 0.507 ±0.002 0.167 ±0.001 19.557 ±0.047 2319.85 ±0.02 0.028 ±0.001 VerbalTS 10.996 ±0.127 0.219 ±0.003 0.031 ±0.006 16.877 ±0.325 2119.48 ±115.59 0.007 ±0.001 WaveStitch 15.176 ±3.057 0.317 ±0.059 0.036 ±0.008 19.340 ±3.042 2381.97 ±223.82 0.010 ±0.002 PT-FG (ours) 10.289 ±0.004 0.210 ±0.001 0.071 ±0.000 17.566 ±0.052 2279.02 ±1.64 0.006 ±0.000 
+
+Table 17: Weather Morphological. 
+
+Model DTW CRPS ACD SD KD MDD Bridge 17.786 ±0.587 0.458 ±0.015 0.043 ±0.006 20.214 ±1.094 2332.32 ±23.79 0.025 ±0.002 DiffuSETS 26.874 ±11.800 0.804 ±0.422 0.114 ±0.019 19.397 ±0.096 2316.96 ±0.88 0.035 ±0.007 T2S 256.791 ±87.216 7.830 ±2.999 0.105 ±0.006 18.938 ±0.118 2307.18 ±15.18 0.038 ±0.006 TEdit 19.165 ±0.251 0.450 ±0.035 0.068 ±0.015 22.165 ±2.866 2419.35 ±169.24 0.022 ±0.003 Text2Motion 13.600 ±0.079 0.308 ±0.006 0.054 ±0.001 16.946 ±0.889 2202.26 ±81.51 0.012 ±0.001 TimeVQVAE 18.060 ±0.268 0.497 ±0.005 0.074 ±0.011 19.500 ±0.035 2320.32 ±5.65 0.028 ±0.001 TimeWeaver 18.116 ±0.483 0.427 ±0.007 0.058 ±0.005 30.500 ±9.880 3074.84 ±1242.87 0.021 ±0.003 TTSCGAN 17.945 ±0.126 0.504 ±0.002 0.167 ±0.000 19.579 ±0.034 2317.64 ±0.01 0.029 ±0.002 VerbalTS 15.182 ±0.851 0.332 ±0.020 0.038 ±0.010 19.947 ±5.128 2189.22 ±79.79 0.013 ±0.002 WaveStitch 26.229 ±6.257 0.602 ±0.131 0.085 ±0.028 23.566 ±3.567 2753.79 ±388.61 0.023 ±0.001 PT-FG (ours) 14.330 ±0.026 0.311 ±0.001 0.060 ±0.001 16.750 ±0.842 2240.31 ±29.85 0.012 ±0.000 
+
+Table 18: PTB-XL Conceptual. 
+
+Model DTW CRPS ACD SD KD MDD Bridge 97.351 ±0.157 0.426 ±0.003 0.062 ±0.011 2.810 ±0.021 184.41 ±0.23 0.015 ±0.000 DiffuSETS 311.484 ±369.442 0.805 ±0.651 0.105 ±0.016 5.813 ±2.084 212.32 ±45.91 0.019 ±0.011 T2S 176.159 ±65.460 0.921 ±0.410 0.211 ±0.047 3.212 ±0.204 177.64 ±4.77 0.030 ±0.011 TEdit 101.870 ±4.600 0.453 ±0.023 0.086 ±0.017 2.786 ±0.025 182.95 ±0.45 0.012 ±0.003 Text2Motion 100.853 ±0.046 0.514 ±0.008 0.323 ±0.030 3.652 ±0.325 176.50 ±6.79 0.018 ±0.000 TimeVQVAE 98.303 ±0.047 0.438 ±0.001 0.133 ±0.007 3.069 ±0.076 178.43 ±5.58 0.017 ±0.000 TimeWeaver 136.767 ±6.184 0.729 ±0.028 0.096 ±0.013 2.722 ±0.089 182.53 ±1.08 0.017 ±0.002 TTSCGAN 99.063 ±0.723 0.456 ±0.012 0.119 ±0.005 2.894 ±0.017 185.13 ±0.09 0.010 ±0.001 VerbalTS 97.891 ±3.039 0.431 ±0.011 0.088 ±0.004 2.772 ±0.039 182.90 ±0.43 0.015 ±0.002 WaveStitch 448.352 ±70.124 2.360 ±0.270 0.246 ±0.023 2.917 ±0.134 183.03 ±1.03 0.045 ±0.003 PT-FG (ours) 98.375 ±0.005 0.418 ±0.000 0.083 ±0.000 2.827 ±0.019 178.54 ±0.46 0.015 ±0.000 
+
+28 Preprint Table 19: PTB-XL Morphological. 
+
+Model DTW CRPS ACD SD KD MDD Bridge 97.589 ±0.276 0.432 ±0.003 0.056 ±0.007 2.816 ±0.026 184.28 ±0.09 0.016 ±0.000 DiffuSETS 167.254 ±113.459 0.721 ±0.439 0.107 ±0.021 2.643 ±0.443 157.96 ±33.02 0.013 ±0.005 T2S 152.616 ±86.597 0.890 ±0.531 0.194 ±0.034 3.599 ±0.988 176.71 ±6.98 0.030 ±0.015 TEdit 100.344 ±3.766 0.459 ±0.044 0.090 ±0.007 2.819 ±0.044 182.79 ±0.41 0.011 ±0.001 Text2Motion 100.645 ±0.033 0.519 ±0.006 0.250 ±0.083 4.743 ±0.114 165.22 ±3.72 0.019 ±0.000 TimeVQVAE 98.278 ±0.106 0.440 ±0.002 0.127 ±0.013 3.856 ±0.708 204.66 ±31.98 0.017 ±0.000 TimeWeaver 200.199 ±82.203 0.933 ±0.324 0.158 ±0.074 2.904 ±0.180 182.14 ±1.19 0.028 ±0.014 TTSCGAN 99.629 ±1.939 0.469 ±0.012 0.114 ±0.011 2.895 ±0.090 185.07 ±0.16 0.010 ±0.001 VerbalTS 98.542 ±3.557 0.430 ±0.023 0.081 ±0.001 2.748 ±0.073 182.23 ±0.84 0.015 ±0.002 WaveStitch 344.872 ±168.206 1.912 ±0.994 0.175 ±0.057 2.912 ±0.174 182.51 ±0.51 0.042 ±0.009 PT-FG (ours) 98.198 ±0.007 0.416 ±0.000 0.075 ±0.000 2.786 ±0.031 178.52 ±0.56 0.014 ±0.000 
+
+# G Pseudocode for the MFVI-Based Latent-Space AR Model 
+
+This appendix gives the full computation flow of the RQ3 model. We distinguish training (teacher + student) and inference (student only). Both share the same MFVI operator and the same factor matrices; training differs from inference only in that the teacher path runs an extra full-sequence encoder MFVI on history-plus-ground-truth-future to provide oracle latents for distillation. 
+
+Notation. Xhist ∈ RB×N ×P ×p denotes the history tensor ( B batch, N channels, P history patches, p patch length); 
+
+Y ∈ RB×N ×Pf ×p is the ground-truth future where Pf = Sf /p is the number of future patches. ϕu is the shared unary embedding, {U time , V time , U chan , V chan } are the ternary factors, ϕb the binary topic factor, pψ the transition-prior MLP, 
+
+α ∈ (0 , 1) the learnable damping, and MLP pred the patch-prediction head. EncoderMFVI( ·; K) runs K rounds of the ST-PT update (1) – (3) on its input, with a causal mask on the time axis : position t attends only to s ≤ t, realised by an additive −∞ mask on the upper triangle of the time-axis message-F logits. This differs from the cornerstone encoder of Section 3 (which is non-causal along time); the RQ3 setting specifically uses a causal variant of the same operator, both for the teacher (on [Xhist ∥ Y]) and for the student (on Xhist ). SingleStepMFVI( ·) is one round of the same causal update restricted to a single new time slice. We write Z[: , :, t, :] for the slice at patch index t.
+
+Reading notes. Four places in the algorithms implement the key design choices of RQ3. First, line 11 of Algorithm 2 (and line 7 of Algorithm 1) shows the dual-pathway unary : the next-slice latent receives both a re-encoded prediction (committing to the observation space) and a latent-space shortcut from the transition prior. Second, the call to 
+
+SingleStepMFVI is one round of the same causal ST-PT update applied to the new slice only, so the latent transition is a Bayesian posterior update rather than a stand-alone MLP. Third, the teacher in Algorithm 2 differs from the student 
+
+only in its input—full sequence vs. history only—and uses the same MFVI operator, so the distillation loss compares posteriors that live in the same belief space. Fourth, because the encoder MFVI is causal along the time axis (see notation), the teacher’s history-position latents are identical to the student’s: Zteacher [: , :, :P, :] ≡ Zstu [: , :, :P, :] ; the distillation loss therefore acts exclusively on the Pf future positions, where the two paths differ only in their future-patch evidence (ground-truth for the teacher, self-rolled for the student). 
+
+Algorithm 1 Inference (rollout) of the MFVI-based latent-space AR model. 
+
+Require: history Xhist , trained parameters Θ
+
+Ensure: prediction ˆY
+
+1: Zstu ← EncoderMFVI  ϕu(Xhist ); Kenc 
+
+ ▷ history-only cache 
+
+2: ˆY ← [] 
+
+3: for k = 1 , . . . , P f do 
+
+4: zprev ← Zstu [: , :, P + k − 1, :] 
+
+5: ˆxk ← MLP pred (zprev ); append to ˆY
+
+6: upatch ← ϕu(ˆ xk); utrans ← pψ (zprev )
+
+7: znew ← SingleStepMFVI  upatch + utrans , Zstu , ϕ b; Kdec 
+
+
+
+8: append α · zprev + (1 − α) · znew to Zstu 
+
+9: end for 
+
+10: return ˆY
+
+29 Preprint 
+
+Algorithm 2 Training step of the MFVI-based latent-space AR model. 
+
+Require: history Xhist , future Y; parameters Θ = {ϕu, U ·, V ·, ϕ b, p ψ , α, MLP pred }
+
+Ensure: loss L
+
+1: # Teacher path (no gradient after unary embedding) 
+
+2: Zfull ← ϕu
+
+ [ Xhist ∥ Y ] ▷ embed full sequence, P + Pf patches 
+
+3: Zteacher ← EncoderMFVI( Zfull ; Kenc ) ▷ causal MFVI over full seq; future leaks to no history position 
+
+4: # Student path (same causal operator, history-only input) 
+
+5: Zstu ← EncoderMFVI  ϕu(Xhist ); Kenc 
+
+ ▷ P history latents; Zstu [: P ] ≡ Zteacher [: P ]
+
+6: initialise prediction list ˆY ← [] 
+
+7: for k = 1 , . . . , P f do 
+
+8: zprev ← Zstu [: , :, P + k − 1, :] ▷ most recent cached latent 
+
+9: ˆxk ← MLP pred (zprev ); append to ˆY ▷ emit next patch 
+
+10: upatch ← ϕu(ˆ xk) ▷ re-encoded prediction (observation evidence) 
+
+11: utrans ← pψ (zprev ) ▷ latent transition prior 
+
+12: znew ← SingleStepMFVI  upatch + utrans , Zstu , ϕ b; Kdec 
+
+
+
+▷ fuses patch+trans unary with temporal cache, cross-channel msgs, global topic 
+
+13: zP +k ← α · zprev + (1 − α) · znew ▷ damped update 
+
+14: append zP +k to Zstu ▷ self-output is fed back into next step 
+
+15: end for 
+
+16: Lpred ← MSE( ˆY, Y)
+
+17: Ldistill ← SmoothL1  Zstu [: , :, P :, :] , Zteacher [: , :, P :, :]  ▷ future only; history latents already coincide by causality 
+
+18: return L ← L pred + λlatent · L distill 
+
+30

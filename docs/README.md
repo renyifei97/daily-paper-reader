@@ -6,64 +6,70 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-01
-- 运行时间：2026-05-01 20:20:40 UTC
+- 最新运行日期：2026-05-02
+- 运行时间：2026-05-02 20:30:17 UTC
 - 运行状态：成功
-- 本次总论文数：14
-- 精读区：2
+- 本次总论文数：16
+- 精读区：4
 - 速读区：12
 
 ### 今日简报（AI）
-今日聚焦 14 篇前沿论文，深度攻克静态网络时间路由难题并探索时间序列预测的智能体新范式。
-重点推荐 9.5 分的路由调度补全研究，以及通过角色分工强化预测性能的 CastFlow 框架。
-建议关注 LLM 与 Agent 架构如何重塑交通信号控制与人类移动性建模等传统领域。
-- 详情：[/202605/01/README](/202605/01/README)
+今日深度研读 16 篇前沿文献，重点攻克静态网络时序路由与概率 Transformer 建模两大核心课题。
+推荐关注 9.0 分佳作对调度补全问题的算法突破，以及 ST-PT 框架在复杂时间序列预测中的潜力。
+建议读者留意图神经网络在微服务延迟预测与电力系统稳定性评估等垂直领域的落地应用。
+- 详情：[/202605/02/README](/202605/02/README)
 
 ### 精读区论文标签
-1. [Temporal Routing in Static Networks: The Schedule Completion Problem](/202605/01/2604.27757v1-temporal-routing-in-static-networks-the-schedule-completion-problem)  
-   标签：评分：9.5/10、query:urt-c
-   evidence：结合了铁路网络中列车路由和乘客需求的时间特性
-2. [CastFlow: Learning Role-Specialized Agentic Workflows for Time Series Forecasting](/202605/01/2604.27840v1-castflow-learning-role-specialized-agentic-workflows-for-time-series-forecasting)  
+1. [Temporal Routing in Static Networks: The Schedule Completion Problem](/202605/02/2604.27757v1-temporal-routing-in-static-networks-the-schedule-completion-problem)  
+   标签：评分：9.0/10、query:urt-c
+   evidence：铁路网络中列车路径规划与乘客需求的跨时空特性
+2. [Exploring the Potential of Probabilistic Transformer for Time Series Modeling: A Report on the ST-PT Framework](/202605/02/2604.26762v1-exploring-the-potential-of-probabilistic-transformer-for-time-series-modeling-a-report-on-the-st-pt-framework)  
+   标签：评分：8.5/10、query:urt-pf
+   evidence：用于时间序列建模和消息传递的时空概率Transformer
+3. [Explaining Temporal Graph Predictions With Shapley Values](/202605/02/2604.24078v1-explaining-temporal-graph-predictions-with-shapley-values)  
    标签：评分：8.0/10、query:urt-pf
-   evidence：具有时间模式提取功能的动态智能体时间序列预测框架
+   evidence：解释结合了空间和时间信息的时空图神经网络预测
+4. [On the Role of Time Series Clustering in Traffic Matrix Prediction](/202605/02/2604.26081v1-on-the-role-of-time-series-clustering-in-traffic-matrix-prediction)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：用于流量矩阵预测和流量预测的时间序列聚类
 
 ### 速读区论文标签
-1. [GeoCert: Certified Geometric AI for Reliable Forecasting](/202605/01/2604.23474v1-geocert-certified-geometric-ai-for-reliable-forecasting)  
+1. [STLGT: A Scalable Trace-Based Linear Graph Transformer for Tail Latency Prediction in Microservices](/202605/02/2604.26422v1-stlgt-a-scalable-trace-based-linear-graph-transformer-for-tail-latency-prediction-in-microservices)  
    标签：评分：7.5/10、query:urt-pf
-   evidence：用于交通领域可靠预测的几何人工智能框架
-2. [Transferable Human Mobility Network Reconstruction with neuroGravity](/202605/01/2604.23678v1-transferable-human-mobility-network-reconstruction-with-neurogravity)  
+   evidence：用于多步延迟预测的线性图Transformer
+2. [Probabilistic Circuits for Irregular Multivariate Time Series Forecasting](/202605/02/2604.27814v1-probabilistic-circuits-for-irregular-multivariate-time-series-forecasting)  
    标签：评分：7.5/10、query:urt-pf
-   evidence：利用物理信息深度学习重建人类流动网络
-3. [LLM-Augmented Traffic Signal Control with LSTM-Based Traffic State Prediction and Safety-Constrained Decision Support](/202605/01/2604.23902v1-llm-augmented-traffic-signal-control-with-lstm-based-traffic-state-prediction-and-safety-constrained-decision-support)  
-   标签：评分：7.5/10、query:urt-pf
-   evidence：基于LSTM的短期交通状态预测用于信号控制
-4. [Probabilistic Circuits for Irregular Multivariate Time Series Forecasting](/202605/01/2604.27814v1-probabilistic-circuits-for-irregular-multivariate-time-series-forecasting)  
-   标签：评分：7.5/10、query:urt-pf
-   evidence：用于不规则多变量时间序列预测的概率电路
-5. [Frozen LLMs as Map-Aware Spatio-Temporal Reasoners for Vehicle Trajectory Prediction](/202605/01/2604.21479v1-frozen-llms-as-map-aware-spatio-temporal-reasoners-for-vehicle-trajectory-prediction)  
+   evidence：用于不规则多元时间序列预测和不确定性量化的概率电路
+3. [Adaptive Spatial-Temporal Graph Learning-Enabled Short-Term Voltage Stability Assessment against Time-Varying Topological Conditions](/202605/02/2604.23204v1-adaptive-spatial-temporal-graph-learning-enabled-short-term-voltage-stability-assessment-against-time-varying-topological-conditions)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：利用大语言模型进行车辆轨迹预测的时空推理
-6. [Hybrid Deep Learning Approach for Coupled Demand Forecasting and Supply Chain Optimization](/202605/01/2604.21567v1-hybrid-deep-learning-approach-for-coupled-demand-forecasting-and-supply-chain-optimization)  
+   evidence：用于稳定性评估的自适应时空图学习
+4. [AdaMamba: Adaptive Frequency-Gated Mamba for Long-Term Time Series Forecasting](/202605/02/2604.23239v1-adamamba-adaptive-frequency-gated-mamba-for-long-term-time-series-forecasting)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：基于LSTM的需求预测与混合整数线性规划优化集成
-7. [A Hybridizable Neural Time Integrator for Stable Autoregressive Forecasting](/202605/01/2604.21101v2-a-hybridizable-neural-time-integrator-for-stable-autoregressive-forecasting)  
+   evidence：针对复杂依赖关系的长期时间序列预测框架
+5. [GeoCert: Certified Geometric AI for Reliable Forecasting](/202605/02/2604.23474v1-geocert-certified-geometric-ai-for-reliable-forecasting)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：用于交通系统可靠预测的几何人工智能框架
+6. [Autocorrelation Reintroduces Spectral Bias in KANs for Time Series Forecasting](/202605/02/2604.23518v1-autocorrelation-reintroduces-spectral-bias-in-kans-for-time-series-forecasting)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：具有时间自相关的序列预测
+7. [Interpretable Physics-Informed Load Forecasting for U.S. Grid Resilience: SHAP-Guided Ensemble Validation in Hybrid Deep Learning Under Extreme Weather](/202605/02/2604.23500v1-interpretable-physics-informed-load-forecasting-for-us-grid-resilience-shap-guided-ensemble-validation-in-hybrid-deep-learning-under-extreme-weather)  
    标签：评分：6.5/10、query:urt-pf
-   evidence：长时域自回归建模与稳定预测
-8. [Weighted complement graphs of spatial networks with functional connections reveal nodes with high potential for new links](/202605/01/2604.21528v1-weighted-complement-graphs-of-spatial-networks-with-functional-connections-reveal-nodes-with-high-potential-for-new-links)  
+   evidence：用于短期预测的CNN和Transformer集成模型
+8. [RACANet: Reliability-Aware Crowd Anchor Network for RGB-T Crowd Counting](/202605/02/2604.24543v1-racanet-reliability-aware-crowd-anchor-network-for-rgb-t-crowd-counting)  
    标签：评分：6.5/10、query:urt-c
-   evidence：公共交通网络分析与新线路潜力
-9. [Empirical Assessment of Time-Series Foundation Models For Power System Forecasting Applications](/202605/01/2604.22077v1-empirical-assessment-of-time-series-foundation-models-for-power-system-forecasting-applications)  
-   标签：评分：6.5/10、query:urt-pf
-   evidence：时间序列基础模型用于预测应用
-10. [Towards Safe Mobility: A Unified Transportation Foundation Model enabled by Open-Ended Vision-Language Dataset](/202605/01/2604.22260v1-towards-safe-mobility-a-unified-transportation-foundation-model-enabled-by-open-ended-vision-language-dataset)  
+   evidence：用于人群管理的客流密度估计和空间差异建模
+9. [Sample-efficient Neuro-symbolic Proximal Policy Optimization](/202605/02/2604.25534v1-sample-efficient-neuro-symbolic-proximal-policy-optimization)  
    标签：评分：6.5/10、query:urt-c
-   evidence：城市规模交通分析和交通基础模型
-11. [Adaptive Spatial-Temporal Graph Learning-Enabled Short-Term Voltage Stability Assessment against Time-Varying Topological Conditions](/202605/01/2604.23204v1-adaptive-spatial-temporal-graph-learning-enabled-short-term-voltage-stability-assessment-against-time-varying-topological-conditions)  
+   evidence：用于复杂领域高效强化学习的神经符号PPO扩展
+10. [PINN-Cast: Exploring the Role of Continuous-Depth NODE in Transformers and Physics Informed Loss as Soft Physical Constraints in Short-term Weather Forecasting](/202605/02/2604.27313v1-pinn-cast-exploring-the-role-of-continuous-depth-node-in-transformers-and-physics-informed-loss-as-soft-physical-constraints-in-short-term-weather-forecasting)  
    标签：评分：6.5/10、query:urt-pf
-   evidence：针对时变拓扑条件的自适应时空图学习
-12. [On the Generalization Properties of Selective State-Space Models for Filtering Tasks for Unknown Systems](/202605/01/2604.23818v1-on-the-generalization-properties-of-selective-state-space-models-for-filtering-tasks-for-unknown-systems)  
-   标签：评分：6.5/10、query:urt-pf
-   evidence：用于序列建模和输出预测的选择性状态空间模型
+   evidence：用于短期预测的连续深度Transformer
+11. [Empirical Assessment of Time-Series Foundation Models For Power System Forecasting Applications](/202605/02/2604.22077v1-empirical-assessment-of-time-series-foundation-models-for-power-system-forecasting-applications)  
+   标签：评分：6.0/10、query:urt-pf
+   evidence：使用Transformer和基础模型进行时间序列预测
+12. [V-STC: A Time-Efficient Multi-Vehicle Coordinated Trajectory Planning Approach](/202605/02/2604.22196v1-v-stc-a-time-efficient-multi-vehicle-coordinated-trajectory-planning-approach)  
+   标签：评分：6.0/10、query:urt-c
+   evidence：多车协同的时空轨迹规划
 
 
 <div class="dpr-home-promo-card">
