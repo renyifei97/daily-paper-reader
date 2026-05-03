@@ -1,0 +1,1350 @@
+Title: Semi-Markov Reinforcement Learning for City-Scale EV Ride-Hailing with Feasibility-Guaranteed Actions
+
+URL Source: https://arxiv.org/pdf/2604.25848v1
+
+Published Time: Wed, 29 Apr 2026 01:21:54 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# Semi-Markov Reinforcement Learning for City-Scale EV Ride-Hailing with Feasibility-Guaranteed Actions 
+
+## An Nguyen a,∗, Hoang Nguyen a, Phuong Le a, Hung Pham a, Cuong Do a,b ,∗ and Laurent El Ghaoui a,b 
+
+> a
+
+College of Engineering and Computer Science, VinUniversity, Hanoi, Vietnam 
+
+> b
+
+Center for Environmental Intelligence, VinUniversity, Hanoi, Vietnam 
+
+A R T I C L E I N F O 
+
+Keywords :Reinforcement learning Distributionally robust optimization Graph neural networks Constrained decision making Electric vehicle fleet management 
+
+A B S T R A C T 
+
+We study city-scale control of electric-vehicle (EV) ride-hailing fleets where dispatch, repositioning, and charging decisions must respect charger and feeder limits under uncertain, spatially correlated de-mand and travel times. We formulate the problem as a hex-grid semi-Markov decision process (semi-MDP) with mixed actions—discrete (serve, reposition, charge) and continuous (charging power)—and variable action durations. To guarantee physical feasibility at both training and deployment, we learn over intentions produced by a masked, temperature-annealed policy. These intentions are projected, at every decision step, through a time-limited rolling mixed-integer linear program (MILP) that strictly enforces state-of-charge, port, and feeder constraints. To mitigate distributional shifts, we optimize a Soft Actor–Critic (SAC) agent against a true Wasserstein-1 ambiguity set, employing a graph-aligned Mahalanobis ground metric to capture spatial correlations. The robust backup utilizes the Kantorovich–Rubinstein dual with a projected subgradient inner loop and a primal–dual risk budget update. Our architecture combines a two-layer Graph Convolutional Network (GCN) encoder, twin critics, and a value network driving the adversary. Experiments on a large-scale EV fleet simulator built from NYC taxi data show that PD–RSAC achieves the highest net profit, reaching $1.22M, compared with $0.58M–$0.70M for strong heuristic, single-agent RL, and multi-agent RL baselines, including Greedy, SAC, MAPPO, and MADDPG, while maintaining zero feeder-limit violations. 
+
+## 1. Introduction 
+
+Electric-vehicle (EV) ride-hailing fleets are increasingly crucial for urban mobility, requiring operators to continu-ously assign vehicles to requests, reposition idle units, and schedule charging. These decisions must strictly adhere to state-of-charge (SoC) safety limits, charger-port capacities, and power caps, all while maintaining high service quality. However, demand and travel times vary stochastically over space and time, exhibiting correlated and nonstationary pat-terns. Consequently, fleet control represents a challenging constrained, sequential decision-making problem under un-certainty. 
+
+Optimization vs. Learning. Early efforts in fleet coor-dination primarily relied on optimization-based techniques. For instance, [1] formulated a bilevel optimization model for multimodal transit, while [2] addressed user fairness via integer programming. Similarly, [3] proposed receding-horizon control (RHC) for dispatching based on real-time sensing. While these approaches explicitly encode opera-tional constraints, they rely heavily on accurate forecasts and suffer from scalability issues as system size increases. Conversely, Reinforcement Learning (RL) has been adopted to improve scalability and efficiency. Recent works optimize dispatching [4, 5, 6, 7], vehicle repositioning [8, 9], and dynamic pricing [10, 11] using Deep Q-Networks or Actor– Critic methods. A closely related study by [12] combines 
+
+> ∗
+
+Corresponding author  
+
+> 23an.nt@vinuni.edu.vn
+
+(A. Nguyen); cuong.dd@vinuni.edu.vn (C. Do); laurent.eg@vinuni.edu.vn (L.E. Ghaoui) 
+
+> ORCID
+
+(s): 0009-0001-3971-7557 (A. Nguyen); 0000-0003-4785-4524 
+
+(C. Do); 0000-0002-0499-5610 (L.E. Ghaoui) 
+
+MAPPO with binary linear programming for Shared Au-tonomous EV scheduling. Graph-based multi-agent rein-forcement learning has also been explored for structured coordination; for example, Hu et al. [13] propose a decentral-ized graph-based MARL framework using reward machines. Despite their empirical success, standard RL methods typi-cally fail to guarantee hard constraints (e.g., grid limits) and remain brittle to distributional shifts between training and deployment. 
+
+The Challenge of Feasibility. Ensuring safety in RL is a longstanding challenge. Approaches like Constrained Policy Optimization [14] or Lagrangian relaxation satisfy constraints only in expectation, which is insufficient for grid-constrained operations where a single violation can trip a feeder. While differentiable optimization layers like OptNet [15] and CvxpyLayers [16] can project actions into feasible sets, they are limited to convex problems. Related efforts on safe and constrained reinforcement learning include the control-barrier-function-based framework of Liu et al. [17], which studies affine nonlinear systems with state constraints and input saturation. Our domain involves discrete decisions (dispatch modes) and non-convex dynamics, necessitating a mixed-integer projection. Unlike prior works using heuristic repairs, we propose embedding a time-limited rolling MILP directly into the decision loop to guarantee physical feasibil-ity. 
+
+Decision Making Under Uncertainty. Furthermore, standard RL assumes identical training and testing dynam-ics. To address performance degradation under distribu-tional shifts, robust MDPs optimize worst-case performance. Early works [18, 19] used KL-divergence or rectangular 
+
+A. Nguyen et al.: Preprint submitted to Elsevier Page 1 of 13 
+
+> arXiv:2604.25848v1 [cs.AI] 28 Apr 2026 Semi-Markov RL for City-Scale EV Ride-Hailing
+
+ambiguity sets, often leading to overly conservative poli-cies. More recently, Wasserstein-based ambiguity sets have been incorporated into robust MDPs and reinforcement learning [20, 21], enabling principled robustness against distributional perturbations with provable guarantees. Foun-dational studies in Distributionally Robust Optimization (DRO) demonstrate that Wasserstein balls can effectively capture geometric perturbations in data distributions [22] and establish a close connection between DRO and adversar-ial training [23]. However, standard Wasserstein approaches mainly focus on unconstrained settings with continuous state spaces and typically rely on Euclidean ground metrics (𝐿 2 distance), which ignore the underlying graph topology and fail to capture network-induced spatial interactions in transportation systems. In this work, we introduce a graph-aligned ground metric and integrate Wasserstein DRO with mixed-integer feasibility guarantees for spatially structured transportation grids. 
+
+Contributions. We develop a planning-aware, distribu-tionally robust RL framework for controlling EV fleets on a hexagonal grid. Instead of executing actions directly, our policy outputs intentions that are projected through a rolling MILP. To address uncertainty, we optimize a Soft Actor– Critic (SAC) [24] agent against a Wasserstein-1 ambiguity set equipped with a graph-aligned Mahalanobis metric. Our contributions are threefold: (i) A semi-MDP formulation with duration-aware back-ups; (ii) A feasible-action architecture embedding a rolling MILP projection; and (iii) A graph-aligned Wasserstein-1 robust RL method that mitigates spatially correlated uncertainty. 
+
+## 2. System Model and WDRO Objective 
+
+Figure 1 illustrates the city-scale EV ride-hailing setting considered in this work, including the hex-grid partition, the main fleet decisions, and the key operational constraints. We consider a discrete-time horizon 𝑡 ∈ {0 , 1, … , 𝑇 − 1} 
+
+with step size Δ𝑡 > 0. The service region is discretized into a hexagonal grid  = {1 , … , 𝑚 }, where each hex 
+
+ℎ has a set of neighbors  (ℎ). The fleet comprises 𝑁 
+
+electric vehicles  = {1 , … , 𝑁 }. Charging infrastructure is distributed across a subset of hexes  ⊆ . Each station 
+
+𝑠 ∈  is characterized by: 
+
+• 𝐶 port  
+
+> 𝑠
+
+: total number of physical charging plugs (ports) available. 
+
+• 𝑃 max  
+
+> 𝑠
+
+: maximum charging power per vehicle at station 
+
+𝑠 .
+
+• 𝑃 max  
+
+> feed
+
+: total power capacity of the local grid feeder supplying the station set. Vehicle 𝑖 is modeled by its current battery energy (SoC) 
+
+𝐸 𝑖,𝑡 ∈ [0 , 𝐸 max  
+
+> 𝑖
+
+], charging efficiency 𝜂 𝑐 ∈ (0 , 1] , and energy consumption rate 𝜂 drv > 0 per unit distance. For 𝑄 ≻ 0, we use the shorthand ‖𝑥 ‖𝑄 ∶= √𝑥 ⊤𝑄𝑥 . 
+
+> Figure 1: Illustration of the city-scale EV ride-hailing problem on a hexagonal grid.
+
+2.1. Hex discretization and exogenous scenarios 
+
+At each step 𝑡 , the system environment is driven by an exogenous scenario 𝜉 𝑡 = (𝐷 𝑡 , 𝑇 𝑡 ). Here, 𝐷 𝑡 ∈ ℝ𝑚 ×𝑚 
+
+> +
+
+represents the Origin-Destination (OD) demand intensity, where 𝐷 𝑡 (ℎ1, ℎ 2) is the expected number of requests from hex ℎ1 to ℎ2. 𝑇 𝑡 ∈ ℕ𝑚 ×𝑚 denotes the discrete travel time field in multiples of Δ𝑡 , with 𝑇 𝑡 (ℎ1, ℎ 2) ≥ 1. These parameters are stochastic and spatially correlated. 
+
+2.2. Aggregated system state 
+
+To enable scalable learning, we adopt an aggregate state representation 𝑠 𝑡 that captures fleet dynamics at a hex-level granularity rather than tracking individual vehicles: 
+
+𝑠 𝑡 =
+
+(
+
+𝑋 fleet  
+
+> 𝑡
+
+, 𝑋 demand  
+
+> 𝑡
+
+, 𝑋 infra  
+
+> 𝑡
+
+, 𝑡 
+
+)
+
+. (1) Specifically: 
+
+• 𝑋 fleet  
+
+> 𝑡
+
+= { 𝑛 idle  
+
+> ℎ,𝑡
+
+, 𝑛 busy  
+
+> ℎ,𝑡
+
+,̄ 𝐸 (𝑏 ) 
+
+> ℎ,𝑡
+
+}ℎ∈ summarizes the counts of idle/busy vehicles and the average SoC of busy vehicles in each zone. 
+
+• 𝑋 demand  
+
+> 𝑡
+
+= {𝐷 𝑡 (ℎ, ⋅), 𝐷 𝑡 (⋅, ℎ )} ℎ∈ summarizes the demand outflow and inflow for each hex. 
+
+• 𝑋 infra  
+
+> 𝑡
+
+= { 𝑢 𝑠,𝑡 , 𝑞 𝑠,𝑡 , 𝑝 elec  
+
+> 𝑠,𝑡
+
+}𝑠 ∈ ∪{ 𝑃 max  
+
+> feed
+
+} captures station utilization 𝑢 , queue length 𝑞 , dynamic electricity price 
+
+𝑝 elec , and the feeder limit 𝑃 max  
+
+> feed
+
+.
+
+2.3. Scheduling objective under distributional uncertainty 
+
+Given a stationary policy 𝜋 , the (episode) discounted return along a scenario sequence 𝜉 = ( 𝜉 0, … , 𝜉 𝑇 −1 ) is 
+
+𝑅 (𝜉 ; 𝜋 ) = 𝔼 
+
+[𝑇 −1 ∑
+
+> 𝑡 =0
+
+𝛾 𝑡 𝑟 𝑡 
+
+]
+
+,
+
+where 𝑟 𝑡 is the reward at decision epoch 𝑡 (defined in Sec. 3), and 0 < 𝛾 < 1 is a discount factor. Let ̂ 𝑃 denote the empirical distribution of scenarios ob-tained from historical data. To hedge against distributional shifts, we optimize a distributionally robust objective over   
+
+> A. Nguyen et al.: Preprint submitted to Elsevier Page 2 of 13
+
+Semi-Markov RL for City-Scale EV Ride-Hailing 
+
+a Wasserstein-1 ball of radius 𝜌 > 0 (under a metric 𝑑 𝑄 
+
+defined later in Sec. 5): 
+
+max  
+
+> 𝜋
+
+inf      
+
+> 𝑃 ∶𝑊 𝑑 𝑄
+> 1(𝑃 ,̂𝑃 )≤𝜌
+
+𝔼 𝜉 ∼𝑃 [𝑅 (𝜉 ; 𝜋 )] . (2) The robust backup used in our semi-MDP implementation is a sample-based approximation of (2), given in Sec. 5. 
+
+## 3. Hex Semi-MDP Formulation 
+
+Since transportation tasks (trips) and charging sessions have variable durations that may span multiple time steps Δ𝑡 ,we model the control problem as a Semi-Markov Decision Process (semi-MDP). 
+
+3.1. Per-vehicle actions and SoC Guard 
+
+For vehicle 𝑖 at hex ℎ𝑖,𝑡 with SoC 𝐸 𝑖,𝑡 , the set of valid candidate actions 𝑖,𝑡 includes: 
+
+𝑖,𝑡 = serve 
+
+> 𝑖,𝑡
+
+⏟⏟⏟
+
+> orders
+
+∪  (ℎ𝑖,𝑡 )
+
+⏟⏟⏟
+
+> reposition
+
+∪ chg 
+
+> 𝑖,𝑡
+
+⏟⏟⏟
+
+> stations
+
+. (3) However, before an order 𝑜 = ( ℎpu  
+
+> 𝑜
+
+→ ℎdo  
+
+> 𝑜
+
+) is considered a valid candidate, it must pass a State-of-Charge (SoC) guard ensuring the vehicle has enough energy to reach the pickup point, complete the trip, and maintain a safety buffer 𝐸 min  
+
+> 𝑖
+
+:
+
+𝐸 𝑖,𝑡 ≥ 𝜂 drv 
+
+(
+
+𝑒 pk (ℎ𝑖,𝑡 , ℎ pu  
+
+> 𝑜
+
+) + 𝑒 trip (ℎpu  
+
+> 𝑜
+
+, ℎ do  
+
+> 𝑜
+
+)
+
+)
+
++ 𝐸 min  
+
+> 𝑖
+
+. (4) Here 𝑒 pk (ℎ1, ℎ 2) and 𝑒 trip (ℎ1, ℎ 2) denote the energy required for pickup and trip legs, respectively. If this condition fails, the order is masked out from the vehicle’s action space. The per-vehicle action 𝑎 𝑖,𝑡 is a mixed tuple of discrete assignments and continuous power: 
+
+𝑎 𝑖,𝑡 = ({𝑥 𝑖𝑜 }𝑜 ∈serve  
+
+> 𝑖,𝑡
+
+, {𝑦 𝑖𝑔 }𝑔 ∈ (ℎ𝑖,𝑡 ), {𝑧 𝑖𝑠 }𝑠 ∈chg 
+
+> 𝑖,𝑡
+
+, 𝑝 𝑖,𝑡 
+
+), (5) subject to the constraints: 
+
+𝑥 𝑖𝑜 , 𝑦 𝑖𝑔 , 𝑧 𝑖𝑠 ∈ {0 , 1} ,
+
+∑
+
+> 𝑜
+
+𝑥 𝑖𝑜 + ∑
+
+> 𝑔
+
+𝑦 𝑖𝑔 + ∑
+
+> 𝑠
+
+𝑧 𝑖𝑠 = 1 ,
+
+0 ≤ 𝑝 𝑖,𝑡 ≤ ∑
+
+> 𝑠
+
+𝑃 max  
+
+> 𝑠
+
+𝑧 𝑖𝑠 .
+
+(6) Here, 𝑥 , 𝑦 , 𝑧 are binary variables indicating the choice of serving, repositioning, or charging, respectively. The con-straint ∑ 𝑥 + ∑ 𝑦 + ∑ 𝑧 = 1 ensures exactly one task is chosen per vehicle. 
+
+3.2. Policy parameterization (intentions) 
+
+Instead of outputting the final action 𝑎 𝑖,𝑡 directly (which requires satisfying complex global constraints like feeder limits), our neural policy samples intentions ̃𝑎 𝑖,𝑡 . The policy factorizes into discrete mode selection and continuous power control: 
+
+𝜋 𝜃 (𝑎 𝑖,𝑡 |𝑠 𝑡 ) = 𝜋 𝜃 (𝑚 𝑖,𝑡 |𝑠 𝑡 )
+
+⋅ 𝜋 𝜃 (target 𝑖,𝑡 |𝑚 𝑖,𝑡 , 𝑠 𝑡 )
+
+⋅ 𝜋 𝜃 (𝑝 𝑖,𝑡 |𝑚 𝑖,𝑡 = chg , 𝑠 𝑡 ),
+
+(7) where 𝑚 𝑖,𝑡 ∈ { serve , reb , chg } is a high-level mode. These “soft” intentions are then passed to the MILP projection layer (Sec. 4) to be converted into physically feasible “hard” actions. 
+
+3.3. Reward 
+
+We retain exactly four components to balance revenue, costs, and service quality: 
+
+𝑟 𝑡 (𝑠 𝑡 , 𝑎 𝑡 ) = ∑
+
+> 𝑜 ∈served 𝑡
+
+𝑅 𝑡 (ℎpu  
+
+> 𝑜
+
+, ℎ do  
+
+> 𝑜
+
+)
+
+⏟⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏟⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏟ 
+
+> trip revenue
+
+− ∑
+
+> 𝑖 ∈
+
+𝑐 drv 𝑑 𝑖,𝑡 
+
+⏟⏞⏞⏞⏟⏞⏞⏞⏟ 
+
+> driving/ops cost
+
+− ∑
+
+> 𝑖 ∈
+
+𝑝 elec  
+
+> 𝑠 (𝑖 ),𝑡
+
+𝑝 𝑖,𝑡 Δ𝑡 ⏟⏞⏞⏞⏞⏞⏞⏞⏟⏞⏞⏞⏞⏞⏞⏞⏟ 
+
+> electricity
+
+− 𝜆 wait 
+
+∑
+
+> 𝑜 ∈𝑡
+
+wait 𝑜 + 𝜆 drop 
+
+|||dropped 𝑡 
+
+|||
+
+⏟⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏟⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏟ 
+
+> customer service.
+
+(8) Here, 𝑅 𝑡 (ℎpu  
+
+> 𝑜
+
+, ℎ do  
+
+> 𝑜
+
+) is the revenue from trip 𝑜 , 𝑐 drv is the per-distance driving cost, 𝑑 𝑖,𝑡 is the distance traveled by vehicle 𝑖 , 𝑝 elec  
+
+> 𝑠 (𝑖 ),𝑡
+
+is the electricity price at station 𝑠 (𝑖 ), wait 𝑜 
+
+is the waiting time for order 𝑜 , |dropped 𝑡 | is the number of dropped orders, and 𝜆 wait , 𝜆 drop are weighting coefficients. 
+
+3.4. Semi-MDP dynamics and physics 
+
+The system evolution is governed by the variable dura-tion Δ( 𝑎 𝑡 ) of the selected action: 
+
+Δserve = 𝑇 𝑡 (ℎ𝑖,𝑡 , ℎ pu  
+
+> 𝑜
+
+) + 𝑇 𝑡 (ℎpu  
+
+> 𝑜
+
+, ℎ do  
+
+> 𝑜
+
+),
+
+Δreb = 𝑇 𝑡 (ℎ𝑖,𝑡 , 𝑔 ),
+
+Δchg = 1 .
+
+(9) Charging is modeled as a 1-step action ( Δchg = 1 ) to allow frequent re-evaluation of power levels, whereas trips are atomic actions spanning multiple steps. The physical state update equations are: Serve: ℎ𝑖,𝑡 +Δ serve = ℎdo  
+
+> 𝑜
+
+,𝐸 𝑖,𝑡 +Δ serve = 𝐸 𝑖,𝑡 − 𝜂 drv 
+
+(𝑒 pk + 𝑒 trip ),
+
+Reposition: ℎ𝑖,𝑡 +Δ reb = 𝑔, 𝐸 𝑖,𝑡 +Δ reb = 𝐸 𝑖,𝑡 − 𝜂 drv 𝑒 rb (ℎ𝑖,𝑡 , 𝑔 ),
+
+Charge: ℎ𝑖,𝑡 +1 = ℎ𝑖,𝑡 ,𝐸 𝑖,𝑡 +1 = min{ 𝐸 max  
+
+> 𝑖
+
+, 𝐸 𝑖,𝑡 + 𝜂 𝑐 𝑝 𝑖,𝑡 Δ𝑡 }.
+
+(10) Here 𝑒 rb (ℎ1, ℎ 2) denotes the energy required for a reposition leg from ℎ1 to ℎ2. Longer charging sessions are represented by repeating the charge action across multiple consecutive steps. Aggregated idle vehicle counts 𝑛 idle  
+
+> ℎ,𝑡
+
+evolve according to a hex-level flow conservation principle balancing departures and arrivals from serving, repositioning, and completed charging; in the simulator, these counts are updated by explicitly tracking vehicles. 
+
+A. Nguyen et al.: Preprint submitted to Elsevier Page 3 of 13 Semi-Markov RL for City-Scale EV Ride-Hailing 
+
+3.5. Duration-aware soft backup 
+
+In a standard MDP, future rewards are discounted by 𝛾 .In our semi-MDP, the discount factor depends on the action duration Δ( 𝑎 𝑡 ), leading to the non-robust soft target 
+
+𝑦 𝑡 = 𝑟 𝑡 + 𝛾 Δ( 𝑎 𝑡 ) 𝔼 𝑎 ′∼𝜋 
+
+[
+
+min  
+
+> 𝑘
+
+𝑄 ̄𝜓 𝑘 (𝑠 𝑡 +Δ( 𝑎 𝑡 ), 𝑎 ′)− 𝛼 log 𝜋 (𝑎 ′|𝑠 𝑡 +Δ( 𝑎 𝑡 ))
+
+]
+
+,
+
+(11) where (𝑄 ̄𝜓 𝑘 ) are slowly updated target critics. This ensures that longer trips are discounted more heavily, correctly re-flecting the time value of money and opportunity cost. 
+
+## 4. Feasible-Action Projection via Rolling MILP 
+
+Standard RL policies may output actions that violate com-plex coupled constraints (e.g., total power of all vehicles exceeding the grid feeder limit). To guarantee safety, we introduce a feasible-action projection layer Πfeas . Given the intention vector ̃𝑎 𝑡 from the policy, we compute the closest feasible action 𝑎 𝑡 by solving a mixed-integer linear program (MILP). 
+
+4.1. Time-limited MILP formulation 
+
+Let 𝑣 stack all decision variables. The MILP objective seeks to maximize revenue while staying close to the pol-icy’s intention: 
+
+max 
+
+> 𝑣
+
+∑
+
+> 𝑖,𝑜
+
+𝑅 𝑡 (𝑜 )𝑥 𝑖𝑜 −∑
+
+> 𝑖
+
+𝑐 drv 𝑑 𝑖,𝑡 −∑
+
+> 𝑖,𝑠
+
+𝑝 elec  
+
+> 𝑠,𝑡
+
+𝑝 𝑖,𝑠 Δ𝑡 −𝜇 ‖𝑣 −̃𝑎 𝑡 ‖1.
+
+(12) This maximization is subject to critical operational con-straints: 1. Assignment logic: Each vehicle performs exactly one task, and each order is served by at most one vehicle: 
+
+∑
+
+> 𝑜
+
+𝑥 𝑖𝑜 + ∑
+
+> 𝑔
+
+𝑦 𝑖𝑔 + ∑
+
+> 𝑠
+
+𝑧 𝑖𝑠 = 1 , ∑
+
+> 𝑖
+
+𝑥 𝑖𝑜 ≤ 1. (13) 2. Infrastructure limits: The number of charging ve-hicles cannot exceed port capacity 𝐶 port  
+
+> 𝑠
+
+, and the aggregate charging power must respect the feeder limit 𝑃 max  
+
+> feed
+
+:
+
+∑
+
+> 𝑖
+
+𝑧 𝑖𝑠 ≤ 𝐶 port  
+
+> 𝑠
+
+, ∑
+
+> 𝑖,𝑠
+
+𝑝 𝑖,𝑠 ≤ 𝑃 max  
+
+> feed
+
+, 0 ≤ 𝑝 𝑖,𝑠 ≤ 𝑃 max  
+
+> 𝑠
+
+𝑧 𝑖𝑠 .
+
+(14) The feeder constraint couples all vehicles across stations. 3. Positive charging: If a vehicle chooses to charge (𝑧 𝑖𝑠 = 1 ), it must draw a minimum non-zero power 𝑝 min to prevent “fake” charging actions: 
+
+𝑝 𝑖,𝑠 ≥ 𝑝 min 𝑧 𝑖𝑠 . (15) 4. Energy feasibility: The SoC at the next step must re-main within safety bounds [𝐸 min , 𝐸 max ] after accounting for consumption or charging. Let 𝑒 od  
+
+> 𝑖𝑜
+
+denote the total distance 
+
+Algorithm 1 Greedy Fallback Projection  
+
+> 1:
+
+Initialize empty action vector 𝑎 𝑡  
+
+> 2:
+
+Initialize state 𝑠 𝑡 , intention ̃𝑎 𝑡 , residual feeder capacity 
+
+𝑃 rem ← 𝑃 max feed  
+
+> 3:
+
+Sort vehicles by increasing SoC 𝐸 𝑖,𝑡  
+
+> 4:
+
+for each vehicle 𝑖 do  
+
+> 5:
+
+Construct feasible action set 𝐶 𝑖,𝑡  
+
+> 6:
+
+if exists feasible serving order then  
+
+> 7:
+
+Select order with highest immediate reward  
+
+> 8:
+
+else if exists feasible charging station with 𝑃 𝑟𝑒𝑚 ≥
+
+𝑝 𝑚𝑖𝑛 then  
+
+> 9:
+
+Select nearest station 𝑠 with available port  
+
+> 10:
+
+Allocate power 𝑝 𝑖,𝑠 ← min( 𝑃 max  
+
+> 𝑠
+
+, 𝑃 rem ) 
+
+> 11:
+
+𝑃 rem ← 𝑃 rem − 𝑝 𝑖,𝑠  
+
+> 12:
+
+else  
+
+> 13:
+
+Select best energy-feasible reposition or idle action  
+
+> 14:
+
+end if  
+
+> 15:
+
+end for  
+
+> 16:
+
+return assembled action vector 𝑎 𝑡 
+
+for order 𝑜 (pickup plus trip) if served by vehicle 𝑖 , and 𝑒 rb 
+
+> 𝑖𝑔
+
+the distance for reposition from ℎ𝑖,𝑡 to 𝑔 . We enforce 
+
+𝐸 𝑖,𝑡 +1 = 𝐸 𝑖,𝑡 − 𝜂 drv 
+
+∑
+
+> 𝑜
+
+𝑒 od  
+
+> 𝑖𝑜
+
+𝑥 𝑖𝑜 − 𝜂 drv 
+
+∑
+
+> 𝑔
+
+𝑒 rb  
+
+> 𝑖𝑔
+
+𝑦 𝑖𝑔 
+
++ 𝜂 𝑐 
+
+∑
+
+> 𝑠
+
+𝑝 𝑖,𝑠 Δ𝑡, 𝐸 min  
+
+> 𝑖
+
+≤ 𝐸 𝑖,𝑡 +1 ≤ 𝐸 max  
+
+> 𝑖
+
+.
+
+(16) The projected total charging power is 𝑝 𝑖 = ∑𝑠 𝑝 𝑖,𝑠 .Solving this MILP at every step guarantees that the de-ployed action 𝑎 𝑡 is physically valid. The projection operator is defined as 
+
+𝑎 𝑡 = Π feas (𝑠 𝑡 ,̃𝑎 𝑡 ),
+
+where the MILP is solved using a branch-and-bound solver under a fixed time limit 𝜏 𝑚𝑎𝑥 . During the search, the solver maintains an incumbent, defined as the best feasible solution found so far. If at least one feasible solution is identified before timeout, the current incumbent is returned; otherwise, a greedy fallback rule is applied to ensure that a feasible action is always produced. 
+
+4.2. Greedy Fallback Projection 
+
+In rare cases where the MILP solver fails to identify any feasible solution within the time limit, no incumbent is available. To ensure that a valid action is always produced, we activate a deterministic greedy fallback procedure. The fallback assigns decisions sequentially to vehicles in ascending order of state-of-charge (SoC), prioritizing energy-critical vehicles. For each vehicle, the algorithm selects the best feasible action subject to remaining infras-tructure and energy constraints. We assume that a stay-idle action with zero energy consumption is always available in the feasible action set, which guarantees that at least one valid action exists for every vehicle at each decision step. Specifically, the procedure operates as Algorithm 1. 
+
+A. Nguyen et al.: Preprint submitted to Elsevier Page 4 of 13 Semi-Markov RL for City-Scale EV Ride-Hailing 
+
+4.3. Feasibility Guarantee 
+
+By construction, the projection operator Πfeas returns either (i) a MILP incumbent satisfying constraints (13)– (16), or (ii) a solution generated by the greedy fallback that explicitly enforces these constraints. Therefore, Πfeas always produces a physically admissible action. 
+
+## 5. Graph-Aligned Wasserstein Robustness 
+
+The transition dynamics of our semi-MDP depend on the exogenous scenario 𝜉 = ( 𝐷, 𝑇 ) introduced in Sec. 2. To prevent the policy from overfitting to the empirical training distribution ̂ 𝑃 of such scenarios, we optimize its perfor-mance against a worst-case distribution 𝑃 within a Wasser-stein ambiguity set. 
+
+5.1. Graph-aligned Mahalanobis ground metric 
+
+Standard Wasserstein DRO uses the Euclidean distance 
+
+‖𝜉 − 𝜉 ′‖2 (e.g., [22]), which treats all scenario dimensions equally. In a city grid, perturbations should respect the spatial topology (e.g., demand shifting to a neighboring hex is more likely than shifting to a distant one). We define a graph-aligned metric 𝑑 𝑄 :
+
+𝑑 𝑄 (𝜉, 𝜉 ′) = ‖‖‖𝑄 1∕2 (𝜉 − 𝜉 ′)‖‖‖2 = ‖‖𝜉 − 𝜉 ′‖‖𝑄 , (17) where the precision matrix 𝑄 is constructed as 
+
+𝑄 = diag( 𝑤 ) + 𝛽 𝑄 graph .
+
+Here, diag( 𝑤 ) scales features by their inverse variance, and 
+
+𝑄 graph is a Laplacian-based matrix encoding the hex grid and OD graph structure. This metric penalizes spatially disjoint perturbations more heavily than smooth, local variations. 
+
+5.2. Wasserstein ambiguity set 
+
+We define the ambiguity set 𝜌 (̂ 𝑃 ) as the set of all distributions 𝑃 that are within a Wasserstein-1 distance 𝜌 
+
+from the empirical distribution ̂ 𝑃 :
+
+𝜌 (̂𝑃 ) = { 𝑃 ∈ (ℝ𝑞 ) ∶ 𝑊 𝑑 𝑄  
+
+> 1
+
+(𝑃 ,̂ 𝑃 ) ≤ 𝜌 }. (18) 
+
+5.3. Robust backup via Kantorovich–Rubinstein dual 
+
+Given a pre-decision state 𝑠 𝑡 and projected action 𝑎 𝑡 =Πfeas (𝑠 𝑡 ,̃𝑎 𝑡 ), we denote by 𝑠 ′(𝜉 ) and Δ( 𝜉 ) the successor state and action duration obtained by simulating the semi-MDP dynamics in Sec. 3 under scenario 𝜉 (so 𝑠 ′(̂𝜉 𝑡 ) = 𝑠 𝑡 +Δ( 𝑎 𝑡 )
+
+and Δ( ̂ 𝜉 𝑡 ) = Δ( 𝑎 𝑡 )). The robust value target at a transition evaluates the worst-case expected value: 
+
+𝑦 rob  
+
+> 𝑡
+
+= 𝑟 𝑡 + inf    
+
+> 𝑃 ∈𝜌 (̂𝑃 )
+
+𝔼 𝑃 
+
+[𝛾 Δ( 𝜉 )𝑉 𝜑 (𝑠 ′(𝜉 )) ]. (19) By utilizing the identity inf( 𝑉 ) = − sup(− 𝑉 ) and apply-ing the Kantorovich–Rubinstein dual representation of the Wasserstein-1 ball to the cost −𝑉 (see, e.g., [22, 23]), we obtain the exact dual formulation: 
+
+𝑦 rob  
+
+> 𝑡
+
+= 𝑟 𝑡 + sup 
+
+> 𝜆 ≥0
+
+{
+
+− 𝜆𝜌 + 𝔼 ̂𝑃 
+
+[ inf 
+
+> 𝜉
+
+(𝛾 Δ( 𝜉 )𝑉 𝜑 (𝑠 ′(𝜉 )) + 𝜆 𝑑 𝑄 (𝜉,̂ 𝜉 ))] }
+
+.
+
+(20) Our WDRO analysis assumes that the discounted value function is locally Lipschitz under 𝑑 𝑄 . In our implementa-tion, scenarios 𝜉 are restricted to a compact set , inputs are normalized, and 𝑉 𝜑 utilizes Lipschitz-continuous activa-tions, ensuring this condition is practically satisfied. In practice, we adopt a penalized, sample-based variant with a time-varying dual variable 𝜆 𝑡 and a bounded support set  around each empirical sample ̂ 𝜉 𝑡 , yielding the practical robust target: 
+
+𝑦 rob  
+
+> 𝑡
+
+= 𝑟 𝑡 − 𝜆 𝑡 𝜌 + min 
+
+> 𝜉 ∈
+
+[𝛾 Δ( 𝜉 )𝑉 𝜑 (𝑠 ′(𝜉 )) + 𝜆 𝑡 𝑑 𝑄 (𝜉,̂ 𝜉 𝑡 )]. (21) 
+
+5.4. Inner minimization via projected (sub)gradient descent 
+
+To solve the inner minimization in (21), we use projected (sub)gradient descent over 𝜉 . Let 
+
+𝑓 (𝜉 ) = 𝛾 Δ( 𝜉 )𝑉 𝜑 (𝑠 ′(𝜉 )) + 𝜆 𝑡 𝑑 𝑄 (𝜉,̂ 𝜉 𝑡 ).
+
+We treat Δ( 𝜉 ) as piecewise constant with respect to 𝜉 and ignore ∇𝜉 𝛾 Δ( 𝜉 ) in practice, leading to the update 
+
+𝜉 𝑘 +1∕2 = 𝜉 𝑘 − 𝜂 
+
+(
+
+𝛾 Δ( 𝜉 𝑘 )∇𝜉 𝑉 𝜑 (𝑠 ′(𝜉 𝑘 )) + 𝜆 𝑡 𝑔 𝑑 (𝜉 𝑘 )
+
+)
+
+,
+
+where ∇𝜉 𝑉 𝜑 is obtained via backpropagation through the value network, and 𝑔 𝑑 is the subgradient of the Wasserstein distance term: 
+
+𝑔 𝑑 (𝜉 ) = 
+
+⎧⎪⎨⎪⎩
+
+𝑄 (𝜉 −̂ 𝜉 𝑡 )max{ 𝜀, ‖‖‖𝜉 −̂ 𝜉 𝑡 
+
+‖‖‖𝑄 }
+
+, 𝜉 ≠̂ 𝜉 𝑡 ,
+
+any 𝑔 ∶ ‖𝑔 ‖𝑄 −1 ≤ 1, 𝜉 =̂ 𝜉 𝑡 .
+
+We then project 𝜉 𝑘 +1∕2 back to the support set :
+
+𝜉 𝑘 +1 = Proj (𝜉 𝑘 +1∕2 ),
+
+e.g., via closed-form projection for 𝑄 -balls. Starting from 
+
+𝜉 0 =̂ 𝜉 𝑡 and iterating 𝐾 steps yields an approximate maxi-mizer 𝜉 ⋆ used in (21). 
+
+5.5. Primal–dual risk-budget tracking 
+
+To control the effective adversarial radius realized by the inner maximization, we track ̂𝜌 𝑡 = 𝑑 𝑄 (𝜉 ⋆𝑡 ,̂ 𝜉 𝑡 ), (22) and update the dual variable 𝜆 𝑡 toward a prescribed risk budget 𝜌 target ∈ (0 , 𝜌 ]:
+
+𝜆 𝑡 +1 =
+
+[
+
+𝜆 𝑡 + 𝜂 𝑡 
+
+(̂𝜌 𝑡 − 𝜌 target 
+
+)]
+
+> +
+
+, 𝜂 𝑡 = 𝜂 0
+
+√𝑡 , (23) where [ ⋅ ]+ denotes projection onto ℝ+. This primal–dual rule penalizes the adversary when the realized radius ex-ceeds 𝜌 target and relaxes it otherwise. Theorem 3 (Sec. 7) shows that the average budget violation vanishes as 𝑡 → ∞
+
+under mild conditions.   
+
+> A. Nguyen et al.: Preprint submitted to Elsevier Page 5 of 13
+
+Semi-Markov RL for City-Scale EV Ride-Hailing 
+
+Figure 2: Overall PD–RSAC architecture. The simulator produces the aggregate hex-grid state, which is encoded by a shared GCN. The actor outputs mixed discrete–continuous intentions, which are projected by a rolling MILP into feasible actions before execution in the semi-MDP environment. Transitions are stored in a replay buffer. During training, the value network and Wasserstein adversary construct robust targets, while the twin critics and the primal–dual update refine the policy under distributional robustness. 
+
+## 6. Learning Architecture and Training 
+
+At each decision epoch, the simulator produces the aggre-gated hex-grid state 𝑠 𝑡 and scenario ̂ 𝜉 𝑡 , as illustrated in Fig. 2. A shared hex-graph GCN encoder maps per-hex features to embeddings that are consumed by the actor, twin critics, and value network. The actor samples per-vehicle intentions, and a rolling MILP projection layer enforces SoC, port-capacity, and feeder constraints to obtain a feasible system action 𝑎 𝑡 = Π feas (𝑠 𝑡 ,̃𝑎 𝑡 ), which is executed in the semi-MDP environment. The resulting transitions are stored in a replay buffer and reused off-policy. For each sampled transition, the value network and Wasserstein adversary run the inner KR-dual loop to construct a worst-case scenario 𝜉 ⋆, yielding robust targets 𝑦 rob  
+
+> 𝑡
+
+that update the critics and the actor, while the dual variable 𝜆 is adapted to track the desired risk budget. 
+
+6.1. Hex-graph encoder (GCN) 
+
+We use a Graph Convolutional Network (GCN) [25] to extract spatial features. Let 𝐴 be the adjacency of the hex graph (with self-loops), ̃ 𝐴 = 𝐴 + 𝐼 ,̃ 𝐷 = diag( ∑𝑗 ̃ 𝐴 𝑖𝑗 ), and ̂𝐴 =̃ 𝐷 −1∕2 ̃ 𝐴̃ 𝐷 −1∕2 . The node features Φ (vehicle counts, demand, infra features, time encodings) are processed as 
+
+𝐻 (1) = 𝜎 (̂𝐴 Φ 𝑊 0 + 𝟏 𝑏 ⊤
+
+> 0
+
+),𝐸 = 𝐻 (2) = 𝜎 (̂ 𝐴 𝐻 (1) 𝑊 1 + 𝟏 𝑏 ⊤
+
+> 1
+
+), (24) yielding hex embeddings 𝐸 that inform both the actor and critics. In our implementation, 𝜎 is the SiLU activation. 
+
+6.2. Actor with Gumbel–Softmax and squashed Gaussian 
+
+To allow backpropagation through the discrete action selection, we use the Gumbel–Softmax reparameterization [26]. For a set of logits (𝑢 𝑘 ), the discrete intention ̃ 𝑧 is sampled as: ̃𝑧 𝑘 = exp ((𝑢 𝑘 + 𝑔 𝑘 )∕ 𝜏 )∑𝑗 exp ((𝑢 𝑗 + 𝑔 𝑗 )∕ 𝜏 ) ,𝑔 𝑘 ∼ Gumbel(0 , 1) ,
+
+(25) where 𝜏 > 0 is a temperature annealed during training. For the continuous charging power ̂𝑝 , we use a squashed Gaussian head conditioned on a charging context ℎchg  
+
+> 𝑖
+
+:
+
+(𝜇 𝑖 , log 𝜎 𝑖 ) = MLP( ℎchg  
+
+> 𝑖
+
+),𝑢 ∼  (𝜇 𝑖 , 𝜎 2 
+
+> 𝑖
+
+),̂ 𝑝 = 𝑃 max 
+
+> 𝑠
+
+2
+
+(1 + tanh 𝑢 ).
+
+(26) The log-density includes the standard change-of-variables correction due to the tanh squashing. The actor outputs an intention ̃ 𝑎 𝑡 built from discrete Gumbel–Softmax samples and continuous ̂𝑝 .
+
+6.3. Critics and value network 
+
+Twin critics 𝑄 𝜓 1 , 𝑄 𝜓 2 consume a state embedding (from the GCN) and an action embedding constructed from the 
+
+projected system action 𝑎 𝑡 = Π feas (𝑠 𝑡 ,̃𝑎 𝑡 ). A separate value network 𝑉 𝜑 shares the GCN encoder and outputs 𝑉 𝜑 (𝑠 ′(𝜉 )) 
+
+used by the Wasserstein adversary in (21) as well as in the soft value definition below. 
+
+6.4. Soft value and training losses 
+
+Following the SAC formulation of [24], the entropy-regularized value is defined as 
+
+𝑉 𝜑 (𝑠 ) = 𝔼 𝑎 ∼𝜋 𝜃 (⋅|𝑠 )
+
+[ min  
+
+> 𝑘 =1 ,2
+
+𝑄 𝜓 𝑘 (𝑠, Πfeas (𝑠, 𝑎 ))− 𝛼 log 𝜋 𝜃 (𝑎 |𝑠 )].
+
+(27) With the robust target 𝑦 rob  
+
+> 𝑡
+
+from (21), we train the critics by minimizing 
+
+𝑄 (𝜓 𝑘 ) = 𝔼 [(𝑄 𝜓 𝑘 (𝑠 𝑡 , 𝑎 𝑡 ) − 𝑦 rob  
+
+> 𝑡
+
+)2], 𝑘 = 1 , 2, (28) and the actor by the SAC-style [24]: 
+
+𝜋 (𝜃 ) = 𝔼 𝑠,̃ 𝑎 ∼𝜋 𝜃 
+
+[
+
+𝛼 log 𝜋 𝜃 (̃𝑎 |𝑠 )−min  
+
+> 𝑘
+
+𝑄 𝜓 𝑘 
+
+(𝑠, Πfeas (𝑠,̃𝑎 ) )]
+
+,
+
+(29) 
+
+A. Nguyen et al.: Preprint submitted to Elsevier Page 6 of 13 Semi-Markov RL for City-Scale EV Ride-Hailing 
+
+Algorithm 2 PD–RSAC with Graph-Aligned 𝑊 1 and MILP Projection  
+
+> 1:
+
+Initialize actor 𝜃 , critics 𝜓 1, 𝜓 2, value network 𝜑 , dual 
+
+𝜆 ≥ 0, replay buffer . 
+
+> 2:
+
+for each environment step 𝑡 do  
+
+> 3:
+
+Observe 𝑠 𝑡 . 
+
+> 4:
+
+Sample intention ̃𝑎 𝑡 ∼ 𝜋 𝜃 (⋅|𝑠 𝑡 ) via (7), (25), (26).  
+
+> 5:
+
+Project: 𝑎 𝑡 ← Πfeas (𝑠 𝑡 ,̃𝑎 𝑡 ) via MILP (12)–(16).  
+
+> 6:
+
+Execute 𝑎 𝑡 in the semi-MDP, observe 𝑟 𝑡 , 𝑠 𝑡 +Δ ,̂ 𝜉 𝑡 . 
+
+> 7:
+
+Store (𝑠 𝑡 ,̃𝑎 𝑡 , 𝑎 𝑡 , 𝑟 𝑡 , 𝑠 𝑡 +Δ ,̂ 𝜉 𝑡 ) in . 
+
+> 8:
+
+Sample minibatch of transitions from . 
+
+> 9:
+
+for each transition in minibatch do  
+
+> 10:
+
+Initialize 𝜉 0 ←̂ 𝜉 𝑡 . 
+
+> 11:
+
+for 𝑘 = 0 to 𝐾 − 1 do  
+
+> 12:
+
+𝑔 ← 𝛾 Δ( 𝜉 𝑘 )∇𝜉 𝑉 𝜑 (𝑠 ′(𝜉 𝑘 )) . 
+
+> 13:
+
+ℎ ← 𝑔 𝑑 (𝜉 𝑘 ) as in (17).  
+
+> 14:
+
+𝜉 𝑘 +1∕2 ← 𝜉 𝑘 − 𝜂 (𝑔 + 𝜆 𝑡 ℎ). 
+
+> 15:
+
+𝜉 𝑘 +1 ← Proj (𝜉 𝑘 +1∕2 ). 
+
+> 16:
+
+end for  
+
+> 17:
+
+𝜉 ⋆ ← 𝜉 𝐾 . 
+
+> 18:
+
+Compute robust target 𝑦 rob  
+
+> 𝑡
+
+via (21).  
+
+> 19:
+
+Update critics by minimizing (28).  
+
+> 20:
+
+Update actor by minimizing (29).  
+
+> 21:
+
+Update 𝜆 via the primal–dual rule (23).  
+
+> 22:
+
+end for  
+
+> 23:
+
+end for 
+
+where gradients through the projection Πfeas are handled by a straight-through estimator (STE): in the forward pass we use 
+
+𝑎 = Π feas (𝑠,̃𝑎 ), while in the backward pass we approximate 
+
+𝜕𝑎 ∕𝜕̃ 𝑎 ≈ 𝐼 along selected components. The composition of Πfeas with the robust backup preserves the contraction property of the Bellman operator (Theorem 1). 
+
+6.5. Training algorithm: PD–RSAC 
+
+The full training loop, named Primal–Dual Robust SAC (PD–RSAC), is summarized in Algorithm 2. Note that the primal–dual update (23) is already defined in Sec. 5 and is simply invoked here. 
+
+## 7. Theoretical Results 
+
+We briefly summarize the theoretical properties underpin-ning PD–RSAC. 
+
+Assumption 1 (Boundedness & discount) . Rewards satisfy 
+
+||𝑟 𝑡 || ≤ 𝑅 max < ∞, and 0 < 𝛾 < 1.
+
+Assumption 2 (Feasible projection) . For every state 𝑠 and intention ̃𝑎 , the projection operator Π feas (𝑠,̃𝑎 ) returns a feasi-ble action. This is guaranteed by combining the time-limited MILP (12)–(16) with a “safe” greedy fallback. 
+
+Assumption 3 (Lipschitz regularity under 𝑑 𝑄 ). On the relevant domain, 𝑉 𝜑 (𝑠 ′(⋅)) is 𝐿 𝑊 -Lipschitz under 𝑑 𝑄 (⋅, ⋅).
+
+7.1. Contraction of the robust-soft Bellman operator 
+
+For a fixed dual variable 𝜆 ≥ 0, define the operator 
+
+(rob 𝑉 )( 𝑠 ) = 𝔼 𝑎 ∼𝜋 (⋅|𝑠 )
+
+[
+
+𝑟 (𝑠,̂𝑎 ) − 𝛼 log 𝜋 (̂𝑎 |𝑠 )+ sup 
+
+> 𝜉 ∈
+
+(𝛾 Δ( 𝜉 )𝑉 (𝑠 ′(𝜉 )) − 𝜆𝑑 𝑄 (𝜉,̂ 𝜉 ))]
+
+. (30) with ̂ 𝑎 = Π feas (𝑠, 𝑎 ) and Δ( 𝜉 ) ≥ 1 almost surely. The following property holds. 
+
+Theorem 1 (Contraction of robust Bellman operator) . Un-der Assumption 1, for any 𝑉 1, 𝑉 2,
+
+‖‖rob 𝑉 1 − rob 𝑉 2‖‖∞ ≤ 𝛾 ‖‖𝑉 1 − 𝑉 2‖‖∞ .
+
+Thus, rob is a 𝛾 -contraction in the 𝐿 ∞ norm and admits a unique fixed point. Proof. Rewards and entropy terms cancel in the difference 
+
+(rob 𝑉 1 − rob 𝑉 2). Using sup 𝑓 − sup 𝑔 ≤ sup( 𝑓 − 𝑔 ) and the fact that 𝛾 Δ( 𝜉 ) ≤ 𝛾 for all 𝜉 yields 
+
+||(rob 𝑉 1)( 𝑠 ) − ( rob 𝑉 2)( 𝑠 )|| ≤ 𝛾 ‖‖𝑉 1 − 𝑉 2‖‖∞
+
+for all 𝑠 , proving the result. 
+
+7.2. Lipschitz robustness bound for 𝑊 𝑑 𝑄 
+
+> 1
+
+We recall a standard Lipschitz robustness bound for Wasserstein balls [22], specialized to 𝑑 𝑄 .
+
+Theorem 2 (KR Lipschitz robustness bound) . Let 𝑔 ∶
+
+ℝ𝑞 → ℝ be 𝐿 𝑊 -Lipschitz under 𝑑 𝑄 , i.e., ||𝑔 (𝜉 ) − 𝑔 (𝜉 ′)|| ≤
+
+𝐿 𝑊 𝑑 𝑄 (𝜉, 𝜉 ′). For the ambiguity set 𝜌 (̂ 𝑃 ),
+
+inf   
+
+> 𝑃 ∈𝜌 (̂𝑃 )
+
+𝔼 𝑃 [𝑔 ] ≥ 𝔼 ̂𝑃 [𝑔 ] − 𝐿 𝑊 𝜌. 
+
+In particular, the worst-case expected value over 𝜌 (̂ 𝑃 ) is lower-bounded by the empirical expectation minus 𝐿 𝑊 𝜌 .Proof. By Kantorovich–Rubinstein duality for 𝑊 𝑑 𝑄  
+
+> 1
+
+,
+
+𝑊 𝑑 𝑄  
+
+> 1
+
+(𝑃 ,̂ 𝑃 ) = sup  
+
+> ‖𝑓 ‖Lip( 𝑑 𝑄 )≤1
+
+(𝔼 𝑃 [𝑓 ] − 𝔼 ̂ 𝑃 [𝑓 ]) .
+
+Setting 𝑓 = 𝑔 ∕𝐿 𝑊 shows that for any 𝑃 ,
+
+𝔼 𝑃 [𝑔 ] − 𝔼 ̂ 𝑃 [𝑔 ] ≥ −𝐿 𝑊 𝑊 𝑑 𝑄  
+
+> 1
+
+(𝑃 ,̂ 𝑃 ) ≥ −𝐿 𝑊 𝜌. 
+
+Taking the infimum over 𝑃 ∈ 𝜌 (̂ 𝑃 ) yields the claim. Theorem 2 provides the theoretical motivation for the Wasserstein-robust design adopted in Section 5. In partic-ular, it shows that, whenever the value surrogate is Lipschitz under the graph-aligned metric 𝑑 𝑄 , the degradation of the worst-case expected value over the ambiguity set 𝜌 (̂𝑃 ) is controlled linearly by the radius 𝜌 . This justifies using 𝜌 as an explicit robustness budget in the practical robust target (21) and in the primal–dual update (23). 
+
+A. Nguyen et al.: Preprint submitted to Elsevier Page 7 of 13 Semi-Markov RL for City-Scale EV Ride-Hailing 
+
+7.3. No-regret risk-budget tracking 
+
+Theorem 3 (No-regret tracking of the risk budget) . Con-sider the primal–dual update 
+
+𝜆 𝑡 +1 = [𝜆 𝑡 + 𝜂 𝑡 𝑔 𝑡 
+
+]
+
+> +
+
+, 𝑔 𝑡 =̂𝜌 𝑡 − 𝜌 target , 𝜂 𝑡 = 𝜂 0
+
+√𝑡 ,
+
+where [ ⋅ ]+ denotes projection onto ℝ+. Assume that ̂ 𝜌 𝑡 is bounded on the compact support , so that |𝑔 𝑡 | ≤ 𝐺 for some constant 𝐺 > 0. Then the average budget violation satisfies 
+
+1
+
+𝑇 
+
+> 𝑇
+
+∑
+
+> 𝑡 =1
+
+(𝑔 𝑡 )+ = (𝑇 −1∕2 ),
+
+so that the average positive deviation of ̂ 𝜌 𝑡 above 𝜌 target 
+
+vanishes at rate (𝑇 −1∕2 ).Proof. The proof follows the standard projected subgradient argument for online convex optimization [27], adapted to (23). Let 𝜆 ∗ be an optimal dual variable. By non-expansiveness of the projection [ ⋅ ]+,
+
+|𝜆 𝑡 +1 − 𝜆 ∗|2 ≤ |𝜆 𝑡 + 𝜂 𝑡 𝑔 𝑡 − 𝜆 ∗|2.
+
+Expanding and rearranging gives 
+
+2𝜂 𝑡 𝑔 𝑡 (𝜆 ∗ − 𝜆 𝑡 ) ≤ |𝜆 𝑡 − 𝜆 ∗|2 − |𝜆 𝑡 +1 − 𝜆 ∗|2 + 𝜂 2 
+
+> 𝑡
+
+𝑔 2 
+
+> 𝑡
+
+.
+
+Summing over 𝑡 = 1 , … , 𝑇 yields 
+
+> 𝑇
+
+∑
+
+> 𝑡 =1
+
+𝑔 𝑡 (𝜆 ∗ − 𝜆 𝑡 ) ≤ |𝜆 1 − 𝜆 ∗|2
+
+2𝜂 𝑇 
+
++ 12
+
+> 𝑇
+
+∑
+
+> 𝑡 =1
+
+𝜂 𝑡 𝑔 2 
+
+> 𝑡
+
+.
+
+Since |𝑔 𝑡 | ≤ 𝐺 , we have 
+
+> 𝑇
+
+∑
+
+> 𝑡 =1
+
+𝑔 𝑡 (𝜆 ∗ − 𝜆 𝑡 ) ≤ |𝜆 1 − 𝜆 ∗|2
+
+2𝜂 𝑇 
+
++ 𝐺 2
+
+2
+
+> 𝑇
+
+∑
+
+> 𝑡 =1
+
+𝜂 𝑡 .
+
+With 𝜂 𝑡 = 𝜂 0∕√𝑡 , both 𝜂 −1  
+
+> 𝑇
+
+and ∑𝑇 𝑡 =1 𝜂 𝑡 are (√𝑇 ), so the right-hand side is (√𝑇 ). Dividing by 𝑇 gives an average violation bound of order (𝑇 −1∕2 ), proving the claim. Intuitively, Theorem 3 guarantees that the primal–dual update on 𝜆 automatically calibrates the strength of the Wasserstein penalty: when the adversary tends to exceed the desired radius 𝜌 target , the dual variable grows and pushes the realized radius back, and vice versa. As a result, the effective robustness level remains close to 𝜌 target over the course of training. 
+
+## 8. Experiments 
+
+8.1. Experimental Setup 
+
+We evaluate PD–RSAC on a city-scale EV ride-hailing task built from the New York City Taxi and Limousine Commission (TLC) Trip Record Data [28]. Trips are filtered for valid coordinates and timestamps and restricted to cen-tral New York City (Manhattan and nearby boroughs). The service region is tessellated into a hexagonal grid using the H3 library [29]; at resolution 8 this yields 3824 active hexes, each has the area of 0.73 km 2 and the radius of 0.46 km. There are 13,485,528 trips available, each trip is mapped to an origin and destination hex by its pickup and drop-off coordinates. To match the fleet size of 𝑁 = 1000 vehicles, we sample 20% of the daily trip data, leaving 2,045,463 trips for training and 651,643 trips eval for evaluation. For every Δ𝑡 = 5 minutes, we aggregate trips into an OD tensor 
+
+𝐷 𝑡 (ℎ1, ℎ 2) and estimate a discrete travel-time field 𝑇 𝑡 (ℎ1, ℎ 2)
+
+from empirical median durations. The hex adjacency used by the GCN encoder is ob-tained from H3 neighbor relationships. Charging stations are placed at the || = 150 hexes using a demand-aware, spatially-spaced selection rule: hexes are ranked in descend-ing order of historical pickup intensity and greedily selected subject to a 4-hop exclusion radius that enforces minimum spacing between stations, with any remaining slots filled by descending demand if the spacing constraint prevents reaching the target count, each with port capacity 𝐶 port  
+
+> 𝑠
+
+= 5 .A global feeder limit 𝑃 max  
+
+> feed
+
+= 7000 is imposed on the total charging power. Unless otherwise stated, the fleet consists of 𝑉 = 1000 homogeneous EVs with maximum capacity 
+
+𝐸 max = 50 kWh and initial SoCs drawn uniformly from 
+
+[0 .5, 0.9] 𝐸 max . To evaluate the performance of our algo-rithm, the first 24 days of the dataset are used for training and the remaining 7 days are held out as the testing set, ensuring that the evaluation is conducted on unseen demand patterns. Each episode consists of 144 decision steps spanning 12. The reward function adopts net profit as the primary performance metric, defined as trip revenue minus driving and electricity costs, where driving cost is $0 .30 km and electricity cost is $0 .18 kWh; dropped-order and waiting-time penalties are weighted by 𝜆 drop = 0 .1 and 𝜆 wait = 0 .5,respectively. The actor, twin critics, and value network are trained with the Adam optimizer using learning rates of 
+
+5 × 10 −5 (actor), 1 × 10 −4 (twin critics), and 1 × 10 −4 (value network), a discount factor of 𝛾 = 0 .995 , a replay buffer capacity of 100 ,000 , and a mini-batch size of 128 . For the distributionally robust backup, the Wasserstein ambiguity radius is set to 𝜌 = 0 .3 with a target risk budget of 𝜌 target =0.2, the graph-aligned precision matrix 𝑄 uses 𝛽 = 0 .3 to weight the Laplacian term, the primal–dual update on 𝜆 is driven by an initial step size 𝜂 0 = 0 .01 , while the MILP projection layer is solved using Gurobi under a time limit of 𝜏 max = 3 .0 seconds per decision epoch. The simulation experiments are conducted via Python 3.11 and Pytorch source machine learning library. All simulation experiments are conducted on NVIDIA GeForce RTX 2080 Ti GPUs. For reproducibility, the full codebase and implementation details are available at https://github.com/anthe8105/PD-RSAC.git. 
+
+8.2. Compared Methods 
+
+We evaluate four methods for EV fleet management under the same simulator, hex discretization, state represen-tation, action space, network architecture, reward function, and training budget to ensure a fair comparison.    
+
+> A. Nguyen et al.: Preprint submitted to Elsevier Page 8 of 13 Semi-Markov RL for City-Scale EV Ride-Hailing
+> Figure 3: Net profit comparison across methods. PD–RSAC achieves the highest net profit among all baselines, substan-tially outperforming Greedy, SAC, MAPPO, and MADDPG.
+
+• PD–RSAC (Proposed Method). Our proposed method integrates Soft Actor-Critic with Wasserstein distribu-tionally robust optimization and MILP-based feasible-action projection. This design combines learning-based policy optimization with optimization-based constraint enforcement to improve robustness under distributional uncertainty. 
+
+• Greedy Heuristic. A rule-based deterministic matching algorithm without learning. At each decision epoch, ve-hicles are assigned to trips by maximizing immediate profit under a maximum pickup distance constraint. Ve-hicles with state-of-charge below 20% are prioritized for charging. An iterative greedy matching strategy is applied to maximize the number of served trips while satisfying energy and assignment constraints. 
+
+• SAC (Soft Actor-Critic) [24]. A standard off-policy actor–critic algorithm without the MILP-based feasible-action projection or Wasserstein distributionally robust optimization components. 
+
+• MAPPO (Multi-Agent Proximal Policy Optimization) [30]. An on-policy multi-agent extension of PPO un-der the centralized training with decentralized execution paradigm. Each vehicle is modeled as an agent that learns a decentralized stochastic policy from local observations, while a centralized critic uses global fleet and grid infor-mation during training. The policy is optimized with PPO-style clipped surrogate objectives to improve training stability in cooperative multi-agent settings. 
+
+• MADDPG (Multi-Agent Deep Deterministic Policy Gradient) [31]. An off-policy multi-agent extension of DDPG under the centralized training with decentralized execution paradigm. Each vehicle is modeled as an agent that makes charging and dispatch decisions based on local observations. A deterministic actor produces de-centralized actions, while a centralized critic takes joint observations and actions to estimate agent-specific value functions and mitigate non-stationarity during training. The policy is trained with replay-buffer-based updates and target networks to support stable learning in continuous control settings.   
+
+> Figure 4: Relative improvement of PD–RSAC over baselines. The proposed method consistently improves both net profit and revenue across all compared baselines.
+> Figure 5: Revenue and cost breakdown across methods. PD– RSAC generates the highest total revenue, while its driving and charging costs remain within the same overall range as competing methods, yielding the best net profit.
+
+8.3. Main Evaluation 
+
+For PD–RSAC, the evaluation takes 10260 seconds for a week of simulation (2016 steps), which averages to approx-imately 5 seconds per 5-minute decision step. Although the per-step cost is dominated by the rolling MILP projection and the 𝐾 -iteration inner loop of the Wasserstein adversary, this runtime remains well below the Δ𝑡 = 300 -second decision interval. This leaves ample headroom for real-time deployment and suggests that enforcing hard feasibility and distributional robustness does not compromise practical scalability at city scale. Figure 3 reports the net profit of all methods. PD–RSAC achieves the strongest overall economic performance, reach-ing $1 .22 M, substantially outperforming Greedy ( $0 .58 M), SAC ( $0 .63 M), MAPPO ( $0 .67 M), and MADDPG ( $0 .70 M). The gap is large across all baselines, indicating that the proposed method consistently yields a more effective op-erational policy than both heuristic and learning-based alternatives. To understand the source of this gain, Figure 5 shows the revenue and cost decomposition. PD–RSAC attains the highest total revenue, $2 .32 M, again exceeding all baselines by a wide margin. Although its driving cost and charging cost are not the lowest, the additional cost remains modest    
+
+> A. Nguyen et al.: Preprint submitted to Elsevier Page 9 of 13 Semi-Markov RL for City-Scale EV Ride-Hailing
+> Figure 6: Grid safety analysis under different controllers. (a) Compared with SAC, PD–RSAC eliminates feeder-limit violations by clipping charging peaks below the 7 MW constraint. (b) Compared with MAPPO, PD–RSAC remains safe while utilizing substantially more of the available feeder capacity, demonstrating a better safety–efficiency trade-off.
+
+relative to the increase in revenue. This is an important observation: PD–RSAC does not win merely by suppressing cost, but by generating substantially more revenue through better dispatching and charging decisions. In other words, the proposed method converts available fleet and charging resources into profitable service more effectively than the baselines. Figure 4 further summarizes the relative improvement of PD–RSAC over each baseline. In terms of net profit, PD– RSAC improves over Greedy, SAC, MAPPO, and MAD-DPG by 111 .1% , 94 .0% , 82 .8% , and 74 .9% , respectively. The corresponding revenue improvements are 52 .0% , 39 .5% ,
+
+87 .6% , and 37 .6% . These gains are not isolated to one particular comparison, but remain consistent across heuris-tic, single-agent RL, and multi-agent RL baselines. Taken together, Figures 3–4 show that PD–RSAC delivers the best overall economic outcome and that its advantage is driven primarily by stronger revenue generation rather than by aggressive cost reduction alone. Beyond aggregate profit, we also examine whether this improved performance is obtained in a safe and operationally meaningful manner. Figure 6 compares grid power load profiles under different controllers. In Figure 6(a), SAC produces substantial feeder-limit violations, with a peak charging demand of approximately 
+
+14 ,465 kW under a 7,000 kW feeder limit. By contrast, PD– RSAC keeps the charging load below the limit throughout the day, with a peak of 6,999 kW. This demonstrates that the proposed method can enforce the grid safety constraint effectively even under high-demand operating conditions. Figure 6(b) provides a complementary comparison against MAPPO. Although MAPPO also remains within the feeder limit, its peak charging demand is only about 3,000 kW, cor-responding to 42 .9% of the available capacity. PD–RSAC, in contrast, safely utilizes nearly the full feeder capacity while still avoiding violations. Hence, PD–RSAC is not only safe,         
+
+> Figure 7: Training reward progression of PD–RSAC. Although the per-episode reward is noisy, the 100-episode moving average exhibits a clear upward trend, indicating stable policy improvement over time.
+
+but also less conservative and more efficient in exploiting available grid resources. This safety–efficiency trade-off is a central advantage of the proposed method: it avoids the unsafe behavior observed in SAC while also avoiding the excessive under-utilization exhibited by MAPPO. For completeness, we also inspect the training dynamics of PD–RSAC. Figure 7 shows that, although the per-episode reward is noisy, the 100-episode moving average exhibits a clear upward trend over training, indicating stable policy improvement. In addition, Figure 8 plots the evolution of the dual vari-able 𝜆 𝑡 and the realized radius ̂𝜌 𝑡 . The dual variable decreases smoothly, while the realized radius increases in the early phase and then gradually stabilizes. This behavior suggests that the WDRO mechanism remains active and well-behaved during training, adaptively calibrating the uncertainty set rather than collapsing to a trivial solution or oscillating uncontrollably.         
+
+> A. Nguyen et al.: Preprint submitted to Elsevier Page 10 of 13 Semi-Markov RL for City-Scale EV Ride-Hailing
+> Figure 8: Evolution of the WDRO-specific variables during training. The dual variable 𝜆 𝑡 decreases smoothly, while the realized radius ̂𝜌 𝑡 increases in the early phase and then stabilizes, indicating a stable and meaningful robust training process.
+
+Overall, the main evaluation results support a consistent conclusion: PD–RSAC achieves the highest economic per-formance among all evaluated methods, learns stably during training, and enforces feeder-level safety constraints without becoming overly conservative. The method therefore offers a strong combination of profitability, robustness, and opera-tional safety. 
+
+8.4. Ablation Study 
+
+To isolate the contributions of individual components, we conduct an ablation study by progressively removing the MILP projection layer, the Wasserstein robustness module, and the graph-aligned ground metric. Specifically, we consider the following variants: 
+
+• w/o Graph : replaces the graph-aligned 𝑄 -metric with the identity matrix, resulting in an unstructured Wasserstein ground cost. 
+
+• w/o WDRO : disables the Wasserstein robustness module and trains the agent using standard SAC without distributional robustness. 
+
+• w/o MILP : removes the MILP-based feasibility pro-jection while retaining the robustness module and the graph-aligned 𝑄 -metric. 
+
+• Full : the complete PD-RSAC framework with MILP projection, Wasserstein DRO, and graph-aligned 𝑄 -metric. For fair comparison, all variants are trained under identical hyperparameter settings and share the same ambiguity set radius. Figure 9 summarizes the ablation results in terms of net profit and total revenue. The full model achieves the best performance on both metrics, confirming that the final gains of PD–RSAC do not come from a single module alone. Rather, feasibility refinement, distributional robustness, and graph-aware geometry each contribute to the final result. Among all ablations, removing the MILP layer causes the largest degradation. Without MILP projection, net profit drops from $1 .22 M to $0 .66 M, and total revenue decreases from $2 .32 M to $1 .61 M. This sharp decline indicates that the MILP module is a core component of the system. Its role is not merely post-processing or safety filtering; instead, it materially improves the realizability and quality of fleet de-cisions under charging and infrastructure constraints. These results suggest that feasibility-aware refinement is essential for translating policy outputs into high-quality operational actions. Removing the graph component also reduces perfor-mance. The w/o Graph variant reaches $1 .14 M net profit and $2 .24 M revenue, both below the full model. This shows that incorporating relational and spatial structure into the robustness mechanism is beneficial. Using an unstructured identity cost weakens the quality of the transportation-aware uncertainty model, whereas the graph-aligned metric pro-vides more meaningful perturbation geometry for the deci-sion problem. Similarly, disabling WDRO leads to a measurable per-formance drop. The w/o DRO variant attains $1 .18 M net profit and $2 .22 M revenue, again below the full model. Although this degradation is smaller than that caused by removing MILP, it is still consistent and non-trivial. This indicates that Wasserstein distributional robustness provides additional gains beyond nominal learning, improving the economic quality of the learned policy under uncertainty. Taken together, the ablation results confirm that all three components contribute positively, with the MILP module having the largest impact and the graph-aware representa-tion and WDRO regularization providing complementary improvements. Therefore, the strong performance of PD– RSAC is best understood as the result of a tightly integrated design rather than a single dominant heuristic or architec-tural choice. Beyond effectiveness, it is also important to understand the computational overhead introduced by each component. To this end, Table 1 reports the training time of all ablation         
+
+> A. Nguyen et al.: Preprint submitted to Elsevier Page 11 of 13 Semi-Markov RL for City-Scale EV Ride-Hailing
+> Figure 9: Ablation results for PD–RSAC. The full model achieves the best performance in both net profit and total revenue. Removing MILP causes the largest degradation, while removing WDRO or the graph-aligned metric also leads to consistent performance drops.
+> Table 1
+> Training time comparison (seconds) across model variants.
+> Variant Training time (s)
+> w/o Graph 516154.4 w/o WDRO 496485.0 w/o MILP 87898.1 Full 600499.2
+
+variants, complementing the performance comparison in Fig. 9. Table 1 and Fig. 8 together show a clear efficiency– performance trade-off. Among all variants, w/o MILP is the fastest to train, requiring only 87898.1 s versus 600499.2 s for the full model, i.e., about 6.83 × less training time. This indicates that the MILP projection layer is the primary source of computation cost of the framework. However, the same variant also suffers the largest drop in net profit and total revenue, showing that the extra computational cost of MILP is closely tied to its strong contribution to feasibility refinement and overall decision quality. 
+
+## 9. Conclusion 
+
+We studied city-scale EV ride-hailing control as a con-strained sequential decision-making problem in which dis-patching, repositioning, and charging decisions must re-main feasible under battery, station, and grid limitations. To address this challenge, we proposed PD–RSAC, a unified framework that combines semi-Markov reinforcement learn-ing, rolling MILP-based action projection, and Wasserstein distributional robustness on a graph-structured transporta-tion domain. In contrast to nominal learning pipelines, the proposed method integrates policy learning, feasibility re-finement, and robustness within a single control loop. Our results show that this integration is practically im-portant. PD–RSAC achieves the highest net profit ($1.22M) among all evaluated baselines while maintaining safe oper-ation under feeder-capacity constraints. The ablation study further clarifies the role of each component: the MILP layer provides the largest contribution to profit by turning raw policy outputs into executable infrastructure-aware deci-sions, while the Wasserstein robustness module and graph-aligned metric provide complementary gains under uncer-tainty. Taken together, these findings suggest that effective EV fleet control requires not only strong learning capability, but also explicit treatment of physical feasibility and uncer-tainty within the decision loop itself. More broadly, the paper highlights a useful design prin-ciple for large-scale cyber-physical decision systems: when actions are tightly constrained by infrastructure, learning alone is often insufficient, and performance improves sub-stantially when optimization-based feasibility correction and robustness mechanisms are embedded directly into the con-trol architecture. In this sense, PD–RSAC provides a con-crete example of how reinforcement learning and mathemat-ical programming can be combined to achieve both safety and profitability at scale. An important direction for future work is to replace the current rolling MILP projection with a lighter feasibility module that achieves comparable decision quality at a much lower computational cost. Developing such a mechanism would make the framework more scalable without sacrific-ing the main economic benefits brought by feasibility-aware refinement.   
+
+> A. Nguyen et al.: Preprint submitted to Elsevier Page 12 of 13
+
+Semi-Markov RL for City-Scale EV Ride-Hailing 
+
+## References 
+
+[1] K. Wei, V. Vaze, A. Jacquillat, Transit planning optimization under ride-hailing competition and traffic congestion, Transportation Sci-ence https://doi.org/10.1287/trsc.2021.106856 (2021) 725–749. [2] Y. Cao, S. Wang, J. Li, The optimization model of ride-sharing route for ride hailing considering both system optimization and user fairness, Sustainability https://doi.org/10.3390/su1302090213 (2021) 2728. [3] F. Miao, S. Han, S. Lin, J. A. Stankovic, D. Zhang, S. Munir, H. Huang, T. He, G. J. Pappas, Taxi dispatch with real-time sensing data in metropolitan areas: A receding horizon control ap-proach, IEEE Transactions on Automation Science and Engineering https://doi.org/10.1145/2735960.273596113 (2015) 463–478. [4] Y. Liu, F. Wu, C. Lyu, S. Li, J. Ye, X. Qu, Deep dispatching: A deep reinforcement learning approach for vehicle dispatching on online ride-hailing platform, Transportation Research Part E: Logistics and Transportation Review https://doi.org/10.1016/j.tre.2022.102694161 (2022) 102694. [5] Z. Qin, X. Tang, Y. Jiao, F. Zhang, Z. Xu, H. Zhu, J. Ye, Ride-hailing order dispatching at didi via reinforcement learning, INFORMS Jour-nal on Applied Analytics https://doi.org/10.1287/inte.2020.104750 (2020) 272–286. [6] X. Yue, Y. Liu, F. Shi, S. Luo, C. Zhong, M. Lu, Z. Xu, An end-to-end reinforcement learning based approach for micro-view order-dispatching in ride-hailing, Proceedings of the 33rd ACM Interna-tional Conference on Information and Knowledge Management, 2024, pp. 321–330. https://doi.org/10.1145/3627673.3680013. [7] J. Wang, Q. Hao, W. Huang, X. Fan, Q. Zhang, Z. Tang, B. Wang, J. Hao, Y. Li, Coopride: Cooperate all grids in city-scale ride-hailing dispatching with multi-agent reinforcement learning, Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining, 2025, pp. 1–10. https://doi.org/10.1145/3690624.3709205. [8] Y. Jiao, X. Tang, Z. Qin, S. Li, F. Zhang, H. Zhu, J. Ye, Real-world ride-hailing vehicle repositioning using deep reinforcement learning, Transportation Research Part C: Emerging Technologies https://doi.org/10.1016/j.trc.2021.103289130 (2021) 103289. [9] J. Li, V. Allan, Where to go: Agent guidance with deep reinforcement learning in a city-scale online ride-hailing ser-vice, Proceedings of the IEEE International Conference on Intelligent Transportation Systems (ITSC), 2022, pp. 182–189. https://doi.org/10.1109/ITSC55140.2022.9921747. [10] J. Huang, L. Huang, M. Liu, H. Li, Q. Tan, X. Ma, J. Cui, D.-S. Huang, Deep reinforcement learning-based trajectory pricing on ride-hailing platforms, ACM Transactions on Intelligent Systems and Technology https://doi.org/10.1145/347484113 (2022) 1–19. [11] K. Jin, Z. Feng, X. Li, F. Zhang, Ride-hailing service pattern recognition and demand prediction, IEEE Transactions on Intelligent Transportation Systems https://doi.org/10.1109/TITS.2025.355827426 (2025) 1–10. [12] J. Tian, H. Jia, G. Wang, Q. Huang, R. Wu, H. Gao, C. Liu, Optimal scheduling of shared autonomous electric vehicles with multi-agent reinforcement learning: A mappo-based approach, Neurocomputing https://doi.org/10.1016/j.neucom.2025.129343622 (2025) 129343. [13] J. Hu, Z. Xu, W. Wang, G. Qu, Y. Pang, Y. Liu, Decentralized graph-based multi-agent reinforcement learning using reward machines, Neurocomputing https://doi.org/10.1016/j.neucom.2023.126974564 (2024) 126974. [14] J. Achiam, D. Held, A. Tamar, P. Abbeel, Constrained policy optimization, Proceedings of the 34th International Conference on Machine Learning (ICML), 2017, pp. 22–31. https://doi.org/10.48550/arXiv.1705.10528. [15] B. Amos, J. Z. Kolter, Optnet: Differentiable optimization as a layer in neural networks, Proceedings of the 34th International Conference on Machine Learning (ICML), 2017, pp. 152–161. https://doi.org/10.48550/arXiv.1703.00443. [16] A. Agrawal, S. Barratt, S. Boyd, E. Busseti, Differentiable convex optimization layers, Advances in Neural Informa-tion Processing Systems (NeurIPS), volume 32, 2019, pp. 1–10. https://doi.org/10.48550/arXiv.1910.12430. [17] S. Liu, X. Yang, Z. Zhang, F. L. Lewis, Safe reinforcement learning for affine nonlinear systems with state constraints and in-put saturation using control barrier functions, Neurocomputing https://doi.org/10.1016/j.neucom.2022.11.006518 (2023) 562–576. [18] G. N. Iyengar, Robust dynamic programming, Mathematics of Op-erations Research https://doi.org/10.1287/moor.1040.012930 (2005) 257–280. [19] A. Nilim, L. El Ghaoui, Robust control of markov decision pro-cesses with uncertain transition matrices, Operations Research https://doi.org/10.1287/opre.1050.021653 (2005) 780–798. [20] J. Grand-Clément, C. Kroer, First-order methods for wasserstein distributionally robust mdps, Proceedings of the International Con-ference on Learning Learning (ICML), volume 139, 2021, pp. 1–10. https://doi.org/10.48550/arXiv.2009.06790. [21] A. B. Kordabad, R. Wisniewski, S. Gros, Safe reinforcement learning using wasserstein distributionally robust mpc and chance constraint, IEEE Access https://doi.org/10.1109/ACCESS.2022.322892210 (2022) 1–10. [22] P. Mohajerin Esfahani, D. Kuhn, Data-driven distributionally robust optimization using the wasserstein metric, Mathematical Programming https://doi.org/10.1007/s10107-017-1172-1171 (2018) 115–166. [23] A. Sinha, H. Namkoong, J. Duchi, Certifying some distributional robustness with principled adversarial training, Proceedings of the International Conference on Learning Representations (ICLR), 2018, pp. 1–10. https://doi.org/10.48550/arXiv.1710.10571. [24] T. Haarnoja, A. Zhou, P. Abbeel, S. Levine, Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor, Proceedings of the 35th International Con-ference on Machine Learning (ICML), 2018, pp. 1861–1870. https://doi.org/10.48550/arXiv.1801.01290. [25] T. N. Kipf, M. Welling, Semi-supervised classification with graph convolutional networks, Proceedings of the International Conference on Learning Representations (ICLR), 2017, pp. 1–10. https://doi.org/10.48550/arXiv.1609.02907. [26] E. Jang, S. Gu, B. Poole, Categorical reparameterization with gumbel-softmax, Proceedings of the International Con-ference on Learning Representations (ICLR), 2017, pp. 1–10. https://doi.org/10.48550/arXiv.1611.01144. [27] S. Shalev-Shwartz, Online learning and online convex op-timization, Foundations and Trends in Machine Learning https://doi.org/10.1561/22000000184 (2012) 107–194. [28] NYC Taxi and Limousine Commission, Tlc trip record data, https: //www.nyc.gov/site/tlc/about/tlc-trip-record-data.page , 2025. Ac-cessed: 2025-09-01. [29] Uber Technologies, Inc., H3: A hexagonal hierarchical geospatial indexing system, https://h3geo.org , 2025. Accessed: 2025-09-01. [30] C. Yu, A. Velu, E. Vinitsky, J. Gao, Y. Wang, A. Bayen, Y. Wu, The Surprising Effectiveness of PPO in Cooperative Multi-Agent Games, Proc. Advances in Neural Information Pro-cessing Systems (NeurIPS), volume 35, 2022, pp. 24611–24624. https://doi.org/10.48550/arXiv.2103.01955. [31] R. Lowe, Y. Wu, A. Tamar, J. Harb, P. Abbeel, I. Mordatch, Multi-Agent Actor-Critic for Mixed Cooperative-Competitive Envi-ronments, Proc. Advances in Neural Information Processing Systems (NIPS), 2017, pp. 1–10. https://doi.org/10.48550/arXiv.1706.02275. 
+
+A. Nguyen et al.: Preprint submitted to Elsevier Page 13 of 13

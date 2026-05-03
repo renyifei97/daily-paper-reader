@@ -1,0 +1,2153 @@
+Title: Safe-Support Q-Learning: Learning without Unsafe Exploration
+
+URL Source: https://arxiv.org/pdf/2604.25379v1
+
+Published Time: Wed, 29 Apr 2026 00:49:34 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# Safe-Support Q-Learning: Learning without Unsafe Exploration 
+
+Yeeun Lim 1a , Narim Jeong 1b , Donghwan Lee b
+
+> aHD Korea Shipbuilding & Offshore Engineering
+> bDepartment of Electrical Engineering, KAIST, Daejeon, South Korea
+
+Abstract 
+
+Ensuring safety during reinforcement learning (RL) training is critical in real-world applications where unsafe exploration can lead to devastating outcomes. While most safe RL methods mitigate risk through constraints or penalization, they still allow exploration of unsafe states during training. In this work, we adopt a stricter safety requirement that eliminates unsafe state visitation during training. To achieve this goal, we propose a Q-learning-based safe RL framework that leverages a behavior policy supported on a safe set. Under the assumption that the induced trajectories remain within the safe set, this policy enables sufficient exploration within the safe region without requiring near-optimality. We adopt a two-stage framework in which the Q-function and policy are trained separately. Specifically, we introduce a KL-regularized Bellman target that constrains the Q-function to remain close to the behavior policy. We then derive the policy induced from the trained Q-values and propose a parametric policy extraction method to approximate the optimal policy. Our approach provides a unified framework that can be adapted to different action spaces and types of behavior policies. Experimental results demonstrate that the proposed method achieves stable learning and well-calibrated value estimates and yields safer behavior with comparable or better performance than existing baselines. 
+
+Key words: Safe RL, Q-learning, Behavior policy, Offline RL, KL regularization 
+
+1. Introduction 
+
+Reinforcement learning (RL) [36] has become a powerful framework for autonomous decision-making. By optimizing cumulative rewards through the interaction with the environment, RL agents learn appropriate behaviors with minimal human intervention. However, as RL systems are increasingly deployed in high-risk domains such as autonomous driving and robotics, ensuring safety during the learning and implementation process has become a critical challenge. The core difficulty of this issue arises from the fundamental nature of RL: optimal policies are often discovered through exploration. This process inevitably requires visiting a wide range of state-action pairs, including those that can lead to undesirable or unsafe outcomes. Traditional safe RL [12] attempts to mitigate this issue by incorporating constraints or risk-sensitive objectives into the learning process. For example, constrained policy optimization and actor-critic methods aim to maximize the expected return while satisfying safety constraints [18, 42], whereas conditional value-at-risk focuses on reducing the risk of catastrophic events in constrained settings [19, 20, 44]. Despite these advances, most existing approaches still rely on interactions with unsafe states. For in-stance, safety violations are often controlled through penalties, expectation-based constraints, or bounded violation probabilities [29, 32, 41], but they are not completely eliminated. Even methods such as safety critics [2, 43] require exposure to unsafe transitions to estimate the risk of state-action pairs. Consequently,       
+
+> 1Equal contribution
+> Email addresses: yeeun141054@gmail.com (Yeeun Lim a), nrjeong@kaist.ac.kr (Narim Jeong b), donghwan@kaist.ac.kr
+> (Donghwan Lee b)
+> Preprint submitted to Elsevier April 29, 2026
+> arXiv:2604.25379v1 [cs.LG] 28 Apr 2026
+
+safety has been incorporated as a regularized objective rather than being strictly guaranteed in the majority of prior works. In parallel, an alternative perspective on safety has been extensively studied in control theory. Propor-tional–integral–derivative (PID) control [17], Lyapunov-based stabilization [33], and model predictive control (MPC) [15] are examples of classical approaches for designing controllers whose trajectories stay inside the certified safe or stable regions. Rather than penalizing unsafe outcomes, these methods ensure that the system never deviates from a predetermined set. While such approaches do not directly optimize long-term reward in the RL sense, they provide principled mechanisms for guaranteeing safety at the trajectory level. This motivates the consideration of whether RL can be constrained to operate within the support of safe states. Based on this consideration, this study adopts a stricter safety requirement: the learning process must not produce trajectories that visit unsafe states. Unlike conventional constrained RL [1, 6, 35, 42], we require that unsafe states be entirely excluded from the trajectory distribution. However, restricting exploration to a safe subset of states may limit the achievable performance. This raises a fundamental question: how can an agent sufficiently explore and improve its policy under such strict safety constraints? To address this challenge, we propose a Q-learning-based safe RL algorithm with three key components. First, we employ a behavior policy supported on a safe set. This policy does not need to be optimal but is intentionally stochastic to enable sufficient exploration within the safe region. It can be constructed either by using well-performing controllers or by training from safe datasets. Second, we modify the Q-learning objective by introducing a KL divergence regularization term that aligns the Q-function with the behavior policy. This regularization constrains the Q-function to remain within the support of safe behaviors while enabling improvement in expected return. Third, we provide a principled method for deriving a policy from the trained Q-function with theoretical justification. Since exact policy extraction is often computationally intractable, we further propose a surrogate policy that approximates the optimal policy induced by the Q-function. The main contributions of this work are summarized as follows: 1. We introduce a behavior policy that enables RL without unsafe exploration in both online and offline settings, requiring only stochastic (not near-optimal) policies under the assumption that the induced trajectories remain within the safe set. 2. We adopt a two-stage safe-support Q-learning framework in which the Q-function and policy are trained separately. We first propose a KL-regularized Bellman target that constrains the Q-function to remain close to the behavior policy. We then derive the optimal policy and show that the safe Bellman operator admits a unique fixed point. In addition, we formulate a KL-regularized objective that balances reward and safety and propose a parametric policy extraction method for continuous actions. 3. The proposed method provides a unified framework that can be adapted to different action spaces and types of behavior policies. 4. Experiments show that the proposed method achieves stable learning and well-calibrated value esti-mates and yields safer behavior with comparable or better performance than baselines. 
+
+2. Related Work Safe RL. Prior research in safe RL has primarily focused on incorporating safety constraints into the optimization objective. One example of this research is the constrained Markov decision process [1, 39], where the agent seeks to maximize cumulative rewards while satisfying explicit safety constraints. Risk-sensitive objectives such as conditional value-at-risk have also been adopted to control tail risks [19, 20, 44]. Chance-constrained formulations explicitly bound violation probabilities [5] but still allow unsafe states with limited probability. Entropy regularization is often incorporated to improve exploration and stability in constrained variants such as WCSAC [42]. Another line of work employs reward shaping [24], penalizing unsafe states 2or actions without explicit constraints. In value-based settings, safe Q-learning methods leverage safety through cost critics or safety critics that estimate the likelihood of unsafe transitions and discourage risky behaviors during learning [35, 41]. Despite these advances, existing safe RL methods primarily aim to reduce or bound the risk associated with unsafe states, typically in expectation or probabilistic terms. As a result, unsafe states may still be visited during training, even if their frequency or impact is controlled. In contrast, our work imposes a stricter requirement: under the safe set assumption, unsafe states are excluded from the learning process. This enforces safety at the level of trajectory support rather than through risk penalization. 
+
+Control-based safety. Control theory has provided principled tools for guaranteeing stability and safety. Classical controllers such as PID control [17] achieve robust stabilization via feedback. Lyapunov theory [33] provides a systematic framework to certify stability by ensuring monotonic decrease of a Lya-punov function. MPC [15] further enables constraint-aware control by optimizing control actions over a finite horizon. These control-based approaches have also been combined with RL to improve safety. Lyapunov-based RL methods leverage Lyapunov functions as safety certificates or constraints during policy optimiza-tion [6, 7]. MPC can also be used as a safety layer or a backup controller that filters or overrides unsafe actions [27, 46]. Hybrid schemes that integrate conventional controllers with RL have also been explored to exploit the reliability of classical feedback control while benefiting from data-driven improvement [45]. A key distinction between control-based safety and RL lies in their objectives. Control methods typ-ically prioritize stability and constraint satisfaction, often without explicitly optimizing long-term reward. In contrast, RL focuses on maximizing cumulative reward through exploration, which may induce unsafe behaviors. Our work draws inspiration from the control-theoretic view of safety as an invariance property. Rather than penalizing or bounding violations, we enforce safety at the level of trajectory support by re-stricting the learning process to trajectories that remain within a safe set. To this end, we employ a behavior policy supported on the safe set, which can be constructed using control-theoretic principles or safe datasets. Under the safe set assumption, it generates trajectories within the safe region and enables reward-driven policy improvement. 
+
+Behavior Regularization and Offline RL. Off-policy and offline RL methods [11, 26, 31] often assume limited divergence between the behavior and target policies to ensure stable value estimation and mitigate extrapolation error. This proximity is commonly encouraged through KL divergence regularization [34], entropy-based objectives [14], or conservative value estimation. In offline RL, where policies are optimized from fixed datasets without further interaction, such regularization is essential to address distributional shift between the behavior policy and the learned policy. To reduce extrapolation error and overestimation on out-of-distribution (OOD) actions, several behavior-regularized and conservative approaches have been proposed. For example, conservative Q-learning (CQL) [23] penalizes Q-values for actions outside the dataset distribution to prevent overestimation. Batch-Constrained Q-learning (BCQ) [11] constrains action selection to those sampled from a learned behavior model, effectively limiting deviation from the dataset support. BEAR [22] enforces closeness between the learned policy and the behavior policy using a divergence constraint to control extrapolation error. TD3+BC [10] introduces a behavior cloning regularization term to stabilize policy updates, while Implicit Q-Learning (IQL) [21] reduces distributional shift by implicitly restricting updates to high-advantage in-dataset actions. These methods primarily aim to improve statistical reliability under limited data coverage. However, such con-straints do not imply safety, as standard offline RL neither assumes that unsafe states are excluded from the dataset nor guarantees that the learned policy remains within a safe region. In contrast, our framework assigns a different role to the behavior policy: it is assumed that the induced trajectory remains within the safe set. Accordingly, regularization is not introduced to stabilize training or reduce estimation bias but to ensure that policy updates remain within the safe set. As a result, the behavior policy acts as a structural safety constraint, restricting the learning process to trajectories within the safe set rather than serving as a stabilizing prior for value estimation. 33. Preliminaries 
+
+3.1. Markov Decision Process 
+
+We consider an infinite-horizon discounted Markov decision process (MDP). An MDP is defined by a tuple ( S, A, P, r, γ ), where S and A denote the state space and action space, respectively, P (·| s, a ) is the transition dynamics, r(s, a, s ′) ∈ R is the reward function, and γ ∈ [0 , 1) is the discount factor. We take into account both discrete and continuous spaces. In the discrete setting, S and A are finite sets, i.e., 
+
+S = {1, 2, . . . , |S|} and A = {1, 2, . . . , |A|} . In the continuous setting, S ⊂ Rd′
+
+and A ⊂ Rd are measurable spaces. At each time step k ∈ { 0, 1, 2, . . . }, the agent observes a state sk ∈ S , selects an action ak ∈ A , transitions to the next state sk+1 ∼ P (·| sk, a k), and receives a reward rk+1 := r(sk, a k, s k+1 ). For simplicity, we assume that the reward function is deterministic, although all results extend to stochastic rewards. Then, a policy 
+
+π maps a state to a distribution over actions. In the discrete case, π(·| s) ∈ ∆|A| , where ∆ |A| is the set of all probability distributions over the action space A. In the continuous case, π(·| s) denotes a probability density over A. In this setting, the objective of the MDP is to find an optimal policy π∗ that maximizes the expected cumulative discounted reward: 
+
+π∗ := arg max  
+
+> π∈Θ
+
+E
+
+" ∞X
+
+> k=0
+
+γkrk+1 π
+
+#
+
+,
+
+where Θ denotes the set of all admissible policies, and the expectation is taken over trajectories ( s0, a 0, s 1, a 1, . . . )induced by the policy π and the transition dynamics. Moreover, the Q-function associated with a policy π
+
+is defined as 
+
+Qπ (s, a ) := E
+
+" ∞X
+
+> k=0
+
+γkrk+1 s0 = s, a 0 = a, π 
+
+#
+
+, (s, a ) ∈ S × A .
+
+Then, the optimal Q-function can be expressed as Q∗(s, a ) := Qπ∗
+
+(s, a ). Throughout the paper, we assume that the MDP satisfies standard regularity conditions (e.g., ergodicity or sufficient exploration) so that the relevant expectations and value functions are well-defined. 
+
+3.2. Review of Q-Learning 
+
+Before introducing our method, we briefly review the standard tabular Q-learning [40]. Q-learning is a fundamental RL algorithm that iteratively updates the Q-function using the following update rule: 
+
+Q(sk, a k) ← Q(sk, a k) + α (yk − Q(sk, a k)) ,
+
+where α > 0 is the learning rate. The target value yk is defined as 
+
+yk = rk+1 + 1(sk+1 )γ max  
+
+> a′∈A
+
+Q(sk+1 , a ′),
+
+where 1(sk+1 ) is an indicator function that equals 0 if sk+1 is a terminal state and 1 otherwise. Under the appropriate conditions, this iterative update converges to the optimal Q-function Q∗, from which an optimal policy can be obtained via the greedy rule π∗(s) = arg max a∈A Q∗(s, a ). Despite its simplicity, standard Q-learning has several limitations. The usage of the max operator can lead to overestimation of Q-values, especially in large or continuous action spaces. Moreover, the greedy policy induced by Q-learning lacks inherent stochasticity, which may hinder effective exploration. To address these issues, soft Q-learning [13, 16, 25] introduces entropy regularization into the objective: 
+
+Jπ := E
+
+" ∞X
+
+> k=0
+
+γk (rk+1 + λH (π(·| sk))) π
+
+#
+
+,
+
+4where H(π(·| s)) denotes the entropy of the policy and λ > 0 is a temperature parameter. This formulation encourages stochastic policies and improves the exploration-exploitation tradeoff. In the tabular setting, soft Q-learning modifies the target value as 
+
+ysoft  
+
+> k
+
+= rk+1 + 1(sk+1 )γ max 
+
+> π∈∆|A|
+
+(X
+
+> a∈A
+
+π(a|sk+1 )Qsoft (sk+1 , a ) + λH (π(·| sk+1 )) 
+
+)
+
+, (1) which admits the following closed-form expression: 
+
+ysoft  
+
+> k
+
+= rk+1 + 1(sk+1 )γλ ln X
+
+> a∈A
+
+exp 
+
+ Qsoft (sk+1 , a )
+
+λ
+
+!
+
+. (2) Compared to standard Q-learning, the max operator is replaced by a log-sum-exp function, which can be viewed as a smooth approximation of the maximum. Then, the corresponding optimal policy takes the softmax form: 
+
+π∗
+
+> soft
+
+(a|s) = exp( Q∗
+
+> soft
+
+(s, a )/λ )
+
+P 
+
+> a′∈A
+
+exp( Q∗
+
+> soft
+
+(s, a ′)/λ ) .
+
+Note that the entropy regularization in soft Q-learning can be interpreted as a KL divergence to a uniform distribution, which encourages full support over the action space. In contrast, our method replaces this uniform prior with a behavior policy supported on the safe set so that both value estimation and policy learning are restricted to the safe set. Further details are provided in the next section. 
+
+4. Proposed Approach 
+
+In this paper, we aim to develop a Q-learning variant that learns near-optimal solution without visiting unsafe states. Let Ssafe ⊂ S denote the safe set that satisfy predefined safety constraints. Then, we propose a unified safe Q-learning framework in which all components of learning are restricted to the safe set Ssafe ,as follows: 
+
+• We first construct a behavior policy supported on Ssafe .
+
+• We develop a safe Bellman target that incorporates this behavior policy, enabling Q-function learning without leaving it. 
+
+• We then construct the corresponding policy induced by the trained Q-function, which ensures that the resulting policy remains consistent with the behavior policy through regularization. Note that while the overall principle is shared across all settings, the concrete implementation depends on the action space and the type of the behavior policy. 
+
+4.1. Behavior policy 
+
+We propose methods for constructing a stochastic behavior policy πb, which is assumed to be supported on the safe set Ssafe . This assumption is primarily conceptual, as ensuring that πb remains strictly within 
+
+Ssafe may be trivial in some environments but challenging in others. We consider two practical instantiations of such behavior policies: one based on hand-crafted control strategies and the other based on pre-collected datasets. In the remainder of this paper, we refer to these approaches as HC safe (hand-crafted) and DS safe (dataset-based), respectively. Unlike demonstration-based methods [37, 38], the behavior policy in our framework does not need to be near-optimal; instead, it must be stochastic to enable sufficient exploration within Ssafe . Moreover, while conventional RL methods explore risky regions during training, our approach restricts learning to trajectories that remain within Ssafe . Note that, in practice, our formulation allow a small probability of visiting unsafe states while still aiming to minimize them. 54.1.1. Hand-Crafted behavior policy supported on the safe set (HC safe) 
+
+We construct a behavior policy by leveraging well-performing rules or controllers and converting them into stochastic policies. In simple environments with small state and action spaces, unsafe actions can be manually specified for each state. However, in more complex environments, designing the rules manually becomes impractical. In such cases, we instead employ a controller and train a neural network to imitate its behavior. This approach allows us to obtain a stochastic behavior policy and enables adequate exploration. Under the safe set assumption, the resulting trajectories remain within Ssafe . As a result, the policy can be used for online RL without leaving Ssafe .In continuous action spaces, we further introduce two neural network parameterizations of the behavior policy to balance simplicity and expressiveness. The first is mean-noise behavior policy [28], which outputs a deterministic action and injects Gaussian noise during execution: 
+
+a = clip ( μb(s) + wM , a min , a max ) , (3) where μb : S → A is a deterministic mapping implemented by a neural network and wM ∼ N (0 , σ 2 
+
+> M
+
+I) is a Gaussian noise with σM > 0. Here, clip( ·) projects its input onto [ amin , a max ] to enforce valid actions. The second is distributional behavior policy [14], which directly models a stochastic action distribution conditioned on the state: 
+
+z ∼ N (μb(s), σ 2 
+
+> b
+
+(s)I), a = tanh(z) , (4) where μb(s) and σb(s) are state-dependent outputs of the neural network. tanh( z) maps z to ( −1, 1) to ensure that the resulting action lies within the valid range. 
+
+4.1.2. Dataset-based behavior policy supported on the safe set (DS safe) 
+
+Since HC safe behavior policies are difficult to design in large or continuous action spaces, we introduce an additional approach that leverages an existing dataset collected from the environment. Let the safe dataset Dsafe contain only transitions that do not visit unsafe states. Then, we construct a behavior policy 
+
+πb by maximizing the log-likelihood of actions in this dataset as stated in Algorithm 1 of the Appendix. This objective can be efficiently optimized using stochastic gradient ascent. Here, we adopt both the mean-noise behavior policy (3) and distributional behavior policy (4) as neural network parameterizations in continuous action spaces. It should be noted that the resulting policy does not strictly guarantee safety during rollouts, as log-likelihood maximization may assign non-zero probability to states outside Dsafe . Therefore, we use it only as a support constraint during the policy update. The policy is trained exclusively on samples from Dsafe ,which results in an offline RL setting. Further details are provided in the next subsection. 
+
+4.2. Discrete Action Safe-Support Q-Learning 
+
+In this paper, we adopt a two-stage safe-support Q-learning framework in which the Q-function and policy are trained separately. Unlike methods such as SAC [14], which optimize the Q-function and policy jointly, we fully train the Q-function before proceeding to policy learning. After that, the Q-network parameters are fixed, and only the policy parameters are updated. We first present a safe Bellman target that regularizes Q-learning toward a behavior policy. Then, we theoretically characterize the resulting solution by showing that the trained Q-function induces a well-defined optimal policy. In particular, we show that the resulting policy can be expressed as a behavior policy-weighted softmax over the trained Q-values in discrete action spaces. 
+
+4.2.1. Target Value Construction 
+
+For Q-learning, limiting exploration to safe states poses a significant challenge. Since the agent never observes unsafe transitions, there are no explicit signals in the Q-function that differentiate between safe and risky behaviors. As a result, unseen or OOD state–action pairs can be incorrectly treated as safe, leading to overestimation of their values. To address this issue, we regularize the Bellman target using the behavior policy supported on a safe set Ssafe . We introduce a KL divergence term that encourages the Q-function 6to align with the behavior policy. This prevents the Q-function from assigning high values to actions that are unlikely under the safe data distribution. Notably, this formulation can be interpreted as replacing the entropy term in soft Q-learning (1) with a KL regularization toward the behavior policy. In this paper, we define the following safe target value: 
+
+ysafe  
+
+> k
+
+= rk+1 + 1(sk+1 )γ max 
+
+> π∈∆|A|
+
+(X
+
+> a∈A
+
+π(a|sk+1 )Q(sk+1 , a ) − λD KL (π(·| sk+1 )∥˜πb(·| sk+1 )) 
+
+)
+
+, (5) where ∆ |A| denotes the set of all probability distributions over the action space A, DKL (·∥· ) is the KL divergence, π is a distribution over actions, and λ > 0 is a weight on the KL divergence term. The smoothed behavior policy is defined as ˜ πb(a|s) = (1 − η)πb(a|s) + η/ |A| with η ∈ (0 , 1), where πb is a behavior policy supported on Ssafe . Here, the smoothed policy ˜ πb is introduced to ensure strictly positive probabilities, which makes the KL divergence well-defined. Note that (5) mitigates the influence of OOD actions by penalizing deviations from the behavior policy. 
+
+Remark. In practice, this smoothing does not affect safety, as data are collected using the behavior policy πb that remains within Ssafe . The smoothed policy ˜ πb is used in the target computation of the algorithm and does not directly interact with the environment. As in the entropy-regularized formulation in (1) and (2), (5) can be rewritten in closed form by solving the inner maximization over policies, as shown in the following proposition. 
+
+Proposition 1. The target value in (5) can be equivalently expressed as 
+
+ysafe  
+
+> k
+
+= rk+1 + 1(sk+1 )γλ ln X
+
+> a∈A
+
+˜πb(a|sk+1 ) exp 
+
+ Q(sk+1 , a )
+
+λ
+
+!
+
+. (6) The detailed proof is provided in the Appendix 7.1. Using the proposed target value, we obtain the following tabular safe-support Q-learning update presented in Algorithm 2 of the Appendix. For the offline setting, the only modification is that transitions are sampled from the safe dataset instead of interacting with the environment. Note that the proposed method is closely related to soft Q-learning. If ˜ πb is chosen as the uniform distribution over A, then the KL divergence term reduces to an entropy term as DKL (π(·| sk+1 )∥˜πb(·| sk+1 )) = 
+
+−H(π(·| sk+1 )) + ln( |A| ), which corresponds to the entropy term plus a constant. Substituting this relation into (5), the objective reduces to the entropy-regularized form used in soft Q-learning (1) with an additional constant term. This additional constant only shifts the resulting optimal solution toward all one vector direction, the actual learned policy is unchanged. Therefore, soft Q-learning can be interpreted as a special case of the proposed method when ˜ πb is uniform. The proposed safe Q-learning can be extended to the deep Q-network (DQN) [30] framework with minimal modifications. In standard DQN, two Q-networks are utilized: the online Q-network Qθ parameterized by 
+
+θ, and the target Q-network Qθ′ parameterized by θ′. The online Q-network is trained by minimizing the following mean-squared Bellman error: 
+
+L(θ; B) := 12|B|
+
+X
+
+> (s,a,r,s ′)∈B
+
+ yDQN − Qθ (s, a )2 , (7) where B is a mini-batch uniformly sampled from the replay buffer D, and yDQN is the target value given by yDQN = r + 1(s′)γ max a∈A Qθ′ (s′, a ). The parameters θ are updated via gradient descent, 
+
+θ ← θ − α∇θ L(θ; B), while the target parameters θ′ are held fixed and updated periodically using the online parameters. To incorporate safety into this framework, we replace the standard Bellman target yDQN 
+
+with the proposed safe target ysafe ,DQN :
+
+ysafe ,DQN = r + 1(s′)γλ ln X
+
+> a∈A
+
+˜πb(a|s′) exp 
+
+ Qθ′ (s′, a )
+
+λ
+
+!
+
+. (8) 7This modification biases the target toward actions that are likely under the behavior policy supported on 
+
+Ssafe . The overall procedure is summarized in Algorithm 3 of the Appendix, which is presented for the online setting. For the offline setting, we replace environment interaction with mini-batch sampling from a safe dataset. We first train the DS behavior policy as in Algorithm 1 of the Appendix, and then update the Q-function following Algorithm 4 of the Appendix. 
+
+4.2.2. Policy Extraction from Trained Q-functions 
+
+In this subsection, we characterize the policy induced by the trained Q-function. Similar to soft Q-learning, the modified Bellman operator admits a well-defined fixed point, from which the corresponding optimal policy can be derived. 
+
+Proposition 2. Consider the Bellman equation Q = TλQ, where the operator Tλ : R|S||A| → R|S||A| is defined as 
+
+(TλQ)( s, a ) := E
+
+"
+
+rk+1 + γλ ln X
+
+> a′∈A
+
+˜πb(a′|sk+1 ) exp 
+
+ Q(sk+1 , a ′)
+
+λ
+
+!
+
+sk = s, a k = a
+
+#
+
+.
+
+Then, Tλ admits a unique solution Q∗
+
+> λ
+
+. Moreover, the corresponding optimal policy is given by 
+
+π∗
+
+> λ
+
+(a|s) = ˜πb(a|s) exp ( Q∗
+
+> λ
+
+(s, a )/λ )
+
+P 
+
+> a′∈A
+
+˜πb(a′|s) exp ( Q∗
+
+> λ
+
+(s, a ′)/λ ) .
+
+The proof is given in the Appendix 7.2. This proof follows from the contraction property of Tλ, extending the standard arguments used in entropy-regularized RL [8, 9]. Under the standard assumptions, convergence of the proposed Q-learning algorithm can also be established using techniques similar to those in [16, 25]; however, we omit the proof in this paper. This optimal policy π∗ 
+
+> λ
+
+admits an interpretation analogous to soft Q-learning. Specifically, it can be viewed as the solution to the following KL-regularized control problem: 
+
+π∗ 
+
+> λ
+
+:= arg max  
+
+> π
+
+Jπλ , Jπλ := (1 − γ)E
+
+" ∞X
+
+> k=0
+
+γk (rk+1 − λD KL (π(·| sk)∥˜πb(·| sk))) π
+
+#
+
+.
+
+This objective can be equivalently written as 
+
+Jπλ = X
+
+> s∈S
+
+X
+
+> a∈A
+
+ρπ (s)π(a|s)R(s, a ) − λ X
+
+> s∈S
+
+ρπ (s)DKL (π(·| s)∥˜πb(·| s)) ,
+
+where ρπ (s) := (1 − γ) P∞ 
+
+> k=0
+
+γkP(sk = s|π) denotes the discounted state visitation distribution, P(sk =
+
+s|π) denotes the probability of visiting state s at k under policy π, and R(s, a ) := E [rk+1 |sk = s, a k = a]denotes the expected immediate reward. This formulation shows that the learned policy balances reward maximization and deviation from the behavior policy. Moreover, this formulation provides a global objective interpretation of the proposed Bellman update. The KL-regularized objective implicitly enforces safety while enabling controlled exploration through regularization toward the behavior policy. 
+
+4.3. Continuous Action Safe-Support Q-Learning 
+
+In continuous action spaces, we also adopt a two-stage framework in which the Q-function and policy are trained separately. We construct the safe Bellman target using a Monte Carlo approximation of the intractable expectation and train the Q-function accordingly. Then, we characterize the policy induced by the trained Q-function. In contrast to the discrete case, the optimal policy cannot be computed in closed form; therefore, we introduce a surrogate policy and learn it by minimizing a tractable objective. 84.3.1. Target Value Construction 
+
+We extend the smoothed behavior policy ˜ πb from the discrete case by adding small noise to πb to define a continuous distribution over actions. Then, the safe target value in (8) becomes 
+
+ysafe =r + 1(s′)γλ ln 
+
+
+
+Ea∼˜πb(·| s′)
+
+
+
+exp 
+
+ Qθ′ (s′, a )
+
+λ
+
+ 
+
+(9) =r + 1(s′)γλ ln 
+
+Z 
+
+> a∈A
+
+˜πb(a|s′) exp 
+
+ Qθ′ (s′, a )
+
+λ
+
+
+
+da 
+
+
+
+,
+
+where the smoothed behavior policy is defined as ˜ πb ∼ N (πb, σ 2I), and πb denotes a deterministic behavior policy over a continuous action space supported on a safe set Ssafe . However, this generally does not admit a closed-form solution (i.e., no simple analytic form exists) and is therefore intractable to compute exactly. We thus approximate the expectation in (9) using Monte Carlo sampling, following [13]. 
+
+ysafe ≈ r + 1(s′)γλ ln 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+exp 
+
+ Qθ′ (s′, a i)
+
+λ
+
+!
+
+, (10) where {ai}Ni=1 are i.i.d. samples drawn from the smoothed behavior policy, and N denotes the number of sampled actions. 
+
+4.3.2. Policy Extraction from Trained Q-functions 
+
+According to Proposition 2, the optimal policy induced by the trained Q-function is given by 
+
+π∗
+
+> λ
+
+(a|s) ∼=˜πb(a|s) exp 
+
+ Qθ (s,a )
+
+> λ
+
+R 
+
+> u∈A
+
+˜πb(u|s) exp 
+
+ Qθ (s,u )
+
+> λ
+
+
+
+du .
+
+However, the integral in the denominator is generally intractable in continuous action spaces, making direct evaluation of π∗ 
+
+> λ
+
+impractical. To address this issue, we introduce a surrogate policy πϕ and obtain it by minimizing the KL divergence to the optimal policy: 
+
+L(ϕ) = Es∼N (0 ,σ 21 I)
+
+DKL 
+
+πϕ(·| s)
+
+˜πb(·| s) exp 
+
+ Qθ (s, ·)
+
+> λ
+
+R 
+
+> u∈A
+
+˜πb(u|s) exp 
+
+ Qθ (s,u )
+
+> λ
+
+
+
+du 
+
+ , (11) where N (0 , σ 21 I) denotes a Gaussian distribution with σ21 > 0. Note that since the objective depends only on the state distribution, we adopt a Gaussian distribution as a simple reference distribution instead of the replay buffer. To simplify the objective (11), we parameterize πϕ as a Gaussian policy: 
+
+πϕ(a|s) = N (a; μϕ(s), σ 22 I),
+
+where μϕ(s) and σ2 > 0 denote the mean and standard deviation, respectively. Moreover, we consider two cases depending on the form of the behavior policy: mean-noise behavior policy (3) and distributional behavior policy (4). Then, the approximate objective for the former case can be written as ˜LM (ϕ) := 
+
+> p
+
+X
+
+> i=1
+> q
+
+X
+
+> j=1
+
+ 12σ2
+
+> M
+
+∥μϕ(si) + wj − μb(si)∥22 − Qθ (si, μ ϕ(si) + wj )
+
+λ
+
+
+
+, (12) where si ∼ N (0 , σ 21 I) and wj ∼ N (0 , σ 22 I). For the latter case, the approximate objective is given by ˜LD (ϕ) := 
+
+> p
+
+X
+
+> i=1
+> q
+
+X
+
+> j=1
+
+
+
+− ln ˜ πb(μϕ(si) + wj |si) − Qθ (si, μ ϕ(si) + wj )
+
+λ
+
+
+
+. (13) The detailed derivation is provided in the Appendix 7.3. Furthermore, the overall procedures are summarized in Algorithm 5 and Algorithm 6 of the Appendix, respectively, which are presented for the online setting. 94.4. Unified Algorithmic Variants 
+
+The proposed framework can be instantiated in several algorithmic variants depending on the action space and the type of behavior policy, as summarized in Table 1. All these variants share the same principle: the Q-function is trained using a safe Bellman target, and the policy is subsequently constructed from the trained Q-function while remaining consistent with the behavior policy. The differences arise only from the choice of action space and the parameterization of the behavior policy, which affect the form of the target value and the policy learning objective. Note that we employ an ϵ-greedy behavior policy in discrete action spaces, which is a standard choice for exploration. This safe policy is also restricted to safe actions in our setting so that the resulting trajectories remain within the safe set Ssafe .Case Action Space Behavior Policy Case 1 Discrete HC safe + ϵ-greedy Case 2 Discrete DS safe + ϵ-greedy Case 3 Continuous HC safe + mean-noise Case 4 Continuous HC safe + distributional Case 5 Continuous DS safe + mean-noise Case 6 Continuous DS safe + distributional 
+
+> Table 1: Unified variants of the proposed framework
+
+5. Experiment 
+
+In this section, we evaluate the proposed methods by addressing the following questions: 1. Can the proposed method improve performance when learning only from a behavior policy supported on the safe set? 2. Does the proposed method yield less biased Q-value estimates compared to baseline algorithms? 3. Can the proposed method learn a safer policy at comparable return levels under a behavior policy supported on the safe set? We conduct experiments on the FrozenLake and CartPole environments, both of which have well-established control strategies or known optimal behaviors. Details of the experimental settings are provided in the Appendix 7.4. Note that our proposed framework can be readily extended to other environments. For each result graph, performance is averaged over five different seeds; solid curves represent the mean, and shaded regions indicate the standard deviation. 
+
+5.1. FrozenLake Gym 
+
+To answer the first question, we compare the success rate learning curves of the proposed algorithm and standard Q-learning, as shown in Figures 1a and 1b. To train the standard Q-learning algorithm, we use the same behavior policy as in the proposed algorithm, described in the Appendix 7.4. Since the behavior policy is not updated during training, its performance remains suboptimal. In contrast, both methods learn policies that outperform the behavior policy. Specifically, the proposed algorithm converges faster and exhibits lower variance, indicating more stable learning. These results demonstrate that effective policy learning is achievable even when learning from a behavior policy supported on the safe set. To answer the second question, we compare the trained Q-values of the proposed algorithm and standard Q-learning as shown in Figures 2a and 2b. Each figure visualizes the Q-values for the 16 states as illustrated in Figure 6a of the Appendix, with each square representing a state and each triangle corresponding to an action (up, down, left, and right). Since both methods are trained without visiting unsafe states, the Q-values for unsafe state-action pairs remain zero, as shown in black. Compared to standard Q-learning, our method learns more structured Q-values that emphasize safe trajectories and suppress values near hazardous states. 10 (a) Case 1: Discrete, HC safe (b) Case 2: Discrete, DS safe 
+
+> Figure 1: Learning curve of success rate on FrozenLake-v1 comparing the proposed method with the standard Q-learning under different settings.
+> (a) Comparison of trained Q-values between the proposed method (Case 1: Discrete, HC safe; left) and standard Q-learning (right)
+> (b) Comparison of trained Q-values between the proposed method (Case 2: Discrete, DS safe; left) and standard Q-learning (right)
+> Figure 2: Comparison of trained Q-values on FrozenLake-v1 under different settings.
+
+In particular, Q-values of our method increase smoothly along safe paths toward the goal, while standard Q-learning exhibits relatively uniform and overestimated values near unsafe states. These results indicate that the proposed method captures safety-aware value estimates and achieves improved performance through more accurate value estimation. 
+
+5.2. CartPole Gym 
+
+In this environment, we consider DQN, CQL, BCQ, IQL, TD3+BC, and BEAR as baselines described in the Appendix 7.4 for a fair comparison under our behavior policy setting. Note that TD3+BC and BEAR are only applicable to continuous action spaces. To answer the first question, we evaluate the performance of the proposed methods against baselines across different settings. To train the baselines, we use the same behavior policy as in the proposed algorithm, described in the Appendix 7.4. In the discrete setting illustrated in Figures 3a and 3b, most baselines fail to learn effective policies or exhibit unstable performance. In contrast, our method consistently achieves optimal performance, showing that the optimal policy can be recovered even from suboptimal behavior policies supported on the safe set. In the continuous setting illustrated in Figures 3c and 3d, some baselines still show instability, likely due to limited action diversity. On the other hand, the proposed method demonstrates stable learning with smoother convergence, suggesting robust policy learning under a behavior policy supported on the safe set. When the setting becomes more restricted, as illustrated in Figures 3e and 3f, however, the proposed method shows limited performance due to the imperfect behavior policy estimation. Unlike some baselines that benefit from extrapolation, our method relies on data support, which may limit its ability to discover optimal strategies. This reflects a trade-off between safety and performance under imperfect behavior policies. 11 (a) Case 1: Discrete, HC safe 
+
+> (b) Case 2: Discrete, DS safe
+> (c) Case 3: Continuous, HC safe, mean-noise
+> (d) Case 4: Continuous, HC safe, distributional
+> (e) Case 5: Continuous, DS safe, mean-noise
+> (f) Case 6: Continuous, DS safe, distributional
+> Figure 3: Learning curves on CartPole-v1 comparing the proposed method with baselines under different settings.
+
+For the second question, we assess estimation bias by comparing max a Q(s, a ) with the Monte Carlo re-turn obtained by rolling out the corresponding greedy policy. As shown in Figure 4, well-calibrated Q-values should lie along the diagonal (dotted line), with points above and below the line indicating overestimation and underestimation, respectively. In Figure 4a to Figure 4d, the proposed method produces Q-values closely aligned with the Monte Carlo returns, which indicates well-calibrated value estimates. In contrast, baseline methods exhibit various issues, including value collapse (nearly constant Q-values), overly conservative es-timation (below the diagonal), or divergence (above the diagonal). These results suggest that inaccurate Q-value estimation can lead to either policy collapse or overly conservative behavior. In particular, some baselines display widely scattered points as shown in Figure 4c. This reflects high variance and inconsistent Q-value estimation. Even when similar returns are achieved (e.g., BCQ and TD3+BC in Figures 4c and 4d), their Q-values are more dispersed and deviate further from the diagonal. This suggests that their value func-tions are less stable and inaccurately calibrated, whereas the proposed method maintains low-variance and more reliable value estimation. However, in Figures 4e and 4f, the proposed method no longer maintains well-calibrated Q-values. This is likely due to imperfect behavior policy estimation. To answer the last question, we group results into return bins and compare the mean maximum pole angle across models within each bin. Specifically, we aggregate returns from all models that were collected during training at every 100 episodes, partition them into bins defined between the maximum and minimum returns, and compute the average maximum pole angle within each bin. Bins without data indicate that no checkpoints achieve returns in that range. In Figure 5, the proposed method achieves lower maximum pole angles than baselines across most return ranges, which indicates safer behavior. While CQL attains low angles in Figures 5b to 5d, its overall performance is poor in Figures 3b to 3d. In contrast, compared to methods with similar returns (e.g., BCQ and TD3+BC in Figures 3c and 3d), our method maintains comparable or lower angles and notably achieves the lowest angle at return 500 across all settings. Although all methods show decreasing angles at higher returns, ours produces safer trajectories at equivalent perfor-12 (a) Case 1: Discrete, HC safe 
+
+> (b) Case 2: Discrete, DS safe
+> (c) Case 3: Continuous, HC safe, mean-noise
+> (d) Case 4: Continuous, HC safe, distributional
+> (e) Case 5: Continuous, DS safe, mean-noise
+> (f) Case 6: Continuous, DS safe, distributional
+> Figure 4: Q-value estimation bias on CartPole-v1 comparing the proposed method with baselines under different settings.
+
+mance levels. In Figures 5e and 5f, the proposed method appears safe but is overly conservative, leading to low performance in Figures 3e and 3f. 
+
+6. Conclusion 
+
+In this work, we presented a safe-support Q-learning framework that enforces a strict safety requirement by restricting training to trajectories that remain within the safe set. By leveraging a stochastic behavior policy supported on the safe set, the proposed method enables exploration within a safe region without relying on unsafe interactions. We introduced a KL-regularized Bellman target to align the Q-function with the safe behavior distribution, promoting both safety and performance improvement. Theoretical analysis showed that the proposed Bellman operator admits a unique fixed point and that the induced policy corresponds to a KL-regularized optimal control solution. For continuous action spaces, we further proposed a practical policy extraction method based on parametric approximation. Empirical results demonstrated that the proposed method achieves stable learning, well-calibrated value estimates, and consistently safer behavior compared to baselines. In particular, it reduces risk and variance while maintaining competitive performance across a wide range of settings. Despite these advantages, the proposed method relies on a predefined behavior policy, which may limit its applicability in more complex environments and introduce a trade-off between safety and performance when the behavior policy is imperfect. Future work will focus on learning such behavior policies and extending the framework to offline RL scenarios with OOD challenges, as well as to more complex and high-dimensional environments. 13 (a) Case 1: Discrete, HC safe 
+
+> (b) Case 2: Discrete, DS safe
+> (c) Case 3: Continuous, HC safe, mean-noise
+> (d) Case 4: Continuous, HC safe, distributional
+> (e) Case 5: Continuous, DS safe, mean-noise
+> (f) Case 6: Continuous, DS safe, distributional
+
+Figure 5: Same-return mean maximum pole angle curve on CartPole-v1 comparing the proposed method with baselines under different settings. 
+
+References 
+
+[1] Altman, E. Constrained Markov decision processes . Routledge, 2021. [2] Bharadhwaj, H., Kumar, A., Rhinehart, N., Levine, S., Shkurti, F., and Garg, A. Conservative safety critics for exploration. arXiv preprint arXiv:2010.14497 (2020). [3] Boyd, S., and Vandenberghe, L. Convex optimization . Cambridge university press, 2004. [4] Brockman, G., et al. OpenAI Gym. https://github.com/openai/gym , 2016. [5] Chow, Y., Ghavamzadeh, M., Janson, L., and Pavone, M. Risk-constrained reinforcement learning with percentile risk criteria. Journal of Machine Learning Research 18 , 167 (2018), 1–51. [6] Chow, Y., Nachum, O., Duenez-Guzman, E., and Ghavamzadeh, M. A Lyapunov-based approach to safe reinforcement learning. Advances in neural information processing systems 31 (2018). [7] Chow, Y., Nachum, O., Faust, A., Duenez-Guzman, E., and Ghavamzadeh, M. Lyapunov-based safe policy optimiza-tion for continuous control. arXiv preprint arXiv:1901.10031 (2019). [8] Dai, B., Shaw, A., Li, L., Xiao, L., He, N., Liu, Z., Chen, J., and Song, L. SBEED: Convergent reinforcement learning with nonlinear function approximation. In International conference on machine learning (2018), pp. 1125–1134. [9] Fox, R., Pakman, A., and Tishby, N. Taming the noise in reinforcement learning via soft updates. In 32nd Conference on Uncertainty in Artificial Intelligence 2016, UAI 2016 (2016), pp. 202–211. [10] Fujimoto, S., and Gu, S. S. A minimalist approach to offline reinforcement learning. Advances in neural information processing systems 34 (2021), 20132–20145. [11] Fujimoto, S., Meger, D., and Precup, D. Off-policy deep reinforcement learning without exploration. In International conference on machine learning (2019), PMLR, pp. 2052–2062. [12] Gu, S., Yang, L., Du, Y., Chen, G., Walter, F., Wang, J., and Knoll, A. A review of safe reinforcement learning: Methods, theory and applications. arXiv preprint arXiv:2205.10330 (2022). [13] Haarnoja, T., Tang, H., Abbeel, P., and Levine, S. Reinforcement learning with deep energy-based policies. In 
+
+International conference on machine learning (2017), PMLR, pp. 1352–1361. [14] Haarnoja, T., Zhou, A., Abbeel, P., and Levine, S. Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor. In International conference on machine learning (2018), PMLR, pp. 1861–1870. [15] Holkar, K., and Waghmare, L. M. An overview of model predictive control. International Journal of control and automation 3 , 4 (2010), 47–63. [16] Jeong, N., and Lee, D. Unified finite-time error analysis of soft Q-learning. Neurocomputing (2025), 129582. [17] Johnson, M. A., and Moradi, M. H. PID control . Springer, 2005. [18] Kim, D., Lee, K., and Oh, S. Trust region-based safe distributional reinforcement learning for multiple constraints. 
+
+Advances in neural information processing systems 36 (2024). 
+
+14 [19] Kim, D., and Oh, S. Efficient off-policy safe reinforcement learning using trust region conditional value at risk. IEEE Robotics and Automation Letters 7 , 3 (2022), 7644–7651. [20] Kim, D., and Oh, S. TRC: Trust region conditional value at risk for safe reinforcement learning. IEEE Robotics and Automation Letters 7 , 2 (2022), 2621–2628. [21] Kostrikov, I., Nair, A., and Levine, S. Offline reinforcement learning with implicit q-learning. arXiv preprint arXiv:2110.06169 (2021). [22] Kumar, A., Fu, J., Soh, M., Tucker, G., and Levine, S. Stabilizing off-policy q-learning via bootstrapping error reduction. Advances in neural information processing systems 32 (2019). [23] Kumar, A., Zhou, A., Tucker, G., and Levine, S. Conservative Q-learning for offline reinforcement learning. Advances in Neural Information Processing Systems 33 (2020), 1179–1191. [24] Laud, A. D. Theory and application of reward shaping in reinforcement learning . University of Illinois at Urbana-Champaign, 2004. [25] Lee, D. Unified ODE analysis of smooth Q-learning algorithms. arXiv preprint arXiv:2404.14442 (2024). [26] Levine, S., Kumar, A., Tucker, G., and Fu, J. Offline reinforcement learning: Tutorial, review, and perspectives on open problems. arXiv preprint arXiv:2005.01643 (2020). [27] Li, S., and Bastani, O. Robust model predictive shielding for safe reinforcement learning with stochastic dynamics. In 
+
+2020 IEEE International Conference on Robotics and Automation (ICRA) (2020), IEEE, pp. 7166–7172. [28] Lillicrap, T. P., Hunt, J. J., Pritzel, A., Heess, N. M. O., Erez, T., Tassa, Y., Silver, D., and Wierstra, D. 
+
+Continuous control with deep reinforcement learning. arXiv: Learning (2015). [29] Liu, Z., Cen, Z., Isenbaev, V., Liu, W., Wu, S., Li, B., and Zhao, D. Constrained variational policy optimization for safe reinforcement learning. In International Conference on Machine Learning (2022), PMLR, pp. 13644–13668. [30] Mnih, V., Kavukcuoglu, K., Silver, D., Graves, A., Antonoglou, I., Wierstra, D., and Riedmiller, M. Playing Atari with deep reinforcement learning. arXiv preprint arXiv:1312.5602 (2013). [31] Munos, R., Stepleton, T., Harutyunyan, A., and Bellemare, M. Safe and efficient off-policy reinforcement learning. 
+
+Advances in neural information processing systems 29 (2016). [32] Peng, B., Duan, J., Chen, J., Li, S. E., Xie, G., Zhang, C., Guan, Y., Mu, Y., and Sun, E. Model-based chance-constrained reinforcement learning via separated proportional-integral lagrangian. IEEE Transactions on Neural Networks and Learning Systems 35 , 1 (2022), 466–478. [33] Sastry, S. Lyapunov stability theory. In Nonlinear systems: analysis, stability, and control . Springer, 1999, pp. 182–234. [34] Schulman, J., Wolski, F., Dhariwal, P., Radford, A., and Klimov, O. Proximal policy optimization algorithms. 
+
+arXiv preprint arXiv:1707.06347 (2017). [35] Srinivasan, K., Eysenbach, B., Ha, S., Tan, J., and Finn, C. Learning to be safe: Deep RL with a safety critic. arXiv preprint arXiv:2010.14603 (2020). [36] Sutton, R. S., and Barto, A. G. Reinforcement learning: An introduction . MIT Press, 1998. [37] Thananjeyan, B., Balakrishna, A., Rosolia, U., Li, F., McAllister, R., Gonzalez, J. E., Levine, S., Borrelli, F., and Goldberg, K. Safety augmented value estimation from demonstrations: Safe deep model-based RL for sparse cost robotic tasks. IEEE Robotics and Automation Letters 5 , 2 (2020), 3612–3619. [38] Turchetta, M., Kolobov, A., Shah, S., Krause, A., and Agarwal, A. Safe reinforcement learning via curriculum induction. Advances in Neural Information Processing Systems 33 (2020), 12151–12162. [39] Wachi, A., and Sui, Y. Safe reinforcement learning in constrained markov decision processes. In International Conference on Machine Learning (2020), PMLR, pp. 9797–9806. [40] Watkins, C. J., and Dayan, P. Q-learning. Machine learning 8 (1992), 279–292. [41] Xu, H., Zhan, X., and Zhu, X. Constraints penalized Q-learning for safe offline reinforcement learning. In Proceedings of the AAAI Conference on Artificial Intelligence (2022), vol. 36, pp. 8753–8760. [42] Yang, Q., Sim˜ ao, T. D., Tindemans, S. H., and Spaan, M. T. Wcsac: Worst-case soft actor critic for safety-constrained reinforcement learning. In Proceedings of the AAAI Conference on Artificial Intelligence (2021), vol. 35, pp. 10639–10646. [43] Yang, Q., Sim˜ ao, T. D., Tindemans, S. H., and Spaan, M. T. Safety-constrained reinforcement learning with a distributional safety critic. Machine Learning 112 , 3 (2023), 859–887. [44] Ying, C., Zhou, X., Su, H., Yan, D., Chen, N., and Zhu, J. Towards safe reinforcement learning via constraining conditional value-at-risk. arXiv preprint arXiv:2206.04436 (2022). [45] Yoo, J., Jang, D., Kim, H. J., and Johansson, K. H. Hybrid reinforcement learning control for a micro quadrotor flight. 
+
+IEEE Control Systems Letters 5 , 2 (2020), 505–510. [46] Zanon, M., and Gros, S. Safe reinforcement learning using robust mpc. IEEE Transactions on Automatic Control 66 ,8 (2020), 3638–3652. 
+
+7. Appendix 
+
+7.1. Proof of Proposition 1 
+
+To derive our result, we first introduce the following definition and lemma. 
+
+Definition 1 (Conjugate function [3]) . For a given function f : Rn → R, its conjugate, f ∗ : Rn → R, is defined as 
+
+f ∗(y) := sup  
+
+> x∈dom( f)
+
+(yT x − f (x)) .
+
+15 Lemma 1. Let us consider the function f defined as 
+
+f (x) = λD KL (x∥q) = λ
+
+> n
+
+X
+
+> i=1
+
+xi ln 
+
+ xi
+
+qi
+
+
+
+,
+
+where λ is a regularization parameter and x = ( x1, . . . , x n) and q = ( q1, . . . , q n) are probability distributions over {1, 2, . . . , n }. Moreover, we assume that qi > 0 for all i ∈ { 1, 2, . . . , n }. Then, its conjugate f ∗ is given as 
+
+f ∗(y) = max  
+
+> x∈dom( f)
+
+ xT y − λD KL (x∥q) = λ ln 
+
+> n
+
+X
+
+> i=1
+
+qi exp 
+
+ yi
+
+λ
+
+!
+
+,
+
+where dom( f ) = ∆ n.Proof. Utilizing Definition 1 and dom( f ) = ∆ n, we obtain 
+
+f ∗(y) = max 
+
+> x∈∆n
+> n
+
+X
+
+> i=1
+
+xiyi + λ
+
+> n
+
+X
+
+> i=1
+
+xi ln( qi) − λ
+
+> n
+
+X
+
+> i=1
+
+xi ln( xi)
+
+!
+
+,
+
+where x ∈ ∆n satisfies Pni=1 xi = 1 and xi ≥ 0 for all i ∈ { 1, 2, . . . , n }.To solve the constrained optimization problem, we introduce the Lagrangian function 
+
+L(x, h 0, h 1, . . . , h n) := 
+
+> n
+
+X
+
+> i=1
+
+xiyi + λ
+
+> n
+
+X
+
+> i=1
+
+xi ln qi − λ
+
+> n
+
+X
+
+> i=1
+
+xi ln xi + h0 1 −
+
+> n
+
+X
+
+> i=1
+
+xi
+
+!
+
++
+
+> n
+
+X
+
+> i=1
+
+(−xi)hi,
+
+where h0, h 1, . . . , h n ∈ R are Lagrangian multipliers associated with the equality and inequality constraints, respectively. The corresponding Karush–Kuhn–Tucker (KKT) conditions [3] are given by 
+
+• Stationarity: ∂L ∂x i
+
+= yi + λ ln qi − λ(1 + ln xi) − h0 − hi = 0 , ∀i. (14) 
+
+• Primal feasibility: 
+
+∂L ∂h 0
+
+= 1 −
+
+> n
+
+X
+
+> i=1
+
+xi = 0 , (15) 
+
+∂L ∂h i
+
+= −xi ≤ 0, ∀i. 
+
+• Dual feasibility: 
+
+hi ≥ 0, ∀i. 
+
+• Complementary slackness: nX
+
+> i=1
+
+xihi = 0 .
+
+From the stationarity condition (14), we obtain 
+
+xi = exp 
+
+ yi
+
+λ + ln qi − h0 + hi
+
+λ − 1
+
+
+
+= exp 
+
+ yi
+
+λ
+
+
+
+qi exp 
+
+
+
+− h0 + hi
+
+λ − 1
+
+
+
+. (16) Since the exponential function is strictly positive, it follows that xi > 0 for all i, and hence hi = 0 for 
+
+i = {1, 2, . . . , n } by complementary slackness. Moreover, from the first primal feasibility condition (15), we have nX
+
+> i=1
+
+xi =
+
+> n
+
+X
+
+> i=1
+
+exp 
+
+ yi
+
+λ
+
+
+
+qi exp 
+
+
+
+− h0
+
+λ − 1
+
+
+
+= 1 ,
+
+16 which implies exp 
+
+
+
+− h0
+
+λ − 1
+
+
+
+= 1
+
+Pni=1 exp   yi
+
+> λ
+
+ qi
+
+.
+
+Then, substituting this into (16) yields 
+
+xi = exp   yi
+
+> λ
+
+ qi
+
+Pni=1 exp   yi
+
+> λ
+
+ qi
+
+. (17) By defining 
+
+g(x, y ) := xT y − λD KL (x∥q) = xT y − λ
+
+> n
+
+X
+
+> i=1
+
+xi ln 
+
+ xi
+
+qi
+
+
+
+,
+
+and using (17), one gets 
+
+g(x, y ) = 
+
+Pnj=1 yj exp   yj
+
+> λ
+
+ qj
+
+Pni=1 exp   yi
+
+> λ
+
+ qi
+
+− λ
+
+Pnj=1 exp   yj
+
+> λ
+
+ qj ln 
+
+ exp ( yjλ )qj 
+
+> Pnl=1 exp
+
+( ylλ )ql
+
+· 1
+
+> qi
+
+Pni=1 exp   yi
+
+> λ
+
+ qi
+
+=
+
+Pnj=1 yj exp   yj
+
+> λ
+
+ qj
+
+Pni=1 exp   yi
+
+> λ
+
+ qi
+
+− λ
+
+Pnj=1 exp   yj
+
+> λ
+
+ qj · yj
+
+> λ
+
+Pni=1 exp   yi
+
+> λ
+
+ qi
+
++ λ
+
+Pnj=1 exp   yj
+
+> λ
+
+ qj ln  P nl=1 exp   yl
+
+> λ
+
+ ql
+
+Pni=1 exp   yi
+
+> λ
+
+ qi
+
+=λ ln 
+
+> n
+
+X
+
+> i=1
+
+exp 
+
+ yi
+
+λ
+
+
+
+qi
+
+!
+
+,
+
+which completes the proof. We now prove Proposition 1. 
+
+Proposition 1 Restated. The target value in (5) can be equivalently expressed as 
+
+ysafe  
+
+> k
+
+= rk+1 + 1(sk+1 )γλ ln X
+
+> a∈A
+
+˜πb(a|sk+1 ) exp 
+
+ Q(sk+1 , a )
+
+λ
+
+!
+
+.
+
+Proof. Using the definition of the KL divergence, the target value in (5) can be rewritten as 
+
+ysafe  
+
+> k
+
+= rk+1 + 1(sk+1 )γ max 
+
+> π∈∆|A|
+
+(X
+
+> a∈A
+
+π(a|sk+1 )Q(sk+1 , a ) − λ X
+
+> a∈A
+
+π(a|sk+1 ) ln 
+
+ π(a|sk+1 )˜πb(a|sk+1 )
+
+!
+
+.
+
+Let 
+
+y =
+
+
+
+y1
+
+y2
+
+...
+
+y|A| 
+
+ =
+
+
+
+π(1 |sk+1 )
+
+π(2 |sk+1 )...
+
+π(|A|| sk+1 )
+
+ , x =
+
+
+
+x1
+
+x2
+
+...
+
+x|A| 
+
+ =
+
+
+
+Q(sk+1 , 1) 
+
+Q(sk+1 , 2) ...
+
+Q(sk+1 , |A| )
+
+ , q =
+
+
+
+q1
+
+q2
+
+...
+
+q|A| 
+
+ =
+
+
+
+˜πb(1 |sk+1 )˜πb(2 |sk+1 )...˜πb(|A|| sk+1 )
+
+ .
+
+Then, the target value can be expressed as 
+
+ysafe  
+
+> k
+
+=rk+1 + 1(sk+1 )γ max 
+
+> y∈∆|A|
+
+xT y − λ X
+
+> a∈A
+
+ya ln 
+
+ ya
+
+qa
+
+!
+
+=rk+1 + 1(sk+1 )γλ ln 
+
+> n
+
+X
+
+> i=1
+
+qa exp 
+
+ xa
+
+λ
+
+!
+
+=rk+1 + 1(sk+1 )γλ ln X
+
+> a∈A
+
+˜πb(a|sk+1 ) exp 
+
+ Q(sk+1 , a )
+
+λ
+
+!
+
+,
+
+where the second equality follows from Lemma 1. This completes the proof. 17 7.2. Proof of Proposition 2 
+
+Proposition 2 Restated. Consider the Bellman equation Q = TλQ, where the operator Tλ : R|S||A| →
+
+R|S||A| is defined as (TλQ)( s, a ) := E
+
+"
+
+rk+1 + γλ ln X
+
+> a′∈A
+
+˜πb(a′|sk+1 ) exp 
+
+ Q(sk+1 , a ′)
+
+λ
+
+!
+
+sk = s, a k = a
+
+#
+
+.
+
+Then, Tλ admits a unique solution Q∗
+
+> λ
+
+. Moreover, the corresponding optimal policy is given by 
+
+π∗
+
+> λ
+
+(a|s) = ˜πb(a|s) exp ( Q∗
+
+> λ
+
+(s, a )/λ )
+
+P 
+
+> a′∈A
+
+˜πb(a′|s) exp ( Q∗
+
+> λ
+
+(s, a ′)/λ ) .
+
+Proof. To establish the existence and uniqueness of the solution to the Bellman equation, it suffices to show that Tλ is a contraction mapping. The proof follows standard arguments in [8, 9]. In particular, for any 
+
+Q1, Q 2 ∈ R|S×A| , we have 
+
+∥TλQ1 − TλQ2∥∞
+
+= γ max 
+
+> π∈∆|A|
+
+E
+
+"X
+
+> a∈A
+
+π(a|s′)Q1(s′, a ) − λD KL (π(·| s′)∥˜πb(·| s′)) 
+
+#
+
+− γ max 
+
+> π∈∆|A|
+
+E
+
+"X
+
+> a∈A
+
+π(a|s′)Q2(s′, a ) − λD KL (π(·| s′)∥˜πb(·| s′)) 
+
+#
+
+> ∞
+
+≤γ max 
+
+> π∈∆|A|
+
+(
+
+E
+
+"X
+
+> a∈A
+
+π(a|s′)Q1(s′, a ) − λD KL (π(·| s′)∥˜πb(·| s′)) 
+
+#
+
+− E
+
+"X
+
+> a∈A
+
+π(a|s′)Q2(s′, a ) − λD KL (π(·| s′)∥˜πb(·| s′)) 
+
+#) 
+
+> ∞
+
+=γ max 
+
+> π∈∆|A|
+
+E
+
+"X
+
+> a∈A
+
+π(a|s′) {Q1(s′, a ) − Q2(s′, a )}
+
+#
+
+> ∞
+
+=γ max  
+
+> a∈A
+
+E [Q1(s′, a ) − Q2(s′, a )] 
+
+> ∞
+
+≤γ ∥Q1 − Q2∥∞ ,
+
+where the first equality follows from (5), and the last inequality follows from the non-expansiveness of the max operator. Therefore, the corresponding Bellman equation admits a unique solution. For the second statement, let Q∗ 
+
+> safe
+
+denote the unique solution to the Bellman equation, i.e., Q∗
+
+> safe
+
+(s, a ) = (T Q ∗
+
+> safe
+
+)( s, a ), which implies 
+
+Q∗
+
+> safe
+
+(s, a )=E
+
+"
+
+rk+1 + γ max 
+
+> π∈∆|A|
+
+( X
+
+> a∈A
+
+π(a|sk+1 )Q∗
+
+> safe
+
+(sk+1 , a ) − λD KL (π(·| sk+1 )∥˜πb(·| sk+1 )) 
+
+)
+
+s0 = s, a 0 = a
+
+#
+
+.
+
+Then, the corresponding policy is given by 
+
+π∗
+
+> safe
+
+(·| s) = arg max 
+
+> π∈∆|A|
+
+(X
+
+> a∈A
+
+π(a|s)Q∗
+
+> safe
+
+(s, a ) − λD KL (π(·| s)∥˜πb(·| s)) 
+
+)
+
+.
+
+The arg max can be derived following the same steps as in the proof of Proposition 1. This completes the proof. 18 7.3. Derivation of the Continuous Policy Objective 
+
+To simplify the objective (11), we expand the KL divergence as 
+
+L(ϕ) = Es∼N (0 ,σ 21 I)
+
+Z 
+
+> a∈A
+
+πϕ(a|s)
+
+
+
+ln πϕ(a|s) + ln 
+
+Z 
+
+> u∈A
+
+˜πb(u|s) exp 
+
+ Qθ (s, u )
+
+λ
+
+
+
+du 
+
+
+
+− ln 
+
+
+
+˜πb(a|s) exp 
+
+ Qθ (s, a )
+
+λ
+
+ 
+
+da 
+
+
+
+,
+
+(18) where the constant term does not depend on ϕ and can therefore be ignored during optimization. Then, we parameterize πϕ as a Gaussian policy: 
+
+πϕ(a|s) = N (a; μϕ(s), σ 22 I),
+
+where μϕ(s) and σ2 > 0 denote the mean and standard deviation, respectively. Using the reparameterization trick, 
+
+a = μϕ(s) + w, w ∼ N (0 , σ 22 I),
+
+the objective in (18) can be rewritten as 
+
+L(ϕ) = Es∼N (0 ,σ 21 I),w ∼N (0 ,σ 22 I)
+
+
+
+ln πϕ (μϕ(s) + w|s) − ln ˜ πb (μϕ(s) + w|s) − Qθ (s, μ ϕ(s) + w)
+
+λ
+
+
+
+. (19) Here, the first term in (19) can be written as ln πϕ (μϕ(s) + w|s) = ln N  μϕ(s) + w; μϕ(s), σ 22 I
+
+= ln 
+
+ 1(2 π)d/ 2σd
+
+> 2
+
+exp 
+
+
+
+− 12σ22
+
+∥μϕ(s) + w − μϕ(s)∥22
+
+ 
+
+= − d
+
+2 ln(2 π) − d ln σ2 − 12σ22
+
+∥w∥22,
+
+where d denotes the action dimension. This term is constant with respect to ϕ and can therefore be omitted during optimization. To simplify the objective (19), we consider two cases depending on the form of the behavior policy. 
+
+Case 1: mean-noise behavior policy. Suppose that the behavior policy is given by (3). Then, the second term in (19) can be written as ln ˜ πb(μϕ(s) + w|s) = ln N  μϕ(s) + w; μb(s), σ 2 
+
+> M
+
+I
+
+= ln 
+
+ 1(2 π)d/ 2σdM
+
+exp 
+
+
+
+− 12σ2
+
+> M
+
+∥μϕ(s) + w − μb(s)∥22
+
+ 
+
+= − d
+
+2 ln(2 π) − d ln σM − 12σ2
+
+> M
+
+∥μϕ(s) + w − μb(s)∥22 .
+
+By removing terms that do not depend on ϕ, the loss function (19) reduces to 
+
+L(ϕ) = Es∼N (0 ,σ 21 I),w ∼N (0 ,σ 22 I)
+
+ 12σ2
+
+> M
+
+∥μϕ(s) + w − μb(s)∥22 − Qθ (s, μ ϕ(s) + w)
+
+λ
+
+
+
+. (20) This objective encourages the policy to maximize the Q-value while remaining close to the behavior policy 
+
+μb(s), where the parameter λ controls the trade-off between these two objectives. In practice, the expectation in (20) is approximated using Monte Carlo sampling: ˜L(ϕ) := 
+
+> p
+
+X
+
+> i=1
+> q
+
+X
+
+> j=1
+
+ 12σ2
+
+> M
+
+∥μϕ(si) + wj − μb(si)∥22 − Qθ (si, μ ϕ(si) + wj )
+
+λ
+
+
+
+, (21) where si ∼ N (0 , σ 21 I) and wj ∼ N (0 , σ 22 I). The parameters ϕ are updated via gradient descent. The overall procedure is summarized in Algorithm 5 of the Appendix, which is described for the online setting. For the offline setting, the replay buffer is replaced by a safe offline dataset, from which mini-batches are used to train both the Q-function and the policy. 19 Case 2: distributional behavior policy. Suppose that the behavior policy is given by (4). Then, the loss function (19) becomes 
+
+L(ϕ) = Es∼N (0 ,σ 21 I),w ∼N (0 ,σ 22 I)
+
+
+
+− ln ˜ πb(μϕ(s) + w|s) − Qθ (s, μ ϕ(s) + w)
+
+λ
+
+
+
+.
+
+This objective encourages the policy to assign high probability under the behavior policy while maximizing the Q-value. The expectation is approximated using Monte Carlo sampling as ˜L(ϕ) := 
+
+> p
+
+X
+
+> i=1
+> q
+
+X
+
+> j=1
+
+
+
+− ln ˜ πb(μϕ(si) + wj |si) − Qθ (si, μ ϕ(si) + wj )
+
+λ
+
+
+
+, (22) where si ∼ N (0 , σ 21 I) and wj ∼ N (0 , σ 22 I). The parameters ϕ are updated via gradient descent. The overall procedure is summarized in Algorithm 6 of the Appendix, which is described for the online setting. For the offline setting, the replay buffer is replaced by a safe offline dataset, from which mini-batches are used to train both the Q-function and the policy. 
+
+7.4. Experimental Details  
+
+> (a) FrozenLake environment (b) CartPole environment
+> Figure 6: Overview of the environments used in our experiments.
+
+FrozenLake is a simple grid-world environment with discrete states and actions, where the agent navigates to reach a goal while avoiding unsafe hole states [4]. The environment has a fixed 4 × 4 layout as shown in Figure 6a, and the agent receives a reward of +1 upon reaching the goal, with no penalty for falling into a hole. In this environment, the HC safe is handcrafted by assigning zero probability to actions leading to holes and a higher probability to optimal paths. For DS safe, the behavior policy is learned from the safe dataset Dsafe , which contains only safe trajectories. In the CartPole environment, the agent needs to balance a pole on a moving cart [4]. We evaluate our method in both discrete and continuous action settings: the agent either moves left or right, or applies a continuous force in the range ( −1, 1). The agent receives a reward +1 at each time step while the pole remains balanced, and the episode terminates when the pole angle exceeds ±12 ◦, the cart position exceeds the allowed bounds, or after 500 steps. As the environment does not explicitly define unsafe states, we consider states with pole angles exceeding ±9◦ as unsafe, as illustrated in Figure 6b. For HC safe, we design a behavior policy based on a PID controller and train a neural network to imitate it, introducing stochasticity for balanced exploration. For DS safe, the behavior policy is trained from the safe dataset, which contains only safe trajectories collected by the PID controller. In the CartPole environment, we consider DQN, CQL, BCQ, IQL, TD3+BC, and BEAR as baselines for a fair comparison under our behavior policy setting. Note that TD3+BC and BEAR are only applicable to continuous action spaces. 20 • DQN: standard deep Q-learning without offline-specific regularization; serves as a basic off-policy baseline and does not address distributional shift. 
+
+• CQL: learns conservative Q-values by penalizing unseen actions, reducing overestimation in offline settings. 
+
+• BCQ: restricts action selection to the support of the dataset, preventing extrapolation error. 
+
+• IQL: avoids out-of-distribution actions via value regression and advantage-weighted behavior cloning. 
+
+• TD3+BC: combines policy gradient updates with behavior cloning to stabilize offline learning. 
+
+• BEAR: constrains the policy to remain close to the behavior policy via divergence constraint, reducing distributional shift. 
+
+7.5. Safety Evaluation across Return Levels  
+
+> (a) Case 1: Discrete, HC safe
+> (b) Case 2: Discrete, DS safe
+> (c) Case 3: Continuous, HC safe, mean-noise
+> (d) Case 4: Continuous, HC safe, distributional
+> (e) Case 5: Continuous, DS safe, mean-noise
+> (f) Case 6: Continuous, DS safe, distributional
+> Figure 7: Same-return risk severity curve on CartPole-v1 comparing the proposed method with baselines under different settings.
+
+Following the same binning procedure as in Figure 5, we further evaluate additional safety metrics by grouping results into return bins and comparing them across models within each bin. We first consider the risk severity , defined as the average magnitude of violation beyond a safety margin. Specifically, at each time step, we measure the extent to which the pole angle exceeds a predefined margin and average it over the episode: riskseverity = 1
+
+T
+
+X
+
+> t
+
+max(0 , |θt| − θmargin ),
+
+where θmargin = 7 ◦. This metric captures not only whether the safety boundary is violated, but also the severity and persistence of operation near or beyond unsafe regions. As shown in Figure 7, the proposed method consistently achieves low risk severity across all return levels with a particularly stable trend. This indicates that even when safety violations occur, their magnitude remains small. Moreover, our method 21 (a) Case 1: Discrete, HC safe 
+
+> (b) Case 2: Discrete, DS safe
+> (c) Case 3: Continuous, HC safe, mean-noise
+> (d) Case 4: Continuous, HC safe, distributional
+> (e) Case 5: Continuous, DS safe, mean-noise
+> (f) Case 6: Continuous, DS safe, distributional
+> Figure 8: Same-return unsafe episode rate curve on CartPole-v1 comparing the proposed method with baselines under different settings.
+
+effectively suppresses behavior near unsafe boundaries. This shows that the proposed method reduces pre-unsafe behavior compared to baselines, especially in low-return regimes. We also evaluate the unsafe episode rate , defined as the fraction of episodes in which the pole angle exceeds a predefined unsafe threshold ( ±9◦) at least once. This metric reflects episode-level safety violations. In Figure 8, the proposed method achieves lower unsafe rates than baselines across most return ranges. Notably, near the highest return bin (around return 500), our method consistently attains the lowest unsafe rate in almost all cases. This suggests that the trained policy is stable and effectively maintains safety without sacrificing performance. Overall, these results demonstrate that the proposed method achieves consistently lower risk and safer behavior across all return levels, with clear advantages in preventing near-unsafe and high-variance behaviors. 
+
+7.6. Proposed Algorithms 
+
+22 Algorithm 1 Training DS safe  
+
+> 1:
+
+Initialize policy parameter ψ ∈ Rn 
+
+> 2:
+
+Initialize learning rate α > 0 
+
+> 3:
+
+for k ∈ { 0, 1, . . . , T − 1} do  
+
+> 4:
+
+Sample a mini-batch B = {(s, a, r, s ′)} from Dsafe  
+
+> 5:
+
+Compute the log-likelihood objective: 
+
+L(ψ; B) := X
+
+> (s,a )∈B
+
+ln πψ (a|s) 
+
+> 6:
+
+Update parameters via gradient ascent: 
+
+ψ ← ψ + α∇ψ L(ψ; B) 
+
+> 7:
+
+end for Algorithm 2 Safe-support Q-learning (Tabular, Online)  
+
+> 1:
+
+Initialize Q(s, a ) for all s ∈ S and a ∈ A  
+
+> 2:
+
+Train the behavior policy πb 
+
+> 3:
+
+for episode i ∈ 1, 2, . . . do  
+
+> 4:
+
+Sample initial state s0 
+
+> 5:
+
+for k = 0 , 1, . . . , τ − 1 do  
+
+> 6:
+
+Sample action from the behavior policy: ak ∼ πb(·| sk) 
+
+> 7:
+
+Observe next state sk+1 ∼ P (·| sk, a k) and reward rk+1 = r(sk, a k, s k+1 ) 
+
+> 8:
+
+Compute target value ysafe  
+
+> k
+
+as defined in (6)  
+
+> 9:
+
+Update Q-function 
+
+Q(sk, a k) ← Q(sk, a k) + α  ysafe  
+
+> k
+
+− Q(sk, a k) 
+
+> 10:
+
+end for  
+
+> 11:
+
+end for 
+
+23 Algorithm 3 Safe-support Q-learning with DQN (Online)  
+
+> 1:
+
+Initialize learning rate α > 0 
+
+> 2:
+
+Initialize replay memory D with capacity |D| 
+
+> 3:
+
+Initialize online parameters θ ∈ Rm 
+
+> 4:
+
+Set target parameters θ′ ← θ 
+
+> 5:
+
+Train HC safe πb 
+
+> 6:
+
+for episode i ∈ { 1, 2, . . . } do  
+
+> 7:
+
+Sample initial state s0 
+
+> 8:
+
+for k ∈ { 0, 1, . . . , τ − 1} do  
+
+> 9:
+
+Sample action from the behavior policy: ak ∼ πb(·| sk) 
+
+> 10:
+
+Observe next state sk+1 ∼ P (·| sk, a k) and reward rk+1 := r(sk, a k, s k+1 ) 
+
+> 11:
+
+Store transition ( sk, a k, r k+1 , s k+1 ) in D 
+
+> 12:
+
+Sample a mini-batch B = {(s, a, r, s ′)} from D 
+
+> 13:
+
+Perform gradient descent 
+
+θ ← θ − α∇θ L(θ; B), 
+
+> 14:
+
+where L(θ; B) is defined in (7) with the target value (8)  
+
+> 15:
+
+Every C steps, update target network: 
+
+θ′ ← θ 
+
+> 16:
+
+end for  
+
+> 17:
+
+end for Algorithm 4 Safe-support Q-learning with DQN (Offline)  
+
+> 1:
+
+Initialize learning rate α > 0 
+
+> 2:
+
+Initialize online parameters θ ∈ Rm 
+
+> 3:
+
+Set target parameters θ′ ← θ 
+
+> 4:
+
+Train DS safe πb using Algorithm 1  
+
+> 5:
+
+for k ∈ { 0, 1, . . . , T − 1} do  
+
+> 6:
+
+Sample a mini-batch B = {(s, a, r, s ′)} from Dsafe  
+
+> 7:
+
+Perform gradient descent 
+
+θ ← θ − α∇θ L(θ; B), 
+
+> 8:
+
+where L(θ; B) is defined in (7) with the target value (8)  
+
+> 9:
+
+Every C steps, update target network: 
+
+θ′ ← θ 
+
+> 10:
+
+end for 
+
+24 Algorithm 5 Safe-support Q-learning with mean-noise behavior policy (Continuous, Online)  
+
+> 1:
+
+Initialize learning rate αQ > 0 and απ > 0 
+
+> 2:
+
+Initialize replay memory D with capacity |D| 
+
+> 3:
+
+Initialize online parameters θ ∈ Rm 
+
+> 4:
+
+Set target parameters θ′ ← θ 
+
+> 5:
+
+Initialize policy parameters ϕ ∈ Rm′ 
+
+> 6:
+
+Train HC safe πb 
+
+> 7: 8:
+
+Stage 1: Training Q-function  
+
+> 9:
+
+for episode i ∈ { 1, 2, . . . } do  
+
+> 10:
+
+Sample initial state s0 
+
+> 11:
+
+for k ∈ { 0, 1, . . . , τ − 1} do  
+
+> 12:
+
+Sample action from the behavior policy: ak ∼ πb(·| sk) 
+
+> 13:
+
+Observe next state sk+1 ∼ P (·| sk, a k) and reward rk+1 := r(sk, a k, s k+1 ) 
+
+> 14:
+
+Store transition ( sk, a k, r k+1 , s k+1 ) in D 
+
+> 15:
+
+Sample a mini-batch B = {(s, a, r, s ′)} from D 
+
+> 16:
+
+for each ( s, a, r, s ′) ∈ B do  
+
+> 17:
+
+Sample i.i.d. actions {a′
+
+> i
+
+}Ni=1 from πb(·| s′) 
+
+> 18:
+
+Compute the corresponding target value ysafe as (10)  
+
+> 19:
+
+end for  
+
+> 20:
+
+Perform a gradient descent step on the Q-network: 
+
+θ ← θ − αQ∇θ L(θ; B), 
+
+> 21:
+
+where L(θ; B) is defined in (7) with the target value ysafe  
+
+> 22:
+
+Every C steps, update target network: 
+
+θ′ ← θ 
+
+> 23:
+
+end for  
+
+> 24:
+
+end for  
+
+> 25: 26:
+
+Stage 2: Training Policy  
+
+> 27:
+
+Freeze the Q-network parameters θ 
+
+> 28:
+
+for t = 1 , 2, . . . , T do  
+
+> 29:
+
+Sample states {si}pi=1 from N (0 , σ 21 I) 
+
+> 30:
+
+Sample i.i.d. noises {wj }qj=1 from N (0 , σ 22 I) 
+
+> 31:
+
+Perform a gradient descent step on the policy network: 
+
+ϕ ← ϕ − απ ∇ϕ ˜LM (ϕ), 
+
+> 32:
+
+where ˜LM (ϕ) is defined in (12)  
+
+> 33:
+
+end for 
+
+25 Algorithm 6 Safe-support Q-learning with distributional behavior policy (Continuous, Online)  
+
+> 1:
+
+Initialize learning rate αQ > 0 and απ > 0 
+
+> 2:
+
+Initialize replay memory D with capacity |D| 
+
+> 3:
+
+Initialize online parameters θ ∈ Rm 
+
+> 4:
+
+Set target parameters θ′ ← θ 
+
+> 5:
+
+Initialize policy parameters ϕ ∈ Rm′ 
+
+> 6:
+
+Train HC safe πb 
+
+> 7: 8:
+
+Stage 1: Training Q-function  
+
+> 9:
+
+for episode i ∈ { 1, 2, . . . } do  
+
+> 10:
+
+Sample initial state s0 
+
+> 11:
+
+for k ∈ { 0, 1, . . . , τ − 1} do  
+
+> 12:
+
+Sample action from the behavior policy: ak ∼ πb(·| sk) 
+
+> 13:
+
+Observe next state sk+1 ∼ P (·| sk, a k) and reward rk+1 := r(sk, a k, s k+1 ) 
+
+> 14:
+
+Store transition ( sk, a k, r k+1 , s k+1 ) in D 
+
+> 15:
+
+Sample a mini-batch B = {(s, a, r, s ′)} from D 
+
+> 16:
+
+for each ( s, a, r, s ′) ∈ B do  
+
+> 17:
+
+Sample i.i.d. actions {a′
+
+> i
+
+}Ni=1 from πb(·| s′) 
+
+> 18:
+
+Compute the corresponding target value ysafe as (10)  
+
+> 19:
+
+end for  
+
+> 20:
+
+Perform a gradient descent step on the Q-network: 
+
+θ ← θ − αQ∇θ L(θ; B), 
+
+> 21:
+
+where L(θ; B) is defined in (7) with the target value ysafe  
+
+> 22:
+
+Every C steps, update target network: 
+
+θ′ ← θ 
+
+> 23:
+
+end for  
+
+> 24:
+
+end for  
+
+> 25: 26:
+
+Stage 2: Training Policy  
+
+> 27:
+
+Freeze the Q-network parameters θ 
+
+> 28:
+
+for t = 1 , 2, . . . , T do  
+
+> 29:
+
+Sample states {si}pi=1 from N (0 , σ 21 I) 
+
+> 30:
+
+Sample i.i.d. noises {wj }qj=1 from N (0 , σ 22 I) 
+
+> 31:
+
+Perform a gradient descent step on the policy network: 
+
+ϕ ← ϕ − απ ∇ϕ ˜LD (ϕ), 
+
+> 32:
+
+where ˜LD (ϕ) is defined in (13)  
+
+> 33:
+
+end for 
+
+26
