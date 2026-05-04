@@ -6,70 +6,79 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-03
-- 运行时间：2026-05-03 20:32:10 UTC
+- 最新运行日期：2026-05-04
+- 运行时间：2026-05-04 20:56:17 UTC
 - 运行状态：成功
-- 本次总论文数：16
-- 精读区：4
+- 本次总论文数：19
+- 精读区：7
 - 速读区：12
 
 ### 今日简报（AI）
-今日深度研读 16 篇前沿成果，重点攻克静态网络时序路由难题并探索大模型在交通控制中的新范式。
-获 9.5 高分的时序路由调度算法与 DQN 引导的 GRPO 微调技术，展现了复杂网络优化与大模型跨界融合的巨大潜力。
-推荐关注 Mamba 及 KAN 架构在长时序列预测中的演进，把握大模型与强化学习结合的落地趋势。
-- 详情：[/202605/03/README](/202605/03/README)
+今日精选19篇前沿论文，深度解析静态网络中的时序路由调度与大模型驱动的交通控制。
+重点关注获满分评价的时序路由算法，以及结合LLM、数字孪生与Agentic AI的智能化交通决策优化。
+建议优先研读时序网络调度理论与AI在实时交通场景中的落地应用。
+- 详情：[/202605/04/README](/202605/04/README)
 
 ### 精读区论文标签
-1. [Temporal Routing in Static Networks: The Schedule Completion Problem](/202605/03/2604.27757v1-temporal-routing-in-static-networks-the-schedule-completion-problem)  
-   标签：评分：9.5/10、query:urt-c
-   evidence：结合列车路由与乘客需求
-2. [DGLight: DQN-Guided GRPO Fine-Tuning of Large Language Models for Traffic Signal Control](/202605/03/2604.25259v1-dglight-dqn-guided-grpo-fine-tuning-of-large-language-models-for-traffic-signal-control)  
-   标签：评分：8.5/10、query:urt-c
-   evidence：DQN引导的强化学习用于交通信号控制
-3. [Autonomous Traffic Signal Optimization Using Digital Twin and Agentic AI for Real-Time Decision-Making](/202605/03/2604.27753v1-autonomous-traffic-signal-optimization-using-digital-twin-and-agentic-ai-for-real-time-decision-making)  
-   标签：评分：8.0/10、query:urt-c
-   evidence：交通信号优化与实时交通流模拟
-4. [ITS-Mina: A Harris Hawks Optimization-Based All-MLP Framework with Iterative Refinement and External Attention for Multivariate Time Series Forecasting](/202605/03/2604.27981v1-its-mina-a-harris-hawks-optimization-based-all-mlp-framework-with-iterative-refinement-and-external-attention-for-multivariate-time-series-forecasting)  
+1. [Temporal Routing in Static Networks: The Schedule Completion Problem](/202605/04/2604.27757v1-temporal-routing-in-static-networks-the-schedule-completion-problem)  
+   标签：评分：10.0/10、query:urt-c
+   evidence：铁路网络中列车路径规划与乘客需求的时间特性
+2. [LLM-Augmented Traffic Signal Control with LSTM-Based Traffic State Prediction and Safety-Constrained Decision Support](/202605/04/2604.23902v1-llm-augmented-traffic-signal-control-with-lstm-based-traffic-state-prediction-and-safety-constrained-decision-support)  
+   标签：评分：8.5/10、query:urt-pf
+   evidence：基于LSTM的交通状态预测与信号控制
+3. [Transferable Human Mobility Network Reconstruction with neuroGravity](/202605/04/2604.23678v1-transferable-human-mobility-network-reconstruction-with-neurogravity)  
    标签：评分：8.0/10、query:urt-pf
-   evidence：用于交通规划中多变量时间序列预测的全MLP框架
+   evidence：重建人口流动网络和人类移动性建模
+4. [DecompKAN: Decomposed Patch-KAN for Long-Term Time Series Forecasting](/202605/04/2604.23968v1-decompkan-decomposed-patch-kan-for-long-term-time-series-forecasting)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：使用KAN边缘函数进行长期时间序列预测的轻量级架构
+5. [On the Role of Time Series Clustering in Traffic Matrix Prediction](/202605/04/2604.26081v1-on-the-role-of-time-series-clustering-in-traffic-matrix-prediction)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：用于流量矩阵预测和流量预测的时间序列聚类
+6. [A well-motivated model of pedestrian dynamics](/202605/04/2604.26858v2-a-well-motivated-model-of-pedestrian-dynamics)  
+   标签：评分：8.0/10、query:urt-c
+   evidence：瓶颈场景下人群管理的行人动力学模型
+7. [ITS-Mina: A Harris Hawks Optimization-Based All-MLP Framework with Iterative Refinement and External Attention for Multivariate Time Series Forecasting](/202605/04/2604.27981v1-its-mina-a-harris-hawks-optimization-based-all-mlp-framework-with-iterative-refinement-and-external-attention-for-multivariate-time-series-forecasting)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：用于交通规划的多变量时间序列预测
 
 ### 速读区论文标签
-1. [AdaMamba: Adaptive Frequency-Gated Mamba for Long-Term Time Series Forecasting](/202605/03/2604.23239v1-adamamba-adaptive-frequency-gated-mamba-for-long-term-time-series-forecasting)  
+1. [Explaining Temporal Graph Predictions With Shapley Values](/202605/04/2604.24078v1-explaining-temporal-graph-predictions-with-shapley-values)  
    标签：评分：7.5/10、query:urt-pf
-   evidence：针对复杂依赖关系的长时序列预测方法
-2. [DecompKAN: Decomposed Patch-KAN for Long-Term Time Series Forecasting](/202605/03/2604.23968v1-decompkan-decomposed-patch-kan-for-long-term-time-series-forecasting)  
-   标签：评分：7.5/10、query:urt-pf
-   evidence：使用分解补丁式 Kolmogorov-Arnold 网络进行时间序列预测
-3. [Dual-Polarized Massive MIMO Based on Precoding for Vehicle-To-Ground Communication in Urban Rail Transit](/202605/03/2604.25217v1-dual-polarized-massive-mimo-based-on-precoding-for-vehicle-to-ground-communication-in-urban-rail-transit)  
+   evidence：解释用于时空预测的时空图神经网络
+2. [Autonomous Traffic Signal Optimization Using Digital Twin and Agentic AI for Real-Time Decision-Making](/202605/04/2604.27753v1-autonomous-traffic-signal-optimization-using-digital-twin-and-agentic-ai-for-real-time-decision-making)  
    标签：评分：7.5/10、query:urt-c
-   evidence：城市轨道交通车地通信架构
-4. [Preserving Temporal Dynamics in Time Series Generation](/202605/03/2604.27182v1-preserving-temporal-dynamics-in-time-series-generation)  
+   evidence：利用数字孪生和实时交通模式进行自主交通信号优化
+3. [Probabilistic Circuits for Irregular Multivariate Time Series Forecasting](/202605/04/2604.27814v1-probabilistic-circuits-for-irregular-multivariate-time-series-forecasting)  
    标签：评分：7.5/10、query:urt-pf
-   evidence：面向回归预测任务的时间序列数据增强
-5. [Adaptive Spatial-Temporal Graph Learning-Enabled Short-Term Voltage Stability Assessment against Time-Varying Topological Conditions](/202605/03/2604.23204v1-adaptive-spatial-temporal-graph-learning-enabled-short-term-voltage-stability-assessment-against-time-varying-topological-conditions)  
+   evidence：不规则多元时间序列预测
+4. [Comparative Analysis of Polygon-Based and Global Machine Learning Models for Bus Occupancy Prediction](/202605/04/2605.00083v1-comparative-analysis-of-polygon-based-and-global-machine-learning-models-for-bus-occupancy-prediction)  
+   标签：评分：7.5/10、query:urt-pf
+   evidence：利用空间聚类和多维特征预测公交乘客人数
+5. [GeoCert: Certified Geometric AI for Reliable Forecasting](/202605/04/2604.23474v1-geocert-certified-geometric-ai-for-reliable-forecasting)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：用于复杂网络短期评估的自适应时空图学习
-6. [sumoITScontrol: Traffic Controller Collection for SUMO Traffic Simulations](/202605/03/2604.23240v1-sumoitscontrol-traffic-controller-collection-for-sumo-traffic-simulations)  
-   标签：评分：7.0/10、query:urt-c
-   evidence：用于SUMO模拟中城市交通管理和信号控制基准测试的框架。
-7. [Layer Embedding Deep Fusion Graph Neural Network](/202605/03/2604.23324v1-layer-embedding-deep-fusion-graph-neural-network)  
+   evidence：用于交通系统可靠预测的几何人工智能框架
+6. [On the Generalization Properties of Selective State-Space Models for Filtering Tasks for Unknown Systems](/202605/04/2604.23818v1-on-the-generalization-properties-of-selective-state-space-models-for-filtering-tasks-for-unknown-systems)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：用于序列建模和输出预测的状态空间模型
+7. [Interpretable Physics-Informed Load Forecasting for U.S. Grid Resilience: SHAP-Guided Ensemble Validation in Hybrid Deep Learning Under Extreme Weather](/202605/04/2604.23500v1-interpretable-physics-informed-load-forecasting-for-us-grid-resilience-shap-guided-ensemble-validation-in-hybrid-deep-learning-under-extreme-weather)  
    标签：评分：6.5/10、query:urt-pf
-   evidence：用于捕获图数据中长程依赖关系的GNN架构
-8. [Scalable Production Scheduling: Linear Complexity via Unified Homogeneous Graphs](/202605/03/2604.23841v1-scalable-production-scheduling-linear-complexity-via-unified-homogeneous-graphs)  
+   evidence：用于短期负荷预测的混合深度学习（CNN-Transformer）模型
+8. [Regret-Optimal Control for Finite-State Systems](/202605/04/2604.23760v1-regret-optimal-control-for-finite-state-systems)  
    标签：评分：6.5/10、query:urt-c
-   evidence：用于工业调度和资源竞争的强化学习方法
-9. [Safe-Support Q-Learning: Learning without Unsafe Exploration](/202605/03/2604.25379v1-safe-support-q-learning-learning-without-unsafe-exploration)  
-   标签：评分：6.5/10、query:urt-c
-   evidence：适用于现实世界应用的强化学习框架，可避免不安全探索
-10. [Semi-Markov Reinforcement Learning for City-Scale EV Ride-Hailing with Feasibility-Guaranteed Actions](/202605/03/2604.25848v1-semi-markov-reinforcement-learning-for-city-scale-ev-ride-hailing-with-feasibility-guaranteed-actions)  
-   标签：评分：6.5/10、query:urt-c
-   evidence：使用半马尔可夫强化学习进行城市规模网约车车队调度和重定位控制。
-11. [On the Role of Time Series Clustering in Traffic Matrix Prediction](/202605/03/2604.26081v1-on-the-role-of-time-series-clustering-in-traffic-matrix-prediction)  
+   evidence：扰动下有限状态系统的遗憾最优控制
+9. [TARMM: Scaling Delay-Critical Edge AI Offloading in 5G O-RAN via Temporal Graph Mobility Management](/202605/04/2604.24501v1-tarmm-scaling-delay-critical-edge-ai-offloading-in-5g-o-ran-via-temporal-graph-mobility-management)  
    标签：评分：6.5/10、query:urt-pf
-   evidence：用于流量矩阵预测的时间序列聚类
-12. [A well-motivated model of pedestrian dynamics](/202605/03/2604.26858v1-a-well-motivated-model-of-pedestrian-dynamics)  
+   evidence：用于时空动态的图模型
+10. [Data-Driven Continuous-Time Linear Quadratic Regulator via Closed-Loop and Reinforcement Learning Parameterizations](/202605/04/2604.27922v1-data-driven-continuous-time-linear-quadratic-regulator-via-closed-loop-and-reinforcement-learning-parameterizations)  
    标签：评分：6.5/10、query:urt-c
-   evidence：瓶颈场景下的行人动力学与人群管理
+   evidence：连续时间控制的强化学习
+11. [PAMod: Modeling Cyclical Shifts via Phase-Amplitude Modulation for Non-stationary Time Series Forecasting](/202605/04/2605.00466v1-pamod-modeling-cyclical-shifts-via-phase-amplitude-modulation-for-non-stationary-time-series-forecasting)  
+   标签：评分：6.5/10、query:urt-pf
+   evidence：针对具有周期性偏移的非平稳数据的时间序列预测
+12. [Autocorrelation Reintroduces Spectral Bias in KANs for Time Series Forecasting](/202605/04/2604.23518v1-autocorrelation-reintroduces-spectral-bias-in-kans-for-time-series-forecasting)  
+   标签：评分：6.0/10、query:urt-pf
+   evidence：分析具有自相关的时序预测中KAN网络的谱偏差
 
 
 <div class="dpr-home-promo-card">
