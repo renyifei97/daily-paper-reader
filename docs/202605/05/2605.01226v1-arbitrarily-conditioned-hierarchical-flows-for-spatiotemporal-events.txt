@@ -1,0 +1,506 @@
+Title: Arbitrarily Conditioned Hierarchical Flows for Spatiotemporal Events
+
+URL Source: https://arxiv.org/pdf/2605.01226v1
+
+Published Time: Tue, 05 May 2026 00:29:44 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Arbitrarily Conditioned Hierarchical Flows for Spatiotemporal Events 
+
+Keyan Chen 
+
+Kahlert School of Computing University of Utah 
+
+u1466725@utah.edu 
+
+Qiwei Yuan 
+
+Kahlert School of Computing University of Utah 
+
+joshua.yuan@utah.edu 
+
+Zhitong Xu 
+
+Kahlert School of Computing University of Utah 
+
+u1502956@utah.edu 
+
+Bin Shen 
+
+Celonis AI 
+
+stanshenbin@gmail.com 
+
+Shandian Zhe 
+
+Kahlert School of Computing University of Utah 
+
+zhe@cs.utah.edu 
+
+## Abstract 
+
+Events in spatiotemporal systems are ubiquitous, yet modeling their complex distributions remains challenging. Existing point process models often rely on strong structural assumptions and are typically limited to autoregressive, event-by-event prediction. As a result, they struggle to support broader inference tasks such as inverse inference, trajectory reconstruction, and recovery of missing event locations. We introduce Arbitrarily Conditioned Hierarchical Flows (ARCH), a hierarchical flow matching framework for spatiotemporal event modeling. ARCH is expressive enough to capture complex event distributions while enabling tractable and accurate computation of conditional intensities, which quantify instantaneous event risk. Built on a history-encoder-generative-decoder architecture, ARCH introduces a hybrid masking strategy for flexible conditioning on arbitrary observed events. This enables a unified treatment of forecasting, inverse inference, and partial trajectory recovery within a single framework. Experiments on synthetic and real-world datasets show that ARCH consistently outperforms existing baselines across both prediction and conditional inference tasks. 
+
+## 1 Introduction 
+
+Spatiotemporal events arise in many domains, including weather phenomena, natural disasters, epidemics, and crime. Their distributions are often highly complex, while observations are typically sparse, making learning and inference over such events particularly challenging. Existing spatiotemporal point process models often rely on strong structural assumptions, such as the independent-increment property of Poisson processes, additive interaction structures in Hawkes-process-like models (Yuan et al., 2019; Zhou et al., 2022; Zhou and Yu, 2023), and parametric distribution families (Shchur et al., 2020). More recent approaches have explored diffusion-based event generation (Yuan et al., 2023a), which substantially improves expressive power for capturing complex distributions. However, this flexibility often comes at the cost of losing tractable or well-calibrated conditional intensities, a central quantity for quantifying instantaneous event risk. Furthermore, existing methods are typically limited to autoregressive, event-by-event inference, making them ill-suited for broader tasks such as inverse inference, event trajectory reconstruction, and recovery of missing event locations. To overcome these bottlenecks, we propose ARCH, a hierarchical flow matching framework for spatiotemporal event modeling. Our method is flexible enough to capture complex event distributions 
+
+> Preprint.
+> arXiv:2605.01226v1 [cs.LG] 2 May 2026
+
+from data while also enabling efficient and accurate computation of conditional intensities. In addition, it supports arbitrarily conditioned inference, allowing a broad range of tasks, including forecasting, inverse inference, missing-event imputation, and partial trajectory recovery. The major contributions of our work are summarized as follows: • Model. We propose a hierarchical flow matching framework that first generates the event time and then, conditioned on the event time, generates the event spatial location. This decomposed generation procedure not only retains the flexibility needed to capture complex distributions, but also enables tractable and accurate computation of the conditional intensity, which quantifies instantaneous event risk. Specifically, we leverage the Picard–Lindelöf theorem and the order-preserving property of one-dimensional ODEs to compute the condi-tional intensity of the event-time flow, and then solve the companion log-probability ODE for the event-location flow, combining the two to obtain the final conditional event intensity. • Hybrid Masked Training. To support a variety of inference tasks, we employ a history encoder and a generative decoder for each flow. We further introduce a hybrid masking strategy that enables parallel autoregressive generation, randomly conditioned inference, batched trajectory recovery, and future trajectory forecasting. During training, masks are continuously sampled, and the model is trained to recover the target velocity field for masked events conditioned on partially observed events. In this way, a broad range of inference tasks is covered, with training and inference unified within a single framework. • Experiments. On three real-world benchmark datasets, ARCH achieves strong perfor-mance across a broad range of tasks, including next-event prediction, initial-event inference, missing-event imputation, and partial-trajectory recovery. ARCH also supports joint multi-step forecasting, achieving performance comparable to or better than its autoregressive variant and diffusion-based autoregressive baselines. On synthetic datasets generated from different spatiotemporal point processes, ARCH more effectively recovers the conditional intensity and achieves lower relative L2 errors than competing structured spatiotemporal point process models. 
+
+## 2 Preliminaries 
+
+Flow matching (Lipman et al., 2022) learns a continuous-time vector field that transports a simple source distribution to a target data distribution through an ordinary differential equation (ODE). Let 
+
+x0 ∼ p0 denote a random sample from a tractable source distribution, typically a standard Gaussian, and let x1 ∼ pdata denote a data sample. The goal is to construct a time-dependent probability path {pt}t∈[0 ,1] that smoothly connects p0 and pdata , and to learn a velocity field vθ (x, t ) such that samples evolve according to the ODE: 
+
+dx(t)
+
+dt = vθ (x(t), t ), t ∈ [0 , 1] . (1) If the learned velocity field matches the true velocity field associated with the probability path, then integrating the ODE from an initial noise sample x(0) = x0 transports x0 to a sample x(1) distributed according to pdata . A common choice in flow matching is to define a conditional probability path between paired samples (x0, x1). One simple and widely used example is the linear flow, which interpolates between source and target as xt = (1 − t)x0 + tx1 where t ∈ [0 , 1] . Under this construction, the corresponding conditional velocity is constant along the path: ut(x1 | x0) = dxt 
+
+> dt
+
+=
+
+x1 − x0. Flow matching trains vθ to match this target velocity field along sampled intermediate points. In practice, one samples a data point x1 ∼ pdata , a noise sample x0 ∼ p0, and a time 
+
+t ∼ Uniform(0 , 1) , constructs the interpolated point xt, and minimizes the regression loss 
+
+LFM (θ) = Et, x0,x1
+
+h
+
+∥vθ (xt, t ) − (x1 − x0)∥2i
+
+. (2) More generally, other probability paths can be used, with corresponding target velocities derived from the chosen transport construction. After training, generation is performed by first drawing the initial state x(0) ∼ p0 from the source distribution, and then solving the learned ODE (1) forward in time. The final state x(1) is taken as a generated sample. In practice, the ODE is solved numerically using a standard solver, such as Euler or higher-order Runge-Kutta methods. Thus, once the velocity field has been learned, sampling reduces to deterministic transport from noise to data through the learned continuous-time dynamics. 23 Methodology 
+
+Consider a sequence of spatiotemporal events Γ = [( s1, x1), . . . , (sN , xN )] , where s1 < · · · < s N ,each sn ∈ R+ denotes the timestamp of event n, and xn ∈ Rd denotes its spatial location. In typical applications, d ≤ 3. Given a collection of observed event sequences D, our goal is to learn the underlying distribution governing the generation of such sequences, while supporting a broad range of inference tasks, including forecasting future events, inverse inference of initial events, imputing missing event times or locations, and reconstructing partial event trajectories. 
+
+3.1 Hierarchical Flow-Matching Framework 
+
+We propose a hierarchical flow-matching framework that flexibly captures complex event distributions while also enabling tractable and accurate computation of conditional intensities, which quantify instantaneous event risk and play a central role in event modeling tasks such as risk monitoring, survival analysis, hotspot discovery, and intervention planning Cox (1972); Daley and Vere-Jones (2003); Braga (2001). The overall architecture is illustrated in Appendix Figure 2. To illustrate the framework, consider generating a future event e = ( s, x) given the history sequence 
+
+H = [( s1, x1), . . . , (sM , xM )] . Instead of constructing a single flow that simultaneously generates the event time s ∈ R+ and spatial location x = ( x1, . . . , x d) ∈ Rd, we introduce two flows, G1 and 
+
+G2: G1 generates s conditioned on H, while G2 generates x conditioned on the generated time s and 
+
+H. This yields the decomposition 
+
+p(s, x | H ) = p(s | H ) p(x | s, H), (3) where G1 models p(s | H ) and G2 models p(x | s, H). Note that G1 and G2 are not restricted to autoregressive next-event generation; as explained in Section 3.2, they support arbitrarily conditioned generation more generally. A key advantage of this design is that it enables efficient and accurate computation of the conditional intensity, i.e., the instantaneous event risk 1:
+
+λ(s, x | H ) = p(s, x | H )1 − FS (s | H ) , (4) where FS (· | H ) denotes the marginal cumulative distribution function (CDF) of the event time: 
+
+FS (s | H ) = p(S ≤ s | H ) = 
+
+Z 
+
+> Ω∩(sM,s ]×(−∞ ,∞)d
+
+p(τ, x | H ) dτ dx1 · · · dxd, (5) and Ω is the spatiotemporal domain of the events. If one instead uses a single flow to generate s and x simultaneously, then computing the marginal CDF 
+
+FS (s | H ) in (4) from the joint density p(s, x | H ) requires integrating over a (d + 1) -dimensional spatiotemporal domain, as shown in (5). This integral typically does not admit a closed form, while numerical integration or Monte Carlo approximation can be computationally expensive and may introduce substantial approximation error. In contrast, our hierarchical flows induce the density decomposition in (3), which in turn yields: 
+
+λ(s, x | H ) = λ(s | H ) p(x | s, H), λ(s | H ) = p(s | H )1 − FS (s | H ) . (6) Thus, the full conditional intensity factors into the marginal temporal intensity λ(s | H ) and the conditional spatial density p(x | s, H), which can be computed separately from G1 and G2.We first consider p(x | s, H). Let the ODE associated with G2 be 
+
+dx(t)
+
+dt = vΘ2
+
+ x(t), t | H , s , (7) where vΘ2 (·) denotes the vector field and Θ2 its parameters. By the instantaneous change-of-variable formula, the log-density along the trajectory x(t) evolves according to 
+
+ddt log p(x(t) | s, H) = −∇ · vΘ2
+
+ x(t), t | H , s , (8)   
+
+> 1More precisely, the conditional intensity, also called the hazard, characterizes the instantaneous likelihood of an event occurring at time s, conditioned on the event history and on no new event having occurred prior to s.
+
+3where ∇ · v denotes the divergence of the velocity field. To compute the conditional density at a given value xval , we augment the flow (7) with (8) and define a joint state z(t) = [ x(t), ℓ (t)] , where ℓ(t)
+
+accumulates the change in log-density. We then set x(1) = xval and ℓ(1) = 0 , and solve the coupled ODEs backward from t = 1 to t = 0 . This yields the corresponding noise sample x(0) , which follows the prior distribution pprior , together with the accumulated change ℓ(0) = R 01 
+
+> ddt
+
+log p(x(t) | s, H) dt .The final log-density is therefore log p(x | s, H) = log pprior 
+
+ x(0)  − ℓ(0) .Next, we consider the marginal temporal intensity λ(s | H ). Given a specific value sval , we follow a similar procedure to obtain the corresponding noise value s(0) and the log-density log p(sval | H ).The remaining quantity is the marginal CDF FS (sval | H ), which can be obtained from the CDF of the noise variable at s(0) according to the following lemma. 
+
+Lemma 3.1. Let S(0) be a real-valued random variable, and let S(t) be the solution at time t ≥ 0
+
+to the one-dimensional ordinary differential equation ds dt = v(s(t), t ), with random initial condition 
+
+S(0) . Let Ft(·) denote the cumulative distribution function of S(t). Then, for any deterministic solution trajectory {s(t)}t≥0 of the ODE with initial value s(0) , the CDF evaluated along the trajectory is invariant in time: 
+
+Ft(s(t)) = F0(s(0)) , ∀t ≥ 0.
+
+This can be established using the Picard–Lindelöf theorem together with the order-preserving property of one-dimensional ODEs; we defer the proof to Appendix A. Since the noise distribution is chosen to be simple, e.g., a standard Gaussian, its CDF can be evaluated efficiently. In practice, to ensure accurate ODE solutions, we can use higher-order Runge-Kutta methods, such as DOPRI5 (Dormand and Prince, 1980). 
+
+3.2 Arbitrarily Conditioned Training and Inference 
+
+To support a broad range of inference tasks beyond standard autoregressive, event-by-event prediction, we introduce a hybrid masking strategy for arbitrarily conditioned training and inference. Specifically, each flow employs a history encoder and a generative decoder, both implemented as Transformers. During training, given an event sequence Γ = [( s1, x1), . . . , (sN , xN )] , the encoder treats each event 
+
+en = ( sn, xn) ∈ Γ as an input token and produces event representations through self-attention layers. The encoder serves as the conditioning branch, providing integrated feature representations of the observed events. These representations are then incorporated into the decoder through cross-attention to guide generation of the target events. The decoder also contains N tokens, each corresponding to one generated event. The input to decoder token n consists of the flow time t and the intermediate ODE state at time t. For the flow G2 that models spatial locations, i.e., p(x | s, H), the decoder input at token n additionally includes the time sn of event n.To flexibly support diverse inference tasks, we combine several masking strategies during training: 
+
+Autoregressive Mask. This mask supports standard autoregressive generation. We impose a causal self-attention mask on the encoder so that each event token i attends only to itself and past events j < i .On the decoder side, token n attends to encoder tokens 1, . . . , n − 1. This cross-attention pattern allows decoder token n to generate event n conditioned on its entire preceding history. Combined with causal self-attention in the encoder, this design enables parallel autoregressive training over all events in the sequence. 
+
+Random Condition Mask. This mask supports generation of an arbitrary subset of events conditioned on the remaining observed events. Specifically, we sample a binary condition mask c = ( c1, . . . , c N ),where each cn ∈ { 0, 1}, cn = 1 indicates that event n is conditioned (observed), and cn = 0 indicates that event n is to be generated. On the encoder side, we mask out all tokens with cn = 0 and perform full self-attention among the conditioned events to exchange and fuse their representations. On the decoder side, we mask out all tokens with cn = 1 and perform self-attention among the events to be generated. We then set the cross-attention mask M[n, m ] = 0 for all pairs (n, m ) such that cn = 0 
+
+and cm = 1 , allowing every generated token to attend to every conditioned token. In this way, the full conditioned subset facilitates joint generation of the target events. 
+
+Consecutive Mask. This mask supports generation of a consecutive subsequence of events condi-tioned on the remaining events, which is useful for trajectory reconstruction and joint multi-step forecasting. Although the random condition mask can in principle cover such cases, its independently sampled entries more often produce scattered missing events rather than contiguous missing segments. 4To address this, we randomly sample two endpoints a, b with 1 ≤ a < b ≤ N , set cn = 0 for 
+
+a ≤ n ≤ b, and set cn = 1 otherwise. This yields a mask in which a consecutive block of events is generated conditioned on the events outside the block. During training, we sample a mini-batch of event sequences and apply each masking strategy to compute the corresponding flow-matching loss. The temporal flow is trained to generate log-transformed inter-event times rather than absolute timestamps, which removes dependence on the arbitrary time origin, compresses large temporal gaps, and improves numerical stability. The objective is to recover the target velocity field on the tokens corresponding to events that need to be generated. For the random-conditioning and consecutive masks, the mask pattern is sampled independently for each sequence in the batch. We then sum the resulting losses across all mask types and backpropagate through the full objective to update the model parameters. The training/generation procedures are summarized in Appendix Algorithms 1–2. The masking strategies are illustrated in Figure 3. 
+
+## 4 Related Work 
+
+Temporal Event Modeling. A large body of work has developed temporal point process mod-els for temporal event data. Early approaches include Poisson processes and Hawkes processes (HPs) (Hawkes, 1971; Blundell et al., 2012; Lloyd et al., 2015; Wang et al., 2017; Zhe and Du, 2018; Wang et al., 2022). Later works moved toward learning conditional intensity functions with deep neural networks. Representative examples include Neural Hawkes Processes (NHP) (Mei and Eisner, 2017), which encode event histories using LSTMs (Hochreiter and Schmidhuber, 1997), Recurrent Marked Temporal Point Processes (RMTPP) (Du et al., 2016), which similarly use recurrent architec-tures while explicitly modeling event marks, and Transformer-based approaches (Zhang et al., 2020; Zuo et al., 2020). More recent research has explored modern generative models for temporal event generation. Lin et al. (2022) proposed an autoregressive diffusion approach that generates events one at a time. Lüdke et al. (2023) introduced a diffusion framework that uses a homogeneous Poisson process as the noise distribution and applies thinning and deletion operations to edit sequences during generation. Lüdke et al. (2026) further developed edit-based generation by introducing several sequence edit operations to align noise sequences with event sequences of potentially different lengths, and used a flow model to learn the corresponding edit-rate table. Kerrigan et al. (2026) first generates the sequence length and then generates the event sequence accordingly. Despite their expressive power, these methods generally do not provide tractable or well-calibrated conditional intensities, making it difficult to recover the instantaneous event risk that is central to standard event modeling. 
+
+Spatiotemporal Event Modeling. Classical spatiotemporal point process models (Yuan et al., 2019; Reinhart, 2018) largely extend Poisson and Hawkes processes to the spatiotemporal setting. More recently, Chen et al. (2021) proposed a neural spatiotemporal point process that models jumps in the conditional intensity upon event arrivals using recurrent neural networks, and employs neural ordinary differential equations (ODEs) (Chen et al., 2018) to capture continuous-time intensity evolution between events. In contrast, Jia and Benson (2019) used neural stochastic differential equations (SDEs) to model latent state dynamics governing the conditional intensity. Other recent works retain the additive, excitation-only structure of spatiotemporal Hawkes processes while increasing modeling flexibility. The model of Zhou et al. (2022) parameterizes the triggering kernel using Transformer encodings of historical events. Zhou and Yu (2023) introduced a neural triggering kernel based on monotonic networks (Sill, 1997), which allows exact likelihood integration. More recently, Yuan et al. (2023a) proposed an autoregressive diffusion model that sequentially generates spatiotemporal events. Although this method demonstrates strong performance on next-event prediction, it, like the temporal generative models above, does not explicitly provide calibrated conditional intensities. Overall, existing spatiotemporal event models either rely on restrictive structural assumptions or prioritize expressive generation without retaining tractable conditional intensities, and are typically focused on autoregressive next-event prediction rather than more general conditioned inference tasks. 55 Experiments 
+
+5.1 Intensity Recovery 
+
+We first evaluated whether ARCH can recover the conditional intensity of event sequences, i.e., the instantaneous event risk. To this end, we constructed two synthetic spatiotemporal point processes. The first is a spatiotemporal Hawkes process with conditional intensity 
+
+λ(s, x|H s) = λ0 + X 
+
+> sn<s
+
+αe −β(s−sn) 12πσ 2 e− ∥x−xn∥22σ2 , (9) where s ∈ [0 , 60] denotes time, x ∈ [0 , 1] 2 denotes the spatial location, and Hs = {(sn, xn) | sn <s} denotes the history of events before time s. We set λ0 = 1 .0, α = 0 .72 , β = 1 .2, and σ = 0 .05 .The second process is a spatiotemporal self-correcting process, 
+
+λ(s, x|H s) = μ exp 
+
+
+
+αsϕ (x|c0) − X 
+
+> sn<s
+
+βϕ (xn − x|c1)
+
+
+
+, (10) where ϕ(·| c) = N (·| 0, c I). We set μ = 1 .0, α = 0 .2, β = 0 .4, c0 = 0 .25 , and c1 = 0 .2. The spatiotemporal domain was set to (s, x) ∈ [0 , 100] × [0 , 1] 2. We refer to the first process as STHP-SYN and the second as STSC-SYN . For each process, we simulated 10K event sequences for training, 1K for validation, and 200 for testing using Ogata’s thinning algorithm (Ogata, 1981). Table 1: Relative L2 error of the conditional intensity on synthetic datasets. Best results are shown in bold. Model STHP-SYN STSC-SYN                         
+
+> AutoSTPP 0.572 ±0.187 0.588 ±0.153
+> DeepSTPP 0.631 ±0.126 0.918 ±0.037
+> NSTPP 0.981 ±0.022 0.819 ±0.087
+> ARCH 0.458 ±0.171 0.370 ±0.132
+
+We compared ARCH with several state-of-the-art spatiotemporal point process models that explicitly parameterize the conditional inten-sity function. The first baseline is Deep Spa-tiotemporal Hawkes Process (DeepSTPP) (Zhou et al., 2022), which adopts a Hawkes-style inten-sity with exponential triggering kernels, where the kernel parameters are predicted by a Trans-former encoder over past events. The second is Automatic Integration for Spatiotemporal Neu-ral Point Processes (AutoSTPP) (Zhou and Yu, 2023), which extends Hawkes-style intensities with neural triggering kernels parameterized by mono-tonic networks (Sill, 1997), enabling exact likelihood integration. The third is Neural Spatiotemporal Point Process (NSTPP) (Chen et al., 2021), which models the conditional intensity using neural ODEs and updates the event-history representation through GRU-based state transitions when new events arrive. Our method was implemented in PyTorch and trained using the AdamW optimizer (Loshchilov and Hutter, 2017) with a learning rate of 10 −3 for up to 300 epochs. The mini-batch size was set to 64. The two flows in our model share the same Transformer backbone but use separate heads for velocity prediction. For conditional intensity evaluation, we solved the associated ODEs using DOPRI5 (Dormand and Prince, 1980) with a fixed integration budget of 20 solver steps. Additional training details and hyperparameter settings are provided in the Appendix Section C. For DeepSTPP, AutoSTPP, and NSTPP, we used the official implementations and default hyperparameter settings released by the original authors. For each test sequence, we evaluated the conditional intensity at every event time. At each time point, we computed an intensity snapshot on a uniform 8 × 8 spatial grid. We then computed the relative L2
+
+error of the predicted snapshots against the ground-truth snapshots, aggregated over all evaluated time points. As shown in Table 1, ARCH achieves substantially smaller relative L2 errors than the competing approaches, demonstrating more accurate recovery of the conditional intensity. We then randomly selected one test sequence from STHP-SYN and STSC-SYN , and visualized the learned intensity functions at five representative time points. As shown in Figure 1 and Appendix Figure 4, ARCH closely recovers the shape of the ground-truth intensity across all time points. DeepSTPP and AutoSTPP also capture the overall intensity shape on STHP-SYN reasonably well; see Appendix Figure 4. However, their learned intensities deviate substantially from the ground truth on STSC-SYN . This is likely because both methods impose an additive, excitation-only Hawkes-style intensity structure, whereas STSC-SYN is generated from a multiplicative intensity model with strong inhibitory interactions among events. The mismatch can therefore be attributed, at least in part, to model misspecification. Moreover, even on STHP-SYN , where their recovered intensity shapes are visually close to the ground-truth, DeepSTPP and AutoSTPP exhibit more pronounced 6Figure 1: Conditional intensity functions at representative time points on STSC-SYN . GT: ground-truth. 
+
+scale discrepancies than ARCH, which is consistent with their larger relative L2 errors in Table 1. In contrast, ARCH faithfully captures the intensity structure on both datasets, demonstrating its flexibility in capturing both excitation-dominated and inhibition-driven spatiotemporal dynamics without relying on a restrictive Hawkes-style parameterization. Finally, NSTPP consistently exhibits poor recovery performance: its learned intensity surfaces show only minor variation across time points. This suggests that NSTPP struggles to learn a time-sensitive conditional spatial distribution in these synthetic settings. 
+
+5.2 Predictive Performance 
+
+We next evaluated ARCH on a range of prediction tasks using three real-world benchmark datasets: 
+
+Earthquake (Chen et al., 2021), COVID-19 (Chen et al., 2021), and Citibike (Yuan et al., 2023b). These datasets capture seismic activity, infectious disease propagation, and urban mobility, providing diverse spatiotemporal event scenarios. Details of the datasets are provided in Appendix B. Table 2: Root-mean-square error (RMSE) and Euclidean distance for next-event time and location prediction. The best two results are highlighted in bold. Earthquake COVID-19 Citibike Model Spatial ↓ Temporal ↓ Spatial ↓ Temporal ↓ Spatial ↓ Temporal ↓
+
+HPP 9.45 ±0.000 0.412 ±0.000 0.818 ±0.000 0.113 ±0.000 0.452 ±0.000 0.239 ±0.000 
+
+STHP 8.35 ±0.252 0.424 ±0.018 0.422 ±0.000 0.100 ±0.001 0.032 ±0.000 0.633 ±0.126 
+
+NJSDE 9.98 ±0.024 0.465 ±0.009 0.641 ±0.009 0.137 ±0.001 0.707 ±0.001 0.264 ±0.005 
+
+NSTPP 8.11 ±0.000 0.547 ±0.010 0.560 ±0.000 0.145 ±0.002 0.705 ±0.000 0.355 ±0.013 
+
+DeepSTPP 9.20 ±0.000 0.341 ±0.000 0.687 ±0.000 0.197 ±0.000 0.044 ±0.000 0.234 ±0.000 
+
+DSTPP 6.77 ±0.193 0.375 ±0.001 0.419 ±0.001 0.093 ±0.000 0.031 ±0.000 0.200 ±0.002 
+
+ARCH (Ours) 6.55 ±0.022 0.375 ±0.001 0.391 ±0.000 0.097 ±0.000 0.031 ±0.000 0.211 ±0.000 
+
+7Next Event Prediction. We first evaluated ARCH on next-event prediction, the standard forecasting task in spatiotemporal event modeling. We compared against several classical and recent state-of-the-art methods: (1) DeepSTPP (Zhou et al., 2022); (2) NSTPP (Chen et al., 2021); (3) Diffusion Spatiotemporal Point Process (DSTPP) (Yuan et al., 2023b), a recent diffusion-based generative model that autoregressively generates the next spatiotemporal event conditioned on the history. Due to its DDPM formulation (Ho et al., 2020), DSTPP cannot evaluate the conditional intensity; (4) Neural Jump Stochastic Differential Equations (NJSDE) (Jia and Benson, 2019), which encode event histories as latent states and model their dynamics with neural SDEs; (5) Spatiotemporal Hawkes Process (STHP), using the conditional intensity form in Eq. (9) ; and (6) Homogeneous Poisson Process (HPP). We implemented STHP in PyTorch and trained it with the AdamW optimizer using a learning rate of 10 −3 for up to 1K epochs to ensure convergence. HPP admits a closed-form solution and does not require explicit training. The architecture of ARCH is kept fixed across all prediction tasks. For next-event prediction, ARCH uses the autoregressive mask and performs Euler integration with 10 steps. For all competing neural baselines, we used the public implementations released by the original authors. We used the same training, validation, and test splits as provided in (Yuan et al., 2023b) for all three datasets. Following the experimental protocol of (Chen et al., 2021; Yuan et al., 2023a), we repeated each experiment five times with different random initializations. We evaluated temporal prediction using the root-mean-square error (RMSE) of the predicted event time, and spatial prediction using the Euclidean distance between the predicted and ground-truth event locations. We report the mean and standard deviation in Table 2. ARCH consistently achieves top performance in both temporal and spatial prediction. Its prediction accuracy is often close to that of the diffusion-based model DSTPP, while substantially outperforming other neural point process baselines in many cases. In particular, ARCH achieves the best spatial prediction accuracy and the second-best temporal prediction accuracy across all three datasets. Although ARCH and DSTPP obtain comparable next-event prediction performance, DSTPP cannot provide calibrated estimates of event risk through the conditional intensity and is restricted to autoregressive next-event generation. Table 3: Inverse inference of the initial events. KNNImp is short for KNNImpute. Earthquake COVID-19 Citibike Model Spatial ↓ Temporal ↓ Spatial ↓ Temporal ↓ Spatial ↓ Temporal ↓
+
+Recovering the first event KNNImp ( k = 3 ) 11.8 ±0.000 0.386 ±0.000 0.927 ±0.000 0.133 ±0.000 0.052 ±0.000 0.363 ±0.000 
+
+KNNImp ( k = 5 ) 11.0 ±0.000 0.414 ±0.000 0.800 ±0.000 0.135 ±0.000 0.046 ±0.000 0.336 ±0.000 
+
+KNNImp ( k = 10 ) 10.1 ±0.000 0.406 ±0.000 0.710 ±0.000 0.142 ±0.000 0.042 ±0.000 0.299 ±0.000 
+
+ARCH 7.34 ±0.021 0.304 ±0.019 0.478 ±0.002 0.087 ±0.010 0.033 ±0.000 0.070 ±0.033 
+
+Recovering the first and second events KNNImp ( k = 3 ) 12.2 ±0.000 0.506 ±0.000 0.972 ±0.000 0.174 ±0.000 0.052 ±0.000 0.462 ±0.000 
+
+KNNImp ( k = 5 ) 11.3 ±0.000 0.518 ±0.000 0.830 ±0.000 0.172 ±0.000 0.046 ±0.000 0.456 ±0.000 
+
+KNNImp ( k = 10 ) 10.2 ±0.000 0.513 ±0.000 0.723 ±0.000 0.173 ±0.000 0.042 ±0.000 0.456 ±0.000 
+
+ARCH 7.60 ±0.022 0.471 ±0.006 0.464 ±0.001 0.148 ±0.002 0.033 ±0.000 0.373 ±0.011 
+
+Inverse Inference. Second, we evaluated ARCH on inverse inference, where the goal is to infer the initial events from subsequent observations. We considered two settings: recovering the first event and recovering the first two events. Since existing spatiotemporal event models are not designed to support such inverse inference tasks, we compared against KNNImpute (Troyanskaya et al., 2001), a general-purpose and widely used missing-value imputation method based on nearest neighbors. We used the implementation from Scikit-Learn (Pedregosa et al., 2011) and varied the number of neighbors k ∈ { 3, 5, 10 }. As shown in Table 3, ARCH consistently outperforms KNNImpute by a large margin, demonstrating substantially better recovery of the initial events. These results highlight a key advantage of our arbitrarily conditioned formulation: the same trained model can be directly applied to nonstandard inference tasks beyond autoregressive forecasting, without task-specific retraining or architectural modification. 
+
+Missing Events Recovery. Third, we evaluated ARCH on recovering randomly missing events. For each test sequence, we randomly selected a subset of events as missing and applied ARCH to infer them conditioned on the remaining observed events. We varied the missing ratio among 10% ,
+
+20% , and 30% . As shown in Appendix Table 7, ARCH consistently outperforms KNNImpute across nearly all settings. The only exception is temporal prediction on the COVID-19 dataset, where ARCH 8is slightly worse. These results show that, although ARCH is trained as a generative model, it can also serve as an effective event imputation model and achieves competitive or superior performance compared with the established KNN-based imputation baseline. We further evaluated ARCH on recovering events with partially missing attributes, where the event time or location is unobserved. ARCH outperforms KNNImpute in almost all cases; details are provided in Appendix D. Table 4: Internal event trajectory recovery. Earthquake COVID-19 Citibike Model Spatial ↓ Temporal ↓ Spatial ↓ Temporal ↓ Spatial ↓ Temporal ↓
+
+Recovery length = 5 KNNImp ( k = 3 ) 8.71 ±0.123 0.558 ±0.011 0.540 ±0.007 0.186 ±0.006 0.037 ±0.000 0.193 ±0.006 
+
+KNNImp ( k = 5 ) 8.42 ±0.125 0.523 ±0.008 0.518 ±0.006 0.179 ±0.005 0.035 ±0.000 0.182 ±0.005 
+
+KNNImp ( k = 10 ) 8.24 ±0.104 0.496 ±0.006 0.495 ±0.005 0.174 ±0.006 0.034 ±0.000 0.174 ±0.005 
+
+ARCH 7.90 ±0.127 0.456 ±0.010 0.467 ±0.007 0.173 ±0.008 0.031 ±0.000 0.176 ±0.005 
+
+Recovery length = 10 KNNImp( k = 3 ) 8.91 ±0.060 0.548 ±0.008 0.536 ±0.006 0.214 ±0.005 0.037 ±0.000 0.196 ±0.002 
+
+KNNImp( k = 5 ) 8.53 ±0.058 0.518 ±0.006 0.510 ±0.006 0.204 ±0.004 0.035 ±0.000 0.182 ±0.003 
+
+KNNImp( k = 10 ) 8.25 ±0.045 0.494 ±0.006 0.490 ±0.006 0.198 ±0.004 0.034 ±0.000 0.169 ±0.003 
+
+ARCH 7.75 ±0.060 0.458 ±0.008 0.462 ±0.006 0.183 ±0.006 0.031 ±0.000 0.156 ±0.004 
+
+Table 5: Forecasting future event trajectories. Earthquake COVID-19 Citibike Model Spatial ↓ Temporal ↓ Spatial ↓ Temporal ↓ Spatial ↓ Temporal ↓
+
+Trajectory length = 5 DSTPP 10.8 ±0.067 0.573 ±0.013 0.612 ±0.006 0.070 ±0.002 0.045 ±0.000 1.054 ±0.007 
+
+ARCH-AR 8.74 ±0.039 0.420 ±0.005 0.446 ±0.004 0.064 ±0.003 0.032 ±0.000 0.935 ±0.005 
+
+ARCH 8.73 ±0.042 0.416 ±0.002 0.448 ±0.004 0.071 ±0.004 0.032 ±0.000 0.910 ±0.008 
+
+Trajectory length = 10 DSTPP 11.1 ±0.085 0.589 ±0.014 0.626 ±0.005 0.083 ±0.002 0.045 ±0.000 0.844 ±0.006 
+
+ARCH-AR 8.76 ±0.054 0.463 ±0.002 0.459 ±0.004 0.068 ±0.002 0.032 ±0.000 0.695 ±0.004 
+
+ARCH 8.74 ±0.054 0.465 ±0.006 0.461 ±0.003 0.087 ±0.005 0.032 ±0.000 0.626 ±0.008 
+
+Event Trajectory Recovery. Fourth, we evaluated ARCH on recovering a missing event trajectory, i.e., a contiguous subsequence within an event sequence. For each test sequence, we randomly masked out a subsequence and applied ARCH to predict the masked events conditioned on the remaining observations. We considered masked subsequences of length 5 and 10 . As shown in Table 4, ARCH consistently outperforms KNNImpute in most cases. The only exception occurs when the masked trajectory length is 5, where the temporal prediction error of ARCH is slightly higher than that of KNNImpute with k = 10 . Notably, when the masked trajectory length increases to 10 , ARCH consistently outperforms KNNImpute across all datasets and metrics. This suggests that ARCH is particularly effective at capturing longer-range dependencies and reconstructing coherent event trajectories from partial observations. 
+
+Forecasting Future Trajectories. Finally, we evaluated ARCH on jointly forecasting a trajectory of future events. We ran DSTPP for comparison. Since DSTPP is restricted to auto-regressive prediction, each future event is generated sequentially conditioned on the observed history and previously generated events. We also evaluated an autoregressive variant of our method, denoted by ARCH-AR, which forecasts future events one at a time using the same autoregressive procedure. As shown in Table 5, both ARCH-AR and ARCH consistently outperform DSTPP, often by a large margin. The only exception is temporal prediction on COVID-19, where the joint forecasting variant of ARCH is slightly worse than DSTPP. However, when using the same autoregressive forecasting strategy, ARCH-AR still outperforms DSTPP. Together, these results demonstrate the stronger long-horizon forecasting capability of our method. Overall, ARCH achieves better or comparable accuracy relative to ARCH-AR, showing that joint forecasting can generate multiple future events more efficiently while retaining accuracy comparable to the standard autoregressive forecasting strategy used by existing methods. 96 Conclusion 
+
+We presented ARCH, a hierarchical flow-matching framework for spatiotemporal event modeling. By decomposing event generation into conditional temporal and spatial flows, ARCH combines the flexibility of continuous generative modeling with tractable and accurate evaluation of conditional intensities and instantaneous event risks. Built on an encoder–decoder architecture with flexible masking strategies, ARCH supports a broad range of inference and prediction tasks, including inverse inference, missing-event and missing-attribute completion, event-trajectory recovery, and future-trajectory forecasting. This substantially broadens the scope of spatiotemporal event modeling beyond the standard autoregressive next-event prediction setting targeted by most existing methods. Future work will investigate broader real-world applications and extend the framework toward scalable general-purpose models for spatiotemporal event data. 
+
+## References 
+
+Blundell, C., Beck, J., and Heller, K. A. (2012). Modelling reciprocating relationships with hawkes processes. In Advances in Neural Information Processing Systems , pages 2600–2608. Braga, A. A. (2001). The effects of hot spots policing on crime. The ANNALS of the American Academy of Political and Social Science , 578(1):104–125. Chen, R. T., Rubanova, Y., Bettencourt, J., and Duvenaud, D. K. (2018). Neural ordinary differential equations. Advances in neural information processing systems , 31. Chen, R. T. Q., Amos, B., and Nickel, M. (2021). Neural spatio-temporal point processes. In 
+
+International Conference on Learning Representations .Coddington, E. A. and Levinson, N. (1955). Theory of Ordinary Differential Equations . McGraw-Hill. Cox, D. R. (1972). Regression models and life-tables. Journal of the royal statistical society: Series B (methodological) , 34(2):187–202. Daley, D. J. and Vere-Jones, D. (2003). An introduction to the theory of point processes, volume 1: Elementary theory and methods. Verlag New York Berlin Heidelberg: Springer .Dormand, J. R. and Prince, P. J. (1980). A family of embedded Runge–Kutta formulae. Journal of Computational and Applied Mathematics , 6(1):19–26. Du, N., Dai, H., Trivedi, R., Upadhyay, U., Gomez-Rodriguez, M., and Song, L. (2016). Recurrent marked temporal point processes: Embedding event history to vector. In Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining , pages 1555–1564. Hawkes, A. G. (1971). Spectra of some self-exciting and mutually exciting point processes. 
+
+Biometrika , 58(1):83–90. Ho, J., Jain, A., and Abbeel, P. (2020). Denoising diffusion probabilistic models. Advances in neural information processing systems , 33:6840–6851. Hochreiter, S. and Schmidhuber, J. (1997). Long short-term memory. Neural computation , 9(8):1735– 1780. Jia, J. and Benson, A. R. (2019). Neural jump stochastic differential equations. Advances in Neural Information Processing Systems , 32. Kerrigan, G., Nelson, K., and Smyth, P. (2026). EventFlow: Forecasting temporal point processes with flow matching. In The 29th International Conference on Artificial Intelligence and Statistics .Lin, H., Wu, L., Zhao, G., Pai, L., and Li, S. Z. (2022). Exploring generative neural temporal point process. Transactions on Machine Learning Research .Lipman, Y., Chen, R. T., Ben-Hamu, H., Nickel, M., and Le, M. (2022). Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 .10 Lloyd, C., Gunter, T., Osborne, M., and Roberts, S. (2015). Variational inference for gaussian process modulated poisson processes. In International Conference on Machine Learning , pages 1814–1822. PMLR. Loshchilov, I. and Hutter, F. (2017). Decoupled weight decay regularization. arXiv preprint arXiv:1711.05101 .Lüdke, D., Bilo vs, M., Shchur, O., Lienen, M., and Günnemann, S. (2023). Add and thin: Diffusion for temporal point processes. Advances in Neural Information Processing Systems , 36:56784– 56801. Lüdke, D., Lienen, M., Kollovieh, M., and Günnemann, S. (2026). Edit-based flow matching for temporal point processes. In The Fourteenth International Conference on Learning Representations .Mei, H. and Eisner, J. M. (2017). The neural hawkes process: A neurally self-modulating multivariate point process. In Advances in Neural Information Processing Systems , pages 6754–6764. Ogata, Y. (1981). On Lewis’ simulation method for point processes. IEEE transactions on information theory , 27(1):23–31. Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., and Duchesnay, É. (2011). Scikit-learn: Machine learning in Python. Journal of Machine Learning Research , 12:2825–2830. Reinhart, A. (2018). A review of self-exciting spatio-temporal point processes and their applications. 
+
+Statistical Science , 33(3):299–318. Shchur, O., Bilo vs, M., and Günnemann, S. (2020). Intensity-free learning of temporal point processes. 
+
+International Conference on Learning Representations (ICLR) .Sill, J. (1997). Monotonic networks. Advances in neural information processing systems , 10. Troyanskaya, O., Cantor, M., Sherlock, G., Brown, P., Hastie, T., Tibshirani, R., Botstein, D., and Altman, R. B. (2001). Missing value estimation methods for DNA microarrays. Bioinformatics ,17(6):520–525. Wang, Y., Ye, X., Zha, H., and Song, L. (2017). Predicting user activity level in point processes with mass transport equation. In Advances in Neural Information Processing Systems , pages 1644–1654. Wang, Z., Xu, Y., Tillinghast, C., Li, S., Narayan, A., and Zhe, S. (2022). Nonparametric embeddings of sparse high-order interaction events. In International Conference on Machine Learning , pages 23237–23253. PMLR. Yuan, B., Li, H., Bertozzi, A. L., Brantingham, P. J., and Porter, M. A. (2019). Multivariate spatiotemporal Hawkes processes and network reconstruction. SIAM Journal on Mathematics of Data Science , 1(2):356–382. Yuan, Y., Ding, J., Shao, C., Jin, D., and Li, Y. (2023a). Spatio-temporal diffusion point processes. In 
+
+Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining ,KDD ’23, page 3173–3184, New York, NY, USA. Association for Computing Machinery. Yuan, Y., Ding, J., Shao, C., Jin, D., and Li, Y. (2023b). Spatio-temporal diffusion point processes. In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining ,KDD ’23, page 3173–3184, New York, NY, USA. Association for Computing Machinery. Zhang, Q., Lipani, A., Kirnap, O., and Yilmaz, E. (2020). Self-attentive hawkes process. In 
+
+International Conference on Machine Learning , pages 11183–11193. PMLR. Zhe, S. and Du, Y. (2018). Stochastic nonparametric event-tensor decomposition. In Advances in Neural Information Processing Systems , pages 6856–6866. 11 Zhou, Z., Yang, X., Rossi, R., Zhao, H., and Yu, R. (2022). Neural point process for learning spatiotemporal event dynamics. In Firoozi, R., Mehr, N., Yel, E., Antonova, R., Bohg, J., Schwager, M., and Kochenderfer, M., editors, Proceedings of The 4th Annual Learning for Dynamics and Control Conference , volume 168 of Proceedings of Machine Learning Research , pages 777–789. PMLR. Zhou, Z. and Yu, R. (2023). Automatic integration for spatiotemporal neural point processes. In Oh, A., Naumann, T., Globerson, A., Saenko, K., Hardt, M., and Levine, S., editors, Advances in Neural Information Processing Systems , volume 36, pages 50237–50253. Curran Associates, Inc. Zuo, S., Jiang, H., Li, Z., Zhao, T., and Zha, H. (2020). Transformer hawkes process. In International Conference on Machine Learning , pages 11692–11702. PMLR. 12 Appendix A Proof of Lemma 3.1 
+
+Proof. Let Φt : R → R denote the flow map induced by the ODE, so that for each initial value 
+
+s0 ∈ R, the corresponding solution at time t is 
+
+Φt(s0).
+
+Thus, if S(0) is the random initial state, then 
+
+S(t) = Φ t(S(0)) ,
+
+and for the deterministic trajectory {s(t)}t≥0 with initial value s(0) , we have 
+
+s(t) = Φ t(s(0)) .
+
+Under the standard continuity and Lipschitz assumptions of the Picard–Lindelöf theorem, the ODE ad-mits a unique solution for each initial condition (Coddington and Levinson, 1955). In one dimension, uniqueness implies that the flow map Φt is order-preserving: if s(1) 0 < s (2) 0 , then 
+
+Φt
+
+ s(1) 0
+
+ < Φt
+
+ s(2) 0
+
+, ∀t ≥ 0,
+
+since otherwise the two trajectories would intersect at some time, contradicting uniqueness. Because Φt is strictly increasing, we have 
+
+S(t) ≤ s(t) ⇐⇒ Φt(S(0)) ≤ Φt(s(0)) ⇐⇒ S(0) ≤ s(0) .
+
+Taking probabilities on both sides yields 
+
+Ft(s(t)) = P S(t) ≤ s(t) = P S(0) ≤ s(0)  = F0(s(0)) .
+
+Therefore, the CDF value remains constant along every solution trajectory. 
+
+## B Dataset Details 
+
+Earthquake (Chen et al., 2021). This dataset records earthquake and aftershock occurrences in Japan between Year 1990 and 2020. Each sequence aggregates one month of events, so the prediction horizon is T = 30 days. The processed benchmark contains 1,050 sequences in total, split into 950 
+
+training, 50 validation, and 50 test sequences. According to the provided data files, sequence lengths span from 22 to 554 events, with an average of 87 .5 events per sequence. 
+
+COVID-19. (Chen et al., 2021) The dataset stores daily COVID-19 case events across counties in New Jersey from March 2020 to July 2020. One sequence corresponds to a one-week window, i.e., 
+
+T = 7 days. The full dataset contains 1,650 sequences, partitioned into 1,450 for training, 100 for validation, and 100 for testing. Sequence lengths vary from 5 to 287 , and the average length is 97 .8.
+
+Citibike. (Yuan et al., 2023a) The Citibike benchmark is built from New York City bike-sharing trips collected from April to August 2019. The temporal unit is one hour, and each sequence covers a single day, giving T = 24 . We use 2,440 training sequences, 300 validation sequences, and 320 test sequences. The processed files contain 3,060 sequences in total, with lengths ranging from 14 to 204 
+
+and an average of 134 .9 events. 
+
+## C Training Details and Hyperparameter Settings 
+
+For all real-world datasets, we apply a linear shift and scaling to normalize the spatial domain to 
+
+[0 , 1] 2 during training. At evaluation time, both the generated event times and spatial locations are mapped back to their original domains before computing the prediction errors. In our implementation, the temporal and spatial flows share the same Transformer backbone for the encoder and decoder, but use separate MLP heads for velocity prediction. The inter-event time ∆ti is 13 Figure 2: Overview of ARCH framework for spatiotemporal event modeling. 
+
+Table 6: Hyperparameter settings of ARCH. Hyperparameter Setting Embedding Dimension in Encoder 32 Embedding Dimension in Decoder 32 Sinusoidal Encoding dimension 32 Input Layer for ODE state of the temporal flow MLP (64, 32)/GELU Input Layer for ODE state of the spatial flow MLP (64, 32)/ GELU Input Layer for event spatial locations MLP (64, 32)/GELU Input Layer for flow time t Sinusoidal Encoding → MLP [32, 32]/GELU Input Layer for ∆s Log Transform → Sinusoidal Encoding Number of Encoder layers 3Number of Decoder layers 3Layer Norm First True Dropout 0.15 Feed Forward Dimension in Encoder 32 Feed Forward Dimension in Decoder 32 Number of Attention Heads 1Temporal Velocity Head MLP (256, 1)/GELU Spatial Velocity Head MLP (256, d)/GELU Optimizer AdamW Learning rate 10 −3
+
+passed through a sinusoidal encoding layer to obtain its latent representation. The flow time t ∈ [0 , 1] 
+
+is first encoded by a sinusoidal encoding layer and then transformed by an MLP. The ODE states and event spatial locations are separately embedded using MLP layers. The relevant representations are then summed to form token embeddings, which are processed by the self-attention layers in the encoder and decoder. When summing the loss terms, all temporal velocity losses are assigned weight 1, while all spatial velocity losses are assigned weight 1.5. The three mask types are treated equally, i.e., no additional weighting is applied across mask types. For the random-conditioning mask, each binary mask indicator is sampled independently, with probability 0.7 of being one. To sample a consecutive mask, we uniformly sample two endpoints a and b and resample until a < b . The architectural hyperparameters of ARCH are listed in Table 6. All experiments were conducted on a Linux workstation equipped with a NVIDIA GeForce RTX 3090 GPU card (24 GB Memory). 14 Figure 3: Illustration of the masking strategies used in ARCH training: autoregressive mask, random condition mask, and consecutive mask. 
+
+## D Additional Results for Missing Event Recovery 
+
+We randomly selected a portion of events. Each selected event has one third chance to miss its time, one third chance to miss its location, and one third chance to be completely missing. We then applied ARCH to predict the missing part of these events. We considered missing ratios of 5% and 10%. We compared with KNNImpute where k = 10 . As shown in Table 8, ARCH achieves better recover accuracy in all the cases except that on COVID-19 dataset, the event time accuracy of ARCH is slightly worse than KNNImpute under missing ratio 10%. 
+
+## E Limitations and Future Work 
+
+While our framework supports a broad range of inference tasks beyond autoregressive prediction, it currently assumes that the number of target events, or target event attributes, is specified in advance. It does not explicitly infer how many events are missing within an observed time window, or how many future events should occur within a forecasting horizon. Although event counts can in principle 15 Table 7: Missing event recovery. Earthquake COVID-19 Citibike Model Spatial ↓ Temporal ↓ Spatial ↓ Temporal ↓ Spatial ↓ Temporal ↓
+
+Missing ratio = 10% KNNImp ( k = 3 ) 7.28 ±0.096 0.414 ±0.012 0.462 ±0.003 0.096 ±0.003 0.037 ±0.000 0.228 ±0.006 
+
+KNNImp ( k = 5 ) 7.04 ±0.075 0.395 ±0.012 0.441 ±0.003 0.092 ±0.004 0.035 ±0.000 0.221 ±0.006 
+
+KNNImp ( k = 10 ) 6.86 ±0.073 0.381 ±0.013 0.424 ±0.002 0.090 ±0.004 0.034 ±0.000 0.216 ±0.006 
+
+ARCH 6.71 ±0.022 0.365 ±0.011 0.379 ±0.003 0.094 ±0.005 0.031 ±0.000 0.204 ±0.005 
+
+Missing ratio = 20% KNNImp ( k = 3 ) 7.20 ±0.072 0.418 ±0.007 0.469 ±0.003 0.102 ±0.002 0.037 ±0.000 0.226 ±0.004 
+
+KNNImp ( k = 5 ) 6.95 ±0.050 0.402 ±0.007 0.447 ±0.003 0.099 ±0.002 0.035 ±0.000 0.219 ±0.004 
+
+KNNImp ( k = 10 ) 6.77 ±0.049 0.388 ±0.007 0.429 ±0.003 0.097 ±0.002 0.034 ±0.000 0.215 ±0.004 
+
+ARCH 6.57 ±0.050 0.372 ±0.007 0.386 ±0.003 0.103 ±0.002 0.031 ±0.000 0.198 ±0.003 
+
+Missing ratio = 30% KNNImp ( k = 3 ) 7.20 ±0.028 0.416 ±0.003 0.469 ±0.002 0.101 ±0.001 0.037 ±0.000 0.228 ±0.002 
+
+KNNImp ( k = 5 ) 6.94 ±0.026 0.398 ±0.003 0.447 ±0.002 0.098 ±0.001 0.036 ±0.000 0.220 ±0.002 
+
+KNNImp ( k = 10 ) 6.76 ±0.022 0.384 ±0.004 0.430 ±0.001 0.095 ±0.001 0.034 ±0.000 0.215 ±0.002 
+
+ARCH 6.53 ±0.046 0.366 ±0.006 0.385 ±0.001 0.099 ±0.001 0.031 ±0.000 0.196 ±0.002 
+
+Table 8: Missing event attribute (time and/or location) recovery. Earthquake COVID-19 Citibike Model Spatial ↓ Temporal ↓ Spatial ↓ Temporal ↓ Spatial ↓ Temporal ↓
+
+Missing ratio = 5% KNNImp ( k = 10 ) 6.70 ±0.094 0.374 ±0.035 0.420 ±0.003 0.090 ±0.010 0.034 ±0.000 0.221 ±0.009 
+
+ARCH (Ours) 6.45 ±0.163 0.348 ±0.030 0.383 ±0.007 0.090 ±0.011 0.031 ±0.000 0.214 ±0.009 
+
+Missing ratio = 10% KNNImp ( k = 10 ) 6.51 ±0.051 0.389 ±0.014 0.431 ±0.004 0.089 ±0.007 0.034 ±0.000 0.220 ±0.005 
+
+ARCH (Ours) 6.26 ±0.140 0.367 ±0.017 0.397 ±0.003 0.093 ±0.008 0.032 ±0.000 0.211 ±0.006 
+
+be estimated through repeated sampling and rejection, a more principled and efficient approach would be valuable. We leave this direction for future work. In addition, our results demonstrate that flow matching provides a flexible framework for capturing diverse event distributions and their instantaneous risks. However, in many applications, structural priors may be important for uncovering interpretable or semantically meaningful event relationships. Incorporating such priors into the proposed framework is another promising direction for future work. Finally, we plan to extend our approach to support discrete event-mask generation, enabling the model to infer not only the values of target events but also which types of events or attributes should be generated. 16 Figure 4: Conditional intensity functions, i.e., instantaneous event risks, at representative time points of a test sequence simulated by a spatiotemporal Hawkes process ( SYN1 ). GT denotes the ground truth. 
+
+Algorithm 1 ARCH Training 
+
+Require: Training dataset D, temporal flow vΘ1 , spatial flow vΘ2 
+
+> 1:
+
+Apply a log transformation to each inter-event time: ∆si 7 → log(∆ si +ϵ), where ∆si = si −si−1
+
+and ϵ > 0 is a small constant.  
+
+> 2:
+
+while not converged do  
+
+> 3:
+
+Sample a mini-batch B from D and pad all sequences to the same length.  
+
+> 4:
+
+For each sequence in B, construct the autoregressive mask Mar , and sample a random-conditioning mask Mrc and a consecutive mask Mcon . 
+
+> 5:
+
+for each mask type M ∈ {M ar , Mrc , Mcon } do  
+
+> 6:
+
+Combine M with the padding mask to derive the encoder mask Menc and decoder mask 
+
+Mdec for B. 
+
+> 7:
+
+Sample initial noise S0 and X0 from standard normal distributions for vΘ1 and vΘ2 ,respectively.  
+
+> 8:
+
+Sample flow times τ1, τ 2 ∼ Uniform(0 , 1) for the temporal and spatial flows, respec-tively.  
+
+> 9:
+
+Construct the interpolated flow states: 
+
+Sτ1 = (1 − τ1)S0 + τ1S1, Xτ2 = (1 − τ2)X0 + τ2X1. 
+
+> 10:
+
+Apply (Menc , Mdec ) to vΘ1 and vΘ2 to obtain velocity predictions V1 and V2. 
+
+> 11:
+
+Compute the masked flow-matching losses: 
+
+LM 
+
+> 1
+
+= Mdec ◦ (V1 − (S1 − S 0)) 2 , LM 
+
+> 2
+
+= Mdec ◦ (V2 − (X1 − X 0)) 2 . 
+
+> 12:
+
+end for  
+
+> 13:
+
+Sum all loss terms, backpropagate the gradients, and update the model parameters.  
+
+> 14:
+
+end while 
+
+17 Algorithm 2 ARCH Generation 
+
+Require: Observed events, target-event positions, trained temporal flow vΘ1 and spatial flow vΘ2 
+
+> 1:
+
+Construct the encoder mask Menc and decoder mask Mdec according to the observed and target events.  
+
+> 2:
+
+Sample initial noise S0 from a standard normal distribution.  
+
+> 3:
+
+Starting from S0, integrate the temporal ODE from flow time 0 to 1; at each integration step, apply (Menc , Mdec ) to vΘ1 to obtain the velocity field.  
+
+> 4:
+
+Obtain S1 and map it back to the inter-event-time domain by applying the inverse log transforma-tion, ∆s = exp( S1) − ϵ. 
+
+> 5:
+
+Sample initial noise X0 from a standard normal distribution.  
+
+> 6:
+
+Condition the spatial flow vΘ2 on S1. Starting from X0, integrate the spatial ODE from flow time 0 to 1; at each integration step, apply (Menc , Mdec ) to vΘ2 to obtain the velocity field.  
+
+> 7:
+
+Obtain X1 as the generated spatial locations of the target events. 18
