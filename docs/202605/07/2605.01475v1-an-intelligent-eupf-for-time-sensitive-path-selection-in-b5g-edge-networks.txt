@@ -1,0 +1,477 @@
+Title: An Intelligent eUPF for Time-Sensitive Path Selection in B5G Edge Networks
+
+URL Source: https://arxiv.org/pdf/2605.01475v1
+
+Published Time: Tue, 05 May 2026 00:41:47 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# An Intelligent eUPF for Time-Sensitive Path Selection in B5G Edge Networks 
+
+Rodrigo Moreira 1, Larissa F. Rodrigues Moreira 1, Tereza C. Carvalho 2, and Flávio de Oliveira Silva 3 
+
+> 1
+
+Federal University of Viçosa, Minas Gerais, Brazil 
+
+{rodrigo,larissa.f.rodrigues}@ufv.br  
+
+> 2
+
+University of São Paulo, São Paulo, Brazil 
+
+terezacarvalho@usp.br  
+
+> 3
+
+University of Minho, Braga, Portugal 
+
+flavio@di.uminho.pt 
+
+Abstract. In Beyond 5G (B5G) networks, intelligent, flexible traffic management is essential to meet the stringent speed and reliability re-quirements of new applications. This paper presents an improved User Plane Function (eUPF) design that uses a Deep Q-Network (DQN) agent for real-time path selection between Multi-access Edge Computing (MEC) and cloud endpoints. The path selection problem is formulated as a Partially Observable Markov Decision Process (POMDP). We propose a novel passive delay measurement method that uses eBPF programs to link TEID-based timestamps in GTP-U traffic, allowing for low-cost de-lay estimation without active testing. Experiments show that the DQN agent substantially outperforms a random baseline, with lower average latency, more stable rewards, and more reliable low-delay path choices. These results demonstrate the effectiveness of AI-driven control in B5G core networks and the promise of reinforcement learning for modern net-work management. 
+
+Keywords: Beyond 5G Networks · User Plane Function · Reinforcement Learning · eBPF/XDP · Multi-access Edge Computing · Time-Sensitive Path Selection 
+
+## 1 Introduction 
+
+The increasing prevalence of compute-intensive applications, coupled with the diversity of mobile devices, results in substantial data volumes in 5th Generation Mobile Network (5G). To accommodate this demand, especially in the Beyond Fifth Generation (B5G) context, it is crucial to minimize service access delay by bringing services closer to users through approaches such as Multi-access Edge Computing (MEC). Industries such as automation, autonomous driving, and cloud gaming, for instance, impose stringent ultralow-latency requirements [18], and in response, placing network functions near the edge not only helps meet these demands but also offers a promising way to alleviate backbone traffic  
+
+> arXiv:2605.01475v1 [cs.NI] 2 May 2026 2R. Moreira et al.
+
+surges, particularly for Network Function Virtualization (NFV)-based compo-nents [2]. This drives ongoing research on efficient path-selection strategies in the data plane of mobile networks. Building on these advancements, the state of the art presents various ap-proaches for service steering and resource allocation within the broader context of path selection [13], particularly across two key segments of mobile networks. The first research stream focuses on the Radio Access Network (RAN), where strategies range from traffic-aware RAN slicing to open and disaggregated solu-tions, such as Open RAN [1]. The second stream focuses on traffic steering in the mobile network data plane, with particular emphasis on solutions to enhance the performance of the User Plane Function (UPF) [19]. Despite this progress, the literature identifies further opportunities to explore how the UPF can be instrumented to enable greater programmability and intelligent behavior [3]. Recent efforts to enhance programmability and intelligent behavior in the mobile core have led to the introduction of analytics capabilities in the 3rd Generation Partnership Project (3GPP) Release 16, facilitated by the Network Data Analytics Function (NWDAF) entity [7]. However, the mechanisms for data collection and component instrumentation have posed challenges across various deployments [12]. This study explores the potential of transforming the UPF into a more intelligent entity, capable of considering latency by examining GPRS Tunnelling Protocol (GTP) Tunnel Endpoint Identifiers (TEIDs) and employing a Reinforcement Learning (RL) mechanism to optimize its real-time performance. In this work, we introduce and assess the UPF instrumentation for estimat-ing the end-user latency of the User Equipment (UE) by analyzing the time-shifting of TEIDs arriving at the UPF. This approach empowers the UPF to autonomously select the optimal interface for traffic forwarding and apply intel-ligent traffic steering based on latency awareness, thereby reducing end-to-end delay. The efficacy of our methodology is demonstrated through a MEC and cloud-based application, validating how the UPF, in conjunction with an RL agent, can non-intrusively direct traffic along various paths by monitoring UE latency and using eXpress Data Path (XDP). This design positions the eUPF as an intelligent user-plane element for time-sensitive path selection across MEC and cloud environments. The contributions of this study are as follows: (i) the development of a novel UPF instrumentation for UE latency estimation; (ii) a comparative evaluation of a naive UPF path selection versus an RL-based approach; (iii) the design and implementation of a non-intrusive telemetry mechanism using XDP to enable real-time TEID monitoring and latency estimation at the UPF; and (iv) an end-to-end experimental validation showcasing how the proposed architecture improves latency-sensitive service delivery in MEC and cloud scenarios. The remainder of this paper is organized as follows: Section 2 presents rep-resentative approaches for MEC-aware decision-making in 5G/6G. In Section 3, we present our method for intelligent intervention in the dataplane. In Section 4, we describe the technologies used to perform the proof of concept. In Section 5, Title Suppressed Due to Excessive Length 3
+
+we present the discussions and insights gained from our approach. Finally, in Section 6, we provide the conclusions and lessons learned. 
+
+## 2 Related Work 
+
+Table 1. Summary of representative approaches for MEC aware decision making in Fifth Generation and Sixth Generation networks.                                                             
+
+> Paper Learning Optimization User Plane Function Tunnel Endpoint Identifier Real Testbed
+> Shokrnezhad et al. [17] ○○○␣ ○␣ ○␣
+> Tran et al. [19] ○␣ ○○○␣ ○
+> Gan et al. [6] ○○○␣ ○␣ ○␣
+> Maleki et al. [11] ○○○␣ ○␣ ○␣
+> Sasithong et al. [16] ○○○○␣ ○␣
+> Hisyam et al. [8] ○○○␣ ○␣ ○␣
+> Nguyen et al. [14] ○○○○␣ ○␣
+> Pimpalkar et al. [15] ○␣ ○○␣ ○␣ ○␣
+> Kibalya et al. [10] ○○○○␣ ○␣
+> Ibrahimi et al. [9] ○○○␣ ○␣ ○␣
+> Our Approach ○○○○○
+
+Automated management systems are essential for emerging eXtended Real-ity (XR) and the metaverse [5], [4]. Recent research focus includes instrumenting different segments of 5G, including the RAN, core, and transport, to improve adaptability and performance monitoring. This section reviews studies that use the UPF to measure UE connectivity parameters, adapt to dynamic traffic condi-tions, and enable Internet Service Providers (ISPs) to track and enforce Service-Level Agreement (SLA) guarantees effectively. Deep Reinforcement Learning is widely applied for intelligent resource man-agement. Shokrnezhad et al. [17] address joint Virtual Network Function (VNF) placement, traffic prioritization, and path selection in B5G networks under la-tency and capacity constraints using Double Deep Q-learning (DDQL) Double Deep Q learning. Gran et al. [6] use Multi-Agent Deep Reinforcement Learn-ing (MADRL) with collaborative Deep Q-Network (DQN) models for computa-tion offloading in 5G MEC systems to minimize total system cost. Similarly, Sasithong et al. [16] apply DQN and Actor-Critic (AC) algorithms for dynamic UPF allocation in Cellular Vehicle to-Everything (C-V2X) [16]. Nguyen et al. [14] utilize Proximal Policy Optimization (PPO) and Support Vec-tor Machine (SVM) for scaling UPF instances [14], while Kibalya et al. [10] em-ploy policy networks for joint UPF and application placement in multi-slice MEC [10]. For Ultra-Reliable and Low Latency Communications (URLLC), Ibrahimi et al. [9] implement a DQN strategy to balance congestion and throughput [9]. Other research employs heuristics, optimization, or supervised learning. Tran et al. [19] introduce a rule-based computing-aware traffic steering architecture for 5G to route traffic to optimal MEC instances using Segment Routing over IPv6 (SRv6) [19]. Maleki et al. [11] utilize Multi-Armed Bandit (MAB) and Deep Neural Network (DNN) models for Quality of Service (QoS) aware content deliv-4 R. Moreira et al. 
+
+ery under mobility [11]. In 6th Generation Mobile Network (6G) contexts, Pim-palkar et al. [15] formulate a multi-constraint convex problem for Service-Aware Optimal Path Selection (SOPS) [15]. Hisyam Ng and Mahmoodi [8] propose a supervised learning scheme using Random Forests and Mixed Integer Linear Programming (MILP) for dynamic steering [8]. Table 1 summarizes representative approaches for MEC aware decision mak-ing in Fifth Generation and Sixth Generation networks using a binary compar-ison of key capabilities, namely whether each work employs learning, performs explicit optimization, targets the User Plane Function, incorporates Tunnel End-point Identifier awareness, and validates results on a real testbed. The table shows that prior studies largely rely on simulation and do not exploit Tun-nel Endpoint Identifier signals for data-plane decisions, even when learning or optimization is applied. In contrast, our approach integrates a DQN-based re-inforcement learning agent with User Plane Function-level control and explicit Tunnel Endpoint Identifier awareness, and it is validated on a real testbed, en-abling passive latency-driven N6 interface selection for Beyond Fifth Generation scenarios spanning MEC and cloud paths. 
+
+## 3 Proposed Approach 
+
+Building on the insights and limitations identified in prior work, we propose an enhancement to the traditional UPF, hereafter referred to as eUPF (enhanced UPF), which integrates an RL agent to enable intelligent, real-time path selection for individual network slices. As shown in Fig. 1, the DQN-based agent observes latency and network conditions to dynamically steer traffic across multiple N6 paths (e.g., Path A and Path B), targeting either MEC or Cloud endpoints. This architecture enables the UPF to surpass static policies by continuously adapting to network dynamics, user mobility, and service-level requirements. By leveraging AI control at the data plane, the proposed eUPF architecture enables smarter, slice-aware forwarding decisions aligned with the vision of agile and autonomous 5G/6G core networks. 
+
+3.1 Problem Formulation 
+
+We formulate adaptive path selection as a Partially Observable Markov Decision Process, where the enhanced UPF applies a slice specific forwarding policy at run time, and the reinforcement learning agent makes per flow decisions using the Tunnel Endpoint Identifier (TEID) as the in kernel key that identifies the active Packet Data Unit (PDU) session associated with that slice context. 
+
+States and Transitions. Let St = ( sn6a(t), s n6b(t)) denote the latent en-vironment state at time t, where si(t) ∈ { GOOD , BAD } for i ∈ { n6a , n6b }.Transitions from GOOD to BAD occur independently with fixed probabilities pi
+
+per packet. Once degraded, each interface remains in the BAD state for a deter-ministic duration Di before reverting to the GOOD state. These semi Markov dynamics introduce memory that must be inferred from observations. Title Suppressed Due to Excessive Length 5NSSF  NRF 
+
+PCF 
+
+UDM 
+
+AUSF AMF 
+
+SMF 
+
+NRF     
+
+> Core Bus
+> N3
+> MEC
+> Slice n
+> Slice 2
+> Slice 3
+> Devices Devices
+> Slice 1
+
+eUPF 
+
+> N3
+> Y2
+> Satellite Satellite
+> FTTx FTTx
+> RA
+> N
+> Y2
+> N3IWF
+> Telco Cloud
+> N3
+> N3
+
+DQN 
+
+Agent   
+
+> N3 N6
+> N6
+> NWDAF
+> Path B
+> Path A
+> Container sContainer sContainer sVMs VMs VMs
+> AI Data and Control Flow
+> Data Plane Flow
+> Control Plane Flow
+> AI Data and Control Flow
+> Data Plane Flow
+> Control Plane Flow
+> Cloud
+> N4
+> N4
+
+Fig. 1. Proposed Approach. 
+
+Observations. The agent does not observe St directly. Instead, after se-lecting an action At ∈ { n6a , n6b }, it receives a noisy delay measurement. Let i
+
+denote the interface selected by At (that is, i = At). The observation process (Eq. 1) is: 
+
+RT T (At) = di · I[si(t) = BAD ] + ξt
+
+ξt ∼ U (−Jmax , +Jmax ) (1) 
+
+where di is the additional delay incurred when interface i is in the BAD state, 
+
+I[·] is the indicator function, equal to 1 if the condition holds and 0 otherwise, and ξt models bounded measurement noise (jitter) with maximum amplitude 
+
+Jmax .Because the agent operates under partial observability, we define a scalar observed state st derived from the latest measurement. In our implementation, 
+
+st corresponds to the most recent per TEID delay proxy exposed by the data plane. This st is the input used by the learning agent at decision time t.
+
+Actions and Rewards. At each time step t, the agent selects an interface 
+
+At ∈ { n6a , n6b } via a policy π(at|st). We define the reward as the negative observed delay (Eq. 2): 
+
+Rt = −RT T (At). (2) We normalize Rt via min max scaling to stabilize training, mapping rewards to a bounded range while preserving ordering, so that lower delays correspond to higher normalized rewards. 
+
+Learning Objective. The agent aims to maximize expected discounted return (Eq. 3): 6 R. Moreira et al. 
+
+max  
+
+> π
+
+E
+
+" TX
+
+> t=0
+
+γtRt
+
+#
+
+, (3) where γ ∈ (0 , 1] is the discount factor, T is the episode horizon in decision steps, and the expectation is taken over trajectories induced by policy π and the environment dynamics. Because St is latent and only st is observed, deep reinforcement learning, particularly DQN, is suitable to learn effective decisions from sequences of noisy measurements. 
+
+3.2 TEID-Correlated Delay Measurement 
+
+To avoid injecting additional active probes, we leverage a passive data plane measurement approach based on TEID correlated timestamps within the UPF. The system attaches eBPF programs directly to the GTP-U traffic path, ex-tracting the TEID from each packet. For each TEID i, a stateful map stores a request timestamp treq  
+
+> i
+
+when a request packet is observed. When the corresponding response packet for the same TEID i is observed at the UPF, the program computes an in network round trip proxy (Eq. 4): 
+
+∆t i = tresp  
+
+> i
+
+− treq  
+
+> i
+
+. (4) Here, treq  
+
+> i
+
+is the timestamp captured for the request, and tresp  
+
+> i
+
+is the times-tamp captured for the matched response, both observed at the UPF for the same TEID i. In our proof of concept, the request response pattern is instantiated with Internet Control Message Protocol (ICMP) echo traffic, and the response is iden-tified by matching the echo reply to the previously observed echo request within the same TEID context, which provides a consistent pairing signal for timestamp correlation. This measurement is a UPF observed delay proxy, not a fully instrumented end to end RTT across the entire Data Network (DN) and RAN. Its purpose is to provide a low overhead, online signal that reflects the experienced user plane delay under the current forwarding choice, enabling the agent to adapt decisions even when only partial visibility is available. To implement the passive latency measurement, we developed an in kernel routine that associates TEID identified flows with timestamped events at the UPF data plane. Algorithm 1 presents the logic executed by the eBPF program attached to the GTP-U traffic path. Upon receiving a packet, the program ex-tracts the corresponding TEID and records a request timestamp if none already exists. When a subsequent packet for the same TEID arrives, it computes the delay proxy and resets tracking state, enabling continuous measurement without additional probe injection. 
+
+## 4 Evaluation Setup 
+
+Our evaluation was conducted on the FABRIC testbed, using a high perfor-mance virtual machine provisioned with 32 GB of RAM and 32 vCPUs. The en-Title Suppressed Due to Excessive Length 7
+
+Algorithm 1: TEID-Correlated Round-Trip Time (RTT) Measure-ment. 
+
+Initialize rtt_map as a hash map with key: TEID and value: round_trip structure; 
+
+Function measure_rtt( skb ):
+
+Extract TEID from incoming GTP-U packet; 
+
+now ← current kernel timestamp ( bpf_ktime_get_ns() ); Lookup entry in rtt_map by TEID; 
+
+if entry does not exist then 
+
+Insert new entry with ts_request ← now ;
+
+else if ts_request is zero then 
+
+Set ts_request ← now ;
+
+else 
+
+Compute RTT: last_rtt ← now − ts_request ;Reset ts_request ← 0;Increment count ;
+
+vironment was orchestrated with Kubernetes v1.28.15 running on Ubuntu, and Free5GC was used to emulate the 5G core network. Fig. 2 illustrates the deploy-ment, where the DQN agent interacts with the user plane through Extended Berkeley Packet Filter (eBPF)/XDP hooks and shared maps. We leveraged a custom BPF toolset to implement programmable datapath control, enabling dy-namic action updates and observation retrieval directly at the UPF. This setup supports reproducible experimentation with low level latency estimation and adaptive path selection across n6a and n6b interfaces. gNB  N3  UPF 
+
+Stack  N6B 
+
+N6A 
+
+e-UPF 
+
+> TEID
+> updates
+
+DQN DQN  MEC -  
+
+> Server
+> Data
+> Network
+> N6A
+> N6B
+> Flags TEID
+> Seq.
+> Number
+> UDP
+> Payload
+> Flags TEID
+> Seq.
+> Number
+> UDP
+> Payload
+> GTP -U Header
+> Observes the
+> environment
+
+Fig. 2. Experimental Setup. 
+
+The stochastic degradation parameters used in our experiments are sum-marized in Table 2. For each interface i ∈ { n6a , n6b }, a degradation event is triggered independently at each packet arrival according to a failure probability 
+
+pi. Once triggered, the interface remains degraded for a fixed failure duration 8 R. Moreira et al. 
+
+Di before automatically recovering. When an interface is in the degraded state, an additional delay di is induced, matching the observation model in Eq. 1. A bounded jitter term with maximum amplitude Jmax is applied globally across both paths, as defined in Eq. 1.            
+
+> Table 2. Network Path Parameters for Delay Induction Scenario.
+> Path Failure Probability Failure Duration (s) Bad State Delay (ms)
+> Path A (MEC) 0.01 10 800 Path B (Cloud) 0.10 20 800
+> Global Parameter: Maximum Jitter Jmax = 3 ms
+
+4.1 DQN Based Path Selection Architecture 
+
+The learning component is implemented as a DQN, which approximates the action value function Q(st, a t; θ) with a deep neural network parameterized by 
+
+θ. The agent receives as input a scalar state st derived from the most recent per TEID delay proxy, and outputs Q values for the two discrete actions corre-sponding to the available egress interfaces, namely n6a and n6b . Action selection follows an ϵ greedy exploration strategy, where ϵ decays from an initial explo-ration probability to a smaller final value over training. The network architecture is a feedforward multilayer perceptron with two hidden layers of 64 units each and ReLU activations. Learning is stabilized using experience replay and a separate target network with parameters θ− that are periodically synchronized from the online network. At each decision step, the agent stores a transition (st, a t, r t, s t+1 ) in a replay buffer and samples mini batches to update θ by minimizing the temporal difference objective defined in Eq. 5. Table 3 summarizes the hyperparameters and model configuration used in all experiments. 
+
+4.2 Agent Environment Interaction via XDP Maps 
+
+The interaction between the DQN agent and the forwarding plane is imple-mented using two XDP maps that serve as the interface between learning logic and packet processing. The first map exposes observations to the agent by pro-viding per TEID delay values computed as the UPF observed proxy ∆t i in Eq. 4, obtained by correlating TEID keyed timestamps for request and response packets observed at the same UPF datapath. In the proof of concept, ICMP traffic pro-vides the request response pattern required for pairing, while the measurement itself remains passive with respect to additional monitoring probes. The second map enables actions by storing the selected egress interface per TEID, so that packet forwarding for that PDU session follows the action chosen Title Suppressed Due to Excessive Length 9
+
+Table 3. Hyperparameters and Network Architecture of the DQN Agent. 
+
+Parameter Value 
+
+Discount factor ( γ) 0.99 Learning rate (Adam) ( α) 5 × 10 −4
+
+Batch size 32 Replay memory size 2000 transitions Exploration start ( ϵstart ) 0.9 Exploration end ( ϵend ) 0.01 Exploration decay rate 0.990 Target network update frequency Every 5 episodes Training episodes 400 
+
+Network Architecture 
+
+Input dimension 1 (scalar state) Hidden layers 2 × 64 units (Linear + ReLU) Output dimension 2 (Q values for n6a , n6b )
+
+by the agent. Specifically, at each decision time t the agent selects at ∈ { n6a , n6b }
+
+and writes the corresponding value into the action map, which the XDP program reads to enforce forwarding on the chosen N6 path. Learning follows the standard DQN update rule, minimizing the temporal difference loss, as Eq. 5: 
+
+L(θ) = E(st,a t,r t,s t+1 )
+
+h rt + γ max  
+
+> a′
+
+Q(st+1 , a ′; θ−) (5) 
+
+− Q(st, a t; θ)2i
+
+where Q(st, a t; θ) is the online action value network, θ− denotes the target network parameters, γ is the discount factor (Table 3), and (st, a t, r t, s t+1 ) are transitions sampled from the replay buffer. The reward rt is computed from the observed delay using Eq. 2 and then normalized by min max scaling, ensuring stable gradients during training. Episodes last 60 seconds, during which the agent repeatedly reads the latest per TEID observation state st, selects an action, updates the action map, and stores the resulting transition for learning. This design enables the DQN agent to translate passive latency observations into fine grained forwarding control, achieving adaptive N6 interface selection under stochastic path degradations. 
+
+## 5 Results and Discussion 
+
+Building on the experimental setup and the agent environment interaction de-scribed above, this section analyzes learning dynamics, policy behavior, and latency outcomes achieved by the proposed DQN based path selection strat-egy. We compare it against a random baseline across multiple metrics, including reward evolution, interface selection patterns, and measured round trip time. 10 R. Moreira et al. 
+
+Fig. 3 reports the reward dynamics of the random baseline across 400 training episodes. In Fig. 3 (a), the per episode reward shows high variability, which is expected under stochastic action selection and stochastic path degradations. Importantly, the reward does not exhibit a consistent improving trend, indicating that the baseline does not adapt its decisions over time. Fig. 3 (b) reinforces this conclusion, since the rolling mean with window size 10 remains relatively flat, providing a stable reference for assessing whether learning yields consistent performance gains. 0 50 100 150 200 250 300 350 400         
+
+> Episode
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Reward
+> Baseline Reward per Episode
+> Random Reward 050 100 150 200 250 300 350 400
+> Episode
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Reward
+> Reward per Episode (Smoothed)
+> Raw Reward
+> Smoothed Reward
+
+(a) Raw reward per episode. (b) Smoothed reward. 
+
+Fig. 3. Comparison of raw and smoothed cumulative rewards (rolling mean, window size 10) over the training episodes of the baseline policy. 0 100 200 300 400     
+
+> Episode
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Reward
+> Reward per Episode
+> Reward 0100 200 300 400
+> Episode
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Reward
+> Reward per Episode (Smoothed)
+> Raw Reward
+> Smoothed Reward
+
+(a) Raw reward per episode. (b) Smoothed reward. 
+
+Fig. 4. Comparison of raw and smoothed cumulative rewards (rolling mean, window size 10) over the training episodes of the DQN agent. 
+
+DQN learns an effective and stable low latency policy under stochas-tic degradations . Fig. 4 shows the reward evolution of the DQN across the same 400 training episodes. The raw reward signal in Fig. 4 (a) is initially noisy due to exploration and the inherent variability of the environment. When ap-Title Suppressed Due to Excessive Length 11 
+
+plying a rolling mean with window size 10 in Fig. 4 (b), a clear upward trend emerges, with rewards improving steadily until convergence around episode 250. This behavior indicates that the agent successfully learns a policy that consis-tently achieves higher reward, which corresponds to lower observed delay, while occasional drops remain plausible due to exploration and transient adverse con-ditions. Fig. 5 connects learning dynamics to policy behavior by showing action dis-tributions over the 400 episodes. The baseline in Fig. 5 (a) alternates between the MEC path and the cloud path without a structured pattern, consistent with random selection. In contrast, Fig. 5 (b) shows that the DQN increasingly fa-vors the MEC interface, which was configured with lower latency and jitter, while progressively reducing reliance on the cloud path. This shift indicates that the agent identifies the more reliable interface and sustains this preference as learning progresses, rather than oscillating between choices. 0 50 100 150 200 250 300 350 400     
+
+> Episode
+> 20
+> 25
+> 30
+> 35
+> 40
+> Frequency
+> Baseline Action Distribution
+> MEC
+> Cloud 0100 200 300 400
+> Episode
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Frequency
+> Action Distribution per Episode
+> MEC
+> Cloud
+
+(a) Baseline policy. (b) DQN policy. 
+
+Fig. 5. Action distribution across all training episodes for both the baseline and the DQN policies. 
+
+Fig. 6 quantifies the latency impact of these decisions. Over all episodes in Fig. 6 (a), the DQN attains a substantially lower mean round trip time, 95.24 ms, compared to 199.37 ms for the baseline, demonstrating its ability to exploit the lower latency interface. Focusing on the last 50 episodes in Fig. 6 (b), the contrast becomes stronger in terms of stability, the DQN maintains a mean variation of 2.03 ms, whereas the baseline exhibits a volatile range of 177.63 ms. Together, these results show that the learned policy improves both average latency and temporal consistency, while the baseline remains erratic under the same stochastic conditions. These results show that the proposed eUPF effectively supports time-sensitive path selection by consistently favoring the most suitable interface under dynamic conditions. 
+
+Learned steering decisions materialize as consistent data plane for-warding toward the best path . Fig. 7 presents the distribution of packets forwarded through each interface under both policies. During the experiment, 12 R. Moreira et al. 199.37   
+
+> 95.24
+> Baseline RTT DQN RTT
+> 0
+> 50
+> 100
+> 150
+> 200
+> Latency (ms) 177.63
+> 2.03
+> Baseline Latency DQN Latency
+> −200
+> 0
+> 200
+> 400
+> 600
+> 800
+> 1000
+> Range
+> 25%~75%
+> Range within 1.5IQR
+> Median
+
+(a) Full episodes. (b) Last 50 episodes. 
+
+Fig. 6. Comparison of average round trip time. 
+
+the User Equipment generated Internet Control Message Protocol traffic at one packet per second, and the plot aggregates transmissions over 10 second intervals, averaged across the entire duration. Under the DQN policy, more packets are forwarded to MEC, with an average of 3.29 per interval versus 0.57 toward the cloud, reflecting sustained preference for the lower latency interface. In contrast, the baseline remains nearly balanced, with 1.77 and 1.73 packets per interval toward MEC and cloud respectively, consistent with uniform random decisions. This forwarding behavior matches the latency outcomes, confirming that the agent translates observed delay into actionable interface selection decisions at the data plane. 8.19        
+
+> 3.29
+> 0.57
+> 7.43
+> 1.77 1.73
+> N3 MEC Cloud N3 MEC Cloud
+> DQN Baseline
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> # Packet Out in 10 seconds
+
+Fig. 7. Packet out distribution. 
+
+Table 4 summarizes the last 50 episodes, where the reinforcement learning policy is already stabilized. The DQN achieves higher rewards, 49.40 ± 14.92 Title Suppressed Due to Excessive Length 13                        
+
+> Table 4. Descriptive statistics for DQN and baseline in the last 50 episodes.
+> Metric DQN ( ±SD) Baseline ( ±SD)
+> Average Reward 49.40 ±14.92 30.61 ±9.31 Average Latency [ms] 298.46 ±443.81 486.57 ±398.46 Reward Median 58.59 33.25 Latency Median [ms] 6.95 453.86 Reward Range [11.53, 59.84] [10.41, 44.18] Latency Range [ms] [4.82, 1439.40] [5.01, 1290.59]
+
+versus 30.61 ± 9.31, and lower average latency, 298.46 ± 443.81 ms versus 486.57 
+
+± 398.46 ms. The median latency further highlights stability gains, 6.95 ms for the DQN versus 453.86 ms for the baseline. The ranges indicate that both policies can still encounter occasional high delay events due to induced degradations, yet the DQN concentrates more decisions on the better performing interface, improving overall delay and reducing variability relative to the baseline. 
+
+## 6 Concluding Remarks 
+
+While B5G SLA management often relies on simulation based admission control, it lacks real time intelligent intervention in the data plane. Our evaluation on the FABRIC testbed demonstrates that the DQN based agent achieves stable con-vergence and significantly reduces latency compared to random baselines. These results indicate that transforming the UPF into an intelligent eUPF effectively enables autonomous slice-aware and time-sensitive path selection in B5G edge networks. Although this study focuses on uplink steering within a specific testbed sce-nario, it validates the feasibility of non intrusive telemetry for RL observations. Future research will investigate alternative algorithms and packet queuing pri-oritization to enhance efficiency across both uplink and downlink traffic. This research provides a critical foundation for programmable architectures and in-telligent network management in the era of low latency mobile services.   
+
+> Acknowledgments. The authors thank the National Council for Scientific and Tech-nological Development (CNPq) under grant number 421944/2021-8 (call CNPq/ MCTI/ FNDCT 18/2021), FAPEMIG (Grant #APQ00923-24), FAPESP MCTIC/CGI Re-search project 2018/23097-3 - SFI2 - Slicing Future Internet Infrastructures. FCT has also supported this work – Fundação para a Ciência e Tecnologia within the R&D Unit Project Scope UID/00319/Centro ALGORITMI (ALGORITMI/UM).
+> Disclosure of Interests. The authors have no competing interests to declare that are relevant to the content of this article.
+
+14 R. Moreira et al. 
+
+## References 
+
+1. Agarwal, B., Irmer, R., Lister, D., Muntean, G.M.: Open ran for 6g networks: Ar-chitecture, use cases and open issues. IEEE Communications Surveys & Tutorials pp. 1–1 (2025). https://doi.org/10.1109/COMST.2025.3562429 2. Bellin, A., Di Cicco, N., Munaretto, D., Granelli, F.: Power consumption-aware 5g edge upf selection using deep reinforcement learning. In: 2024 IEEE Conference on Network Function Virtualization and Software Defined Networks (NFV-SDN). pp. 1–6 (2024). https://doi.org/10.1109/NFV-SDN61811.2024.10807472 3. Chen, C.C., Chang, C.Y., Nikaein, N.: Iup: Integrated and programmable user plane for next-generation mobile networks. IEEE Network 39 (3), 91–98 (2025). https://doi.org/10.1109/MNET.2025.3551245 4. Christopoulou, M., Koufos, I., Xilouris, G., Dimitriou, N.: 5G/6G Architecture Evolution for XR and Metaverse: Feasibility Study, Security, and Privacy Chal-lenges for Smart Culture Applications. IEEE Access 13 , 103077–103094 (2025). https://doi.org/10.1109/ACCESS.2025.3578595 5. Donatti, A., Corrêa, S.L., Martins, J.S.B., Abelem, A.J.G., Both, C.B., de Oliveira Silva, F., Suruagy, J.A., Pasquini, R., Moreira, R., Cardoso, K.V., Carvalho, T.C.: Survey on machine learning-enabled network slicing: Covering the entire life cycle. IEEE Transactions on Network and Service Management 21 (1), 994–1011 (2024). https://doi.org/10.1109/TNSM.2023.3287651 6. Gan, Z., Lin, R., Zou, H.: A multi-agent deep reinforcement learning approach for computation offloading in 5g mobile edge computing. In: 2022 22nd IEEE In-ternational Symposium on Cluster, Cloud and Internet Computing (CCGrid). pp. 645–648 (2022). https://doi.org/10.1109/CCGrid54584.2022.00074 7. Garcia-Martin, M.A., Gramaglia, M., Serrano, P.: Network automation and data analytics in 3gpp 5g systems. IEEE Network 38 (4), 182–189 (2024). https://doi.org/10.1109/MNET.2023.3321524 8. Hisyam Ng, H.A., Mahmoodi, T.: Machine learning-driven dynamic traffic steer-ing in 6g: A novel path selection scheme. Big Data and Cognitive Comput-ing 8(12) (2024). https://doi.org/10.3390/bdcc8120172, https://www.mdpi.com/ 2504-2289/8/12/172 
+
+9. Ibrahimi, K., Jouhari, M., Sow, S., Ayoub, F., Kamili, M.E., Choug-dali, K.: Reinforcement learning for optimized resource allocation in 5g urllc. In: 2024 7th International Conference on Advanced Com-munication Technologies and Networking (CommNet). pp. 1–6 (2024). https://doi.org/10.1109/CommNet63022.2024.10793310 10. Kibalya, G., Dalgitsis, M., Serrano, M.A., Bartzoudis, N., Blanco, L., Zey-dan, E., Antonopoulos, A.: Joint upf and application placement in multi-slice edge networks: A reinforcement learning strategy. In: 2025 IEEE Wire-less Communications and Networking Conference (WCNC). pp. 1–6 (2025). https://doi.org/10.1109/WCNC61545.2025.10978828 11. Maleki, E.F., Ma, W., Mashayekhy, L., La Roche, H.J.: Qos-aware con-tent delivery in 5g-enabled edge computing: Learning-based approaches. IEEE Transactions on Mobile Computing 23 (10), 9324–9336 (2024). https://doi.org/10.1109/TMC.2024.3363143 12. Moreira, L., Moreira, R., Silva, F., Backes, A.: Towards Cognitive Ser-vice Delivery on B5G through AIaaS Architecture. In: Anais do IV Workshop de Redes 6G. pp. 1–8. SBC, Porto Alegre, RS, Brasil (2024). https://doi.org/10.5753/w6g.2024.3304, https://sol.sbc.org.br/index.php/ w6g/article/view/29773 Title Suppressed Due to Excessive Length 15 13. Moreira, R., Rosa, P.F., Aguiar, R.L.A., de Oliveira Silva, F.: Nasor: A network slic-ing approach for multiple autonomous systems. Computer Communications 179 ,131–144 (2021). https://doi.org/https://doi.org/10.1016/j.comcom.2021.07.028, 
+
+https://www.sciencedirect.com/science/article/pii/S0140366421002917 
+
+14. Nguyen, H.T., Van Do, T., Rotter, C.: Scaling upf instances in 5g/6g core with deep reinforcement learning. IEEE Access 9, 165892–165906 (2021). https://doi.org/10.1109/ACCESS.2021.3135315 15. Pimpalkar, Y., Ravindran, S., Bapat, J., Das, D.: A novel e2e path se-lection algorithm for superior qos and qoe for 6g services. IEEE Trans-actions on Network and Service Management 22 (2), 1174–1187 (2025). https://doi.org/10.1109/TNSM.2024.3519707 16. Sasithong, P., Sanguanpuak, T., Vanichchanunt, P., Wuttisittikulkij, L.: User plane function (upf) allocation for c-v2x network using deep reinforcement learning. IEEE Access 13 , 4547–4561 (2025). https://doi.org/10.1109/ACCESS.2024.3524886 17. Shokrnezhad, M., Taleb, T., Dazzi, P.: Double deep q-learning-based path selection and service placement for latency-sensitive beyond 5g applica-tions. IEEE Transactions on Mobile Computing 23 (5), 5097–5110 (2024). https://doi.org/10.1109/TMC.2023.3301506 18. Silva, B., Moreira, L.R., de Oliveira Silva, F., Moreira, R.: Optimizing Edge Gaming Slices through an Enhanced User Plane Function and Analytics in Beyond-5G Networks. In: Anais do XVI Workshop de Pesquisa Experimen-tal da Internet do Futuro. pp. 1–8. SBC, Porto Alegre, RS, Brasil (2025). https://doi.org/10.5753/wpeif.2025.8714, https://sol.sbc.org.br/index.php/ wpeif/article/view/35271 
+
+19. Tran, M.N., Duong, V.B., Kim, Y.: Design of computing-aware traffic steering architecture for 5g mobile user plane. IEEE Access 12 , 88370–88382 (2024). https://doi.org/10.1109/ACCESS.2024.3418960

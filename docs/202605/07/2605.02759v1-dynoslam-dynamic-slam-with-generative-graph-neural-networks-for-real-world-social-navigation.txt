@@ -1,0 +1,381 @@
+Title: DynoSLAM: Dynamic SLAM with Generative Graph Neural Networks for Real-World Social Navigation
+
+URL Source: https://arxiv.org/pdf/2605.02759v1
+
+Published Time: Tue, 05 May 2026 02:16:09 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# DynoSLAM: Dynamic SLAM with Generative Graph Neural Networks for Real-World Social Navigation 
+
+Danil Tokhchukov 1, Veronika Morozova 1, Gonzalo Ferrer 1
+
+Abstract —Traditional Simultaneous Localization and Mapping (SLAM) algorithms rely heavily on the static environment as-sumption, which severely limits their applicability in real-world spaces populated by moving entities, such as pedestrians. In this work, we propose DynoSLAM, a tightly-coupled Dynamic Graph-SLAM architecture that integrates socially-aware Graph Neural Networks (GNNs) directly into the factor graph optimization. Unlike conventional approaches that use rigid constant-velocity heuristics or deterministic single-agent neural priors, our frame-work formulates pedestrian motion forecasting as a stochastic World Model. By utilizing Monte Carlo rollouts from a trained GNN, we capture the multimodal epistemic uncertainty of human interactions and embed it into the SLAM graph via a dynamic Mahalanobis distance factor. We demonstrate through extensive simulated experiments that this stochastic formulation not only maintains highly accurate retrospective tracking (Robot RMSE of 0.39m) but also prevents the optimization failures caused by the deterministic ”argmax problem”. Ultimately, extracting the empirical mean and covariance matrices of future pedestrian states provides a mathematically rigorous, probabilistic safety envelope for downstream local planners (e.g., MPC or PPO), en-abling anticipatory and collision-free robot navigation in densely crowded environments. 
+
+Index Terms —Social HRI, Reinforcement Learning, Model Predictive Control, Real-world Robotics, Motion Planning, Dy-namic SLAM. 
+
+I. I NTRODUCTION 
+
+The fundamental premise of conventional GraphSLAM sys-tems is the rigidity of the environment. When navigating through crowded, human-centric spaces, this static assumption is severely violated. Dynamic landmarks introduce false ob-servation factors that corrupt the optimization process, leading to severe trajectory drift or complete localization failure. Recent advancements attempt to mitigate this by masking out dynamic features or tracking moving objects using sim-ple kinematic heuristics. For instance, recent works in 3D Dynamic Scene Graphs (DSG) [1] and Gaussian Splatting [2] model dynamic entities using constraint-based formu-lations, such as Constant Velocity Models (CVM). While mathematically simple, these linear heuristics completely fail to anticipate the complex, non-linear avoidance maneuvers characteristic of human crowds. Attempts to replace these heuristics with standard deterministic neural networks often suffer from the “argmax problem”: when faced with the  
+
+> 1
+
+Skolkovo Institute of Science and Technology, Moscow, Russia. Code is available at https://github.com/makriot/dynoslam 
+
+inherent ambiguity of social interactions, deterministic models either collapse to unphysical straight lines or produce highly jittery trajectories that over-constrain and misdirect the SLAM optimizer. In this work, we introduce a paradigm shift with 
+
+DynoSLAM : instead of relying on hardcoded physics or rigid deterministic predictions, we augment the GraphSLAM factor graph with socially-aware, stochastic motion priors. By employing a Graph Attention Network (GAT) as a lightweight World Model and querying it via Monte Carlo rollouts, we explicitly sample the multimodal distribution of human intents. This stochastic formulation allows us to extract not just the expected future trajectories of pedestrians, but also their cor-responding epistemic uncertainty (covariance). By embedding these statistics into the SLAM optimization via a dynamic Mahalanobis distance factor, the system automatically adjusts the stiffness of the kinematic prior—tightly binding the graph in unambiguous situations and relaxing it during complex, unpredictable interactions. Ultimately, DynoSLAM bridges the gap between geometric state estimation and context-aware motion forecasting, providing downstream control algorithms (such as MPC or PPO) with the mathematically rigorous probabilistic safety envelopes required for safe, anticipatory robot navigation. II. R ELATED WORK 
+
+A. Dynamic SLAM and Object Tracking 
+
+Dynamic SLAM approaches aim to jointly estimate the camera/robot trajectory and the states of moving objects in the environment. VDO-SLAM [3] extracts dynamic SE(3) poses but relies on decoupled motion models that do not feed tracking uncertainty back into the optimization. A highly rel-evant state-of-the-art framework, DynaGSLAM [2], performs online tracking and motion prediction of dynamic 3D Gaus-sians. However, it relies on a simplistic Constant Acceleration model, inherently ignoring the contextual intentions of agents and failing during non-linear avoidance maneuvers. Similarly, recent DSG-SLAM architectures [1] tightly couple semantic scene generation with dynamic object tracking using rigid body constraints. While geometrically robust, these methods lack the probabilistic generative priors necessary for complex social trajectory forecasting, treating all predicted futures with equal (and often misplaced) confidence. 
+
+> arXiv:2605.02759v1 [cs.RO] 4 May 2026
+
+B. Social Motion Prediction and the Argmax Problem 
+
+Predicting human trajectories in crowded spaces is a well-studied problem, typically addressed using Recurrent Neural Networks (RNNs) or Graph Neural Networks (GNNs). While these data-driven models capture social context, integrating them directly into a SLAM factor graph or a control loop is challenging. Standard deterministic networks trained with Mean Squared Error (MSE) losses suffer from the “argmax problem”: when forced to output a single trajectory in an inherently ambiguous situation (e.g., passing a pedestrian on the left versus the right), the model often averages the possible outcomes, producing unphysical, collision-prone straight lines. Generative models, such as Social-GAN or diffusion-based predictors, can generate multimodal future hypotheses, but their integration into real-time factor graphs remains underex-plored. Our work bridges this gap by interpreting a stochastic GNN as a lightweight World Model, using Monte Carlo roll-outs to compute dynamic covariance matrices directly within the SLAM objective. 
+
+C. Uncertainty-Aware Human Avoidance 
+
+Safe robotic navigation in dynamic environments requires not only current state estimation but also a quantified as-sessment of future trajectory uncertainty. Approaches based on Model Predictive Control (MPC), Model Predictive Path Integral (MPPI), and Proximal Policy Optimization (PPO) [4], [5] are widely used for human avoidance. However, these controllers typically assume access to perfect, noise-free future trajectories from decoupled perception modules, or rely on artificially inflated bounding boxes. Our approach differs by feeding the controller with exact mean trajectories and dynamically expanding covariance ellipses that are jointly optimized within the SLAM backend. This ensures mathemat-ically rigorous, uncertainty-aware navigation where the robot reacts to the epistemic ambiguity of human intent rather than blindly trusting a single predicted path. III. M ETHOD 
+
+A. Standard GraphSLAM vs. Proposed Dynamic Formulation 
+
+Let X = {x1, . . . , x T } represent the robot trajectory, U =
+
+{u1, . . . , u T } the odometry inputs, and M = {m1, . . . , m K }
+
+a set of landmarks. In standard static SLAM, landmarks are assumed to be stationary (time-invariant). Given a set of observations Z, where zj,i denotes the measurement associated with landmark j at time step i, classic GraphSLAM optimizes the Maximum A Posteriori (MAP) objective: 
+
+Jstatic (X, M ) = 
+
+> T
+
+X
+
+> i=1
+
+
+
+∥xi − g(xi−1, u i)∥2Σu
+
++ X
+
+> j∈V i
+
+∥zj,i − h(xi, m j )∥2Σz
+
+ (1) where g(·) is the robot kinematic model, h(·) is the sensor observation model, and Vi is the subset of landmarks visible to the robot at time i (data association mapping). The norms represent Mahalanobis distances weighted by the inverse co-variance matrices Σ−1 
+
+> u
+
+and Σ−1 
+
+> z
+
+.In dynamic environments, the stationary assumption mj =
+
+const fails. To model moving entities, we introduce time-dependency for the landmarks mj,i and define an augmented joint state vector yi = [ xi, m 1,i , . . . , m K,i ]T . The system’s temporal evolution is now governed by a joint transition function p(yi | yi−1, u i), which updates both the robot pose and the dynamic landmarks simultaneously: 
+
+yi =
+
+
+
+g(xi−1, u i)
+
+m1,i −1 + v1,i −1 · δt 
+
+...
+
+mK,i −1 + vK,i −1 · δt 
+
+ + wi (2) where vj,i −1 is the velocity of the j-th landmark and wi is the combined process noise. Consequently, we reformulate the GraphSLAM objective to optimize the joint state sequences Y = {y1, . . . , y T }.By decoupling the joint transition into the robot’s odometry factor and object-specific kinematic factors Lkin , the proposed dynamic objective becomes: 
+
+Jdynamic (Y ) = 
+
+> T
+
+X
+
+> i=1
+
+
+
+∥xi − g(xi−1, u i)∥2Σu
+
++ X
+
+> j∈V i
+
+∥zj,i − h(xi, m j,i )∥2Σz
+
++
+
+> K
+
+X
+
+> j=1
+
+L(j,i )
+
+> kin
+
+
+
+(3) Here, L(j,i ) 
+
+> kin
+
+acts as a soft kinematic prior factor governing the physical evolution of the dynamic object, replacing hardcoded constant velocity assumptions with a data-driven distribution. 
+
+B. Landmark History Formulation 
+
+To predict the evolution of a dynamic landmark, our models rely on its spatial history Hk,i . During offline training , Hk,i 
+
+is extracted directly from the ground-truth trajectories (e.g., bounding box centroids from autonomous driving datasets). During online SLAM inference , the history is constructed dynamically from the previously optimized states within the GraphSLAM solver’s active sliding window: 
+
+Hk,i = {m∗ 
+
+> k,i −H
+
+, m ∗
+
+> k,i −H+1
+
+, . . . , m ∗
+
+> k,i −1
+
+} (4) where H is the history length and m∗ denotes the posterior MAP estimates computed in the previous optimization steps. 
+
+C. Constant Velocities (Baseline) 
+
+As a foundational non-neural baseline, we model Lkin by adding explicit velocity nodes vk,i to the graph and penalizing acceleration (assuming a constant velocity transition): 
+
+L(k,i ) 
+
+> kin
+
+= ∥mk,i − mk,i −1 − vk,i −1δt ∥2Σp + ∥vk,i − vk,i −1∥2Σv
+
+(5) Alternatively, by substituting the velocity definitions 
+
+vk,i −1 = mk,i −mk,i −1 
+
+> δt
+
+and vk,i = mk,i +1 −mk,i  
+
+> δt
+
+, the constant velocity factor can be expressed solely in terms of landmark positions, removing the need for explicit velocity nodes: 
+
+L(k,i ) 
+
+> kin
+
+= 1(δt )2 ∥mk,i +1 − 2mk,i + mk,i −1∥2Σv . (6) 
+
+D. Single Landmark Velocity Prediction 
+
+To capture non-linear motion, we replace the hardcoded baseline with a neural network (e.g., an MLP or RNN) that predicts the next velocity ˆvk,i = sθ (Hk,i ). While this data-driven prior eliminates the need for explicit velocity nodes in the graph, it treats each agent independently, leading to potential collision predictions in crowded spaces. 
+
+1. Context Graph Construction and Social Attention: For a target landmark k at time step i − 1, we identify its local neighborhood N (k) using an L2 spatial window of radius R:
+
+N (k) = {j | ∥ mk,i −1 − mj,i −1∥2 ≤ R} . (7) For each pedestrian, a short trajectory history Hk,i is encoded into a latent feature hk = fhist (Hk,i ). We then construct a graph attention mechanism over neighboring pedestrians in order to model pairwise social interactions. The attention coefficient αk,j quantifies the influence of neighbor j on the future motion of pedestrian k:
+
+αk,j = exp  LeakyReLU  a⊤[W h k ∥ W h j ] P  
+
+> n∈N (k)
+
+exp ( LeakyReLU (a⊤[W h k ∥ W h n])) .
+
+(8) The corresponding social context vector is obtained as 
+
+ck = X 
+
+> j∈N (k)
+
+αk,j W h j . (9) To preserve the pedestrian’s own inertial motion, we concate-nate the individual history feature and the aggregated social context, forming a joint representation 
+
+zk = [ hk ∥ ck], (10) which is then used to predict the next-step velocity. 
+
+2. Deterministic Autoregressive GAT Prediction: Our first predictor is a deterministic GAT-based velocity model. Given the current history and the social context, the network outputs the next velocity estimate 
+
+ˆvk,i = gθ (zk), (11) where gθ (·) is a learnable MLP head on top of the GAT representation. The next position is then obtained by Euler integration: 
+
+ˆmk,i = ˆ mk,i −1 + ˆ vk,i ∆t. (12) To predict multiple future steps, we use the model autore-gressively: the newly predicted position is appended to the trajectory history, the oldest history element is discarded, and the graph attention is recomputed at the next step. Repeating this procedure yields a future rollout 
+
+ˆτk = { ˆmk,i , ˆmk,i +1 , . . . , ˆmk,i +T } . (13) 
+
+3. Stochastic GAT via Monte Carlo Rollouts: In practice, the deterministic GAT often produces future trajectories that are locally plausible but noticeably diverse and sometimes jittery across nearby interaction scenarios. Instead of forcing GraphSLAM to trust a single rollout, we reinterpret this variability as uncertainty in the human motion prior. To obtain a stochastic predictor without retraining the back-bone, we use the same trained GAT weights and perform mul-tiple autoregressive rollouts with small Gaussian perturbations injected into the predicted velocity at each step: 
+
+˜v(s) 
+
+> k,i
+
+= gθ (z(s) 
+
+> k
+
+) + ε(s) 
+
+> k,i
+
+, ε(s) 
+
+> k,i
+
+∼ N (0 , σ 2
+
+> sto
+
+I), (14) where s ∈ { 1, . . . , N } indexes the sampled trajectory. Each sampled velocity is integrated autoregressively: 
+
+˜m(s) 
+
+> k,i
+
+= ˜ m(s) 
+
+> k,i −1
+
++ ˜ v(s) 
+
+> k,i
+
+∆t. (15) Because the perturbed rollout is fed back into the history buffer, the interaction graph and attention weights are recom-puted separately for each sample, producing a set of socially-aware future hypotheses 
+
+n
+
+˜τ (1)  
+
+> k
+
+, . . . , ˜τ (N )
+
+> k
+
+o
+
+. (16) 
+
+4. Mean and Uncertainty Estimation: The stochastic GAT allows us to estimate both the expected future velocity and its uncertainty. From N sampled velocity hypotheses at step i,we compute the empirical mean 
+
+μk,i = 1
+
+N
+
+> N
+
+X
+
+> s=1
+
+˜v(s) 
+
+> k,i
+
+(17) and the empirical covariance 
+
+Σk,i = 1
+
+N − 1
+
+> N
+
+X
+
+> s=1
+
+
+
+˜v(s) 
+
+> k,i
+
+− μk,i 
+
+  
+
+˜v(s) 
+
+> k,i
+
+− μk,i 
+
+⊤
+
+. (18) Intuitively, when pedestrian motion is simple and unambigu-ous, the samples remain concentrated and Σk,i is small. In crowded or interaction-heavy scenes, the rollout set spreads out, yielding a larger covariance and therefore a weaker kinematic prior. 
+
+E. Integration into GraphSLAM 
+
+The predicted motion prior is incorporated into the dynamic GraphSLAM backend through a kinematic factor applied to each landmark trajectory. 
+
+Variant 1 (Deterministic GAT, L2 Loss): If only a single deterministic prediction is used, the kinematic factor penalizes deviation from the predicted displacement: 
+
+L(k,i ) 
+
+> kin
+
+= ∥mk,i − mk,i −1 − ˆvk,i ∆t∥22 . (19) This formulation is simple, but it treats all predictions as equally reliable and may over-constrain the optimizer when the predicted trajectory is uncertain or multimodal. 
+
+Variant 2 (Stochastic GAT, Mahalanobis Loss): Using the sampled stochastic rollouts, we replace the single velocity hypothesis by its empirical mean μk,i and covariance Σk,i . The corresponding factor is written as a Mahalanobis distance: 
+
+L(k,i ) 
+
+> kin
+
+= ∥mk,i − mk,i −1 − μk,i ∆t∥2Σ−1
+
+> k,i
+
+. (20) This formulation dynamically modulates the stiffness of the kinematic factor. If the stochastic GAT is confident, the covari-ance is small and the prior becomes strong. If the predicted futures are diverse, the covariance grows and the optimizer automatically down-weights the motion prior, relying more on observations. 
+
+F. Application to Downstream Planning 
+
+The optimized landmark states together with the stochastic motion statistics {μk,i , Σk,i } can be streamed to a downstream planner. In particular, MPC or PPO-based controllers may use Σk,i to construct uncertainty-aware safety margins around pedestrians. This enables the robot to perform anticipatory and collision-aware navigation directly from onboard perception and SLAM, without requiring an external motion capture system. IV. E XPERIMENTS 
+
+The proposed pipeline is evaluated on a custom human avoidance benchmark within a simulated 2D environment. Our experimental roadmap is designed to incrementally demon-strate the necessity of socially-aware and stochastic motion priors in dynamic SLAM. We analyze the performance of static baselines, the Constant Velocity Model (CVM), single-agent neural predictors (MLP), and finally our proposed multi-agent approaches (Deterministic and Stochastic GAT). 
+
+A. Setup and Environment 
+
+To construct a realistic and highly interactive pedestrian environment, we utilized pyminisim [6], a 2D social navigation simulator. The movement of pedestrians in the simulator is governed by the Headed Social Force Model (HSFM) [7], which generates complex, non-linear avoidance trajectories by accounting for the pedestrians’ heading directions and social interactions. The robot navigation is controlled using a Model Predictive Control (MPC) algorithm. Using this environment, we collected a large-scale dynamic SLAM dataset comprising 6,000 distinct episodes, with num-ber of pedastrians varying from 1 to 15. Each episode contains continuous trajectories of the robot and multiple interacting pedestrians, alongside noisy odometry and local range-bearing observations. We partitioned the dataset into 5,500 episodes for training the neural velocity predictors (MLP, GAT) and 500 episodes for testing the full SLAM pipeline. 
+
+B. Ablation of Kinematic Prior and Constant Velocity Baseline 
+
+First, we evaluate the baseline performance of GraphSLAM using the Constant Velocity Model (CVM) as the kinematic factor. In this setup, the prior mathematically assumes that the velocity of each pedestrian remains constant over time. Additionally, we conduct a structural ablation by completely removing the kinematic loss ( Lkin = 0 ), forcing the optimizer to rely strictly on noisy sensor observations. As shown in Table I, the retrospective localization per-formance (Robot RMSE, LM RMSE, ATE, and RPE) re-mains largely consistent across the methods, including the 
+
+Fig. 1: A screenshot of the pyminisim 2D social navigation simulator. Pedestrians (controlled by HSFM) dynamically in-teract and avoid each other, while the robot (controlled by MPC) navigates through the crowd. 
+
+Lkin = 0 ablation. This indicates that within the optimization window, dense sensor observations dominate the factor graph, effectively constraining the historical trajectory. However, the critical failure of the Lkin = 0 setup is its inability to extrap-olate; without a kinematic factor to estimate velocities, future trajectory prediction (Prediction RMSE) becomes completely impossible. Incorporating the CVM prior solves this by bridging ret-rospective optimization with future forecasting, establishing a baseline Prediction RMSE of 1.210. While CVM allows the system to look ahead, its inherent linearity causes it to fail during sudden avoidance maneuvers. Because CVM strictly extrapolates the last known velocity vector, it blindly predicts straight-line paths, often resulting in projected collisions where humans would naturally curve their trajectories (Fig. 2). 
+
+C. Single-Agent Neural Prior (MLP) 
+
+To address the limitations of linear extrapolation, we re-placed the CVM factor with an independent single-agent neural predictor (MLP), trained on the coordinate history of individual pedestrians. Despite the non-linear capacity of the neural network, the MLP failed to learn collision avoidance behaviors, as it lacks contextual awareness of neighboring obstacles. Empirically, the MLP collapsed into a behavior nearly identical to the CVM (yielding a comparable Predic-tion RMSE of 1.173). It provided no tangible improvement to the retrospective SLAM state (Robot RMSE: 0.400, LM RMSE: 0.500) and generated the same linear, collision-prone predictions in the presence of crowds. TABLE I: Dynamic GraphSLAM Evaluation Metrics (Prediction Horizon = 20 steps, 2.0s). Lower is better for all metrics. ATE (Absolute Trajectory Error), RPE (Relative Pose Error), SDE (Safety Distance Error)                                            
+
+> Method Robot RMSE ↓LM RMSE ↓ATE ↓RPE (Mean) ↓SDE ↓Pred. RMSE ↓
+> No Lkin 0.388 0.485 0.186 0.039 0.041 1.338 CVM Baseline 0.388 0.479 0.186 0.04 0.037 1.21 Single-Agent (MLP) 0.4 0.5 0.185 0.039 0.048 1.173
+> Deterministic GAT (Ours) 0.388 0.477 0.184 0.039 0.038 1.355
+> Stochastic GAT (Ours) 0.388 0.477 0.183 0.048 0.033 1.21
+
+Fig. 2: CVM Baseline Predictions. The retrospective past trajectories are well-optimized thanks to dense observations, but the predicted future path (purple) strictly follows a straight line, failing to capture the true non-linear avoidance maneuver (cyan). 
+
+D. Multi-Agent Priors: Deterministic vs. Stochastic GAT 
+
+Finally, we evaluate the multi-agent neural priors. The Deterministic GAT integrates social context via graph atten-tion. While it attempts to model non-linear interactions, the deterministic formulation trained with an MSE loss suffers from a fundamental mathematical limitation: it converges to the conditional expected value of the training data. In partially observable pedestrian environments, interactions are inherently ambiguous (e.g., passing an oncoming person on the left vs. the right with a 50/50 probability). When forced to output a single deterministic trajectory, the GAT often regresses to the mean, generating an unphysical straight line (colliding directly into the obstacle) or producing jittery, overly aggressive trajec-tories. This ”argmax problem” causes the deterministic model to diverge from reality, yielding a higher Prediction RMSE of 1.354. By transitioning to the Stochastic GAT , we overcome this 
+
+Fig. 3: Single-Agent MLP Predictions. Lacking social con-text, the network degenerates into simple linear extrapolation, mirroring the CVM baseline and missing the ground-truth curvature. limitation by treating the network as a lightweight World Model . By querying the network using Monte Carlo per-turbations, we generate multiple socially-aware rollouts that sample the true underlying multimodal distribution of human intents. As illustrated in Fig. 4, even if the mathematical mean of these diverse rollouts happens to align with the Constant Velocity straight line (resulting in a similar Mean Prediction RMSE of 1.210), the Stochastic GAT correctly captures the epistemic uncertainty of the interactions. This formulation allows the SLAM backend to compute a Ma-halanobis distance based on the empirical covariance ( Σkin )of the predictions. In open spaces, the rollouts converge, shrinking the covariance and strongly binding the SLAM graph to the prior. During complex interactions, the rollouts fan out, expanding the covariance ellipse. This dynamically relaxes the SLAM kinematic factor, preventing the optimizer from being misdirected by isolated bad predictions. More importantly, extracting this expanding uncertainty boundary (a) Deterministic GAT: The prediction attempts an avoidance maneu-ver but appears jittery and diverges from the ground truth. 
+
+> (b) Stochastic GAT (Ours): By averaging multiple Monte Carlo rollouts and applying the Mahalanobis loss, the prediction becomes smooth and aligns perfectly with the true future.
+
+Fig. 4: Qualitative comparison of multi-agent prediction hori-zons within the dynamic SLAM graph. provides downstream local planners (such as MPC or PPO) with a strict probabilistic safety envelope. Rather than blindly trusting a single maximum-likelihood trajectory, the control algorithm can optimize the robot’s actions to safely avoid the entire distribution of potential non-linear human maneuvers. V. C ONCLUSION 
+
+In this work, we introduced a novel Dynamic GraphSLAM framework tightly coupled with socially-aware, generative motion priors. Our experiments on simulated highly-interactive environments demonstrate that traditional static SLAM ap-proaches and Constant Velocity baselines fail to anticipate the complex, non-linear avoidance maneuvers characteristic of human crowds. We showed that while single-agent neural networks (MLP) collapse to linear extrapolation due to a lack of spatial context, integrating a Graph Attention Network (GAT) ef-fectively captures pedestrian social dynamics. Most crucially, we proved that framing the motion predictor as a stochastic World Model—generating multiple future hypotheses rather than a single deterministic output—fundamentally improves the system. By mapping the variance of these rollouts into a Mahalanobis distance within the SLAM factor graph, the system achieves dynamic stiffness, yielding highly accurate trajectory tracking (Robot RMSE of 0.39m) while explicitly quantifying interaction uncertainty. Furthermore, this dynamic tracking system is designed to complement existing static SLAM pipelines. By running in parallel, our framework can refine the poses of moving and static landmarks and the robot simultaneously, effectively cleaning the dynamic noise that usually corrupts static map-ping. Ultimately, the continuous extraction of multi-agent states and uncertainty covariance matrices provides an ideal input space for safety-critical control algorithms like Model Predictive Control (MPC), enabling anticipatory and collision-free robot navigation in densely populated human environ-ments. VI. F UTURE WORK 
+
+While the Stochastic GAT successfully models interaction uncertainty via Monte Carlo sampling, it relies on manually injected perturbations. In future work, we plan to replace this surrogate stochasticity with a fully generative Flow Matching 
+
+architecture. Flow Matching will allow us to directly learn the continuous probability density vector fields of pedestrian trajectories, providing mathematically rigorous multi-modal generation without modifying the underlying coordinate his-tory. Additionally, we aim to extend our experimental valida-tion into the control domain. We will actively integrate the proposed SLAM pipeline with an advanced Model Predictive Controller (MPC) within the simulator to empirically measure collision rates and navigation efficiency. This will conclusively validate how the extracted covariance ellipses enhance the robot’s real-time safety in reactive, multi-agent scenarios. Another improvment lays down to a static landmarks. Our DynoSLAM can be combined with standart GraphSLAM with static landmarks, that will boost not only SLAM task performance, but the future predictions and control. Another interesting approach is training inside the simula-tion created by predictions of the trained GAT model – it is the concept of World Models, where we can train an agent inside the virtual environments. There are works that show that training inside these virtual environment can boost control module performance. REFERENCES [1] A. Rosinol et al., “Dynamic Entity and Motion-Aware 3D Scene Graph SLAM,” arXiv preprint arXiv:2503.02050 , 2025. [2] X. Li et al., “DynaGSLAM: Real-Time Gaussian-Splatting SLAM for Online Rendering, Tracking, and Motion Prediction,” arXiv preprint arXiv:2503.11979 , 2025. [3] J. Zhang et al., “VDO-SLAM: A Visual Dynamic Object-aware SLAM System,” arXiv preprint arXiv:2005.11052 , 2020. [4] L. Hewing et al., “Scenario-based model predictive control with prob-abilistic human trajectory prediction,” IEEE Robotics and Automation Letters , 2023. [5] C. Wang et al., “Reinforcement learning-based dynamic obstacle avoid-ance,” IEEE Transactions on Robotics , 2021. [6] TimeEscaper, “PyMiniSim: 2D simulator for pedestrians and robot simulation,“ https://github.com/TimeEscaper/pyminisim, 2021 [7] Farina et. al., “Walking ahead: The headed social force model,“ PLoS One, vol. 12, numb. 1, y. 2017
