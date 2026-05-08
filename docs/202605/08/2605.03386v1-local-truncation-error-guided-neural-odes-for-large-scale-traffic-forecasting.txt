@@ -1,0 +1,437 @@
+Title: Local Truncation Error-Guided Neural ODEs for Large Scale Traffic Forecasting
+
+URL Source: https://arxiv.org/pdf/2605.03386v1
+
+Published Time: Wed, 06 May 2026 00:32:05 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# Local Truncation Error-Guided Neural ODEs for Large Scale Traffic Forecasting 
+
+Xiao Zhang 
+
+Zhengzhou University 
+
+xiaozhang@zzu.edu.cn 
+
+Yafei Li 
+
+Zhengzhou University 
+
+ieyfli@zzu.edu.cn 
+
+Ruixiang Wang 
+
+Zhengzhou University 
+
+wang_rui_xiang@gs.zzu.edu.cn 
+
+Wei Wei 
+
+Northwestern Polytechnical University 
+
+weiweinwpu@nwpu.edu.cn 
+
+Shuo He 
+
+Zhengzhou University 
+
+heshuo@zzu.edu.cn 
+
+Mingliang Xu 
+
+Zhengzhou University 
+
+iexumingliang@zzu.edu.cn 
+
+## Abstract 
+
+Spatiotemporal forecasting in physical systems, such as large-scale traffic net-works, requires modeling a dual dynamic: continuous macroscopic rhythms and discrete, unpredictable microscopic shocks. While Neural Ordinary Differential Equations (ODEs) excel at capturing smooth evolution, their inherent Lipschitz continuity constraints inevitably cause severe over-smoothing when confronting abrupt anomalies. Recent physics-informed methods attempt to bypass this by penalizing numerical integration errors to enforce manifold smoothness. How-ever, we mathematically reveal that such rigid regularization inherently triggers gradient conflicts and “attention collapse,” stripping the model of its sensitivity to anomalies. To resolve this continuity-shock dilemma, we propose Local Trun-cation Error-Guided Neural ODEs (LTE-ODE). Rather than treating numerical error as a nuisance to be eliminated, we innovatively repurpose the Local Trun-cation Error (LTE) as an unsupervised forward inductive bias. By mapping the LTE into a dynamic spatial attention mask, our architecture gracefully preserves high-precision continuous ODE evolution in stable regions, while adaptively trig-gering a discrete compensation branch exclusively at shock points. Trained purely end-to-end without manifold penalties, LTE-ODE achieves state-of-the-art per-formance on multiple large-scale benchmarks, exhibiting exceptional robustness against highly non-linear fluctuations. Furthermore, our ablation on integration steps demonstrates high deployment flexibility, allowing the model to seamlessly adapt to varying hardware memory constraints in real-world applications. 
+
+## 1 Introduction 
+
+Spatiotemporal forecasting is a core challenge across numerous real-world applications, particularly in large-scale traffic flow management. In recent years, deep learning methods have made significant strides in this domain. Early dominant paradigms primarily relied on discrete network architectures, utilizing Graph Neural Networks (GNNs) [Huang et al., 2020, Zheng et al., 2023, Li and Zhu, 2021, Duan et al., 2023] to capture spatial dependencies, coupled with Recurrent Neural Networks (RNNs) [Yao et al., 2018] or Transformers [Fang et al., 2025, Jiang et al., 2023, Chen et al., 2022] to process temporal dynamics. Despite their immense success, these discrete models are typically constrained 
+
+> Preprint.
+> arXiv:2605.03386v1 [cs.LG] 5 May 2026
+
+by fixed sampling frequencies, inherently limiting their ability to model the underlying continuous evolutionary processes of physical systems. To overcome the architectural bottlenecks of discrete models, continuous-time models-most notably Neural Ordinary Differential Equations (Neural ODEs)[Chen et al., 2018, 2023, Zhang et al., 2023, Liu et al., 2025, Fang et al., 2021, Zhang et al., 2026]-have emerged as a foundational framework. By parameterizing the derivative of hidden states with continuous vector fields, Neural ODEs can elegantly handle irregularly sampled observations and effectively capture the smooth, macroscopic temporal rhythms governing traffic flows. However, real-world physical systems exhibit a fundamental “dual nature”: they follow continuous, predictable periodic rhythms, yet are replete with discrete, highly unpredictable abrupt anomalies (e.g., sudden congestion, or extreme weather). This reality exposes a fatal vulnerability in stan-dard Neural ODEs. Constrained by the Picard-Lindelöf theorem, standard ODEs require their vec-tor fields to satisfy Lipschitz continuity, meaning that the system’s evolutionary trajectories form a homeomorphism and can never intersect. Consequently, when confronted with sudden high-frequency anomalies, these models inevitably suffer from severe “over-smoothing,” failing to cap-ture divergent future trajectories that suddenly branch out from otherwise identical historical states. Recognizing this critical limitation, recent physics-informed deep learning models have attempted to constrain continuous evolution by penalizing numerical integration errors. A common practice is to minimize the numerical discrepancy between solvers of different orders to enforce manifold smoothness. In this paper, we argue that this approach harbors a fundamental mathematical flaw. We reveal-both theoretically and empirically-that such rigid manifold regularization intrinsically triggers severe gradient conflicts. When the model requires a large numerical deviation to escape the smooth continuous manifold at a point of sudden shock, the loss function’s penalty on the error arbitrarily suppresses the model’s sensitivity to anomalies. We rigorously formalize this catastrophic phenomenon as “attention collapse.” To break the modeling dilemma between continuous rhythms and discrete mutations, we propose a novel paradigm: Local Truncation Error-Guided Neural ODEs (LTE-ODE). Rather than treating numerical error as a nuisance to be eliminated, we innovatively repurpose the Local Truncation Error (LTE)-the theoretical discrepancy between a first-order Euler trajectory and a second-order Runge-Kutta trajectory-into an unsupervised forward inductive bias. By dynamically mapping the LTE into a spatial attention mask, LTE-ODE seamlessly preserves high-precision continuous evolution in smooth regions while adaptively triggering a discrete deep feature compensation branch exclusively at localized shock points. Optimized purely in a data-driven, end-to-end manner, the network learns to “exploit” numerical discrepancies rather than “penalize” them. The main contributions of this paper are summarized as follows: • Architectural Innovation and Expressivity: We propose LTE-ODE, a novel continuous-discrete hybrid dynamical system. We theoretically prove that the LTE-guided discrete compensator breaks the homeomorphic constraints of standard ODEs, fundamentally ex-panding the model’s topological representational capacity to capture divergent, highly non-linear trajectories. • Theoretical Formalization of Attention Collapse: Based on gradient flow analysis, we provide a rigorous mathematical proof demonstrating that penalizing physical numerical errors inevitably leads to “attention collapse,” compromising generalization ability. This provides a solid theoretical foundation for our purely data-driven optimization strategy. • High-Efficiency Computation via Embedded Runge-Kutta: Our embedded integration scheme requires strictly zero additional Neural Function Evaluations (NFEs) for error es-timation. Exploiting spatial sparsity further restricts discrete computations to anomalous nodes, making LTE-ODE highly scalable to massive graphs. • State-of-the-Art Performance and Deployment Flexibility: Extensive experiments on large-scale benchmarks indicate that LTE-ODE outperforms existing baselines. Further-more, our ablation studies elevate the ODE integration step from a simple hyperparame-ter to a strategic tuning knob, demonstrating the model’s flexible deployment capabilities across varying hardware constraints (e.g., edge devices vs. cloud computing). 22 The LTE-ODE Framework 
+
+To successfully resolve the fundamental modeling conflict between “smooth evolution” and “discrete abrupt shocks” in spatiotemporal dynamics, we propose the Local Truncation Error-Guided Neural Ordinary Differential Equation (LTE-ODE). The overall architecture of our proposed framework is illustrated in Figure 1. Rather than relying on a static architecture, LTE-ODE operates as a dynamically coupled system consisting of three phases: 1) State Initialization , which embeds raw spatiotemporal signals into a robust dual-stream latent space; 2) Continuous-Discrete Evolution , our core contribution, which intertwines standard ODE integration with adaptive discrete jumps; and 3) Horizon Forecasting , which decodes the evolved hybrid states into future predictions. In the following subsections, we explicitly detail how this architecture naturally absorbs macroscopic rhythms. Input & Initialization t = 0 (Initial) S steps (Evolution Steps) T +T’ Prediction   
+
+> 𝐀 𝐀𲠀𝐀𳰀𝐀 𝐀 𲠀𳰀𝐀𴀀
+> 1
+> 1
+> ~1
+> ... ...
+> ...  ...
+> ...
+> Embedded RK2 Theory sharing
+> RK2
+> Input
+> Data
+
+(𝐀 )
+
+> Initialization
+> Feature
+> Projection
+
+(𝐀 𝐀𲠀𝐀𳰀𝐀 )
+
+> Node
+> Embedding
+
+(𝐀 𲠀𳰀𝐀𴀀 )
+
+> Hidden
+> State
+> Initial
+
+𝐀 𝐀 (0)，
+
+𝐀 𝐀 (0)
+
+> Traffic Graph
+> Smooth nodes
+> Shoch nodes
+> Node Type
+> Distribution
+> (Smooth vs Shock)
+
+Continuous-Discrete Evolution Loop ( 𝐀 steps) 
+
+Local Truncation Error (LTE) & Attention 
+
+> Dual-Solver ODE Evolution
+
+𝐀 (𝐀 ) Euler step 
+
+> Update
+
+RK2  
+
+> Discrete Shock Compensation
+> Discrete Shock
+> Compensator
+
+g∅ 
+
+> g∅
+> Discrete Shock
+> Compensator
+> Output (𝐀𤐀 𝐀 ,𝐀𤐀𝐀 )
+> Example nodes
+> for sample nodes)
+> Deller watieg math
+> explanations or-arribed
+> Attention Mask
+
+𝐀 𝐀 = 𝐀 (𝐀 𝐀 )
+
+> Adaptive Discrete
+> Compensation
+> Hybrid State
+> Update
+> Next
+> Hidden
+> Feature Concatenation
+> [𝐀 𝐀 , ,  𝐀𝐀 ]
+> Regression Layer
+> Prediction  𝐀
+
+∆𝐀𝐀 = 𝐀 ∅(𝐀𝐀 )
+
+− − | | 𝐀 ⨀ +         
+
+> 𝐀 𝐀𝐀 +∆𝐀
+> 𝐀 𝐀𝐀 +∆𝐀
+> 𝐀 𝐀𝐀 +∆𝐀
+> 𝐀 𝐀𝐀 +∆𝐀 𝐀 𝐀 + ∆ 𝐀
+> RK2
+
+𝐀 𝐀    
+
+> RK2 step
+> Update RK2 𝐀 𝐀 + ∆ 𝐀
+> mid-point
+> mid-point
+> RK2
+> Functional Evaluations
+
+dx euler 
+
+| | 
+
+> LTE (Et)
+
+= 
+
+> Et
+
+Hjump = Mt⨀g∅(H t) 
+
+> MtMask on
+> Traffic Network
+
+𝐀 𝐀 +∆𝐀 
+
+> 𝐀𮐀 𝐀
+
+𝐀 𝐀 +∆𝐀 
+
+> 𝐀𳰀𝐀𴀀𝐀
+
+𝐀 𝐀 +∆𝐀  
+
+> 𝐀𮐀 𝐀
+
+𝐀 𝐀 +∆𝐀 
+
+> 𝐀𮐀 𝐀
+
+𝐀 𝐀 +∆𝐀  
+
+> 𝐀𮐀 𝐀
+
+𝐀 𝐀 +∆𝐀 
+
+> 𝐀𳰀𝐀𴀀𝐀
+
+Figure 1: The overall framework of the proposed LTE-ODE. (Left) Input & Initialization: The input data X is projected via Winput and concatenated with node embeddings Enode to form initial dual-stream states. (Middle) Continuous-Discrete Evolution Loop: Over S steps, a dual-solver (Euler and RK2) evaluates the continuous vector field fθ . The numerical discrepancy between them yields the Local Truncation Error (LTE) Et, which generates a spatial attention mask Mt. This mask dynamically activates the discrete shock compensator gϕ to inject high-frequency momentum into the continuous trajectory. (Right) Prediction: Evolved features are concatenated and passed through a regression layer. Key Take-away: The LTE serves as an unsupervised, physics-informed bridgeit gracefully maintains pure continuous ODE evolution in smooth traffic regions while force-fully activating discrete compensations specifically at nodes experiencing abrupt shocks. 
+
+2.1 Dual-Stream Continuous ODE Backbone 
+
+Spatiotemporal sequence forecasting aims to deduce future system states based on historical signals. Given a traffic graph G comprising N nodes and observed signals X ∈ RB×N ×T ×D over the past 
+
+T time steps (where B is the batch size and D is the feature dimension), the objective is to learn a mapping to predict future signals Y ∈ RB×N ×T ′×1 over the subsequent T ′ steps. To comprehensively capture node heterogeneity and complex spatiotemporal interactions, our model initially projects the input signal X into a high-dimensional latent space via a linear projection weight matrix Winput . This projected feature is then concatenated with learnable node embeddings 
+
+Enode along the channel dimension. This initialization constructs a dual-stream latent state: Hs(0) 
+
+representing local spatial dynamics, and Hk(0) representing global topological dynamics. In the subsequent continuous evolution, we unify the notation as H(t) to denote the latent state of either stream at time t.3The continuous-time evolution of the hidden state H(t) is governed by a neural network-parameterized ordinary differential equation: 
+
+dH(t)
+
+dt = fθ (H(t), G) (1) where θ denotes the learnable parameters of the continuous vector field fθ , implemented as a weight-sharing linearized convolution. During the actual forward propagation, to actively perceive the curvature changes of the dynamical manifold within a given integration step ∆t, we compute a first-order coarse estimation (Euler method) and a second-order refined estimation (Runge-Kutta 2 method) in parallel: 
+
+HEuler  
+
+> t+∆ t
+
+= Ht + ∆ t · fθ (Ht, G) (2) 
+
+HRK2  
+
+> t+∆ t
+
+= Ht + ∆ t · fθ
+
+(
+
+Ht + ∆t
+
+2 fθ (Ht, G), G
+
+)
+
+(3) Because both methods inherently share the internal intermediate evaluation states (i.e., the embed-ded property of Runge-Kutta solvers), this dual-solver mechanism efficiently generates two contin-uous evolutionary trajectories with different orders of truncation error while incurring almost zero additional vector field evaluation overhead. 
+
+2.2 LTE-Guided Adaptive Discrete Shock Compensation 
+
+Standard ODEs, strictly constrained by Lipschitz continuity, inherently fail to fit discontinuous, abrupt shocks in traffic flows. When the underlying system encounters drastic state jumps, the predictive trajectories of the low-order (Euler) and high-order (RK2) solvers diverge significantly due to their differing truncation error orders. We define this physical discrepancy as the Local Truncation Error (LTE), denoted as Et:
+
+Et = ∣∣HRK2  
+
+> t+∆ t
+
+− HEuler 
+
+> t+∆ t
+
+∣∣ (4) Unlike prior works that treat Et merely as numerical noise to be penalized, we innovatively repur-pose it as an unsupervised forward inductive bias. From a dynamical systems perspective, a larger absolute value of Et at a specific node indicates that its current behavior severely deviates from the smooth manifold. Therefore, we generate a spatially adaptive attention mask Mt ∈ (0 , 1) via a non-linear activation function: 
+
+Mt = σ(Et) (5) where σ(·) represents the Sigmoid activation function, bounding the discrepancy signals into a nor-malized gating mechanism. To explicitly break the topological constraints of continuous evolution, we introduce a discrete fea-ture compensation operator gϕ(·), parameterized by ϕ, that is strictly free from time-shared weight constraints. This operator is specifically designed to capture the high-frequency discrete jumps that the continuous vector field structurally cannot fit. Utilizing the mask Mt as a localized spatial gating signal, the final hybrid hidden state update equation at time t + ∆ t is formulated as: 
+
+Ht+∆ t = HRK2  
+
+> t+∆ t
+
++ Mt ⊙ gϕ(Ht) (6) where ⊙ denotes the element-wise Hadamard product. This hybrid evolutionary mechanism ensures maximum adaptability and spatial sparsity. In stable traffic regions, the numerical error Et →
+
+0, thereby shutting off the mask ( Mt → 0); the model gracefully degenerates into a pure, high-precision continuous ODE, ensuring the smooth prediction of macroscopic rhythms. Conversely, at nodes experiencing accidents or sudden congestion, the solver discrepancy spikes ( Et ≫ 0), highly activating the mask ( Mt → 1). The discrete compensator gϕ(·) then forcefully injects spatial jump momentum into the system, allowing the state to instantly traverse the manifold and achieve precise capture of extreme fluctuations. 
+
+2.3 End-to-End Optimization and the “No-Regularization” Paradigm 
+
+After continuous propagation over a predefined number of integration steps S, the model extracts and concatenates the dual-stream features, mapping them through a Regression Layer to yield the final prediction tensor ˆY. We employ the Mean Absolute Error (MAE) as the loss function: 
+
+Ltask = 1
+
+B × N × T ′
+
+∑ ∣ ∣∣ ˆY − Y
+
+∣∣∣ (7) 4Crucially, LTE-ODE adopts an optimization philosophy that fundamentally contrasts with existing physics-informed models. State-of-the-art methods (e.g., ODE variants incorporating physical con-straints) typically assume that a large Et disrupts system stability, and thus forcibly introduce mani-fold regularization terms (e.g., L = Ltask + λ∥Et∥) into the loss function to smooth the trajectories. In stark contrast, LTE-ODE operates under a strict “no-regularization” paradigm, driven solely by the end-to-end task loss ( Ltask ). To accurately capture abrupt shocks, the optimizer naturally ampli-fies the localized numerical error Et to fully activate the discrete compensator. Imposing a manifold penalty on Et creates an irreconcilable gradient conflict. As proven in Section 3, this forced smooth-ing inevitably induces “Attention Collapse,” stripping the model of its ability to resolve highly non-linear anomalies. 
+
+## 3 Mechanistic Analysis 
+
+In the previous section, we introduced the hybrid continuous-discrete architecture of LTE-ODE. Here, rather than presenting isolated mathematical theories, we delve into the underlying mechanics of our design choices. We analyze how LTE-ODE structurally overcomes topological bottlenecks and why our strict “no-regularization” paradigm is crucial for preserving spatial selectivity. 
+
+3.1 Expressivity and Topology: Breaking the Picard-Lindelöf Constraints 
+
+A fundamental bottleneck of standard Neural ODEs in spatiotemporal forecasting is their theoretical upper bound in modeling divergent anomalies. 
+
+Proposition 1 (Breaking Topological Constraints) . Standard Neural ODEs preserve the topology of the input space. LTE-ODE transforms the system into a piecewise-continuous dynamical system via the discrete compensation term Mt ⊙gϕ(Ht), permitting trajectory intersections and fundamentally expanding topological expressivity. (Formal proof is provided in Appendix A.1). 
+
+Mechanistic Insight: In physical terms, if two traffic nodes share identical historical states, standard ODEs (bound by Lipschitz continuity) are mathematically forced to predict identical smooth futures for both. By using the numerical solver discrepancy ( Et) to trigger a discrete jump, LTE-ODE instantly breaks this homeomorphic assumption. This allows the model to map one node to a smooth trajectory while forcefully routing the other to a divergent, “abrupt shock” phase space, aligning perfectly with the dual nature of real-world traffic. 
+
+3.2 Optimization Dynamics: Mitigating “Attention Collapse” 
+
+Previous physics-informed spatiotemporal models intuitively assume that numerical integration er-rors undermine system stability, prompting them to introduce manifold regularization penalties (e.g., 
+
+Ltotal = Ltask + λ∥Et∥). 
+
+Proposition 2 (Attention Collapse Theorem) . Enforcing a regularization constraint that penalizes 
+
+Et → 0 induces severe gradient conflicts, degrading the attention mask Mt into a non-informative constant and triggering attention collapse. (Formal proof is provided in Appendix A.2). 
+
+Mechanistic Insight: This theorem explains the pathology of traditional regularization. When the primary forecasting task demands a discrete jump to fit an anomaly, it actively tries to maximize the mask activation. If we simultaneously apply a manifold penalty forcing the error to zero, we create an orthogonal gradient conflict. The optimizer compromises by collapsing the mask to a uniform 
+
+0.5 across all nodes. By strictly adopting a pure, end-to-end task-driven loss, LTE-ODE preserves the sharp, heavy-tail distribution of the attention mask, ensuring the discrete compensator acts as a highly selective anomaly detector rather than uninformative spatial noise. 
+
+3.3 Computational Efficiency: Embedded Solvers and Spatial Sparsity 
+
+A common critique of hybrid or multi-order ODE solvers is the perceived inflation of computational operations and memory footprint. However, LTE-ODE bypasses this bottleneck through algorithmic embedding and conditional computation. 
+
+Proposition 3 (Computational Complexity Bounds) . LTE-ODE incurs strictly zero additional Neu-ral Function Evaluations (NFEs) for truncation error estimation, maintaining a time complexity of 
+
+5O(2 C) (where C is the cost of a single vector field evaluation), equivalent to a standalone RK2 solver. Furthermore, its spatial sparsity strictly bounds the dense matrix operations of the discrete compensator. (Detailed complexity analysis is provided in Appendix A.3). 
+
+Mechanistic Insight: Instead of running the neural network multiple independent times to estimate numerical discrepancies, LTE-ODE is designed akin to an Embedded Runge-Kutta method. The first-order Euler step is naturally generated as a mathematically “free” intermediate byproduct while computing the second-order RK2 step. Moreover, because the truncation error Et → 0 for the vast majority of stable traffic nodes, the mask acts as a conditional computation gate. The heavy discrete compensator gϕ(·) is effectively executed only on a highly sparse subset of anomalous nodes, allowing the architecture to scale effortlessly to massive spatial graphs. 
+
+## 4 Experiments 
+
+4.1 Experimental Settings 
+
+To evaluate the effectiveness of the proposed LTE-ODE, we conducted extensive experiments on four real-world traffic forecasting datasets. Following the rigorous experimental protocol established by GSNet [Kong et al., 2025], we benchmark our model against 13 state-of-the-art baselines to demonstrate its superior predictive performance and adaptability. Due to space constraints, detailed descriptions of experimental details are provided in Appendix B. 
+
+Datasets and Metrics. We evaluate LTE-ODE on four widely-used public spatiotemporal bench-marks[Han et al., 2024, Kong et al., 2025, Jiang et al., 2023]: PEMS07, PEMS08, CA, and England. Forecasting performance is measured using Mean Absolute Error (MAE), Mean Absolute Percent-age Error (MAPE), and Root Mean Squared Error (RMSE). 
+
+Baselines. We compare our method against a comprehensive suite of 13 baselines, ranging from tra-ditional statistical models (ARIMA[Williams and Hoel, 2003]) to recent deep learning architectures, including spatial-temporal GNNs (e.g., GWNet [Wu et al., 2019], AGCRN [Bai et al., 2020]) and advanced Transformer-based models (e.g., PDFormer [Jiang et al., 2023], UniST [Yuan et al., 2024], GSNet [Kong et al., 2025]). 
+
+4.2 Main Results 
+
+Table 1 summarizes the performance of all models across the four datasets, averaged over the 12 forecasting horizons. Table 1: Performance comparison on four datasets. Dataset PEMS08 England PEMS07 CA Metric MAE MAPE RMSE MAE MAPE RMSE MAE MAPE RMSE MAE MAPE RMSE ARIMA 31.23 19.25 33.47 4.23 5.72 7.68 33.89 17.60 46.38 34.26 21.35 44.68 STResNet 23.25 15.58 32.25 4.03 5.68 7.55 29.36 15.24 42.46 29.25 20.33 40.63 ACFM 15.86 10.13 25.34 3.52 5.28 7.86 25.86 11.83 39.03 26.38 19.24 37.86 STGCN 17.50 11.29 27.03 3.55 5.30 7.38 25.32 11.16 39.27 25.68 18.43 36.44 DCRNN 17.86 11.45 27.83 3.59 4.90 7.42 25.30 11.66 38.58 25.75 18.62 36.91 GWNet 19.13 12.68 31.05 3.53 4.93 7.57 26.85 12.12 42.78 24.73 17.46 35.86 AGCRN 15.95 10.09 25.22 3.32 5.01 7.33 22.37 9.12 36.55 25.03 17.93 36.23 PDFormer 13.58 9.05 23.51 3.46 4.97 7.46 20.42 8.86 32.87 25.22 18.96 35.43 Bi-STAT 13.62 9.43 23.17 3.42 4.89 7.54 21.13 8.98 33.86 25.36 19.03 35.27 GPT-ST 14.85 9.63 24.32 3.43 4.97 7.42 21.43 9.32 34.76 24.93 17.52 35.86 UniST 16.01 10.23 25.37 3.49 4.88 7.51 24.62 11.56 38.21 25.53 18.87 35.46 AGS 15.50 9.71 25.01 3.15 4.56 7.52 21.56 9.03 34.90 24.96 17.88 36.02 BigST 16.35 10.05 24.37 3.63 5.13 7.76 22.86 10.02 34.03 23.36 16.81 34.98 GSNet 14.76 9.48 22.52 3.20 4.82 6.60 20.70 8.77 32.66 19.76 14.39 30.99 LTE-ODE 14.56 9.41 22.15 2.95 4.27 6.25 20.20 8.61 31.98 18.73 13.53 28.89 
+
+As shown in Table 1, LTE-ODE achieves state-of-the-art performance across nearly all metrics on the evaluated datasets. Specifically, LTE-ODE demonstrates significant improvements in RMSE (e.g., 28 .89 on CA, a substantial reduction compared to the best baselines). Because RMSE heavily penalizes large variance errors, this robust improvement empirically validates our theoretical claim: LTE-ODE is uniquely capable of accurately capturing and modeling sudden, high-amplitude traffic shocks that standard continuous models structurally fail to fit. Even when compared against recent 6computationally heavy Transformer-based models like PDFormer and UniST, LTE-ODE exhibits superior generalization and predictive stability. 
+
+4.3 Computational Efficiency and Scalability 
+
+To rigorously evaluate the computational overhead, we mapped the training and inference times of various models on a logarithmic scale. As illustrated in the scatter plot (Figure 2), LTE-ODE achieves a remarkable balance between model expressiveness and computational footprint, distinctly occupying the Pareto optimal frontier (the bottom-left quadrant). Compared to heavily parameter-ized Transformer architectures (e.g., PDFormer, UniST) that suffer from quadratic spatial-temporal complexity, LTE-ODE yields nearly two orders of magnitude speedup (e.g., executing inference in only 1.38s/epoch on PEMS08). 10 1 10 2 10 3 
+
+> Training Time (s/epoch, Log Scale)
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> Inference Time (s/epoch, Log Scale)
+> PEMS08
+> England PEMS07
+> CA
+> Baseline Models
+> LTE-ODE (Ours)
+> PEMS07
+> PEMS08
+> England
+> CA
+
+Figure 2: Performance Comparison of Training and Inference Time. Notably, while the absolute runtime naturally increases on larger-scale graphs like CA-due to the inherent sensitivity of the ODE solver’s integration steps to massive graph operations-our model maintains robust scalability. Even on the massive CA dataset, LTE-ODE operates up to 4 × and 10 ×
+
+faster than PDFormer and UniST, respectively. This demonstrates that our discrete compensator and LTE-guided masking mechanisms are computationally frugal, successfully integrating physical inductive biases without the prohibitive overhead typically associated with deep Neural ODEs. 
+
+4.4 Ablation Study 
+
+To thoroughly investigate the effectiveness of the proposed Local Truncation Error (LTE)-guided mechanism and the system’s deployment adaptability, we designed critical ablation variants. Table 2 and Table 3 summarize the impact of architectural components and ODE integration steps on predictive performance across two representative datasets (see Appendix B.1. Table 2: Ablation study on architectural components and parameter efficiency. Model Variant Params (M) England PEMS08 MAE MAPE RMSE MAE MAPE RMSE w/o LTE 0.54 2.99 4.28 6.34 14.69 9.70 22.37 w/o Compensation 0.27 3.05 4.49 6.49 15.31 10.07 22.92 w/o Mask 0.40 3.03 4.42 6.38 14.52 9.56 22.12 w/ Manifold Penalty 0.40 3.02 4.37 6.35 14.65 9.86 22.25 LTE-ODE (Ours) 0.40 2.95 4.27 6.25 14.56 9.41 22.15 
+
+Impact of Architectural Components. We evaluated variants of our model to isolate the contri-butions of the continuous-discrete synergy (Table 2): 
+
+w/o LTE (Removal of Truncation Error Calculation Logic): Instead of utilizing the mathematically derived LTE as a forward inductive bias, this variant removes the physical error calculation logic, relying purely on standard learned neural layers to generate the mask. Notably, this inflates the pa-rameter count to 0.54M (vs. our 0.40M) while degrading performance (e.g., RMSE increases from 76.25 to 6.34 on England). This verifies that the explicit physical discrepancy between solvers pro-vides a superior, parameter-free supervisory signal compared to brute-force neural parameterization. 
+
+w/o Compensation (Removal of Discrete Branch): This variant strips away the independent discrete shock compensator gϕ(·). As shown in Table 2, while it achieves the lowest parameter footprint (0.27M), its performance drastically deteriorates across all metrics (MAE rises from 14.56 to 15.31 on PEMS08). This empirically validates our topological hypothesis: without the discrete branch, the continuous vector field is bound by Lipschitz continuity, structurally failing to fit non-linear, divergent traffic shocks. 
+
+w/o Mask (Degeneration to Standard ODE): By removing the dynamic attention mask Mt, the discrete compensation is uniformly applied across the spatial graph regardless of local shock condi-tions. Despite having the same parameter count as the full LTE-ODE, it suffers from severe over-smoothing, yielding sub-optimal predictions. 
+
+w/ Manifold Penalty (Empirical Validation of Attention Collapse): To rigorously validate Proposi-tion 2 and our “no-regularization” paradigm, we evaluate this variant by forcing a trajectory smooth-ing constraint ( Lmani = λ∥Et∥). While this variant degrades predictive performance (e.g., RMSE rises to 22.25 on PEMS08), its macro-level average metrics partially mask a severe structural failure. LTE-ODE         
+
+> (Ours)
+> w/ Manifold
+> Penalty
+> (a) Distribution Overview
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> Attention Mask Value  Mt
+> 0.4 0.5 0.6 0.7 0.8 0.9 1.0
+> Attention Mask Value Mt
+> (b) Density Estimation: The "Collapse"
+> 0
+> 50
+> 100
+> 150
+> 200
+> 250
+> 300
+> Density  Collapse Point ( Mt= 0.5 )
+> Model Variants
+> w/ Manifold Penalty
+> LTE-ODE (Ours)
+
+Figure 3: Spatial distribution of the attention mask Mt, demonstrating Attention Collapse. The underlying pathology of the w/ Manifold Penalty variant is unequivocally exposed in the in-ternal inference dynamics (Figure 3). Penalizing the numerical discrepancy strips the model of its spatial selectivity, forcing the attention mask Mt to rigidly collapse into a Dirac-delta distribution at precisely 0.5 (empirical mean ≈ 0.5007 ). Consequently, the discrete compensator degenerates into uninformative spatial noise, blindly operating across all nodes regardless of local conditions. Conversely, our unpenalized LTE-ODE preserves a physically faithful heavy-tail distribution. It firmly anchors the 0.5 baseline for smooth traffic while acutely activating towards 1.0 the moment a non-linear shock is detected. Conversely, our unpenalized LTE-ODE preserves a physically faithful heavy-tail distribution-anchoring at 0.5 for smooth traffic and activating towards 1.0 during non-linear shocks (see Appendix B.1.1 for theoretical details on this healthy physical prior). Table 3: Sensitivity analysis of ODE integration steps against computational cost (FLOPs). Integration FLOPs England PEMS08 Steps (1.0/ ∆t) (G) MAE MAPE RMSE MAE MAPE RMSE 
+
+steps=1 5.37 3.06 4.53 6.40 14.87 9.72 22.52 
+
+steps=2 9.34 3.01 4.43 6.29 14.55 9.76 22.15 
+
+steps=4 (Ours) 17.28 2.95 4.27 6.25 14.56 9.41 22.15 
+
+steps=6 17.45 3.05 4.54 6.47 15.10 9.76 22.71 
+
+steps=8 33.17 3.01 4.41 6.38 14.64 9.51 22.21 
+
+Integration Steps and Deployment Flexibility. Table 3 reveals a U-shaped performance curve regarding integration depth. Shallow integration ( steps=1, 2 ) slightly under-fits the complex con-tinuous dynamics, while excessive steps ( steps=6, 8 ) accumulate numerical errors and double the 8computational overhead (FLOPs surge to 33.17G). Setting steps=4 achieves the optimal Pareto fron-tier for general performance. Crucially, we elevate this hyperparameter from a mere tuning detail to a strategic lever for deployment flexibility. By adjusting the integration depth, LTE-ODE can seamlessly scale its computational footprint to match specific hardware constraints. For latency-sensitive edge computing environments (e.g., local traffic cameras or roadside sensor units with lim-ited power), LTE-ODE can operate at steps=1 or steps=2 , dramatically reducing FLOPs while still maintaining competitive baseline performance. Conversely, for high-performance computing clus-ters (e.g., centralized city brains where precision is paramount), deploying with steps=4 unlocks the model’s maximum predictive capacity. This demonstrates that LTE-ODE is not just theoretically sound, but highly adaptable for practical, large-scale industrial deployment. In summary, the continuous ODE backbone, LTE-guided mask, and discrete compensator are in-dispensable to LTE-ODE. Together, they resolve the inherent tension between structural Lipschitz constraints and non-linear traffic volatility, achieving optimal robustness and efficiency (details in Appendix B.1). 
+
+## 5 Related Work 
+
+Deep Spatiotemporal Forecasting. Traffic forecasting is fundamentally challenging due to the complex, non-linear spatiotemporal dependencies inherent in road networks [Rahmani et al., 2023, Tedjopurnomo et al., 2022]. Early approaches predominantly relied on statistical models like sea-sonal ARIMA [Williams and Hoel, 2003] and shallow machine learning techniques [Drucker et al., 1996]. The paradigm subsequently shifted towards deep learning, with CNNs and RNNs being de-ployed to capture spatial proximity and temporal trends [Zhang et al., 2017, Shi et al., 2015, Liu et al., 2019]. Recognizing the non-Euclidean nature of transportation systems, Spatial-Temporal Graph Neural Networks [Song et al., 2020] have emerged as the mainstream solution. Building upon standard graph convolutions [Kipf and Welling, 2016], foundational models [Yu et al., 2018, Guo et al., 2019] typically employed pre-defined graphs. To circumvent the reliance on priors, subse-quent research introduced adaptive graph generation [Bai et al., 2020] and dynamic graph structure learning [Wu et al., 2020, Han et al., 2021] to capture hidden, time-varying correlations. As urban datasets expanded to citywide scales [Liu et al., 2023], the quadratic computational complexity of spatial message passing became a critical bottleneck. Consequently, recent efforts have focused on enhancing scalability through efficient Transformer variants [Fang et al., 2025, Wang et al., 2023, Kong et al., 2025, Yuan et al., 2024, Li et al., 2023]. However, these advanced architectures pre-dominately operate on discrete time snapshots. This inherent discreteness limits their capability to natively handle asynchronous spatial dependencies and irregular traffic time series [Zhang et al., 2024b], failing to mirror the fundamentally continuous evolution of real-world traffic flows. 
+
+Continuous-Time Dynamics and Neural ODEs. To address the limitations of discrete modeling, recent literature has begun conceptualizing traffic prediction through continuous-time paradigms. For instance, neural point processes [Jin et al., 2023] and marked graph processes [Zhang et al., 2024a] have been introduced to forecast sparsely distributed traffic congestion events along a contin-uous time axis. More systematically, Neural Ordinary Differential Equations (Neural ODEs) have provided a principled framework to parameterize the derivative of hidden states. Integrating ODEs with GNNs [Liu et al., 2025] has proven highly effective in capturing spatiotemporal dynamics syn-chronously, as demonstrated by STGODE [Fang et al., 2021]. Building on this, Long et al. [2024] explicitly modeled the time delay of spatial information propagationa crucial but often overlooked traffic property [Jiang et al., 2023]-using spatial-temporal delay differential equations. Further-more, continuous-time diffusion models [Rühling Cachay et al., 2023] and equivariant neural fields [Knigge et al., 2024] have shown promise in learning complex partial differential equations. Despite these theoretical strides, scaling these continuous-time solvers to highly diverse and overdispersed urban street networks [Kaiser et al., 2026] remains computationally daunting and prone to unstable gradient propagation. To stabilize continuous neural networks and ensure they adhere to real-world physical dynamics, Physics-Informed Neural Networks (PINNs) have been widely adopted. By em-bedding fluid dynamics or partial differential equations as physical priors, models can achieve better interpretability and robustness in strict physical environments [Wilkman et al., 2025, Meng et al., 2023, Li et al., 2025]. In standard physics-informed continuous learning, a common practice is to apply manifold regularization-specifically, penalizing the numerical discrepancy or local truncation error to force the evolutionary trajectory to remain strictly smooth and physically compliant. 9In contrast, LTE-ODE abandons the assumption of strict manifold smoothness. Instead of mini-mizing the numerical solver discrepancy, we innovatively repurpose it as an unsupervised forward inductive bias. By using the LTE to selectively drive a spatial attention mask, our method bridges macroscopic continuous rhythms and microscopic discrete mutations, elegantly resolving the limita-tions of applying rigid physical constraints to stochastic traffic flows. 
+
+## 6 Conclusion 
+
+In this paper, we propose LTE-ODE, a novel continuous-discrete hybrid dynamical system that fun-damentally resolves the inherent conflict between smooth macroscopic rhythms and abrupt anoma-lies in spatiotemporal forecasting. Innovatively repurposing the Local Truncation Error (LTE) from a parallel dual-solver as an unsupervised structural signal, our framework dynamically triggers a discrete compensation branch to instantly break Lipschitz topological constraints at localized shock points. Extensive experiments on four large-scale real-world datasets confirm that LTE-ODE not only achieves state-of-the-art predictive accuracy in capturing highly non-linear traffic fluctuations, but also exhibits exceptional computational efficiency and hardware-aware deployment flexibility. 
+
+## References 
+
+Lei Bai, Lina Yao, Can Li, Xianzhi Wang, and Can Wang. Adaptive graph convolutional recurrent network for traffic forecasting. Advances in neural information processing systems , 33:17804–17815, 2020. Changlu Chen, Yanbin Liu, Ling Chen, and Chengqi Zhang. Bidirectional spatial-temporal adaptive trans-former for urban traffic flow forecasting. IEEE Transactions on Neural Networks and Learning Systems , 34 (10):6913–6925, 2022. Ricky TQ Chen, Yulia Rubanova, Jesse Bettencourt, and David K Duvenaud. Neural ordinary differential equations. Advances in neural information processing systems , 31, 2018. Yuqi Chen, Kan Ren, Yansen Wang, Yuchen Fang, Weiwei Sun, and Dongsheng Li. Contiformer: Continuous-time transformer for irregular time series modeling. Advances in Neural Information Processing Systems ,36:47143–47175, 2023. Harris Drucker, Christopher J Burges, Linda Kaufman, Alex Smola, and Vladimir Vapnik. Support vector regression machines. Advances in neural information processing systems , 9, 1996. Wenying Duan, Xiaoxi He, Zimu Zhou, Lothar Thiele, and Hong Rao. Localised adaptive spatial-temporal graph neural network. In Proceedings of the 29th acm sigkdd conference on knowledge discovery and data mining , pages 448–458, 2023. Yuchen Fang, Yuxuan Liang, Bo Hui, Zezhi Shao, Liwei Deng, Xu Liu, Xinke Jiang, and Kai Zheng. Efficient large-scale traffic forecasting with transformers: A spatial data management perspective. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 1 , pages 307–317, 2025. Zheng Fang, Qingqing Long, Guojie Song, and Kunqing Xie. Spatial-temporal graph ode networks for traffic flow forecasting. In Proceedings of the 27th ACM SIGKDD conference on knowledge discovery & data mining , pages 364–373, 2021. Shengnan Guo, Youfang Lin, Ning Feng, Chao Song, and Huaiyu Wan. Attention based spatial-temporal graph convolutional networks for traffic flow forecasting. In Proceedings of the AAAI conference on artificial intelligence , volume 33, pages 922–929, 2019. Jindong Han, Weijia Zhang, Hao Liu, Tao Tao, Naiqiang Tan, and Hui Xiong. Bigst: Linear complexity spatio-temporal graph neural network for traffic forecasting on large-scale road networks. Proceedings of the VLDB Endowment , 17(5):1081–1090, 2024. Liangzhe Han, Bowen Du, Leilei Sun, Yanjie Fu, Yisheng Lv, and Hui Xiong. Dynamic and multi-faceted spatio-temporal deep learning for traffic speed forecasting. In Proceedings of the 27th ACM SIGKDD con-ference on knowledge discovery & data mining , pages 547–555, 2021. Rongzhou Huang, Chuyin Huang, Yubao Liu, Genan Dai, and Weiyang Kong. Lsgcn: Long short-term traffic prediction with graph convolutional networks. In IJCAI , volume 7, pages 2355–2361, 2020. Jiawei Jiang, Chengkai Han, Wayne Xin Zhao, and Jingyuan Wang. Pdformer: Propagation delay-aware dy-namic long-range transformer for traffic flow prediction. In Proceedings of the AAAI conference on artificial intelligence , volume 37, pages 4365–4373, 2023. 
+
+10 Guangyin Jin, Lingbo Liu, Fuxian Li, and Jincai Huang. Spatio-temporal graph neural point process for traffic congestion event prediction. In Proceedings of the AAAI conference on artificial intelligence , volume 37, pages 14268–14276, 2023. Silke K Kaiser, Filipe Rodrigues, Carlos Lima Azevedo, and Lynn H Kaack. Spatio-temporal graph neural network for urban spaces: Interpolating citywide traffic volume. Expert Systems with Applications , 2026. Thomas N Kipf and Max Welling. Semi-supervised classification with graph convolutional networks. arXiv preprint arXiv:1609.02907 , 2016. David M Knigge, David R Wessels, Riccardo Valperga, Samuele Papa, Jan-Jakob Sonke, Efstratios Gavves, and Erik J Bekkers. Space-time continuous pde forecasting using equivariant neural fields. Advances in Neural Information Processing Systems , 37:76553–76577, 2024. Weiyang Kong, Kaiqi Wu, Sen Zhang, and Yubao Liu. Graphsparsenet: A novel method for large scale traffic flow prediction. Proceedings of the VLDB Endowment , 2025. Donghe Li, Jiacheng Zhang, Yixian Liu, Jiaming Zhang, Huan Xi, and Qingyu Yang. Embedding fluid dynam-ics into neural networks: Towards interpretable traffic flow prediction via physics-informed learning. IEEE Internet of Things Journal , 2025. Mengzhang Li and Zhanxing Zhu. Spatial-temporal fusion graph neural networks for traffic flow forecasting. In Proceedings of the AAAI conference on artificial intelligence , volume 35, pages 4189–4196, 2021. Zhonghang Li, Lianghao Xia, Yong Xu, and Chao Huang. Gpt-st: generative pre-training of spatio-temporal graph neural networks. Advances in neural information processing systems , 36:70229–70246, 2023. Lingbo Liu, Jiajie Zhen, Guanbin Li, Geng Zhan, and Liang Lin. Acfm: A dynamic spatial-temporal network for traffic prediction. arXiv preprint arXiv:1909.02902 , page 32, 2019. Xu Liu, Yutong Xia, Yuxuan Liang, Junfeng Hu, Yiwei Wang, Lei Bai, Chao Huang, Zhenguang Liu, Bryan Hooi, and Roger Zimmermann. Largest: A benchmark dataset for large-scale traffic forecasting. Advances in Neural Information Processing Systems , 36:75354–75371, 2023. Zewen Liu, Xiaoda Wang, Bohan Wang, Zijie Huang, Carl Yang, and Wei Jin. Graph odes and beyond: A comprehensive survey on integrating differential equations with graph neural networks. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2 , pages 6118–6128, 2025. Qingqing Long, Zheng Fang, Chen Fang, Chong Chen, Pengfei Wang, and Yuanchun Zhou. Unveiling delay effects in traffic forecasting: a perspective from spatial-temporal delay differential equations. In Proceedings of the ACM web conference 2024 , pages 1035–1044, 2024. Zeng Meng, Qiaochu Qian, Mengqiang Xu, Bo Yu, Ali Rıza Yıldız, and Seyedali Mirjalili. Pinn-form: A new physics-informed neural network for reliability analysis with partial differential equation. Computer Methods in Applied Mechanics and Engineering , 414:116172, 2023. Saeed Rahmani, Asiye Baghbani, Nizar Bouguila, and Zachary Patterson. Graph neural networks for intelligent transportation systems: A survey. IEEE Transactions on Intelligent Transportation Systems , 24(8):8846– 8885, 2023. Salva Rühling Cachay, Bo Zhao, Hailey Joren, and Rose Yu. Dyffusion: A dynamics-informed diffusion model for spatiotemporal forecasting. Advances in neural information processing systems , 36:45259–45287, 2023. Xingjian Shi, Zhourong Chen, Hao Wang, Dit-Yan Yeung, Wai-Kin Wong, and Wang-chun Woo. Convolutional lstm network: A machine learning approach for precipitation nowcasting. Advances in neural information processing systems , 28, 2015. Chao Song, Youfang Lin, Shengnan Guo, and Huaiyu Wan. Spatial-temporal synchronous graph convolutional networks: A new framework for spatial-temporal network data forecasting. In Proceedings of the AAAI conference on artificial intelligence , volume 34, pages 914–921, 2020. David Alexander Tedjopurnomo, Zhifeng Bao, Baihua Zheng, Farhana Murtaza Choudhury, and Alex Kai Qin. A survey on modern deep neural network for traffic prediction: Trends, methods and challenges. IEEE Transactions on Knowledge and Data Engineering , 34(4):1544–1561, 2022. Chen Wang, Kaizhong Zuo, Shaokun Zhang, Hanwen Lei, Peng Hu, Zhangyi Shen, Rui Wang, and Peize Zhao. Pfnet: Large-scale traffic forecasting with progressive spatio-temporal fusion. IEEE Transactions on Intelligent Transportation Systems , 24(12):14580–14597, 2023. 
+
+11 Dennis Wilkman, Kateryna Morozovska, Karl Henrik Johansson, and Matthieu Barreau. Online traffic density estimation using physics-informed neural networks. In 2025 IEEE 64th Conference on Decision and Control (CDC) , pages 236–242, 2025. Billy M Williams and Lester A Hoel. Modeling and forecasting vehicular traffic flow as a seasonal arima process: Theoretical basis and empirical results. Journal of transportation engineering , 129(6):664–672, 2003. Zonghan Wu, Shirui Pan, Guodong Long, Jing Jiang, and Chengqi Zhang. Graph wavenet for deep spatial-temporal graph modeling. Proceedings of the 28th International Joint Conference on Artificial Intelligence ,2019. Zonghan Wu, Shirui Pan, Guodong Long, Jing Jiang, Xiaojun Chang, and Chengqi Zhang. Connecting the dots: Multivariate time series forecasting with graph neural networks. In Proceedings of the 26th ACM SIGKDD international conference on knowledge discovery & data mining , pages 753–763, 2020. Huaxiu Yao, Xianfeng Tang, Hua Wei, Guanjie Zheng, Yanwei Yu, and Zhenhui Li. Modeling spatial-temporal dynamics for traffic prediction. arXiv preprint arXiv:1803.01254 , 1(9), 2018. Bing Yu, Haoteng Yin, and Zhanxing Zhu. Spatio-temporal graph convolutional networks: A deep learning framework for traffic forecasting. Proceedings of the Twenty-Seventh International Joint Conference on Artificial Intelligence , 2018. Yuan Yuan, Jingtao Ding, Jie Feng, Depeng Jin, and Yong Li. Unist: A prompt-empowered universal model for urban spatio-temporal prediction. In Proceedings of the 30th ACM SIGKDD conference on knowledge discovery and data mining , pages 4095–4106, 2024. Junbo Zhang, Yu Zheng, and Dekang Qi. Deep spatio-temporal residual networks for citywide crowd flows prediction. In Proceedings of the AAAI conference on artificial intelligence , volume 31, 2017. Tong Zhang, Jianlong Wang, Tong Wang, Yiwei Pang, Peixiao Wang, and Wangshu Wang. A deep marked graph process model for citywide traffic congestion forecasting. Computer-Aided Civil and Infrastructure Engineering , 39(8):1180–1196, 2024a. Weijia Zhang, Le Zhang, Jindong Han, Hao Liu, Yanjie Fu, Jingbo Zhou, Yu Mei, and Hui Xiong. Irregular traffic time series forecasting based on asynchronous spatio-temporal graph convolutional networks. In 
+
+Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining , pages 4302– 4313, 2024b. Xiao Zhang, Chongxing Song, Tao You, Qicheng Bai, Wei Wei, and Lei Zhang. Dual ode: Spatial–spectral neural ordinary differential equations for hyperspectral image super-resolution. IEEE Transactions on Geo-science and Remote Sensing , 62:1–15, 2023. Xiao Zhang, Zhen Zhang, Wei Wei, Lei Zhang, and Yanning Zhang. Do it yourself dynamic single image super resolution network via ode. Pattern Recognition , 170:111987, 2026. Chuanpan Zheng, Xiaoliang Fan, Shirui Pan, Haibing Jin, Zhaopeng Peng, Zonghan Wu, Cheng Wang, and Philip S Yu. Spatio-temporal joint graph convolutional networks for traffic forecasting. IEEE Transactions on Knowledge and Data Engineering , 36(1):372–385, 2023. 
+
+12 A Mathematical Proofs 
+
+A.1 Proof of Proposition 1 A.2 Proof of Proposition 2 A.3 Proof of Proposition 3 
+
+## B Experimental Details 
+
+B.1 Efficiency, Scalability, and Component Analysis B.1.1 Discussion on the Smooth Prior vs. Artificial Collapse. 
+
+## C Scope and Limitations 
+
+13
