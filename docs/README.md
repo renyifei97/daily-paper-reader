@@ -6,79 +6,79 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-08
-- 运行时间：2026-05-08 20:22:46 UTC
+- 最新运行日期：2026-05-09
+- 运行时间：2026-05-09 20:02:45 UTC
 - 运行状态：成功
 - 本次总论文数：19
 - 精读区：7
 - 速读区：12
 
 ### 今日简报（AI）
-今日深度复盘 19 篇交通与算法论文，重点突破静态网络时序路由与公交乘务实时调度两大核心挑战。
-推荐关注 9.5 分的近似动态规划算法及扩散模型在跨城市 OD 矩阵生成中的前沿应用。
-建议优先研读高分算法逻辑，并同步探索非平稳时间序列预测的相位振幅调制新思路。
-- 详情：[/202605/08/README](/202605/08/README)
+今日深挖 19 篇交通与时空预测前沿，重点攻克公共交通调度与能源效率的双重难题。
+推荐关注周期性时刻表下的再生制动能优化，以及利用近似动态规划实现公交后备司机的实时精准指派。
+建议读者从图卷积回归与非交换性预测入手，探索城市空气污染及多变量时空序列的鲁棒性建模。
+- 详情：[/202605/09/README](/202605/09/README)
 
 ### 精读区论文标签
-1. [Temporal Routing in Static Networks: The Schedule Completion Problem](/202605/08/2604.27757v1-temporal-routing-in-static-networks-the-schedule-completion-problem)  
+1. [Optimizing Travel Time and Regenerative Energy for Periodic Timetables](/202605/09/2605.02355v1-optimizing-travel-time-and-regenerative-energy-for-periodic-timetables)  
    标签：评分：9.5/10、query:urt-c
-   evidence：铁路网络中列车路由与乘客需求的时序特征
-2. [Approximate Dynamic Programming for Real-time Assignment of Extraboard Transit Operators](/202605/08/2605.04511v1-approximate-dynamic-programming-for-real-time-assignment-of-extraboard-transit-operators)  
+   evidence：优化周期性铁路时刻表的旅行时间和能量
+2. [Approximate Dynamic Programming for Real-time Assignment of Extraboard Transit Operators](/202605/09/2605.04511v1-approximate-dynamic-programming-for-real-time-assignment-of-extraboard-transit-operators)  
    标签：评分：9.5/10、query:urt-c
-   evidence：使用马尔可夫决策过程进行交通运营人员实时分配
-3. [Temporal Routing in Static Networks: The Schedule Completion Problem](/202605/08/2604.27757v2-temporal-routing-in-static-networks-the-schedule-completion-problem)  
-   标签：评分：9.0/10、query:urt-c
-   evidence：铁路网络中列车路由与乘客需求的跨时空特性
-4. [Optimizing Travel Time and Regenerative Energy for Periodic Timetables](/202605/08/2605.02355v1-optimizing-travel-time-and-regenerative-energy-for-periodic-timetables)  
-   标签：评分：9.0/10、query:urt-c
-   evidence：优化周期性铁路时刻表以平衡能耗与旅行时间
-5. [Local Truncation Error-Guided Neural ODEs for Large Scale Traffic Forecasting](/202605/08/2605.03386v1-local-truncation-error-guided-neural-odes-for-large-scale-traffic-forecasting)  
-   标签：评分：9.0/10、query:urt-pf
-   evidence：大规模交通预测与时空建模
-6. [CoMemNet: Contrastive Sampling with Memory Replay Network for Continual Traffic Prediction](/202605/08/2605.05738v1-comemnet-contrastive-sampling-with-memory-replay-network-for-continual-traffic-prediction)  
-   标签：评分：9.0/10、query:urt-pf
-   evidence：流式网络中的持续交通预测
-7. [The multi-fractal nature of pedestrian arrival times](/202605/08/2605.05788v1-the-multi-fractal-nature-of-pedestrian-arrival-times)  
-   标签：评分：9.0/10、query:urt-pf
-   evidence：利用多分形缩放研究火车站行人到达时间
+   evidence：使用近似动态规划和马尔可夫决策过程进行公交运营商的实时分配
+3. [Fusing Urban Structure and Semantics: A Conditional Diffusion Model for Cross-City OD Matrix Generation](/202605/09/2605.00938v1-fusing-urban-structure-and-semantics-a-conditional-diffusion-model-for-cross-city-od-matrix-generation)  
+   标签：评分：8.5/10、query:urt-pf
+   evidence：跨城市OD矩阵生成与通勤流
+4. [CNN-based Multi-In-Multi-Out Model for Efficient Spatiotemporal Prediction](/202605/09/2605.01277v1-cnn-based-multi-in-multi-out-model-for-efficient-spatiotemporal-prediction)  
+   标签：评分：8.5/10、query:urt-pf
+   evidence：基于CNN的高效时空预测模型
+5. [Training-Free Probabilistic Time-Series Forecasting with Conformal Seasonal Pools](/202605/09/2605.03789v1-training-free-probabilistic-time-series-forecasting-with-conformal-seasonal-pools)  
+   标签：评分：8.5/10、query:urt-pf
+   evidence：交通数据集上的概率时间序列预测
+6. [CoMemNet: Contrastive Sampling with Memory Replay Network for Continual Traffic Prediction](/202605/09/2605.05738v1-comemnet-contrastive-sampling-with-memory-replay-network-for-continual-traffic-prediction)  
+   标签：评分：8.5/10、query:urt-pf
+   evidence：捕获流式交通网络中时空信息的持续交通预测
+7. [Local Truncation Error-Guided Neural ODEs for Large Scale Traffic Forecasting](/202605/09/2605.03386v1-local-truncation-error-guided-neural-odes-for-large-scale-traffic-forecasting)  
+   标签：评分：8.0/10、query:urt-pf
+   evidence：使用神经常微分方程进行大规模交通网络时空预测
 
 ### 速读区论文标签
-1. [Comparative Analysis of Polygon-Based and Global Machine Learning Models for Bus Occupancy Prediction](/202605/08/2605.00083v1-comparative-analysis-of-polygon-based-and-global-machine-learning-models-for-bus-occupancy-prediction)  
+1. [The multi-fractal nature of pedestrian arrival times](/202605/09/2605.05788v1-the-multi-fractal-nature-of-pedestrian-arrival-times)  
    标签：评分：8.0/10、query:urt-pf
-   evidence：利用空间聚类和机器学习预测公交客流量
-2. [PAMod: Modeling Cyclical Shifts via Phase-Amplitude Modulation for Non-stationary Time Series Forecasting](/202605/08/2605.00466v1-pamod-modeling-cyclical-shifts-via-phase-amplitude-modulation-for-non-stationary-time-series-forecasting)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：针对周期性偏移的非平稳时间序列预测
-3. [Fusing Urban Structure and Semantics: A Conditional Diffusion Model for Cross-City OD Matrix Generation](/202605/08/2605.00938v1-fusing-urban-structure-and-semantics-a-conditional-diffusion-model-for-cross-city-od-matrix-generation)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：用于跨城市OD矩阵生成的条件扩散模型
-4. [Training-Free Probabilistic Time-Series Forecasting with Conformal Seasonal Pools](/202605/08/2605.03789v1-training-free-probabilistic-time-series-forecasting-with-conformal-seasonal-pools)  
-   标签：评分：8.0/10、query:urt-pf
-   evidence：交通数据集上的免训练概率时间序列预测
-5. [Probabilistic Circuits for Irregular Multivariate Time Series Forecasting](/202605/08/2604.27814v1-probabilistic-circuits-for-irregular-multivariate-time-series-forecasting)  
+   evidence：利用多分形缩放研究火车站行人到达时间
+2. [Graph Convolutional Support Vector Regression for Robust Spatiotemporal Forecasting of Urban Air Pollution](/202605/09/2605.03795v1-graph-convolutional-support-vector-regression-for-robust-spatiotemporal-forecasting-of-urban-air-pollution)  
    标签：评分：7.5/10、query:urt-pf
-   evidence：概率性不规则多变量时间序列预测
-6. [ITS-Mina: A Harris Hawks Optimization-Based All-MLP Framework with Iterative Refinement and External Attention for Multivariate Time Series Forecasting](/202605/08/2604.27981v1-its-mina-a-harris-hawks-optimization-based-all-mlp-framework-with-iterative-refinement-and-external-attention-for-multivariate-time-series-forecasting)  
+   evidence：用于城市数据时空预测的图卷积学习
+3. [Delving into Non-Exchangeability for Conformal Prediction in Graph-Structured Multivariate Time Series](/202605/09/2605.04957v1-delving-into-non-exchangeability-for-conformal-prediction-in-graph-structured-multivariate-time-series)  
    标签：评分：7.5/10、query:urt-pf
-   evidence：用于交通规划的多变量时间序列预测的全MLP框架
-7. [Toward Scalable SDN for LEO Mega-Constellations: A Graph Learning Approach](/202605/08/2604.27478v1-toward-scalable-sdn-for-leo-mega-constellations-a-graph-learning-approach)  
+   evidence：图结构多元时间序列预测的不确定性量化
+4. [Superposition Is Not Necessary: A Mechanistic Interpretability Analysis of Transformer Representations for Time Series Forecasting](/202605/09/2605.05151v1-superposition-is-not-necessary-a-mechanistic-interpretability-analysis-of-transformer-representations-for-time-series-forecasting)  
+   标签：评分：7.5/10、query:urt-pf
+   evidence：Transformer表示在时间序列预测中的机械可解释性分析
+5. [Bayesian Multi-Topology Express Transportation Network Design under Posterior Predictive Demand, Sorting-Efficiency and Delivery-Time Uncertainty](/202605/09/2605.05595v1-bayesian-multi-topology-express-transportation-network-design-under-posterior-predictive-demand-sorting-efficiency-and-delivery-time-uncertainty)  
+   标签：评分：7.5/10、query:urt-c
+   evidence：需求和旅行时间不确定性下的运输网络设计
+6. [Beyond Long Tail POIs: Transition-Centered Generalization for Human Mobility Prediction](/202605/09/2605.05771v1-beyond-long-tail-pois-transition-centered-generalization-for-human-mobility-prediction)  
+   标签：评分：7.5/10、query:urt-pf
+   evidence：人类移动性预测与以转移为中心的泛化
+7. [PAMod: Modeling Cyclical Shifts via Phase-Amplitude Modulation for Non-stationary Time Series Forecasting](/202605/09/2605.00466v1-pamod-modeling-cyclical-shifts-via-phase-amplitude-modulation-for-non-stationary-time-series-forecasting)  
    标签：评分：7.0/10、query:urt-pf
-   evidence：利用GNN和Koopman理论预测网络中的时空行为
-8. [Autonomous Traffic Signal Optimization Using Digital Twin and Agentic AI for Real-Time Decision-Making](/202605/08/2604.27753v1-autonomous-traffic-signal-optimization-using-digital-twin-and-agentic-ai-for-real-time-decision-making)  
-   标签：评分：7.0/10、query:urt-c
-   evidence：交通基础设施的信号灯优化与实时决策
-9. [Development of Multivariate Attention LSTM Model For Dynamic Line Rating Forecasting](/202605/08/2605.00486v1-development-of-multivariate-attention-lstm-model-for-dynamic-line-rating-forecasting)  
+   evidence：针对具有周期性偏移的非平稳时间序列预测
+8. [Scalable Context-Aware Graph Attention for Unsupervised Anomaly Detection in Large-Scale Mobile Networks](/202605/09/2605.00482v1-scalable-context-aware-graph-attention-for-unsupervised-anomaly-detection-in-large-scale-mobile-networks)  
+   标签：评分：7.0/10、query:urt-pf
+   evidence：基于图注意力的多变量时间序列异常检测，适用于大规模网络
+9. [Time-series Meets Complex Motion Modeling: Robust and Computational-effective Motion Predictor for Multi-object Tracking](/202605/09/2605.00362v1-time-series-meets-complex-motion-modeling-robust-and-computational-effective-motion-predictor-for-multi-object-tracking)  
    标签：评分：6.5/10、query:urt-pf
-   evidence：用于时间序列预测的多变量注意力LSTM模型
-10. [Deployment-Efficient Short-Term Load Forecasting in AI Data Centers via Sequence-to-Point Knowledge Distillation](/202605/08/2605.00681v1-deployment-efficient-short-term-load-forecasting-in-ai-data-centers-via-sequence-to-point-knowledge-distillation)  
+   evidence：用于运动建模中时间序列预测的时间卷积运动预测器
+10. [A Novel Preprocessing-Driven Approach to Remaining Useful Life (RUL) Prediction Using Temporal Convolutional Networks (TCN)](/202605/09/2605.02507v1-a-novel-preprocessing-driven-approach-to-remaining-useful-life-rul-prediction-using-temporal-convolutional-networks-tcn)  
    标签：评分：6.5/10、query:urt-pf
-   evidence：使用序列到点知识蒸馏的短期负荷预测
-11. [Scalable inference of spatial regions and temporal signatures from time series](/202605/08/2605.05008v1-scalable-inference-of-spatial-regions-and-temporal-signatures-from-time-series)  
+   evidence：用于时间序列预测的时间卷积网络
+11. [Learning Dominant States in Elementary Resource Constrained Shortest Path Problems](/202605/09/2605.03760v1-learning-dominant-states-in-elementary-resource-constrained-shortest-path-problems)  
+   标签：评分：6.5/10、query:urt-c
+   evidence：机器学习用于识别资源受限最短路径问题中的有前途状态
+12. [Hybrid Congestion Classification Framework Using Flow-Guided Attention and Empirical Mode Decomposition](/202605/09/2605.04752v1-hybrid-congestion-classification-framework-using-flow-guided-attention-and-empirical-mode-decomposition)  
    标签：评分：6.5/10、query:urt-pf
-   evidence：时间序列的空间区域化用于资源管理
-12. [Context-Aware Graph Attention for Unsupervised Telco Anomaly Detection](/202605/08/2604.27172v1-context-aware-graph-attention-for-unsupervised-telco-anomaly-detection)  
-   标签：评分：6.0/10、query:urt-pf
-   evidence：用于多元时间序列预测和异常检测的图注意力模型
+   evidence：时空交通运动与拥堵分类
 
 
 <div class="dpr-home-promo-card">
