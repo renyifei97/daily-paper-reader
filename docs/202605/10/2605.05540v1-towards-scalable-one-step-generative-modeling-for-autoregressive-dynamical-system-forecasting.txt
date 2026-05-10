@@ -1,0 +1,1436 @@
+Title: Towards Scalable One-Step Generative Modeling for Autoregressive Dynamical System Forecasting
+
+URL Source: https://arxiv.org/pdf/2605.05540v1
+
+Published Time: Fri, 08 May 2026 00:32:10 GMT
+
+Number of Pages: 42
+
+Markdown Content:
+# Towards Scalable One-Step Generative Modeling for Autoregressive Dynamical System Forecasting 
+
+Tianyue Yang 
+
+The Center for Computational Science University College London 
+
+Xiao Xue ∗
+
+The Center for Computational Science University College London 
+
+x.xue@ucl.ac.uk 
+
+# Abstract 
+
+Fast surrogate modeling for high-dimensional physical dynamics requires more than low short-term error: useful models must roll out efficiently while preserving the statistical structure of long trajectories. Neural operators provide inexpen-sive autoregressive forecasts but can drift in turbulent regimes, whereas rolling diffusion and latent generative surrogates can represent stochastic transitions at the cost of multi-step denoising, noise-schedule design, or auxiliary compression models. We propose Me anFlow Long-term Invariant Spatiotemporal Consistency 
+
+Autoregressive Models ( MeLISA ), a latent-free autoregressive generative surrogate built on pixel-space MeanFlow. MeLISA defines a blockwise stochastic transition kernel that generates each forecast block with a single model evaluation, avoiding latent encoders and iterative diffusion solvers at inference time. To stabilize long-horizon rollouts, MeLISA combines a Window-Consistency MeanFlow objective that learns conditional spatiotemporal generation from partially observed temporal windows with a Time Increment Consistency loss that constrains multi-lag finite increments and targets temporal-correlation structure. We evaluate MeLISA with compact UNet and scalable DiT backbones on two high-resolution benchmarks, extended 2D Kolmogorov flow at 256 × 256 and turbulent channel-flow slice at 
+
+192 × 192 . MeLISA outperforms neural-operator baselines on short-term fore-casting accuracy and long-horizon statistical metrics, including energy spectra, turbulent kinetic energy, and mixing-rate-related dynamics, while achieving in-ference speeds comparable to, and in some cases faster than, neural operators. Compact 3.7–5.7M-parameter variants already deliver strong parameter efficiency, and DiT variants provide a scalable path up to 150M parameters. Overall, MeLISA benefits both rollout efficiency and long-horizon statistical accuracy. 
+
+# 1 Introduction 
+
+Accurate yet efficient simulation of complex dynamical systems remains a central challenge in com-putational physics. These systems are typically governed by nonlinear partial differential equations (PDEs) [ 1], for which obtaining exact solutions is often intractable. As a result, a wide range of numerical techniques have been developed, including Direct Numerical Simulation (DNS) [ 2, 3, 4, 5]. While such methods can achieve high fidelity by resolving fine-scale structures, they often come with substantial computational cost, making them impractical for many real-world scenarios. To alleviate this computational burden, a variety of reduced-fidelity approaches have been proposed that trade physical resolution for efficiency, including Reynolds-Averaged Navier–Stokes (RANS) [ 6 ] and Large Eddy Simulation (LES) [ 7]. Nevertheless, these methods can remain prohibitively costly in regimes that demand fine spatial resolution, for instance, near solid boundaries where steep gradients must be 
+
+> ∗Corresponding Author. Preprint.
+> arXiv:2605.05540v1 [cs.LG] 7 May 2026
+
+resolved. Motivated by these limitations and enabled by recent advances in deep learning, data-driven surrogate models have emerged as a promising alternative. Such surrogates aim to approximate the underlying dynamics directly from data, and have been successfully applied across a broad range of scientific domains, including weather forecasting [ 8, 9], quantum chemistry [ 10 , 11 ], materials science [12], and fluid dynamics [13]. Deterministic neural operators have become a widely used class of data-driven surrogates for PDE-governed and spatiotemporal forecasting problems [ 14 , 15 , 16 , 17 ]. When used autoregressively, they map a finite context window to future states and can roll out efficiently. However, long-horizon autoregressive prediction remains challenging: small one-step errors are repeatedly fed back as inputs, causing error accumulation and distribution shift over the rollout [ 18 ]. This issue is especially pronounced in turbulent or chaotic regimes, where small biases in high-frequency content or temporal correlations can lead to drift in trajectory-level statistics such as energy spectra, turbulent kinetic energy, and invariant-measure-related quantities [19, 20, 21]. A complementary direction uses generative models, including diffusion models [ 22 , 23 ], flow match-ing [ 24 ], and one-step variants such as consistency models [ 25 , 26 ], which view sample generation as a transport process from a base distribution to the data distribution. These methods have recently been adopted as autoregressive surrogates for physical dynamics [ 27 , 28 , 29 , 13 , 30 , 8 ] and explicitly model conditional distributions over future states. However, in their current form they typically (i) require multi-step denoising or SDE/ODE integration at every rollout step, leading to long inference latency, (ii) rely on frame-wise progressive noise schedules [ 29 , 31 ] to roll out stably, and (iii) operate in a latent space induced by an auxiliary VAE or encoder [ 31 , 27 ], introducing additional training and inference complexity. In this work, we build on the recently proposed pixel MeanFlow (p-MF) framework [ 32 ], a one-step generative model that operates directly in pixel space and avoids both multi-step solvers and latent encoders. To turn p-MF into an autoregressive surrogate that retains fast rollout speed while preserv-ing long-horizon statistical structure, we address two specific questions: how should single-frame MeanFlow be extended to a window-conditioned spatiotemporal generator so that one-step genera-tion becomes non-trivial under multi-frame temporal context, and how can long-horizon temporal correlations and mixing behavior be explicitly enforced when only short windows are observed during training? Our answers, Window-Consistency MeanFlow and Time Increment Consistency ,together yield a stochastic autoregressive surrogate that requires a single function evaluation per forecast block (1 NFE per block, where NFE denotes number of function evaluations), combining direct autoregressive rollout with the conditional-distribution modeling of generative methods. See Appendix B for an extensive discussion. Our key contributions are summarized as follows: • We introduce Me anFlow Long-term Invariant Spatiotemporal Consistency Autoregressive Models ( MeLISA ), a stochastic autoregressive surrogate that requires 1-NFE per block, com-bining direct autoregressive rollout with the conditional-distribution modeling of generative methods, without progressive noise schedules or multi-step SDE solvers. • We propose Window-Consistency MeanFlow , the first extension of pixel MeanFlow from single-frame generation to a window-conditioned spatiotemporal transition kernel, where masked temporal context is what makes one-step generative forecasting non-trivial. • We propose Time Increment Consistency , a finite-lag regularizer that directly constrains temporal covariance and mixing structure of the rollout, supplying long-horizon constraints that pointwise state-reconstruction losses provably cannot. • MeLISA performs generative forecasting directly in pixel space at up to 256 ×256 , removing the VAE / latent-encoder / fidelity-enhancement dependencies that current diffusion-based scientific surrogates typically rely on. • On extended 2D Kolmogorov flow ( 256 × 256 ) and a projected turbulent channel-flow observable ( 192 × 192 ), MeLISA matches or exceeds neural-operator baselines on short-term accuracy at comparable rollout speed, while substantially improving recovery of energy spectra, turbulent kinetic energy, and mixing-rate-related dynamics. Compact 3.7–5.7M-parameter variants are already parameter-efficient, and a DiT instantiation scales to 150M parameters. 22 Related Works 
+
+Generative models for dynamical systems. Diffusion models and their latent-space variants— including Latent Diffusion Models (LDM) [ 28 , 29 , 33 ] and Latent Flow Matching (LFM) [ 34 ,35 ], have been widely adopted for dynamical systems forecasting and have achieved state-of-the-art performance. Nevertheless, in the absence of distillation or related acceleration techniques, these approaches typically require many sampling steps at inference time, leading to substantial computational overhead. In contrast, our method builds on a one-step generative formulation, eliminating the need for specialized multi-step sampling procedures. Moreover, we perform generative modeling directly in pixel space, avoiding dimensionality reduction altogether. This enables high-resolution generation up to 256 × 256 without training auxiliary latent-space components such as variational autoencoders (VAEs) or fidelity enhancement modules [ 36 , 20 , 37 , 38 ]. This design also makes our approach more general and robust, as it reduces the number of system-specific architectural and training choices required in practice. In particular, the one-step nature of our model removes the need to specify a progressive noise schedule, which is a component that most rolling or autoregressive diffusion methods depend on for multi-step sampling [29, 31, 39, 40]. 
+
+One-step generative models. One-step (or few-step) generative models have recently gained mo-mentum, motivated by the view of generative modeling as distribution transport [ 23 ]. Representative examples include Consistency Models (CM/sCM) [ 25 , 26 ], inductive Moment Matching (iMM) [ 41 ], and Shortcut Diffusion [ 42 ]. In the image generation domain, the MeanFlow (MF) family, including the original MF [ 43 ], improved MeanFlow (i-MF) [ 44 ], and pixel MeanFlow (p-MF) [ 32 ], has shown particularly strong performance on both conditional and unconditional generation tasks. Modern gen-erative models for image and video synthesis often achieve few-step or one-step sampling by distilling large pre-trained diffusion models. For example, Consistency Distillation (CD/sCD) [ 25 , 26 ] has been successfully applied to pre-trained image generators [ 45 ] as well as video diffusion models [ 46 , 47 ]. In contrast, training one-step generative models from scratch on video-like data has received compar-atively little attention; to the best of our knowledge, this setting has not been systematically explored, nor has it been studied in the context of physical dynamical systems. 
+
+# 3 Background 
+
+Problem setup. Let the sequential dataset be denoted by D ∈ RB×T ×F , where B is the number of trajectories, T is the trajectory length, and F is the feature dimension. We represent a sampled window from discrete physical time τ ∈ Z+ to τ + W as 
+
+¯xτ :τ +W := ( xτ , . . . , x τ +W −1) ∈ RW ×F ,
+
+and use the shorthand ¯xτW when the meaning is clear. In probabilistic forecasting, given an input window ¯xτWin , the goal is to predict a future window ˆ¯xτ +Win  
+
+> Wout
+
+, where Win and Wout denote the input and output window lengths, respectively, and may be chosen arbitrarily. This forecasting problem is formalized by the predictive distribution 
+
+ˆ¯Xτ +Win  
+
+> Wout
+
+∼ p
+
+ ˆ¯Xτ +Win  
+
+> Wout
+
+| ¯xτWin 
+
+
+
+. (1) 
+
+Diffusion models and flow matching. Diffusion models can be viewed as distribution transport methods that map a simple base distribution pbase (typically Gaussian) to the target data distribution 
+
+pdata . In denoising diffusion probabilistic models (DDPM) [ 22 ], this transport is realized through a Markovian diffusion process indexed by diffusion time t. A neural denoiser Dθ is trained to predict the injected noise at each time step: 
+
+LDDPM = Et,x,ϵ 
+
+h
+
+∥Dθ (zt, t ) − ϵ∥22
+
+i
+
+, (2) where zt denotes a noisy sample along the diffusion path at time t [ 22 ]. This forward–reverse diffusion process can equivalently be described through a stochastic differential equation (SDE) formulation [23]. Flow matching approaches the same transport problem from a different perspective by modeling the dynamics with an ordinary differential equation (ODE). In particular, one defines an interpolating noisy state 
+
+zt = atx + btϵ, (3) 3where ϵ ∼ N (0 , I ) is Gaussian noise, and at and bt are time-dependent coefficients. In this work, we focus on the linear parameterization at = 1 − t and bt = t [ 48 ]. The model Dθ is then trained to predict the transport velocity field 
+
+v(zt|x, ϵ ) = dzt
+
+dt = a′
+
+> t
+
+x + b′
+
+> t
+
+ϵ, (4) via the conditional FM loss [24] 
+
+LFM = Et,x,ϵ 
+
+h
+
+∥Dθ (zt, t ) − v(zt|x, ϵ )∥2i
+
+, (5) where zt is the noisy interpolated sample induced by the FM parameterization. 
+
+MeanFlow models. Standard flow-matching sampling requires multiple evaluations of the velocity network. MeanFlow improves efficiency by predicting the average velocity over an interval [r, t ] [43 ]: 
+
+u(zt, r, t ) = 1
+
+t − r
+
+Z tr
+
+v(zτ | x, ϵ ) dτ, (6) which enables one-step transport via zr = zt − (t − r)u(zt, r, t ). MeanFlow trains a network Dθ to predict u using a self-consistency identity derived from this definition. To improve stability, Geng et al. [44] define 
+
+Vθ (zt, r, t ) = Dθ + ( t − r) sg( ∂tDθ + v(zt | x, ϵ ) ∂zt Dθ ) , (7) and optimize the direct regression objective, namely the improved MeanFlow (i-MF) objective 
+
+Li-MF = Et,x,ϵ 
+
+h
+
+∥Vθ (zt, r, t ) − v(zt | x, ϵ )∥2i
+
+. (8) This reformulation yields more stable training and better sample quality. Pixel MeanFlow (p-MF) further reparameterizes the model to predict a pixel-space target [49]: 
+
+Dθ (zt, r, t ) = zt − t u (zt, r, t ), (9) so that the same i-MF objective can be applied while biasing prediction toward the data manifold. 
+
+# 4 Methodology: MeanFlow Long-term Invariant Spatiotemporal Consistency Autoregressive Models 
+
+Our method, MeLISA , incorporates physics-aware prediction into the MeanFlow framework through two key mechanisms: the Window-Consistency MeanFlow objective and the Time Increment Consistency regularizer. 
+
+4.1 Window Consistency MeanFlow 
+
+Prior work on autoregressive forecasting has shown that long-horizon stability improves with larger input or output windows [ 50 , 14 , 16 , 40 ]. This is especially important for consistency-sensitive physical statistics, such as autocorrelation functions. Motivated by this observation, we propose a MeanFlow formulation that explicitly enforces temporal consistency over a window. Following Eq. 9, the average velocity for a single sample is 
+
+uθ (zt, r, t ) = 1
+
+t
+
+zt − Dθ (zt, r, t ), (10) which induces the instantaneous velocity 
+
+Vθ (zt, r, t ) = uθ + ( t − r) sg( ∂tuθ + v(zt | x, ϵ ) ∂zt uθ ) . (11) We extend this construction from a single frame to a temporal window. For a clean window ¯xτ :τ +W ,we define the noisy window 
+
+¯zτ :τ +Wt = (1 − t) ¯ xτ :τ +W + t ϵ, (12) 4Figure 1: This diagram illustrates the two key mechanisms of MeanFlow Long-term Invariant Spatiotemporal Consistency Autoregressive (MeLISA) models. Panel (a) shows the Window-Consistency MeanFlow (WinC-MF) objective, in which a MeanFlow denoiser is trained on a temporal window with partially observed, unmasked guidance frames. Panel (b) shows the Time Increment Consistency (TIC) loss: given a context window, MeLISA first produces a reconstruction, and TIC then penalizes the discrepancy between the predicted and ground-truth temporal increments across different lags. where the diffusion times r and t are shared across all frames in the window. The corresponding average velocity is 
+
+¯uτ :τ +Wθ (¯ zτ :τ +Wt , r, t ) = 1
+
+t
+
+¯zτ :τ +Wt − Dθ (¯ zτ :τ +Wt , r, t ) . (13) To enforce consistency under partial observation, let MτM denote a masking operator that removes the frames indexed by τM within the window. We then define 
+
+¯uτ :τ +Wθ (¯ zτ :τ +Wt , r, t, τ M ) = 1
+
+t
+
+¯zτ :τ +Wt − Dθ
+
+ ¯zτ :τ +Wt , MτM (¯ xτ :τ +W ), r, t  . (14) The on-window instantaneous velocity is 
+
+¯V τ :τ +Wθ (¯ zτ :τ +Wt , r, t, τ M ) = ¯ uτ :τ +Wθ + ( t − r) sg 
+
+
+
+∂t ¯uτ :τ +Wθ + ¯ vτ :τ +W ∂¯zτ :τ +Wt
+
+¯uτ :τ +Wθ
+
+
+
+, (15) where 
+
+¯vτ :τ +W  ¯zτ :τ +Wt | ¯xτ :τ +W , ϵ  = ϵ − ¯xτ :τ +W . (16) This yields the Window-Consistency MeanFlow (WinC-MF) objective, 
+
+LWinC -MF = Et,r,x,ϵ,τ,τ M
+
+¯V τ :τ +Wθ (¯ zτ :τ +Wt , r, t, τ M ) − ¯vτ :τ +W  ¯zτ :τ +Wt | ¯xτ :τ +W , ϵ  22 . (17) This objective encourages temporally consistent predictions from partially observed windows; its connection to self-supervised learning (SSL) is discussed in Appendix C.1. This is illustrated in the panel (a) of Fig. 1. In practice, we sample the mask over later frames from a Bernoulli distribution, while always retaining the first frame as a temporal reference. 54.2 Time Increment Consistency 
+
+Let xτ denote the ground-truth field at physical time τ , and ˆxτ its reconstruction. For a window of length W , we define the lag-w temporal increment as 
+
+∆xτ,τ +w = xτ +w − xτ , w = 1 , . . . , W − 1. (18) Given a window ¯xτ :τ +W , the MeLISA reconstruction is 
+
+ˆ¯xτ :τ +W = Dθ
+
+ Concat ϵ, MτM (¯ xτ :τ +W ), τ M
+
+ , 0, 1 . (19) We then define the Time Increment Consistency (TIC) loss as 
+
+LTIC = 
+
+> W−1
+
+X
+
+> w=1
+
+κw Ex,τ,τ M ,ϵ 
+
+h
+
+∆xτ,τ +w − ∆ˆ xτ,τ +w 22
+
+i
+
+, (20) where κw is a lag-dependent weight. This objective enforces agreement between the temporal increments of the reconstructed and ground-truth trajectories across multiple lags. The full training objective is 
+
+LMeLISA = LWinC -MF + LTIC . (21) TIC encourages recovery of long-range spatiotemporal correlations by constraining second-order temporal structure, which cannot be captured by per-frame state reconstruction losses alone. This mechanism is illustrated in the panel (b) of Fig. 1. Further discussion is provided in Appendix C.2. The training procedure of MeLISA is summarized in Algorithm 1. Inference for each forecast block requires only one model evaluation (1-NFE), see Algorithm 3. We report that MeLISA models inference speed is as fast as neural operators, see Appendix D.5 for details. 
+
+# 5 Experiments 
+
+Dataset. In this section, we evaluate MeLISA on two high-resolution benchmark datasets: the 
+
+192 × 192 turbulent channel flow dataset ( TCF192 ) and the 256 × 256 2D Kolmogorov flow dataset (KF256 ). These datasets represent two distinct types of two-dimensional dynamics. KF256 is governed by a closed-form 2D Partial Different Equation (PDE) with periodic external forcing, whereas TCF192 is obtained by slicing a 3D turbulent flow and therefore corresponds to projected dynamics rather than a fully observed closed system. As a result, TCF192 contains stronger non-Markovian effects, making its long-range statistics more challenging to model. See Appendix G for more details. 
+
+MeLISA model instantiations. We evaluate MeLISA with two backbone families. MeLISA-Υ
+
+uses an attention-augmented UNet architecture following the DDPM style [ 22 , 51 ], extended with 3D convolutions to process spatiotemporal inputs. We consider two compact variants: MeLISA-Υ-XS (3M parameters) and MeLISA-Υ-S (5M parameters), highlighting the parameter efficiency of the framework. To study scaling behavior, we also instantiate MeLISA with diffusion transformers (DiTs) [ 52 ] under the pixel-space formulation of Li and He [49] . We denote this family by MeLISA-
+
+∆, and scale it from 10M parameters (MeLISA-∆-S) to 150M parameters (MeLISA-∆-B), limited by the size of the training data. Following prior work [ 49 ], we train MeLISA-∆ with the Muon optimizer [ 53 ], which has been shown to provide faster convergence and greater stability for the p-MF formulation [ 32 ]. Importantly, to remain consistent with the design of WinC-MF, we do not introduce explicit temporal attention modules in either backbone family. Full architectural details and training hyperparameters are provided in Table 3. 
+
+Baseline models. We benchmark MeLISA against deterministic autoregressive baselines. Neural operators [14 , 15 ] are widely used for dynamical-system forecasting and have shown strong per-formance across many benchmarks. We consider three representative neural-operator models: the original Fourier Neural Operator (FNO) [ 14 ], the U-shaped Neural Operator (UNO) [ 16 ], which adopts a UNet-style architecture for improved parameter efficiency, and the Local Fourier Neural Operator (Local FNO) [ 17 ], which incorporates local convolutional kernels to improve predictive accuracy. For a fair comparison, all neural-operator baselines are trained with two input frames and four output frames, matching the MeLISA setting. We defer discussion of rolling genera-tive models , the family most closely related to MeLISA and increasingly used for spatiotemporal prediction [28, 29, 34, 40], to Appendix B. 6Figure 2: Rollout results on an uncurated test trajectory from TCF192 , shown as absolute error with respect to the ground truth over the prediction horizon. We compare three autoregressive baselines with one MeLISA variant, MeLISA-∆-S. Here, t denotes the frame index within the trajectory. MeLISA exhibits substantially improved stability and markedly slower error accumulation. 
+
+Metrics. We evaluate all models in an autoregressive rollout setting, initialized with the first two frames from each test trajectory. Performance is measured using five complementary metrics: relative 
+
+L2 error (R L2), structural similarity index measure (SSIM), power spectral density discrepancy (PSDD), turbulent kinetic energy difference (TKED), and mixing rate difference (MRD). SSIM captures perceptual and structural agreement by emphasizing local patterns such as edges, textures, and contrast [ 54 , 55 ], while R L2 measures pointwise reconstruction accuracy. Since both metrics primarily reflect instantaneous prediction quality, we report them over the short-term prediction horizon , corresponding to the first 40 frames for both sets. In contrast, PSDD measures how well a model preserves the distribution of energy across spatial frequencies, which is crucial for multi-scale dynamics and turbulent flows [ 56 , 57 ]. TKED quantifies the discrepancy in trajectory-level turbulent kinetic energy (TKE) relative to the ground truth. The mixing rate is defined as the decay exponent of the full-trajectory autocorrelation curve, estimated from the first 20 frames, and MRD measures the corresponding error in this quantity. Because PSDD, TKED, and MRD characterize trajectory-level statistical behavior, they are computed over the full rollout trajectory . Further details are provided in Appendix F. All reported results are averaged over evaluations. 
+
+5.1 Turbulent Channel Flow at 192 × 192 
+
+We report results on the TCF192 dataset in this section. Rollout visualizations are shown in Fig. 2, and the corresponding metrics are summarized in Table 1. Despite having only ∼3M parameters, MeLISA-Υ-XS performs competitively against autoregressive neural operators and achieves the best TKED score. The MeLISA-∆ variants obtain the strongest short-term metrics (R L2 and SSIM). The radial energy spectrum for TCF192 is shown in the right panel of Fig. 3(a). All models capture the low- to mid-frequency range reasonably well, but most exhibit a spurious peak in the high-frequency tail, deviating from the expected spectral decay. Among all methods, the Υ variants match the tail behavior most faithfully. The spatial distribution of turbulent kinetic energy is shown in Fig. 3(b). Neural operators fail to reproduce the correct near-boundary behavior, whereas all MeLISA variants recover the boundary energy distribution much more accurately. 
+
+5.2 Kolmogorov Flow at 256 × 256 
+
+We summarize the results on KF256 in this section, with particular emphasis on the scaling behavior of MeLISA. The metrics are summarized in Table 2. We train three MeLISA-∆ variants on KF256, 7Figure 3: (a) Radially averaged energy spectra for KF256 and TCF192. The neural-operator baselines tend to overemphasize low-frequency modes and introduce spurious peaks at higher frequencies. In contrast, MeLISA accurately reproduces the high-frequency tail without any explicit spectral regularization. (b) Spatial distribution of turbulent kinetic energy (TKE), shown together with scaled 
+
+absolute error relative to the ground truth for all models. Only the MeLISA variants correctly recover the kinetic energy near the boundaries. (c) Time-averaged mean field on KF256 test trajectories, shown with scaled absolute error. MeLISA again reproduces the correct large-scale pattern more faithfully. Local-FNO is omitted because it cannot roll out stably over the full trajectory length. Error scaling is applied only for visualization. Table 1: TCF192 results for all models on short-term and long-term evaluation metrics with uncertain-ties. The ∆ variants achieve the strongest short-term predictive performance, whereas the Υ variants preserve long-range statistical structure more effectively. Short-term metrics are computed over the first 40 frames, and long-term metrics are evaluated over the full 625-frame trajectory. 
+
+Model Specs Short-term metrics Long-term metrics Model Name Model Size RL2↓ SSIM ↑ PSDD ↓ TKED ↓ MRD ↓
+
+MeLISA Models (1-NFE) 
+
+MeLISA-Υ-XS 3.68M 0.0831 (12) 0.882 (20) 0.0897 (21) 1.20 (12) ×10 −6 0.475 (12) 
+
+MeLISA-Υ-S 5.65M 0.0532 (88) 0.925 (16) 0.0635 (90) 1.42 (13) ×10 −6 0.137 (13) 
+
+MeLISA-∆-S 10.5M 0.0396 (33) 0.956 (8) 0.0660 (5) 1.47 (1) ×10 −6 0.196 (3) 
+
+Autoregressive Neural Operators 
+
+FNO 6.68M 0.0617 (37) 0.908 (7) 0.0649 (13) 1.59 (12) ×10 −6 0.476 (36) 
+
+UNO 5.98M 0.0617 (80) 0.906 (16) 0.0639 (15) 1.89 (23) ×10 −6 0.538 (19) 
+
+Local-FNO 6.76M 0.0579 (47) 0.913 (9) 0.0772 (54) 1.99 (54) ×10 −6 0.507 (6) 
+
+ranging from 10.5M to 150M parameters. Interestingly, although the short-term metrics remain competitive, they slightly degrade with increasing model size, whereas the long-term metrics, es-pecially PSDD and TKED, generally improve with scale, albeit not monotonically, which is due to our cost-matching training setup (See Appendix A.1) and the limited size of dataset. Comparing the two backbone families, the MeLISA-Υ variants achieve stronger short-term prediction metrics than the ∆ variants. Overall, all MeLISA models outperform the neural-operator baselines on short-term accuracy and on most long-term statistical metrics. The radial energy spectrum is shown in the left panel of Fig. 3(a). Neural operators exhibit a clear bias at high frequencies, with UNO in particular 8producing a spurious peak in the spectral tail. In contrast, all MeLISA variants recover the correct high-frequency decay much more faithfully. The time-averaged mean field is shown in Fig. 3(c), where all MeLISA models reproduce the overall spatial pattern accurately. Table 2: KF256 results for all models on short-term and long-term evaluation metrics with un-certainties. Short-term metrics are computed over the first 40 frames, and long-term metrics are evaluated over the full 320-frame trajectory. Long-term metrics for Local-FNO are omitted because Local-FNOs cannot roll out stably over the full trajectory length. 
+
+Model Specs Short-term metrics Long-term metrics Model Name Model Size RL2↓ SSIM ↑ PSDD ↓ TKED ↓ MRD ↓
+
+MeLISA Models (1-NFE) 
+
+MeLISA-Υ-XS 3.68M 0.130 (15) 0.925 (10) 0.353 (16) 6.89 (72) 0.065 (54) 
+
+MeLISA-Υ-S 5.65M 0.137 (15) 0.919 (11) 0.347 (18) 6.73 (71) 0.068 (39) 
+
+MeLISA-∆-S 10.5M 0.194 (33) 0.867 (29) 0.450 (10) 5.17 (50) 0.096 (41) 
+
+MeLISA-∆-M 58.3M 0.156 (31) 0.903 (44) 0.445 (78) 4.24 (64) 0.086 (20) 
+
+MeLISA-∆-B 150M 0.174 (44) 0.887 (36) 0.342 (37) 4.73 (26) 0.130 (4) 
+
+Autoregressive Neural Operators 
+
+FNO 6.68M 0.192 (12) 0.845 (10) 1.15 (5) 5.72 (92) 0.168 (88) 
+
+UNO 5.98M 0.187 (19) 0.857 (9) 1.42 (19) 6.00 (57) 0.338 (22) 
+
+Local-FNO 6.76M 0.549 (85) 0.744 (31) - - -
+
+# 6 Conclusion 
+
+We introduced MeLISA , a latent-free autoregressive generative surrogate for dynamical systems that combines the efficiency of pixel-space MeanFlow with training objectives designed to improve long-horizon stability and physical consistency. By formulating forecasting directly in pixel space, MeLISA avoids the additional modeling and inference overhead associated with latent compression, while still enabling one-step generation over multiple future frames. To address the difficulty of preserving realistic dynamics under repeated rollout, we proposed two key components: the Window-Consistency MeanFlow objective, which encourages temporally coherent predictions from partially observed windows, and the Time Increment Consistency regularizer, which constrains temporal increments across multiple lags to better preserve long-range spatiotemporal structure. Across two challenging high-resolution benchmarks, turbulent channel flow at 192 × 192 and Kolmogorov flow at 256 × 256 , MeLISA consistently delivered strong short-term predictive accuracy while more faithfully recovering trajectory-level physical statistics than autoregressive neural-operator baselines. In particular, the proposed framework showed improved preservation of energy spectra, turbulent kinetic energy, and mixing-related behavior over long rollouts, indicating that accurate frame-wise prediction alone is insufficient for physically realistic surrogate modeling, and that explicit regularization of temporal structure is beneficial. Overall, these results position MeLISA as a promising next-generation generative surrogate for scientific machine learning: it is efficient at inference, scalable to high-resolution fields, and better aligned with the statistical requirements of physical dynamical systems. Future work may extend this framework to fully three-dimensional systems, longer-context and multi-scale forecasting settings, and broader classes of partially observed or non-Markovian dynamics. 
+
+# 7 Acknowledgments 
+
+Authors acknowledge the use of resources provided by the Isambard-AI National AI Research Resource (AIRR). Isambard-AI is operated by the University of Bristol and funded by the UK Government’s Department for Science, Innovation and Technology (DSIT) through UK Research and Innovation (UKRI). This work was supported under project proposals “GenTurb3D". 9References 
+
+[1] Lawrence C Evans. Partial differential equations , volume 19. American mathematical society, 2022. [2] Myoungkyu Lee and Robert D Moser. Direct numerical simulation of turbulent channel flow up to. Journal of fluid mechanics , 774:395–415, 2015. [3] John C Strikwerda. Finite difference schemes and partial differential equations . SIAM, 2004. [4] Robert Eymard, Thierry Gallouët, and Raphaèle Herbin. Finite volume methods. Handbook of numerical analysis , 7:713–1018, 2000. [5] Junuthula Narasimha Reddy. An introduction to the finite element method. New York , 27(14), 1993. [6] Giancarlo Alfonsi. Reynolds-averaged navier–stokes equations for turbulence modeling. 2009. [7] Ugo Piomelli. Large-eddy simulation: achievements and challenges. Progress in aerospace sciences , 35(4):335–362, 1999. [8] Zhihan Gao, Xingjian Shi, Boran Han, Hao Wang, Xiaoyong Jin, Danielle Maddix, Yi Zhu, Mu Li, and Yuyang Bernie Wang. Prediff: Precipitation nowcasting with latent diffusion models. 
+
+Advances in Neural Information Processing Systems , 36:78621–78656, 2023. [9] Kaifeng Bi, Lingxi Xie, Hengheng Zhang, Xin Chen, Xiaotao Gu, and Qi Tian. Pangu-weather: A 3d high-resolution model for fast and accurate global weather forecast. arXiv preprint arXiv:2211.02556 , 2022. [10] Ingrid von Glehn, James S Spencer, and David Pfau. A self-attention ansatz for ab-initio quantum chemistry. arXiv preprint arXiv:2211.13672 , 2022. [11] Alexander Wong, Mohammad Javad Shafiee, Brendan Chwyl, and Francis Li. Ferminets: Learning generative machines to generate efficient neural networks via generative synthesis. 
+
+arXiv preprint arXiv:1809.05989 , 2018. [12] Xiaoshan Luo, Zhenyu Wang, Qingchang Wang, Xuechen Shao, Jian Lv, Lei Wang, Yanchao Wang, and Yanming Ma. Crystalflow: a flow-based generative model for crystalline materials. 
+
+Nature Communications , 16(1):9267, 2025. [13] Xiao Xue, Tianyue Yang, Mingyang Gao, Leyu Pan, Maida Wang, Kewei Zhu, Shuo Wang, Jiuling Li, Marco FP ten Eikelder, and Peter V Coveney. Uni-flow: a unified autoregressive-diffusion model for complex multiscale flows. arXiv preprint arXiv:2602.15592 , 2026. [14] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differen-tial equations. arXiv preprint arXiv:2010.08895 , 2020. [15] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. 
+
+Nature machine intelligence , 3(3):218–229, 2021. [16] Md Ashiqur Rahman, Zachary E Ross, and Kamyar Azizzadenesheli. U-no: U-shaped neural operators. arXiv preprint arXiv:2204.11127 , 2022. [17] Miguel Liu-Schiaffini, Julius Berner, Boris Bonev, Thorsten Kurth, Kamyar Azizzadenesheli, and Anima Anandkumar. Neural operators with localized integral and differential kernels. arXiv preprint arXiv:2402.16845 , 2024. [18] Michael McCabe, Peter Harrington, Shashank Subramanian, and Jed Brown. Towards stability of autoregressive neural operators. arXiv preprint arXiv:2306.10619 , 2023. [19] Ruoxi Jiang, Peter Y Lu, Elena Orlova, and Rebecca Willett. Training neural operators to preserve invariant measures of chaotic attractors. Advances in Neural Information Processing Systems , 36, 2024. 10 [20] Vivek Oommen, Aniruddha Bora, Zhen Zhang, and George Em Karniadakis. Integrating neural operators with diffusion models improves spectral representation in turbulence modeling. arXiv preprint arXiv:2409.08477 , 2024. [21] Siavash Khodakarami, Vivek Oommen, Aniruddha Bora, and George Em Karniadakis. Miti-gating spectral bias in neural operators via high-frequency scaling for physical systems. arXiv preprint arXiv:2503.13695 , 2025. [22] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in neural information processing systems , 33:6840–6851, 2020. [23] Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. arXiv preprint arXiv:2011.13456 , 2020. [24] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 , 2022. [25] Yang Song, Prafulla Dhariwal, Mark Chen, and Ilya Sutskever. Consistency models. 2023. [26] Cheng Lu and Yang Song. Simplifying, stabilizing and scaling continuous-time consistency models. arXiv preprint arXiv:2410.11081 , 2024. [27] Georg Kohl, Li-Wei Chen, and Nils Thuerey. Benchmarking autoregressive conditional diffusion models for turbulent flow simulation. Neural Networks , page 108641, 2026. [28] Salva Rühling Cachay, Bo Zhao, Hailey Joren, and Rose Yu. Dyffusion: A dynamics-informed diffusion model for spatiotemporal forecasting. Advances in neural information processing systems , 36:45259–45287, 2023. [29] Salva Rühling Cachay, Miika Aittala, Karsten Kreis, Noah Brenowitz, Arash Vahdat, Morteza Mardani, and Rose Yu. Elucidated rolling diffusion models for probabilistic forecasting of complex dynamics. arXiv preprint arXiv:2506.20024 , 2025. [30] Ilan Price, Alvaro Sanchez-Gonzalez, Ferran Alet, Tom R Andersson, Andrew El-Kadi, Dominic Masters, Timo Ewalds, Jacklynn Stott, Shakir Mohamed, Peter Battaglia, et al. Probabilistic weather forecasting with machine learning. Nature , 637(8044):84–90, 2025. [31] David Ruhe, Jonathan Heek, Tim Salimans, and Emiel Hoogeboom. Rolling diffusion models. 
+
+arXiv preprint arXiv:2402.09470 , 2024. [32] Yiyang Lu, Susie Lu, Qiao Sun, Hanhong Zhao, Zhicheng Jiang, Xianbang Wang, Tianhong Li, Zhengyang Geng, and Kaiming He. One-step latent-free image generation with pixel mean flows. arXiv preprint arXiv:2601.22158 , 2026. [33] Pan Du, Meet Hemant Parikh, Xiantao Fan, Xin-Yang Liu, and Jian-Xun Wang. Conditional neural field latent diffusion model for generating spatiotemporal turbulence. Nature Communi-cations , 15(1):10416, 2024. [34] Soon Hoe Lim, Yijin Wang, Annan Yu, Emma Hart, Michael W Mahoney, Xiaoye S Li, and N Benjamin Erichson. Elucidating the design choice of probability paths in flow matching for forecasting. arXiv preprint arXiv:2410.03229 , 2024. [35] Ron Mokady, Amir Hertz, Kfir Aberman, Yael Pritch, and Daniel Cohen-Or. Null-text inversion for editing real images using guided diffusion models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 6038–6047, 2023. [36] Dule Shu, Zijie Li, and Amir Barati Farimani. A physics-informed diffusion model for high-fidelity flow field reconstruction. Journal of Computational Physics , 478:111972, 2023. [37] Thomas Y. L. Lin, Jiachen Yao, Lufang Chiang, Julius Berner, and Anima Anandkumar. Decoupled diffusion sampling for inverse problems on function spaces, 2026. URL https: //arxiv.org/abs/2601.23280 .11 [38] Tianyue Yang and Xiao Xue. Meno: Meanflow-enhanced neural operators for dynamical systems, 2026. URL https://arxiv.org/abs/2604.06881 .[39] Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine. Elucidating the design space of diffusion-based generative models. Advances in neural information processing systems , 35: 26565–26577, 2022. [40] Roberto Molinaro, Samuel Lanthaler, Bogdan Raoni´ c, Tobias Rohner, Victor Armegioiu, Stephan Simonis, Dana Grund, Yannick Ramic, Zhong Yi Wan, Fei Sha, et al. Generative ai for fast and accurate statistical computation of fluids. arXiv preprint arXiv:2409.18359 , 2024. [41] Linqi Zhou, Stefano Ermon, and Jiaming Song. Inductive moment matching. arXiv preprint arXiv:2503.07565 , 2025. [42] Kevin Frans, Danijar Hafner, Sergey Levine, and Pieter Abbeel. One step diffusion via shortcut models. arXiv preprint arXiv:2410.12557 , 2024. [43] Zhengyang Geng, Mingyang Deng, Xingjian Bai, J Zico Kolter, and Kaiming He. Mean flows for one-step generative modeling. arXiv preprint arXiv:2505.13447 , 2025. [44] Zhengyang Geng, Yiyang Lu, Zongze Wu, Eli Shechtman, J Zico Kolter, and Kaiming He. Improved mean flows: On the challenges of fastforward generative models. arXiv preprint arXiv:2512.02012 , 2025. [45] Simian Luo, Yiqin Tan, Longbo Huang, Jian Li, and Hang Zhao. Latent consistency models: Synthesizing high-resolution images with few-step inference. arXiv preprint arXiv:2310.04378 ,2023. [46] Xiaofeng Mao, Zhengkai Jiang, Fu-Yun Wang, Jiangning Zhang, Hao Chen, Mingmin Chi, Yabiao Wang, and Wenhan Luo. Osv: One step is enough for high-quality image to video generation. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 12585–12594, 2025. [47] Xiang Wang, Shiwei Zhang, Han Zhang, Yu Liu, Yingya Zhang, Changxin Gao, and Nong Sang. Videolcm: Video latent consistency model. arXiv preprint arXiv:2312.09109 , 2023. [48] Qiang Liu. Rectified flow: A marginal preserving approach to optimal transport. arXiv preprint arXiv:2209.14577 , 2022. [49] Tianhong Li and Kaiming He. Back to basics: Let denoising generative models denoise, 2026. URL https://arxiv.org/abs/2511.13720 .[50] Michael McCabe, Payel Mukhopadhyay, Tanya Marwah, Bruno Regaldo-Saint Blancard, Fran-cois Rozet, Cristiana Diaconu, Lucas Meyer, Kaze WK Wong, Hadi Sotoudeh, Alberto Bietti, et al. Walrus: A cross-domain foundation model for continuum dynamics. arXiv preprint arXiv:2511.15684 , 2025. [51] Alexander Quinn Nichol and Prafulla Dhariwal. Improved denoising diffusion probabilistic models. In International conference on machine learning , pages 8162–8171. PMLR, 2021. [52] William Peebles and Saining Xie. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF international conference on computer vision , pages 4195–4205, 2023. [53] Jingyuan Liu, Jianlin Su, Xingcheng Yao, Zhejun Jiang, Guokun Lai, Yulun Du, Yidao Qin, Weixin Xu, Enzhe Lu, Junjie Yan, et al. Muon is scalable for llm training. arXiv preprint arXiv:2502.16982 , 2025. [54] Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P Simoncelli. Image quality assessment: from error visibility to structural similarity. IEEE transactions on image processing , 13(4): 600–612, 2004. [55] Alain Hore and Djemel Ziou. Image quality metrics: Psnr vs. ssim. In 2010 20th international conference on pattern recognition , pages 2366–2369. IEEE, 2010. 12 [56] Florian Hess, Zahra Monfared, Manuel Brenner, and Daniel Durstewitz. Generalized teacher forcing for learning chaotic dynamics. arXiv preprint arXiv:2306.04406 , 2023. [57] Eric Volkmann, Alena Brändle, Daniel Durstewitz, and Georgia Koppe. A scalable generative model for dynamical system reconstruction from neuroimaging data. Advances in Neural Information Processing Systems , 37:80328–80362, 2024. [58] Jonathan Heek, Anselm Levskaya, Avital Oliver, Marvin Ritter, Bertrand Rondepierre, Andreas Steiner, and Marc van Zee. Flax: A neural network library and ecosystem for JAX, 2024. URL 
+
+http://github.com/google/flax .[59] Vineet Gupta, Tomer Koren, and Yoram Singer. Shampoo: Preconditioned stochastic tensor optimization. In International Conference on Machine Learning , pages 1842–1850. PMLR, 2018. [60] Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 , 2014. [61] Andreas Blattmann, Tim Dockhorn, Sumith Kulal, Daniel Mendelevitch, Maciej Kilian, Do-minik Lorenz, Yam Levi, Zion English, Vikram Voleti, Adam Letts, et al. Stable video diffusion: Scaling latent video diffusion models to large datasets. arXiv preprint arXiv:2311.15127 , 2023. [62] Ruihan Yang, Prakhar Srivastava, and Stephan Mandt. Diffusion probabilistic modeling for video generation. Entropy , 25(10):1469, 2023. [63] Jihwan Kim, Junoh Kang, Jinyoung Choi, and Bohyung Han. Fifo-diffusion: Generating infinite videos from text without training. Advances in Neural Information Processing Systems , 37: 89834–89868, 2024. [64] Xinyuan Chen, Yaohui Wang, Lingjun Zhang, Shaobin Zhuang, Xin Ma, Jiashuo Yu, Yali Wang, Dahua Lin, Yu Qiao, and Ziwei Liu. Seine: Short-to-long video diffusion model for generative transition and prediction. In The Twelfth International Conference on Learning Representations ,2023. [65] Tong Wu, Zhihao Fan, Xiao Liu, Hai-Tao Zheng, Yeyun Gong, Jian Jiao, Juntao Li, Jian Guo, Nan Duan, Weizhu Chen, et al. Ar-diffusion: Auto-regressive diffusion model for text generation. Advances in Neural Information Processing Systems , 36:39957–39974, 2023. [66] Alex Ergasti, Giuseppe Gabriele Tarollo, Filippo Botti, Tomaso Fontanini, Claudio Ferrari, Massimo Bertozzi, and Andrea Prati. Rflav: Rolling flow matching for infinite audio video generation. arXiv preprint arXiv:2503.08307 , 2025. [67] Ahmed ElGazzar and Marcel van Gerven. Probabilistic forecasting via autoregressive flow matching. arXiv preprint arXiv:2503.10375 , 2025. [68] Victor Armegioiu, Yannick Ramic, and Siddhartha Mishra. Rectified flows for fast multiscale fluid flow modeling. arXiv preprint arXiv:2506.03111 , 2025. [69] Gefei Wang, Yuling Jiao, Qian Xu, Yang Wang, and Can Yang. Deep generative learning via schrödinger bridge. In International conference on machine learning , pages 10794–10804. PMLR, 2021. [70] Haitao Lin, Peiyan Hu, Minsi Ren, Zhifeng Gao, Zhi-Ming Ma, Tailin Wu, Stan Z Li, et al. On the design of one-step diffusion via shortcutting flow paths. arXiv preprint arXiv:2512.11831 ,2025. [71] Huijie Zhang, Aliaksandr Siarohin, Willi Menapace, Michael Vasilkovsky, Sergey Tulyakov, Qing Qu, and Ivan Skorokhodov. Alphaflow: Understanding and improving meanflow models. 
+
+arXiv preprint arXiv:2510.20771 , 2025. [72] Emiel Hoogeboom, Jonathan Heek, and Tim Salimans. simple diffusion: End-to-end diffusion for high resolution images. In International Conference on Machine Learning , pages 13213– 13232. PMLR, 2023. 13 [73] Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr Dollár, and Ross Girshick. Masked au-toencoders are scalable vision learners, 2021. URL https://arxiv.org/abs/2111.06377 .[74] Philipp Wu, Arjun Majumdar, Kevin Stone, Yixin Lin, Igor Mordatch, Pieter Abbeel, and Aravind Rajeswaran. Masked trajectory models for prediction, representation, and control, 2023. URL https://arxiv.org/abs/2305.02968 .[75] Robert Zwanzig. Memory effects in irreversible thermodynamics. Physical Review , 124(4):983, 1961. [76] Shiyi Chen and Gary D Doolen. Lattice boltzmann method for fluid flows. Annual review of fluid mechanics , 30(1):329–364, 1998. [77] Sauro Succi. The Lattice Boltzmann Equation for Fluid Dynamics and Beyond . Oxford University Press, 2001. [78] Mahmoud Assran, Quentin Duval, Ishan Misra, Piotr Bojanowski, Pascal Vincent, Michael Rabbat, Yann LeCun, and Nicolas Ballas. Self-supervised learning from images with a joint-embedding predictive architecture. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 15619–15629, 2023. [79] Min Yan, Can Huang, Peter Bienstman, Peter Tino, Wei Lin, and Jie Sun. Emerging opportuni-ties and challenges for the future of reservoir computing. Nature Communications , 15(1):2056, 2024. [80] Jonas Latt, Bastien Chopard, Orestis Malaspinas, Michel Deville, and Andreas Michler. Straight velocity boundaries in the lattice boltzmann method. Physical Review E—Statistical, Nonlinear, and Soft Matter Physics , 77(5):056703, 2008. [81] Xiao Xue, Hua-Dong Yao, and Lars Davidson. Synthetic turbulence generator for lattice Boltzmann method at the interface between RANS and LES. Physics of Fluids , 34(5):055118, 2022. [82] Dmitrii Kochkov, Jamie A. Smith, Ayya Alieva, Qing Wang, Michael P. Brenner, and Stephan Hoyer. Machine learning–accelerated computational fluid dynamics. Proceedings of the National Academy of Sciences , 118(21), 2021. ISSN 0027-8424. doi: 10.1073/pnas.2101784118. URL https://www.pnas.org/content/118/21/e2101784118 .[83] Zongyi Li, Miguel Liu-Schiaffini, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Learning chaotic dynamics in dissipative systems. Advances in Neural Information Processing Systems , 35:16768–16781, 2022. 14 Appendix 
+
+A Hyperparameters 16 
+
+A.1 MeLISA Settings . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 A.2 Baseline Settings . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 A.3 MeLISA Training . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 
+
+B Overview of Autoregressive Diffusion Models 18 
+
+B.1 Diffusion Autoregressive Models . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 B.2 Flow Matching Autoregressive Models . . . . . . . . . . . . . . . . . . . . . . . . 20 B.3 MeanFlow Model Family . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 B.4 Birth of MeLISA: The One-Step Dilemma . . . . . . . . . . . . . . . . . . . . . . 21 
+
+C Theoretical Origin of MeLISA 23 
+
+C.1 Window Consistency: A Self-supervised Learning Perspective . . . . . . . . . . . 23 C.2 Time Increment Consistency Loss . . . . . . . . . . . . . . . . . . . . . . . . . . 23 
+
+D Ablation Studies 27 
+
+D.1 Effect of WinC-MF Mechanism . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 D.2 Effect of TIC Loss . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 D.3 Rollout Stability . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 D.4 Probabilistic Forecasting . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30 D.5 Training Cost & Inference Costs . . . . . . . . . . . . . . . . . . . . . . . . . . . 30 
+
+E More Results 35 F Metrics 38 
+
+F.1 Relative L2 Error . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 38 F.2 Structural Similarity Index Measure . . . . . . . . . . . . . . . . . . . . . . . . . 38 F.3 Mixing Rate Difference . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 39 F.4 Power Spectral Density Discrepancy . . . . . . . . . . . . . . . . . . . . . . . . . 39 F.5 Turbulent Kinetic Energy Difference . . . . . . . . . . . . . . . . . . . . . . . . . 40 F.6 Continuous Ranked Probability Score . . . . . . . . . . . . . . . . . . . . . . . . 41 
+
+G Dataset Details 42 
+
+G.1 Turbulent Channel Flow . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 42 G.2 2D Kolmogorov Flow . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 42 15 A Hyperparameters 
+
+A.1 MeLISA Settings 
+
+We list the backbone architecture hyperparameters for MeLISA in Table 3. Here, Depth refers to the number of spatial downsampling stages in the UNet backbone, and to the number of transformer layers in the DiT backbone. Our UNet implementation uses the flax.nnx API ( flax [58 ] is a deep learning library for JAX) and is adapted from the flax.linen DDPM-style UNet of Song et al. [23] .Our DiT implementation also uses flax.nnx and follows Lu et al. [32] , which builds on the design of Li and He [49] . In both backbones, we do not introduce separate temporal attention; instead, all input frames are processed jointly as a single large image. Table 3: Architecture hyperparameter setting for MeLISA backbone models. 
+
+Model Attention Resolution Depth Residual Layers Width Patch Size 
+
+UNet-based Variants 
+
+MeLISA-Υ-XS - 4 1 32 -MeLISA-Υ-S 32 4 2 32 -
+
+DiT-based Variants 
+
+MeLISA-∆-S - 16 - 240 16 MeLISA-∆-M - 24 - 480 16 MeLISA-∆-B - 28 - 720 16 The model hyperparameters for MeLISA are listed in Table 4. The masking rate is chosen such that, on average, two frames are revealed during training, including the first frame, which is always retained as a temporal reference. The TIC lag weights increase with lag, thereby penalizing error accumulation over temporal evolution more strongly at longer horizons. Our sampling strategy for the cases t̸ = r, corresponding to the flow matching limit of MeanFlow models [ 43 , 44 , 32 ], as well as the joint sampler for t and r, is directly adapted from Lu et al. [32]. Table 4: MeLISA model setting. 
+
+MeLISA Settings Masking Rate TIC lag weighting Ratio of t̸ = r t, r Sampler 
+
+Values 0.8 (0.4, 0.5, 0.8, 1.1, 1.2) 0.5 logit-normal(0.8, 0.8) The optimization hyperparameters are listed in Table 5. For the UNet-based variants, we use a linearly decaying learning-rate schedule, which we found helpful for learning fine-scale details. For the DiT-based variants, we follow Lu et al. [32] and use the Muon optimizer [ 53 ], a second-order method based on the Newton–Schulz iteration and developed for large-scale transformer training as an improvement over Shampoo [ 59 ]. Its learning rate is therefore not directly comparable to that of Adam. For larger models, we adopt cosine annealing schedules to reduce overfitting. We also decrease the number of training epochs as model size increases in order to approximately match training cost across models. The training random seed is fixed at 42 for all models. Table 5: Optimization hyperparameter setting for MeLISA backbone models. 
+
+Model Optimizer Learning Rate Schedule Epochs Batch Size 
+
+UNet-based Variants 
+
+MeLISA-Υ-XS Adam [60] 1e-4 Linear Decay 500 256 MeLISA-Υ-S Adam [60] 1e-4 Linear Decay 500 256 
+
+DiT-based Variants 
+
+MeLISA-∆-S Muon [53] 5e-3 Constant 300 256 MeLISA-∆-M Muon [53] 5e-3 Cosine Annealing 200 256 MeLISA-∆-B Muon [53] 5e-3 Cosine Annealing 150 256 16 A.2 Baseline Settings 
+
+For the neural operator baselines, we follow Li et al. [14] and retain as many Fourier modes as feasible to improve spectral fidelity. We keep the model depth fixed across architectures and match overall model capacity as closely as possible by adjusting the channel expansion factor. All baselines are trained with two input frames and four output frames, consistent with the MeLISA setting. The architecture hyperparameters are summarized in Table 6. Table 6: Architecture hyperparameter setting for neural operator models. 
+
+Model Fourier Modes Channel MLP Expansion Depth Width Factorization FNO 42 0.5 7 32 Tucker UNO 32,32,32,16,32,32,32 2 7 32 Tucker Local-FNO 42 0.5 7 32 Tucker The optimization settings for the neural operator baselines are listed in Table 7. These settings are kept identical across all models. We adopt the learning rate configuration of Li et al. [14] , replacing the piecewise-constant decay schedule with a smooth linear decay. Table 7: Optimization hyperparameter setting for neural operator models. 
+
+Model Optimizer Learning Rate Schedule Epochs Batch Size FNO Adam 1e-3 Linear Decay 1000 128 UNO Adam 1e-3 Linear Decay 1000 128 Local-FNO Adam 1e-3 Linear Decay 1000 128 17 A.3 MeLISA Training Algorithm 1 MeLISA Model Training 
+
+Require: Ordered dataset D (empirical distribution ˆpD ), denoiser Dθ , window length W , iterations 
+
+K, batch size B, learning rate η, masking rate υ, lag weights {κw}W −1 
+
+> w=1
+> 1:
+
+Initialize parameters θ of network Dθ 
+
+> 2:
+
+for k = 1 , . . . , K do  
+
+> 3:
+
+Sample a batch of windows {¯xτi:τi+Wi }Bi=1 ∼ ˆpD 
+
+> 4:
+
+Sample {ϵi}Bi=1 ∼ N (0 , I ), diffusion times {ti}Bi=1 , reference times {ri}Bi=1  
+
+> 5:
+
+Sample masks {τM,i }Bi=1 over later frames from Bernoulli( υ), always retaining the first frame  
+
+> 6:
+
+for i = 1 , . . . , B do  
+
+> 7:
+
+¯zτi:τi+Wti ← (1 − ti)¯ xτi:τi+Wi + tiϵi 
+
+> 8:
+
+¯vτi:τi+Wi ← ϵi − ¯xτi:τi+Wi 
+
+> 9:
+
+¯uθ,i ← 1
+
+ti
+
+h
+
+¯zτi:τi+Wti − Dθ
+
+
+
+Concat 
+
+h
+
+¯zτi:τi+Wti , MτM,i 
+
+
+
+¯xτi:τi+Wi
+
+
+
+, τ M,i 
+
+i
+
+, r i, t i
+
+i  
+
+> 10:
+
+¯Vθ,i ← ¯uθ,i + ( ti − ri) · sg 
+
+
+
+∂t ¯uθ,i + ¯ vτi:τi+Wi ⊤∇¯z ¯uθ,i 
+
+ 
+
+> 11:
+
+ˆ¯xτi:τi+Wi ← Dθ
+
+
+
+Concat 
+
+h
+
+ϵi, MτM,i 
+
+
+
+¯xτi:τi+Wi
+
+
+
+, τ M,i 
+
+i
+
+, 0, 1
+
+ 
+
+> 12:
+
+end for  
+
+> 13:
+
+LWinC -MF ← 1
+
+B
+
+PBi=1 ¯Vθ,i − ¯vτi:τi+Wi 
+
+> 22
+> 14:
+
+LTIC ← 1
+
+B
+
+PBi=1 
+
+PW −1 
+
+> w=1
+
+κw
+
+ xτi+wi − xτi
+
+> i
+
+ −  ˆxτi+wi − ˆxτi
+
+> i
+
+ 22 
+
+> 15:
+
+LMeLISA ← L WinC -MF + LTIC  
+
+> 16:
+
+θ ← θ − η∇θ LMeLISA  
+
+> 17:
+
+end for 
+
+# B Overview of Autoregressive Diffusion Models 
+
+We provide a conceptual and theoretical overview of diffusion-based autoregressive modeling for physical dynamical systems in this section, and discuss the position of MeLISA models. 
+
+B.1 Diffusion Autoregressive Models Rolling diffusion. One major line of work extends video diffusion models [ 61 , 62 , 63 , 64 ] to temporal forecasting, typically by applying a window-based noise schedule. A representative early framework is the rolling sequence diffusion model [ 65 , 31 ], which, like MeLISA, operates on sampled windows ¯xτi:τi+Wi . These methods define a progressive noise schedule ¯σ(ti; σmin , σ max , ρ ),parameterized by the minimum noise level σmin , maximum noise level σmax , and curvature parameter 
+
+ρ. Traditional DDPM-based variants, such as rolling diffusion models [ 31 ], typically use either constant-noise or variance-preserving schedules; see Song et al. [23] for details. More recent methods, such as elucidated rolling diffusion models (ERDM) [ 29 ], adopt EDM-inspired schedules [ 39 ] with explicit curvature control. These approaches are generally framed as probabilistic forecasting models , whose main advantage over deterministic autoregressive methods, such as neural operators, is their ability to represent predictive uncertainty. The general training procedure is summarized in Algorithm 2. Because inference in these models typically requires tens to hundreds of diffusion steps, their sampling speed is substantially slower than that of deterministic models .Theoretically, following the score-based SDE formulation of diffusion models [ 23 ], rolling diffusion models can be interpreted as a physical-time-dependent extension of probabilistic diffusion. For a window-dependent variance schedule, the time derivative of the covariance matrix is 
+
+˙Gwindow (t) = diag  2¯ σ1(t) ˙ ¯σ1(t)ID , . . . , 2¯ σW (t) ˙ ¯σW (t)ID
+
+. (22) Note that ˙Gwindow (t) is block-diagonal and depends on the position of each frame within the rollout window. The corresponding forward diffusion SDE can be written as 
+
+dxt = Kwindow (t) d ω(t), (23) 18 Algorithm 2 General Rolling Diffusion Model Training 
+
+Require: Ordered dataset D (empirical distribution ˆpD ), denoiser Dθ , window length W , iterations 
+
+K, batch size B, learning rate η, noise schedule parameters σmin , σ max , ρ , preconditioning parameters Pmean , P std  
+
+> 1:
+
+Initialize parameters θ of network Dθ 
+
+> 2:
+
+for k = 1 , . . . , K do  
+
+> 3:
+
+Sample a batch of windows 
+
+n
+
+¯xτi:τi+Wi
+
+oBi=1 
+
+∼ ˆpD 
+
+> 4:
+
+Sample {ϵi}Bi=1 ∼ N (0 , I W ×D) and noise times {ti}Bi=1 ∼ U ([0 , 1))  
+
+> 5:
+
+for i = 1 , . . . , B do  
+
+> 6:
+
+σi = ( σi, 1, . . . , σ i,W ) ← ¯σ(ti; σmin , σ max , ρ ) 
+
+> 7:
+
+¯zτi:τi+Wi ← ¯xτi:τi+Wi + σi ⊙ ϵi 
+
+> 8:
+
+ˆxτi:τi+Wi ← cskip (σi) ⊙ ¯zτi:τi+Wi + cout (σi) ⊙ Dθ
+
+
+
+cin (σi) ⊙ ¯zτi:τi+Wi , c noise (σi)
+
+ 
+
+> 9:
+
+end for  
+
+> 10:
+
+LRD ← 1
+
+> B
+
+PBi=1 1
+
+> W
+
+PWw=1 λ(σi,w ) f (σi,w ; Pmean , P std )
+
+
+
+¯xτi:τi+Wi
+
+ 
+
+> w
+
+−
+
+
+
+ˆxτi:τi+Wi
+
+ 
+
+> w
+> 22
+> 11:
+
+θ ← θ − η∇θ LRD  
+
+> 12:
+
+end for 
+
+where Kwindow (t) is any matrix square root satisfying 
+
+Kwindow (t)Kwindow (t)⊤ = ˙Gwindow (t). (24) Under standard regularity assumptions, the associated reverse-time SDE is 
+
+dxt = − ˙Gwindow (t) ∇x log pt(xt) d t + Kwindow (t) d¯ ω(t), (25) and the corresponding probability-flow ODE is 
+
+dxt
+
+dt = − 12 ˙Gwindow (t) ∇x log pt(xt). (26) In practice, the score is approximated by a denoiser network through the noisy conditional distribution induced by the rolling schedule. Hence, inference in rolling diffusion models amounts to numerically integrating either the reverse-time SDE or its probability-flow ODE counterpart while repeatedly advancing the physical rollout window. This viewpoint clarifies both the strength and limitation of rolling diffusion models. Their main strength is that they provide a principled probabilistic formulation of uncertainty propagation over multiple future frames. However, because generation is tied to reverse-time integration, they are inherently solver-based : each forecast block requires multiple denoising evaluations across diffusion time, followed by a rolling update of the window. As a result, their inference procedure is not naturally compatible with a one-step autoregressive schema. 
+
+Autoregressive transition kernel. A complementary theoretical perspective is to view autoregres-sive generative forecasting directly through a transition kernel . Let ¯c denote the observed context and let ˆ¯Xblk denote a future block to be generated. Then an autoregressive generative surrogate may be written abstractly as 
+
+ˆ¯Xblk ∼ pθ
+
+ ˆ¯Xblk | ¯c
+
+
+
+. (27) This approach has been validated in both pixel-space [ 40 , 28 ], and VAE-based latent space [ 8]. In these existing autoregressive diffusion formulations, this kernel is instantiated in a relatively restrictive way: the model is conditioned on a fixed, short temporal context and predicts either a single next snapshot or a fixed future block under a pre-specified input–output geometry. Such formulations are probabilistically sound, but they do not always fully exploit the structure of a partially observed spatiotemporal window, and they offer limited flexibility with respect to varying context length or forecast horizon. 19 B.2 Flow Matching Autoregressive Models Rolling flow matching models. Analogous to rolling diffusion models, window-based rolling flow matching models have recently been explored in video generation [ 66 ], although the literature remains much sparser than that for diffusion-based methods. Simple rolling autoregressive schemes have also been studied for forecasting physical dynamical systems [ 67 ]. However, to the best of our knowledge, there is still no dedicated frame-dependent noise schedule for flow-matching models comparable to the schedules used in diffusion-based approaches such as ERDM [29]. 
+
+Flow matching transition kernel models. Transition kernel formulations have received greater attention in the flow-matching literature. Recent work has employed rectified flows [ 68 ] for spatiotem-poral prediction, while Lim et al. [34] use flow matching-based Schrödinger bridge models [ 69 ] to learn a transition kernel in latent space. 
+
+B.3 MeanFlow Model Family 
+
+Before discussing the role and advantages of MeLISA, we briefly review the development of Mean-Flow models. The original MeanFlow (o-MF) model [ 43 ] was introduced as a one-step alternative to standard optimal-transport flow matching (OT-FM). OT-FM defines the interpolation path 
+
+zt = (1 − t)x + tϵ, (28) where ϵ ∼ N (0 , I). MeanFlow models the time-averaged velocity between diffusion time t and a reference time r:
+
+u(zt, r, t ) = 1
+
+t − r
+
+Z tr
+
+v(zτ | x, ϵ ) dτ, (29) which enables single-step transport from zt to zr via zr = zt − (t − r)u(zt, r, t ). Differentiating Eq. 29 yields the MeanFlow identity 
+
+u(zt, r, t ) = v(zt | x, ϵ ) − (t − r) ddt u(zt, r, t ), (30) which leads to the o-MF objective 
+
+Lo-MF = ∥uθ (zt, r, t ) − sg( utgt )∥2 . (31) This can be interpreted as a self-supervised loss [ 70 ] defined over a velocity interval. However, o-MF has been reported to exhibit unstable training dynamics, including the phenomenon that the training loss may increase even as generation quality improves [ 44 , 71 ]. This behavior is largely attributed to samples near the flow-matching limit t = r, where MeanFlow degenerates to standard OT-FM. 
+
+α-Flow [ 71 ] addresses this issue by introducing an annealing schedule that smoothly recovers the flow-matching objective. A more direct remedy was proposed by Geng et al. [44] , who introduced improved MeanFlow (i-MF). Instead of supervising the interval-averaged velocity directly, i-MF uses Eq. 30 to construct an estimate of the instantaneous velocity: 
+
+Vθ (zt, r, t ) ≡ uθ + ( t − r) sg( ∂tuθ + v(zt | x, ϵ ) ∂zt uθ ) , (32) and optimizes the objective 
+
+Li-MF = Et,x,ϵ 
+
+h
+
+∥Vθ (zt, r, t ) − v(zt | x, ϵ )∥2i
+
+. (33) Both o-MF and i-MF were originally developed in VAE-induced latent space for 256 × 256 image generation. To remove the VAE bottleneck, Li and He [49] proposed the Just-image Transformer (JiT), enabling pixel-space image generation up to 1024 × 1024 . Building on this idea, Lu et al. [32] introduced pixel MeanFlow (p-MF), which reparameterizes the prediction target in pixel space as 
+
+Xθ (zt, r, t ) = zt − t u (zt, r, t ), u(zt, r, t ) = 1
+
+t
+
+zt − Xθ (zt, r, t ). (34) The induced u is then used within the i-MF objective. In physical dynamical-system forecasting, many diffusion-based methods operate either in VAE latent space [ 8 , 34 ] or at relatively low pixel resolutions (typically up to 128 × 128 ). To the best of our knowledge, p-MF is the only one-step diffusion-based formulation that has been validated in high-dimensional pixel space. MeLISA is therefore built on top of p-MF. 20 B.4 Birth of MeLISA: The One-Step Dilemma 
+
+We now position MeLISA relative to existing diffusion-based forecasting paradigms. From the perspective of rolling diffusion, one-step generation appears at odds with the core idea of iterative denoising: to fully exploit one-step efficiency, all future frames would ideally be generated in a single network evaluation. From the transition-kernel perspective, however, we still seek to preserve the richer temporal conditioning provided by window-based generative models. MeLISA occupies an intermediate point between these two views. On the one hand, it remains a probabilistic autoregressive model, since stochasticity enters through Gaussian noise injected into the masked future portion of the input window. On the other hand, unlike rolling SDE-based models, MeLISA does not require multi-step reverse-time integration. Its sampling procedure, summarized in Algorithm 3, takes a context buffer ¯c and rollout block size S = W − Wctx , constructs 
+
+˜¯x ← Concat[ ϵ, Mfut ([¯ c; 0S×F ]) , τ M ] , (35) and applies a single denoising map 
+
+ˆ¯x = Dθ (˜ ¯x, 0, 1) , ˆ¯Xblk = Tail S (ˆ ¯x). (36) This defines the stochastic transition kernel 
+
+pθ
+
+ ˆ¯Xblk | ¯c
+
+
+
+=
+
+Z
+
+δ
+
+ ˆ¯Xblk − Tail S
+
+ Dθ (˜ ¯x(ϵ), 0, 1) 
+
+p(ϵ) dϵ, (37) where δ(·) denotes the Dirac delta distribution. Hence, MeLISA preserves the probabilistic transition-kernel interpretation of autoregressive generation, but defines the kernel over a partially observed spatiotemporal window rather than a single-step state transition. This perspective yields two key advantages. First, compared with standard autoregressive diffusion kernels, MeLISA conditions on a richer object (a masked temporal window), which allows it to exploit multi-frame structure more effectively. Second, compared with SDE-based rolling diffusion models such as ERDM, MeLISA supports one-step inference: each future block is generated with a single model evaluation instead of iterative reverse-time integration. In this sense, MeLISA combines the probabilistic expressivity of stochastic autoregressive modeling with the efficiency and flexibility of direct window-conditioned generation. This interpretation also explains MeLISA’s practical flexibility at inference time. Since the model conditions only on the most recent Wctx frames and predicts blocks of size S, it naturally supports arbitrary observed input lengths Win ≥ Wctx and arbitrary forecast horizons Wout via repeated blockwise rollout. Unlike classical rolling diffusion models, whose formulations are tightly coupled to diffusion-time integration, MeLISA decouples probabilistic forecasting from multi-step SDE solving . This yields a one-step stochastic autoregressive model that is particularly well suited for long-horizon dynamical prediction. Table 8 compares MeLISA with the models discussed in this section. We note that, due to the novelty of our formulation, MeLISA has no strict counterpart that can serve as a direct benchmark. 21 Table 8: Model-level comparison between MeLISA and existing diffusion-based generative models. Here, UQ denotes uncertainty quantification and TK denotes transition kernel. CoNFiLD performs long-horizon prediction in a non-autoregressive manner by directly predicting all latent variables in a single diffusion batch. In contrast, MeLISA models are 1-NFE, latent-free, and do not require a specialized backbone. Under this analysis, MeLISA has no strict counterpart among existing methods. 
+
+Model Name Model Type Max. Resolution Formalism 1-NFE? Special Backbone? Latent-Free? 
+
+Existing Models 
+
+DYffusion [28] AR 221 × 42 Rolling ✕ No – UNet [28] Yes ERDM [29] AR 240 × 121 Rolling ✕ Yes Yes RDM [31] AR 64 × 64 Rolling ✕ No – UViT [72] Yes GenCFD [40] UQ 128 3 TK ✕ No – UViT [40] Yes Rectified Flow [68] UQ 128 × 128 TK ✓ No – UNet Yes CoNFiLD [33] Non-AR 100 × 400 TK ✕ Yes No (VAE) 
+
+MeLISA Models 
+
+MeLISA-∆ AR 256 × 256 Mix ✓ No – DiT [52] Yes MeLISA-Υ AR 256 × 256 Mix ✓ No – UNet [22] Yes 
+
+Algorithm 3 MeLISA Autoregressive Inference 
+
+Require: Trained denoiser Dθ , observed context ¯xτWin , forecast horizon Wout , model window length 
+
+W , conditioning length Wctx < W  
+
+> 1:
+
+Set rollout block size S ← W − Wctx  
+
+> 2:
+
+Let Head q (·) and Tail q (·) denote the first and last q frames of a sequence, respectively  
+
+> 3:
+
+Initialize context buffer ¯c ← Tail Wctx 
+
+ ¯xτWin 
+
+ 
+
+> 4:
+
+Initialize forecast sequence ˆY ← [ ]  
+
+> 5:
+
+while | ˆY| < W out do  
+
+> 6:
+
+Form a partially observed rollout window 
+
+˜¯x ← Concat [ ϵ, Mfut ([¯ c; 0S×F ]) , τ M ] ,
+
+where Mfut masks the final S frames and preserves the first Wctx frames, and ϵ is Gaussian noise and τM is the masking time indices  
+
+> 7:
+
+ˆ¯x ← Dθ (˜ ¯x, 0, 1)  
+
+> 8:
+
+ˆ¯xblk ← Tail S
+
+ ˆ¯x 
+
+> 9:
+
+q ← min 
+
+
+
+S, W out − | ˆY| 
+
+ 
+
+> 10:
+
+ˆY ← 
+
+h ˆY; Head q
+
+ ˆ¯xblk 
+
+i 
+
+> 11:
+
+Update the context buffer with the most recent Wctx frames: 
+
+¯c ← Tail Wctx 
+
+  ¯c; Head q
+
+ ˆ¯xblk 
+
+  
+
+> 12:
+
+end while  
+
+> 13:
+
+return ˆ¯Xτ +Win  
+
+> Wout
+
+← ˆY
+
+22 C Theoretical Origin of MeLISA 
+
+C.1 Window Consistency: A Self-supervised Learning Perspective 
+
+We now discuss the motivation behind the Window-Consistency MeanFlow (WinC-MF) objective in Eq. 17. The main challenge is that MeanFlow is fundamentally a one-step generative method: the model should receive enough temporal context to infer meaningful dynamics, but not so much information that forecasting reduces to a deterministic copy task. Our solution is to condition on 
+
+masked trajectories . In this way, the model can exploit partial temporal structure while uncertainty remains over the missing portions of the window. This design is closely related to masked modeling approaches such as Masked Autoencoders (MAEs) [ 73 ] and Masked Trajectory Models (MTMs) [ 74 ], which likewise learn predictive representations from partially observed inputs. Using the notation from the main text, and suppressing the explicit Concat operation for simplicity, let 
+
+FM = σ ¯zτ :τ +Wt , MτM (¯ xτ :τ +W ), τ M , t, r  (38) denote the information available to the model: the noisy window, the mask pattern, and the diffusion-time variables. Define the target field as 
+
+ˆXτ :τ +Wt = ¯ zτ :τ +Wt − t u  ¯zτ :τ +Wt , r, t  . (39) From a self-supervised learning viewpoint, WinC-MF asks the model to predict this target from partial information. Under squared loss, the optimal predictor is the conditional expectation 
+
+E
+
+h ˆXτ :τ +Wt | F M
+
+i
+
+. (40) Indeed, for any FM-measurable predictor D, the prediction error decomposes into an irreducible term and an approximation term: 
+
+E
+
+
+
+ˆXτ :τ +Wt − D 2
+
+= E
+
+
+
+ˆXτ :τ +Wt − E
+
+h ˆXτ :τ +Wt | F M
+
+i 2
+
++ E
+
+
+
+E
+
+h ˆXτ :τ +Wt | F M
+
+i
+
+− D 2
+
+.
+
+(41) The first term does not depend on D, so the loss is minimized uniquely by the conditional expectation. Although MeLISA is not trained with a direct regression loss in X-space, the same conclusion applies to WinC-MF because its objective differs only by linear transformations of the underlying target. This perspective makes the role of masking especially clear. If the full clean trajectory were revealed, then the target would become measurable with respect to the conditioning variables, so the conditional variance would collapse to zero. In that regime, there would be no irreducible uncertainty left in the task: the model could simply recover the target directly from the observed trajectory, and forecasting would lose its probabilistic character. By contrast, under nontrivial masking, some future components remain hidden and are not determined by FM. Whenever the target depends genuinely on those hidden components, it is no longer fully measurable given the conditioning information, and the corresponding conditional variance remains strictly positive on a set of nonzero probability. In other words, masking prevents the trivial copy-everything solution by preserving uncertainty over the unobserved part of the window. Therefore, WinC-MF can be viewed as a form of self-supervised conditional inference: the model learns to reconstruct a target defined over a temporal window from a partially observed and noisy version of that same window. The observed entries provide enough structure to encode local temporal regularities, while the masked entries force the model to infer plausible hidden dynamics rather than memorize the full trajectory. This is precisely what allows WinC-MF to enrich MeanFlow with temporal context without collapsing the forecasting problem into deterministic reconstruction. 
+
+C.2 Time Increment Consistency Loss 
+
+We now discuss the role of the Time Increment Consistency (TIC) loss in MeLISA. The central question is why a one-step pixel-space autoregressive generative model should remain physically consistent over long rollouts, especially in turbulent regimes. Our answer is that MeLISA does not 23 rely on state reconstruction alone. In addition to the MeanFlow objective, it imposes an explicit finite-lag temporal-increment constraint, which regularizes how the resolved observable evolves across time. This provides a concrete mechanism for the benchmark classes considered in this work. In closed systems such as KF256, TIC approximates consistency with the integrated PDE tendency of the vorticity field. In projected systems such as TCF192, which is obtained from an LBM-LES turbulent channel-flow simulation, TIC constrains the finite-lag evolution of the reduced observable in exactly the sense suggested by projected-dynamics formalisms such as Mori-Zwanzig [ 75 ]. More broadly, TIC acts on lagged fluctuation structure rather than only on pointwise reconstruction, which is the level at which many physically relevant turbulent statistics are defined. 
+
+Setup and notation. Let H ∼= Rd denote the finite-dimensional resolved state space after spatial discretization of the observable of interest. At discrete physical time τ ∈ Z+, let 
+
+xτ ∈ H (42) denote the ground-truth resolved state, and let ˆxτ denote the corresponding model reconstruction or prediction. For a rollout window of length W , define the lag-w temporal increment by 
+
+∆xτ,τ +w := xτ +w − xτ , w = 1 , . . . , W − 1, (43) and similarly 
+
+∆ˆ xτ,τ +w := ˆ xτ +w − ˆxτ . (44) The TIC loss used in MeLISA is 
+
+LTIC = 
+
+> W−1
+
+X
+
+> w=1
+
+κw Ex,τ,τ M ,ϵ 
+
+h
+
+∆xτ,τ +w − ∆ˆ xτ,τ +w 22
+
+i
+
+, (45) with lag weights κw ≥ 0. This is the anchored increment form implemented in MeLISA: each future frame is compared to the same anchor time τ , rather than only to its immediate predecessor. The key point is that TIC is not a generic smoothness prior. In turbulence, rapid fluctuation is often physical, so a smoothness penalty by itself would be poorly justified. TIC instead penalizes mismatch in finite-lag evolution, which is much closer to the way temporal structure is characterized in turbulence theory and in statistical descriptions of dynamical systems. A first useful observation is that finite-lag increments are directly tied to temporal covariance decay. If {Xτ }τ ∈Z is a second-order stationary H-valued process with mean μ = E[Xτ ] and covariance operator 
+
+Γ( w) := E(Xτ +w − μ) ⊗ (Xτ − μ) , (46) then expanding the squared increment gives 
+
+E∥Xτ +w − Xτ ∥22
+
+ = 2 tr(Γ(0) − Γ( w)) . (47) So at second order, finite-lag increments are not auxiliary quantities: they are exactly equivalent to temporal covariance decay. In particular, matching increment statistics necessarily constrains how quickly temporal correlations are lost along the rollout. The same point admits a spectral interpretation. For any fixed a ∈ H, define the scalar projected process 
+
+zτ := ⟨a, X τ ⟩ (48) with autocovariance 
+
+Rz (w) := E(zτ +w − Ezτ )( zτ − Ezτ ) . (49) Then 
+
+E|zτ +w − zτ |2 = 2  Rz (0) − Rz (w). (50) Under the Wiener–Khinchin representation 
+
+Rz (w) = 12π
+
+Z π
+
+> −π
+
+eiwω Sz (ω) d ω, (51) this becomes 
+
+E|zτ +w − zτ |2 = 12π
+
+Z π
+
+> −π
+
+2 1 − cos( wω ) Sz (ω) d ω. (52) 24 Hence TIC is also a temporal-spectrum-aware regularizer: it penalizes mismatch in the energy carried by temporal frequencies, with lag-dependent weighting through the filter 2(1 − cos( wω )) .A second observation is that TIC reduces to tendency matching at short lags. If x : [0 , T ] → H is a smooth trajectory satisfying 
+
+˙x(t) = F (x(t)) , (53) then the fundamental theorem of calculus gives 
+
+x(t + δ) − x(t) = 
+
+Z t+δt
+
+F (x(s)) d s, (54) and a first-order Taylor expansion yields 
+
+x(t + δ) − x(t)
+
+δ = F (x(t)) + O(δ), δ → 0. (55) Thus, at sufficiently short lags, TIC acts as a discrete tendency-matching regularizer: it encourages the model not only to predict plausible states, but also to reproduce the local time evolution that connects them. This also clarifies why a state-only objective is insufficient. Consider a deterministic one-step predictor f (cτ ) trained from context cτ by the squared loss 
+
+LMSE (f ) = E ∥f (cτ ) − xτ +1 ∥22
+
+ . (56) Conditioning on cτ and completing the square shows that the minimizer is 
+
+f ⋆(cτ ) = Exτ +1 | cτ  . (57) So a pointwise squared-loss predictor is driven toward a conditional mean. In chaotic, turbulent, or partially observed systems, however, the physically relevant object is often a full conditional law, or at least a correct multi-time organization of the resolved observable. MeLISA addresses the first issue through its Window Consistency MeanFlow formulation, but a state-only loss still does not directly constrain finite-lag structure. TIC supplies that missing constraint by forcing the rollout to evolve with the correct lagged increments. These general observations become especially transparent on our two benchmarks. 
+
+KF256: finite-lag consistency with the vorticity dynamics. For KF256, the learned state is the discretized vorticity field. Let ω denote the continuous vorticity, let St be the exact flow map of the underlying Kolmogorov-flow dynamics, and let O be the observation operator mapping ω to the discretized field used by the network. Then 
+
+xτ = Oω(τ ∆t), xτ +w = OSw∆tω(τ ∆t), (58) so the finite-lag increment is 
+
+∆xτ,τ +w = O(Sw∆tω(τ ∆t) − ω(τ ∆t)) . (59) Equivalently, 
+
+∆xτ,τ +w =
+
+Z (τ +w)∆ tτ ∆t
+
+O ∂tω(s) d s. (60) If the vorticity equation is written abstractly as 
+
+∂tω = N (ω) + gK, (61) where N collects the advective and dissipative terms and gK denotes the Kolmogorov forcing contribution, then 
+
+∆xτ,τ +w =
+
+Z (τ +w)∆ tτ ∆t
+
+O N (ω(s)) + gK(s) ds. (62) This gives TIC a direct interpretation on KF256: it penalizes mismatch in the time-integrated vorticity tendency over finite lags. In the short-lag regime, 
+
+∆xτ,τ +w = w∆t O ∂tω(τ ∆t) + O (w∆t)2 , (63) so TIC becomes a discrete consistency condition on the true PDE evolution. This is the cleanest setting for TIC, because the resolved field is generated by a closed equation and finite-lag increments are simply finite-time displacements under that dynamics. 25 TCF192: finite-lag consistency for a projected LBM-LES observable. The interpretation for TCF192 is different. Here the target is a 2D observable extracted from a turbulent channel-flow simu-lation generated by LBM-LES [ 76 , 77 ], rather than the full state of a closed 2D system. Accordingly, the learned field should be viewed as a projected observable of a higher-dimensional flow, not as a state that necessarily satisfies a closed autonomous equation on its own. This is exactly the setting in which projected-dynamics formalisms such as Mori-Zwanzig [75] become relevant. Let X (t) ∈ X denote the full channel-flow state, evolving according to 
+
+˙X (t) = R(X (t)) . (64) Let 
+
+Π : X → H (65) be the observation operator extracting the 2D field used for learning, and define the reduced observable 
+
+x(t) := Π X (t). (66) Because Π removes unresolved degrees of freedom, x(t) is generally non-Markovian when viewed in isolation. In the Mori-Zwanzig framework, this reduced evolution can be written as the sum of a resolved drift term, a memory term, and an orthogonal or noise term. If L denotes the Liouville operator and P is a projection onto resolved observables with Q = I − P , then a standard identity has the form 
+
+ddt ξ(t) = PL ξ(t) + PL 
+
+Z t
+
+> 0
+
+e(t−s)QL QL ξ(s) d s + PL etQL Qϕ0, (67) where ξ(t) is the resolved observable and ϕ0 is the initial observable. Integrating this identity over a finite lag δ shows that the increment of the reduced observable naturally decomposes into 
+
+x(t+δ)−x(t) = resolved drift contribution +memory contribution +unresolved contribution . (68) This is the key point for TCF192: finite-lag increments of the learned slice accumulate not only instantaneous resolved dynamics, but also memory and unresolved forcing inherited from the full turbulent system. A finite-lag increment loss is therefore exactly the right kind of regularizer for this setting. In other words, TIC is not imposing an artificial closed 2D PDE on the TCF192 field. Instead, it regularizes the part of the projected dynamics that is actually observable and learnable, namely its finite-lag evolution. This viewpoint is physically meaningful beyond formal projection theory. Space-time correlations are classical objects in wall-bounded turbulence, and recent channel-flow studies report well-defined lagged relationships among turbulent kinetic energy, dissipation, and wall-normal structure. From this perspective, preserving finite-lag increments is a principled way to preserve the temporal organization of the reduced observable, even when no closed equation is available for that observable alone. In summary, TIC regularizes the temporal organization of MeLISA rollouts at a level that state reconstruction alone cannot enforce. On KF256, where the resolved variable is the vorticity field of a closed system, TIC approximates consistency with the integrated governing dynamics. On TCF192, where the target is a projected observable produced by LBM-LES, TIC constrains the finite-lag behavior of the reduced field, including the effects of memory and unresolved forcing. This is precisely why TIC improves long-horizon physical realism: it encourages the model not only to predict plausible states, but also to evolve them with the correct lagged structure. 26 D Ablation Studies 
+
+D.1 Effect of WinC-MF Mechanism 
+
+In this section, we study how MeLISA depends on the number of guidance frames used during autoregressive rollout. We note that WinC-MF cannot be removed or ablated , as it is the principal mechanism that enables MeLISA to perform spatiotemporal prediction. The distinction between WinC-MF and other possible formulations is discussed in detail in Appendix B. Specifically, on the KF256 dataset, we examine the trend of both short-term and long-term metrics as the number of guidance frames varies from 1 to 5. For short-term prediction, we focus on the R L2 metric, shown in Fig. 4, computed over the first 40 frames as in the main text. Most models remain stable with 1–3 guidance frames but deteriorate sharply when 4 or 5 frames are provided. In contrast, MeLISA-∆-M and MeLISA-∆-B remain stable across the entire range. This behavior is consistent with prior observations that pixel-space self-supervised objectives typically require sufficiently large models to be effective [ 73 , 78 , 79 ]. Under the training masking rate of 0.8, the expected number of revealed frames is 1 + 5 × (1 − 0.8) = 2 , including the first frame that is always observed. Interestingly, the largest model, MeLISA-∆-B, achieves its best performance with 3 guidance frames. This suggests that, with further scaling and larger training datasets, MeLISA may exhibit stronger emergent context utilization, pointing toward the possibility of a generative foundation model for dynamical systems. Another important metric is PSDD. The dependence of full-trajectory PSDD on the number of guidance frames is shown in Fig. 5. Interestingly, MeLISA-∆-M exhibits a consistent improvement in PSDD as more context frames are provided. MeLISA-Υ-XS, despite being the smallest model, achieves the best overall spectral accuracy, highlighting the parameter efficiency. To further assess physical consistency, we also examine TKED as a function of the number of guidance frames. The trend in Fig. 6 shows that MeLISA-∆-M and MeLISA-∆-B achieve the strongest long-term physical consistency, with TKED values that are smaller when 3 or 5 frames are revealed. Overall, these results suggest that MeLISA-∆-M and MeLISA-∆-B make the most effective use of additional context. This provides encouraging evidence that larger MeLISA models can develop stronger context utilization and more faithfully capture the underlying physical dynamics, pointing toward the potential for MeLISA-based foundation models for dynamical systems. 
+
+Figure 4: Prediction R L2 loss against number of MeLISA guidance frames. 
+
+D.2 Effect of TIC Loss 
+
+To evaluate the role of the TIC loss, we additionally trained MeLISA-∆-M on KF256 without the TIC term. Autoregressive rollout results for an uncurated initial condition are shown in Fig. 7, and the corresponding statistics are summarized in Table 9. The ablation reveals a characteristic failure mode: without TIC, the prediction gradually collapses toward a channel-flow-like mean field. The long-term spectral error (PSDD) also degrades substantially. This behavior is consistent with the theoretical analysis in Appendix C.2: WinC-MF alone is insufficient to recover the correct process, because 27 Figure 5: Long-term PSDD loss against number of MeLISA guidance frames. The y-axis is in log scale. 
+
+Figure 6: TKED loss against number of MeLISA guidance frames. The y-axis is in log scale. the model can partially satisfy the objective by regressing toward a mean field solution rather than preserving the correct long-range dynamics. Table 9: KF256 results for MeLISA-∆-M trained with and without TIC loss. Short-term metrics are computed over the first 40 frames, while long-term metrics are evaluated over the full 320-frame trajectory. 
+
+Model Specs Short-term metrics Long-term metrics Model Name Model Size RL2↓ SSIM ↑ PSDD ↓ TKED ↓ MRD ↓
+
+MeLISA-∆-M 58.3M 0.150 0.908 0.540 1.73 0.211 MeLISA-∆-M (No TIC) 58.3M 0.434 0.666 1.46 13.9 0.831 
+
+D.3 Rollout Stability 
+
+We study the temporal rollout stability of MeLISA on the KF256 dataset. Short-range error accumu-lation is shown in Fig. 8. Overall, MeLISA exhibits better long-horizon error stability, whereas the neural-operator baselines achieve lower error only during the first few rollout steps. 28 Figure 7: Autoregressive rollout results for MeLISA-∆-M with two context frames, comparing the full model against a variant trained without TIC under the same optimization setting. t denotes the frame index within the trajectory. 
+
+Figure 8: Accumulation of R L2 error over the first 40 rollout frames on KF256. Although the spatial error remains visually reasonable, the spectral error grows much more severely during rollout (Fig. 9). Autoregressive neural operators rapidly lose high-frequency content, whereas all MeLISA variants quickly reach a stable spectral-error level. To further assess long-horizon stability under extreme conditions, we roll out all autoregressive models for up to 9998 frames, using two guidance frames for MeLISA. Local-FNO is omitted from this experiment because it cannot stably roll out even to the full in-distribution trajectory length of 320 frames. As shown in Fig. 10, all MeLISA variants remain stable up to the final frame and produce plausible results. 29 Figure 9: Accumulation of PSDD over autoregressive rollouts on KF256, evaluated over the full 320-frame trajectory. 
+
+D.4 Probabilistic Forecasting 
+
+We emphasize that MeLISA is intrinsically a probabilistic forecasting model. To evaluate this capability, we compute the unscaled continuous ranked probability score (CRPS; see Appendix F) on the KF256 dataset. The absolute CRPS value is not directly comparable across systems with different resolutions or dynamical complexity. For each initial condition, we generate an ensemble of 10 rollout trajectories by varying the random seed, and compute the CRPS with respect to the ground-truth trajectory. The temporal evolution of CRPS is shown in Fig. 11. In the short-term prediction regime (upper panel of Fig. 11), the MeLISA-Υ variants achieve lower CRPS. Over longer trajectories (lower panel of Fig. 11), however, the MeLISA-∆ variants exhibit greater long-range consistency. For a qualitative illustration, we show the rollout ensemble for a single initial condition in Fig. 12. 
+
+D.5 Training Cost & Inference Costs 
+
+We report both training and inference cost in this section. For the neural-operator baselines, all models require roughly 2–3 days of training on a single NVIDIA A100 80GB GPU. All MeLISA models are trained on 32 GH200 nodes (4 GPUs per node) for 4 hours, corresponding to approximately 5 days on a 4 GH200. This training cost is comparable to that reported in prior work [29, 40]. For inference, we report jax GFLOP counts per model call and per trajectory in Table 10. Since neural operators involve Fourier-space operations that are not reliably captured by standard PyTorch 
+
+profilers, these counts are not directly comparable, and we therefore do not report them here. To assess practical efficiency, we additionally measure wall-clock rollout time per trajectory on a single NVIDIA 4090 GPU in Table 11. Overall, MeLISA achieves rollout speeds comparable to those of neural operators .30 Figure 10: Stress test of maximum rollout length for MeLISA models. White frames indicate either unavailable ground truth or NaN outputs from autoregressive baselines. Table 10: GFLOP counts recorded using jax.jit(model).trace(*inputs).lower() on a single NVIDIA 4090 GPU. 
+
+Model MeLISA-Υ-XS MeLISA-Υ-S MeLISA-∆-S MeLISA-∆-M MeLISA-∆-B TCF192 4.20 20.5 15.9 - -KF256 11.9 63.0 64.9 234 288 31 Figure 11: Evolution of CRPS on KF256. The upper panel shows short-term CRPS, and the lower panel shows trajectory-level CRPS over long rollouts. 32 Figure 12: Trajectory ensemble generated by MeLISA-∆-B for a single initial condition. The random seeds are obtained by adding multiples of 10 to 42. 33 Table 11: Inference time per trajectory in seconds for MeLISA and neural-operator baselines on a single NVIDIA 4090 GPU. Times are reported to two significant figures. 
+
+Model Υ-XS Υ-S ∆-S ∆-M ∆-B Local-FNO FNO UNO TCF192 (625 frames) 12 15 10 - - 19 16 16 KF256 (320 frames) 8.2 11 6.4 9.3 10.2 9.1 7.4 8.3 34 E More Results 
+
+We provide additional qualitative and statistical results for KF256 and TCF192 in this section. Figure 13 presents a representative rollout example on KF256. Consistent with the main text, the autoregressive baselines accumulate error rapidly as the rollout proceeds, whereas MeLISA-∆-S maintains substantially better stability over time. The error maps further show that MeLISA not only reduces the overall error magnitude, but also avoids the localized error amplification that becomes pronounced in the baseline models at later steps. 
+
+Figure 13: Rollout results on an uncurated test trajectory from KF256 , shown as absolute error with respect to the ground truth over the prediction horizon. We compare three autoregressive baselines with one MeLISA variant, MeLISA-∆-S. Here, t denotes the frame index within the trajectory. MeLISA exhibits substantially improved stability and markedly slower error accumulation. Figures 14 and 15 report trajectory autocorrelation statistics for KF256 and TCF192, respectively. These plots provide a complementary view of rollout quality by measuring how well each model preserves temporal dependence over both short and long horizons. On KF256, MeLISA tracks the decay profile of the ground-truth autocorrelation more faithfully across the full trajectory, indicating improved recovery of long-range temporal structure. On TCF192, the difference is even more pronounced: the neural-operator baselines exhibit clear ringing artifacts induced by the windowed autoregressive rollout procedure, while MeLISA produces much smoother curves that better match the physical decay behavior. These results further support the claim that MeLISA preserves long-term temporal statistics more reliably than deterministic autoregressive baselines. 35 Figure 14: Autocorrelation on the KF256 dataset. The upper panel shows the first 40 frames, while the lower panel shows the full 320 frame trajectory. 36 Figure 15: Autocorrelation on the TCF192 dataset. The upper panel shows the first 40 frames, while the lower panel shows the full 625 frame trajectory. Neural operator baselines exhibit pronounced ringing due to the windowed autoregressive rollout setting, whereas the MeLISA curves remain much smoother. 37 F Metrics 
+
+We evaluate predicted trajectories against ground-truth trajectories using a combination of short-horizon field-wise metrics and long-horizon statistical metrics. Let 
+
+z, ˆz ∈ RB×T ×H×W
+
+denote the reference and predicted trajectories, respectively. 
+
+F.1 Relative L2 Error 
+
+To quantify overall prediction error over the short-horizon rollout, we compute a trajectory-level relative L2 error over the first Teval = 40 retained steps. For each trajectory j, the predicted and reference fields are flattened across time and space, and the error is defined as 
+
+ErL2 = 1
+
+B
+
+> B
+
+X
+
+> j=1
+
+ˆz j 
+
+> 1: Teval
+
+− z j 
+
+> 1: Teval 2
+
+z j 
+
+> 1: Teval 2
+
++ ε, (69) where ∥ · ∥ 2 denotes the Euclidean norm after flattening all retained temporal and spatial entries of a trajectory, and ε is a small constant for numerical stability. 
+
+F.2 Structural Similarity Index Measure 
+
+To quantify structural agreement between predicted and reference 2D fields, we use the Structural Similarity Index Measure (SSIM) [ 54 ]. SSIM compares local luminance, contrast, and structure between a reference field x ∈ RH×W and a prediction y ∈ RH×W .
+
+Gaussian-window local statistics. Local moments are estimated using a Gaussian-weighted win-dow of size w × w with standard deviation σ. Denoting Gaussian smoothing by H(·), the local means are 
+
+μx = H(x), μy = H(y), (70) and the local variances and covariance are 
+
+σ2 
+
+> x
+
+= H(x2) − μ2
+
+> x
+
+, σ2 
+
+> y
+
+= H(y2) − μ2 
+
+> y
+
+, σxy = H(xy ) − μxμy . (71) In our implementation, H is applied via a separable Gaussian convolution with “same” padding, using a normalized 1D Gaussian kernel along each spatial axis. 
+
+SSIM map and aggregation. The SSIM map is given by 
+
+SSIM( x, y ) = (2 μxμy + C1)(2 σxy + C2)(μ2 
+
+> x
+
++ μ2 
+
+> y
+
++ C1)( σ2 
+
+> x
+
++ σ2 
+
+> y
+
++ C2) , (72) and the scalar SSIM score is the spatial average: 
+
+SSIM( x, y ) = 1
+
+HW 
+
+> H
+
+X
+
+> i=1
+> W
+
+X
+
+> j=1
+
+SSIM ij (x, y ). (73) 
+
+Stability constants and data range. To stabilize the computation, we use 
+
+C1 = ( K1L)2, C2 = ( K2L)2, (74) where the data range L is computed per sample from the reference field: 
+
+L = max( x) − min( x). (75) We use the standard constants K1 = 0 .01 and K2 = 0 .03 . If the reference field is constant (i.e., 
+
+L = 0 ), the implementation returns SSIM = 1 when prediction and reference agree within numerical tolerance, and 0 otherwise. 38 F.3 Mixing Rate Difference 
+
+To assess whether predicted trajectories reproduce the temporal decorrelation behavior of the reference dynamics, we estimate a mixing rate from the empirical autocovariance and compare it to the ground-truth value. 
+
+Empirical covariance. Given a trajectory tensor x ∈ RB×T ×H×W , we first compute the global mean over all trajectories, times, and spatial locations, 
+
+¯x = 1
+
+BT HW 
+
+> B
+
+X
+
+> b=1
+> T
+
+X
+
+> t=1
+> H
+
+X
+
+> u=1
+> W
+
+X
+
+> v=1
+
+xb,t,u,v , (76) and define the centred field x′ = x − ¯x. For a lag ℓ ∈ { 0, . . . , K }, the empirical covariance is 
+
+bC(ℓ) = 1
+
+B m ℓ H W 
+
+> B
+
+X
+
+> b=1
+> mℓ
+
+X
+
+> k=1
+> H
+
+X
+
+> u=1
+> W
+
+X
+
+> v=1
+
+x′ 
+
+> b,k,u,v
+
+x′ 
+
+> b,k +ℓ,u,v
+
+, (77) where 
+
+mℓ = T − K − ℓ. (78) 
+
+Normalized autocorrelation and exponential fit. The covariance is normalized by its zero-lag value, 
+
+C(ℓ) = bC(ℓ)
+
+bC(0) , (79) and we estimate the mixing rate λ by fitting the exponential decay model 
+
+C(ℓ) ≈ exp( −λℓ ), ℓ = 0 , . . . , K, (80) with the constraint λ ≥ 0.
+
+Reported error. Let λgt be the fitted mixing rate of the ground-truth trajectory and λpred that of the prediction. The reported metric is the relative mixing-rate error 
+
+Emix = |λpred − λgt |
+
+λgt 
+
+. (81) Lower values indicate better agreement with the temporal mixing behavior of the reference dynamics. 
+
+F.4 Power Spectral Density Discrepancy 
+
+To measure agreement in spatial frequency content, we compute a Power Spectral Density Discrep-ancy (PSDD) between predicted and reference fields. This metric compares the radially averaged Fourier power spectra of the two signals and is particularly useful for assessing whether the model reproduces the correct distribution of energy across spatial scales. 
+
+Frame-wise Fourier representation. The PSDD is evaluated on all retained frames after flattening batch and time dimensions, so that each frame is treated as an independent sample of shape (H, W, 1) .For each sample x, we compute the shifted 2D discrete Fourier transform 
+
+eFx = fftshift( F{ x}) , (82) and similarly for y.
+
+Power spectrum and radial averaging. The unnormalized power spectrum is 
+
+Px(i, j ) = eFx(i, j ) 2
+
+. (83) For each spatial frequency location (i, j ), we define a discrete radial bin index 
+
+r(i, j ) = 
+
+q 
+
+(i − ⌊ H/ 2⌋)2 + ( j − ⌊ W/ 2⌋)2
+
+
+
+. (84) 39 The radially averaged spectrum is then obtained by averaging Px(i, j ) over all positions belonging to the same radius bin: 
+
+Rx(k) = 1
+
+|Ωk|
+
+X
+
+> (i,j )∈Ωk
+
+Px(i, j ), Ωk = {(i, j ) : r(i, j ) = k}. (85) In our implementation, channels are aggregated before radial averaging. 
+
+Cropping and normalization. We retain radial bins 
+
+k ∈ { 0, 1, . . . , K r − 1},
+
+where Kr denotes the number of retained radial bins. The cropped radial spectrum is normalized to sum to one: 
+
+bRx(k) = Rx(k)
+
+PKr −1 
+
+> k′=0
+
+Rx(k′) + ε ,
+
+and analogously for bRy (k).
+
+Logarithmic L1 discrepancy. The PSDD used in the analysis is the mean absolute difference between the logarithms of the normalized radial spectra: 
+
+LPSDD (x, y ) = 1
+
+KrKr −1X
+
+> k=0
+
+log 
+
+ bRx(k) + ε
+
+
+
+− log 
+
+ bRy (k) + ε
+
+
+
+, (86) where Kr (220 for KF256, all bins for TCF192) is the number of retained radial bins. The final score is obtained by averaging this quantity over all flattened frames. 
+
+F.5 Turbulent Kinetic Energy Difference 
+
+To evaluate whether the predicted trajectories reproduce the amplitude of temporal fluctuations at each spatial location, we compute a Turbulent Kinetic Energy Difference (TKED). 
+
+Turbulent fluctuation energy. For a trajectory tensor x ∈ RB×T ×H×W , we first compute the temporal mean for each trajectory and spatial position, 
+
+¯xb,u,v = 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+xb,t,u,v , (87) and define the turbulent fluctuation field 
+
+x′ 
+
+> b,t,u,v
+
+= xb,t,u,v − ¯xb,u,v . (88) The corresponding kinetic-energy map is then 
+
+TKE x(u, v ) = 1
+
+B
+
+> B
+
+X
+
+> b=1
+
+1
+
+T
+
+> T
+
+X
+
+> t=1
+
+ x′
+
+> b,t,u,v
+
+2
+
+!
+
+. (89) This yields a spatial map describing the average fluctuation energy at each grid location. 
+
+Normalized discrepancy. Let TKE ˆz and TKE z denote the predicted and reference temporal kinetic-energy maps. The reported discrepancy is 
+
+ETKED =
+
+> 1
+> HW
+
+PHu=1 
+
+PWv=1 (TKE ˆz (u, v ) − TKE z (u, v )) 21
+
+> HW
+
+PHu=1 
+
+PWv=1 TKE z (u, v ) . (90) Lower values indicate that the predicted trajectories reproduce the temporal fluctuation energy of the reference trajectories more faithfully. 40 F.6 Continuous Ranked Probability Score 
+
+To evaluate probabilistic predictions, we use the Continuous Ranked Probability Score (CRPS), which measures the agreement between an ensemble forecast distribution and the corresponding observed target. For a scalar target value y and an ensemble forecast 
+
+{x(n)}Mn=1 ,
+
+the empirical CRPS is defined as 
+
+CRPS 
+
+
+
+{x(n)}Mn=1 , y 
+
+
+
+= 1
+
+M
+
+> M
+
+X
+
+> n=1
+
+x(n) − y − 12M 2
+
+> M
+
+X
+
+> n=1
+> M
+
+X
+
+> m=1
+
+x(n) − x(m) . (91) The first term measures the mean absolute deviation of the ensemble members from the observation, while the second term corrects for ensemble spread. Lower values indicate better calibrated and more accurate probabilistic forecasts. 
+
+Field-wise ensemble evaluation. For spatial fields, the CRPS is computed independently at each spatial location. Let 
+
+ˆz(n)
+
+> b,t,u,v
+
+denote the nth ensemble member for batch element b at time step t and spatial location (u, v ), and let 
+
+zb,t,u,v 
+
+be the corresponding ground-truth value. Then the pointwise CRPS is 
+
+CRPS b,t,u,v = CRPS 
+
+
+
+{ˆz(n) 
+
+> b,t,u,v
+
+}Mn=1 , z b,t,u,v 
+
+
+
+. (92) 41 G Dataset Details 
+
+G.1 Turbulent Channel Flow Dataset summary. The turbulent channel flow dataset used in this work generated via a lattice Boltzmann based in-house numerical solver. 
+
+Numerical solver: lattice Boltzmann method. Ground-truth trajectories are produced with the large-eddy LBM solver described in Section S1. LBM is a mesoscopic CFD method that, instead of discretizing the Navier–Stokes equations directly, evolves a discrete set of particle-distribution functions fi(x, t ) on a regular lattice through local collision and streaming steps; macroscopic fields (density, velocity, pressure) are recovered as low-order moments of fi [ 80 ]. The collision step is strictly local and the streaming step only moves data to nearest-neighbor lattice sites, which makes LBM massively parallel and numerically well-suited to high-Reynolds-number wall-bounded flows, motivating its use as the reference solver here. 
+
+Flow configuration. The simulation domain is Lx × Ly × Lz = 768 × 192 × 192 lattice units, with x, y and z denoting the streamwise, wall-normal and spanwise directions. The flow is driven by a uniform streamwise body force at a friction Reynolds number Re τ = 180 (bulk Reynolds number 
+
+Re = 3250 ), with periodic boundary conditions in x and z, no-slip walls at the top and bottom, and a sponge layer near the outlet to suppress spurious reflections. To accelerate transition to a developed turbulent state, a cubic tripping obstacle of size 20 × 20 × 100 is placed at x = 192 [ 81 ]; after 10 6
+
+timesteps the obstacle is removed and the flow is evolved for a further 50 domain-through times before sampling begins on the mid-plane cross-section at x = 384 .
+
+Computing costs. Generating the full dataset required approximately 10 6 CPU hours on the ARCHER2 supercomputer ( 2,048 cores per run, 32 runs). 
+
+G.2 2D Kolmogorov Flow Dataset summary. Based on the governing equations described above, the Kolmogorov flow dataset consists of 70 independent simulation trajectories of the two-dimensional incompressible Navier-Stokes equations with Kolmogorov forcing at Reynolds number Re = 1000 . All simulations are performed on a doubly periodic square domain, discretized using a uniform Cartesian grid of size 
+
+256 × 256 . The community code can be found in [82]. Each simulation produces a full spatiotemporal trajectory of the vorticity field consisting of 320 
+
+consecutive temporal frames. From each trajectory, multiple overlapping temporal fragments are extracted to construct supervised learning samples. The validation and test sets are split at trajectory level. 
+
+Governing equation. The Kolmogorov flow dataset is generated from numerical simulations of the two-dimensional incompressible Navier-Stokes equations with a spatially periodic body force [ 82 ]. The governing equations read 
+
+∂u
+
+∂t + u · ∇ u = −∇ p + ν∇2u + f (x),
+
+∇ · u = 0 ,
+
+(93) where u(x, t ) = ( u, v ) is the velocity field, p is the pressure, and ν denotes the kinematic viscosity. The external forcing is given by the Kolmogorov forcing 
+
+f (x) = (sin( ny ), 0) , (94) with forcing wavenumber n, which injects energy at a prescribed spatial scale while preserving periodicity. The system is evolved on a two-dimensional periodic square domain Ω = [0 , 2π]2. Under this forcing, the Kolmogorov flow admits laminar solutions at low Reynolds numbers and undergoes a sequence of instabilities and transitions to spatiotemporally chaotic dynamics as the Reynolds number increases, making it a canonical testbed for studies of turbulence, transition, and data-driven modeling [83]. 42

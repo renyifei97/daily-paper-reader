@@ -1,0 +1,445 @@
+Title: Recall to Predict: Grounding Motion Forecasting in Interpretable Motion Bank
+
+URL Source: https://arxiv.org/pdf/2605.01393v1
+
+Published Time: Tue, 05 May 2026 00:36:40 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# Recall to Predict: Grounding Motion Forecasting in Interpretable Motion Bank 
+
+## Abhishek Vivekanandan 1,2 Ahmed Abouelazm 1 J. Marius Z¨ ollner 1,21FZI Forschungszentrum Informatik 
+
+> 2
+
+## Karlsruhe Institute of Technology (KIT) Karlsruhe, Germany 
+
+> {vivekana }@fzi.de
+
+## Abstract 
+
+Motion forecasting often requires trading interpretability for predictive accuracy. Standard anchor-based architec-tures rely on opaque latent queries that are highly prone to latent collapse, or naive trajectory sampling that lim-its multi-modal diversity. We propose an end-to-end dif-ferentiable framework that grounds predictions in a com-prehensive ”motion bank”, a structured embedding space of physically realizable trajectories constructed via con-trastive learning. Rather than regressing paths from a blank slate, our architecture dynamically retrieves explicit mo-tion priors using a novel Anchor Retrieval Layer. This module adapts orthogonally initialized queries via a Dual-Level Gated Cross-Attention mechanism and executes dis-crete trajectory selection using a Straight-Through Gumbel-Softmax estimator to preserve continuous gradient flow. The retrieved semantically grounded anchors are then ge-ometrically refined by a DETR-style decoder, optimized jointly with a Winner-Takes-All (WTA) kinematic Gaussian Mixture Model (GMM), a latent diversity penalty, and a soft-min weighted endpoint loss. By strictly condition-ing the decoding phase on diverse, interpretable motion primitives, our approach eliminates the ”black box” of standard latent queries while achieving competitive multi-modal accuracy on the Argoverse 2 and Waymo Open Mo-tion datasets. Code is available at: https://github. com/abviv/recall2predict 
+
+## 1. Introduction 
+
+In autonomous driving, motion forecasting models must generate future trajectories that are not only accurate but also kinematically feasible and physically compliant with the environment. To achieve this, trajectory sets are a nat-ural choice for structural priors, as they directly encode the physically consistent behaviors observed in real-world driv-ing data. Unlike models that enforce rigid heuristics or rely on abstract latent codes, trajectory-based approaches [2, 14] inherit realistic patterns directly from demonstra-tions. However, the central challenge in modern forecast-ing is not merely representing these trajectories, but deter-mining how to integrate them as structured priors without sacrificing multi-modal diversity or model interpretability. Historically, anchor-based methods have been widely adopted to inject strong directional intent and enable multi-modal predictions. However, the field’s heavy optimization for endpoint-centric metrics (such as minFDE) has inad-vertently sparked a race that sacrifices interpretability dur-ing the intermediate prediction steps. Learning anchors di-rectly in the latent space [13, 18, 27, 33] yields compact but fundamentally opaque representations. Conversely, sam-pling fixed subsets of trajectories from the training distri-bution [23, 25] tends to over-represent common behaviors while missing rare, safety-critical edge cases. Within this work, we argue that anchors should not be treated merely as abstract initialization points to minimize endpoint error, but instead they should serve as explicit, understandable priors that allow us to inspect the model’s reasoning before the decoding phase. To realize this, we propose a fully differentiable, end-to-end forecasting framework that grounds its reasoning in a comprehensive, pre-trained motion bank. Leveraging the contrastively trained embeddings from [26], we estab-lish a one-to-one mapping between physically realizable fu-ture trajectories and semantically structured latent vectors. Rather than regressing paths from a blank slate, our ar-chitecture dynamically queries this bank using a context-aware Anchor Retrieval Layer. By utilizing a Straight-Through Gumbel-Softmax estimator, the network performs discrete, attention-based retrieval of exact trajectory priors while maintaining continuous gradient flow. This explicit retrieval mechanism provides interpretability, revealing ex-actly which motion primitives the network considers prior to the black-box decoding phase. Finally, a DETR-style de-coder [3] fuses these semantic priors with spatial scene con-text to regress continuous kinematic states and geometric offsets, smoothly bridging the gap between discrete intent 1
+
+> arXiv:2605.01393v1 [cs.CV] 2 May 2026
+
+and continuous motion. 
+
+Our main contributions are as follows: 
+
+• We introduce an end-to-end trajectory forecasting frame-work that leverages a pre-trained motion bank to inject explicit, physically realizable motion priors into the de-coding process, enabling the accurate retrieval of context-relevant driving behaviors. • We propose a differentiable, attention-based Anchor Re-trieval Layer. By decoupling the forward discrete se-lection from the backward continuous gradients via a Straight-Through Estimator (STE), we establish highly interpretable intermediate representations that expose the model’s decision-making process in the early layers. • We design a multi-objective refinement strategy, com-bining a Winner-Takes-All kinematic Gaussian Mixture Model (GMM), offset regularization, and latent diversity constraints – that geometrically fine-tunes the selected an-chors while strictly preserving their foundational seman-tic intent. 
+
+## 2. Related Work 
+
+Map-Conditioned and Trajectory Set Methods. Goal-conditioned approaches (TNT [33], DenseTNT [9]) and Frenet-based formulations (PRIME [21]) improve multi-modal diversity but rely heavily on heuristic endpoint gen-eration and high-definition (HD) map traversals. In real-world deployments, this strict map dependence propagates perception noise directly into the motion prior. To reduce map reliance, prior works [24, 25] explored sampling prede-fined trajectory sets from the training distribution. However, naive geometric sampling struggles to balance common pat-terns with rare, safety-critical behaviors without introducing significant bias. 
+
+Transformer Queries and Abstract Anchors. Recent architectures generate diverse futures via learnable pro-posal queries. DeMo [29] decouples directional and dy-namic state queries, while MTR [19] and ControlMTR [22] anchor predictions using clustered dataset endpoints com-bined with map-heavy drivable constraints. While effective, anchoring on isolated endpoints or abstract embeddings, rather than full trajectory profiles, weakens interpretabil-ity and physical feasibility. Furthermore, maintaining query diversity remains an open challenge. Orthogonal initializa-tion [27] often succumbs to attention collapse, where gradi-ents pull multiple queries toward the same dominant histor-ical tokens coming in from a single context source. On the anchor side, EDA [12] proposes to move from static priors to evolving spatial anchors and by applying Non-Maximum Suppression (NMS). Yet, EDA’s anchors remain opaque latent vectors updated via continuous regression, lacking grounding in a globally valid physical space. 
+
+Our Approach. We fundamentally depart from the ab-stract queries of DeMo and EDA, and the endpoint-centric priors of MTR. To eliminate brittle map dependencies and abstract initializations, we introduce an end-to-end differen-tiable Anchor Retrieval Layer. Rather than regressing paths from spatial heuristics, our model seeds orthogonally ini-tialized queries solely from observed kinematics and social interactions. By utilizing a STE to query a pre-trained mo-tion bank, we retrieve full, physically realizable trajectory states as an intermediate representation. This provides a transparent, kinematically valid initialization that actively prevents latent collapse in intermediate layers, bridging the gap between explicit trajectory sets and continuous state re-finement. 
+
+## 3. Model Architecture 
+
+We formulate our model as a fully differentiable, end-to-end trainable Encoder-Decoder architecture. A key component of this system is the Anchor Retrieval Layer, which func-tions as an auxiliary encoder to retrieve candidate anchors from a pre-trained motion bank. Specifically, the model derives representations from the contexts to achieve parity with the pre-trained embedding space. The discrete anchor selection process is then approximated via a soft Gumbel-Softmax relaxation [10], thereby preserving the differentia-bility of the entire pipeline. 
+
+3.1. Pre-trained Embedding Motion Bank 
+
+At its core, our framework leverages a diverse library of prototypical movements to guide trajectory forecasting. In-stead of forcing the decoder to regress future paths from scratch, our model queries a pre-constructed ”motion bank” to fetch candidate trajectories that closely align with the ob-served environment. To efficiently represent and match these motion patterns, we utilize the publicly available pre-trained embeddings from [26]. Derived from a contrastive framework that maps geometrically similar trajectories to proximal points in the latent space, these embeddings provide a highly structured feature space for identifying useful motion priors. The re-sulting motion bank is formulated as a collection of key-value pairs, directly linking each trajectory (referred to syn-onymously as an ”anchor” or a ”path”) to its respective em-bedding. 
+
+3.2. Input Representation and Projection 
+
+Our framework adopts an agent-centric coordinate system, taking four primary modalities as input: the target agent’s history Ahist ∈ RTs×Da , the historical states of neigh-boring actors Nhist ∈ RNa×Ts×Da , the static lane poly-lines Mpoly ∈ RNm×P ×Dm , and the traffic light states 
+
+T L state ∈ RNtl ×Ts×Dtl . Here, Ts denotes the number of past timesteps, Na is the number of surrounding actors, 2CA1 CA2   
+
+> QOthers Target Anchor Token SA3 SA1 SA2 SA4
+> Q
+> KV MLP Head MLP Head Encoder Decoder Contexts Map TL Global Pose Proj Projection Layer xN
+> KV MLP Head Y_hat Pi_hat Delta_hat Retrieved Anchors .Input Projection  ..+++.concat Addition +
+
+Figure 1. Overview of the Proposed Architecture. The system initially processes heterogeneous driving context using a PointNet-based projection layer. Because agent-centric pooling inherently strips absolute geometric grounding, global pose features are explicitly restored to the embeddings via residual additions. Guided by the projected context, an auxiliary retrieval module fetches Nq discrete Anchor Tokens from a pre-trained motion bank. The scene features are then deeply contextualized by a Factorized Scene Encoder, which employs modality-specific self-attention (SA) followed by joint global fusion. In the final stage, a DETR-style decoder iteratively refines the anchor tokens via cross-attention (CA) against the fused scene representation. The refined queries are processed by parallel MLP heads to predict continuous kinematic states, mode confidence scores, and anchor endpoint offsets. 
+
+Nm is the number of lane segments, P is the number of waypoint nodes per polyline, and Ntl represents the num-ber of traffic lights. The dimensions Da, Dm, and Dtl de-note the modality-specific attribute features, which inher-ently encapsulate the 2D spatial (x, y ) coordinates along-side auxiliary states such as heading and velocity. To establish a unified dimensionality across these het-erogeneous inputs, we process each modality through a PointNet-style [16] encoder following [8]. This module it-eratively interleaves per-timestep (or per-node) Multi-Layer Perceptrons (MLPs) with global max-pooling. At each layer, the globally pooled feature vector is concatenated back to the sequence, enabling the network to capture both local temporal dynamics and global trajectory statistics. Crucially, we employ a dual-resolution projection strat-egy to serve different downstream architectural needs. For the Encoder, the final representation of each element is ob-tained by max-pooling across the temporal or spatial dimen-sion, effectively collapsing the sequence into a single, fixed-dimensional embedding per agent or polyline. Conversely, for the Anchor Retrieval Layer, we bypass this final tem-poral pooling for the target agent, preserving its dense, per-timestep representations ( RTs×D ). This explicit retention of temporal granularity is what enables the orthogonal la-tent queries to attend to distinct, fine-grained historical mo-ments prior to anchor selection. 
+
+Explicit Pose Reprojection. While global max-pooling is highly efficient for dimensionality reduction, it inherently destroys the absolute spatial layout of the polylines within the agent-centric coordinate frame. Pairwise relative rep-resentations, such as those used in HPTR [32], naturally bypass this issue; however, in an agent-centric model, the loss of geometric grounding early in the network degrades spatial reasoning. To resolve this, we introduce an explicit pose re-projection mechanism. We extract the geometric state of each element; specifically, the final timestep’s 
+
+[x, y, heading angle ] for agents, and the normalized cen-troid and direction for lane polylines. These geometric fea-tures are projected through a two-layer MLP to match the hidden dimension D, and are subsequently injected into the max-pooled features via element-wise addition. This opera-tion acts as a continuous spatial positional encoding, restor-ing the crucial relative geometric layout without sacrificing the computational efficiency of the PointNet encoder. 
+
+3.3. Anchor Retrieval Layer 
+
+To provide structural priors and an intermediate inter-pretable representation, our architecture features a fully dif-ferentiable Anchor Retrieval Layer. This module acts as an auxiliary encoder that maps provided contexts to the latent space of the pre-trained motion bank, outputting Nq (de-faults to 6 unless stated otherwise) distinct anchor propos-als (which represent future states) and their corresponding embeddings to seed the downstream decoder. 
+
+Context-Aware Query Adaptation. We initialize Nq
+
+learnable, orthogonal latent queries Qbase ∈ RNq ×D which learn from the heterogeneous contexts of the target agent and the surrounding scene to extract representations. To prevent any single modality from dominating the latent 3Contexts Input Projection +
+
+> KV
+> KV CA CA CA KV
+
+Latent Q Gated Softmax Retreival Queries Motion Bank Retrieved Anchors Targets Others Map gggFigure 2. Anchor Retrieval Layer. Orthogonally initialized latent queries Qbase distill context (Map features are shown for ablation purposes only and are excluded from the main model) representa-tions via parallel cross-attention (CA) blocks. These are balanced by a gated softmax and residually combined to fetch discrete tra-jectory anchors from the pre-trained Motion Bank. 
+
+representation, we propose a Dual-Level Gated Cross-Attention mechanism. Instead of cross-attending to a concatenated sequence of projected contexts, Qbase attends to them through inde-pendent, modality-specific cross-attention pathways, each producing an attended representation Hm ∈ RNq ×D for modality m. The adaptation relies on a two-tiered gating strategy: 1. Micro-Level Gating: A query-specific sigmoid gate (gm) evaluates the concatenation of the base query and 
+
+Hm, allowing each query to determine how much con-text to absorb. Indicated as g in Fig. 2, sitting between the CA block and the Gated Softmax block. 2. Macro-Level Routing: A global softmax computes importance weights ( wm) to balance relevance across modalities. Crucially, this softmax includes a learnable “null” sink, which safely absorbs probability mass when the surrounding context is uninformative. The final adapted queries are formed via a weighted residual update: 
+
+Qadapt = Qbase + X
+
+> m∈{A hist ,Nhist ,Mpoly }
+
+wm (gm ⊙ Hm) (1) Note that T L state is intentionally excluded from the retrieval queries; traffic light context is instead fused downstream within the scene encoder (Sec. 3.4). This fusion strategy ensures that the queries are dynamically enriched by the contexts while strictly preserving their orthogonal diversity. 
+
+Past-to-Future Bridging via Cosine Attention. The pre-trained embeddings in the motion bank exclusively rep-resent the future geometries of trajectories, whereas our adapted queries encode the historical and contextual state of the scene. To bridge these temporal domains, we compute the cosine similarity between the ℓ2-normalized adapted queries ˆQadapt and the normalized-Frozen bank embeddings 
+
+E ∈ RB×Demb , where B denotes the total number of trajec-tories in the motion bank and Demb their embedding dimen-sion: 
+
+Z = ˆQadapt E⊤ (2) This learnable mapping forces the network to align its his-torical context representation with the geometric intent cap-tured in the future trajectory space. 
+
+Differentiable Selection via Straight-Through Gumbel-Softmax. To ensure end-to-end differentiability during the discrete retrieval of Nq trajectories, we employ a STE. Given attention logits Z ∈ RNq ×B over the motion bank, we compute a continuous distribution: 
+
+π = Softmax (Z/τ ) (3) where τ is annealed over training to transition from ex-ploration to exploitation [17]. To decouple the forward and backward passes, we generate a hard one-hot selector 
+
+Yhard ∈ { 0, 1}Nq ×B via an arg max operation, and apply the straight-through trick: 
+
+YST = Yhard +  π − sg (π) (4) where sg (·) is the stop-gradient operator. We then extract features from the pre-trained motion bank E ∈ RB×Demb 
+
+via the matrix multiplication Eret = YST E. Because YST 
+
+acts strictly as a one-hot mask in the forward pass, this op-eration cleanly retrieves Nq exact, unblended embeddings. Finally, these embeddings are projected to the hidden di-mension D via an MLP, and residually summed with the adapted queries and projected trajectory coordinates to form the dense Anchor Tokens A ∈ RNq ×D that seed the decoder as a Query. 
+
+3.4. Factorized Scene Encoder 
+
+To capture the complex structural dynamics of the driving environment before decoding, we employ a factorized-then-fused encoding strategy. This approach processes dynamic agents and static map elements independently, building ro-bust domain-specific priors before executing cross-modal reasoning. The encoder operates in three stages: 1. Intra-Agent Social Encoding: We apply a stack of self-attention blocks exclusively over the concatenated agent tokens ( Ahist and Nhist ). This captures critical scene-level dynamic interactions, such as yielding and car-following behaviors. 2. Intra-Environment Topological Encoding: In parallel, a separate self-attention stack processes the Mpoly con-catenated with T L state . By integrating traffic light fea-tures directly into the lane stream, the network models both the static structural relationships and the regulatory constraints of the road graph. 43. Joint Modality Fusion & Focal Extraction: The up-dated agent and environment streams are concatenated into a unified sequence and processed via joint self-attention, facilitating cross-domain message passing. Following this global fusion, the contextualized environ-mental tokens (lanes and traffic lights) are collected as 
+
+Menv , and we extract only the token corresponding to the target agent ( Ftarget ). Analogous to a [CLS] token in Vision Transformers [6], this focal agent token (black shaded box from Fig. 1) now encapsulates the deeply contextualized representation of the entire scene, and is the sole dynamic state forwarded to the decoder. Mean-while, the contextualized tokens for neighboring agents are routed to a separate dense predictor for single-shot trajectory regression. Structuring the encoder to learn modality-specific represen-tations prior to global fusion prevents optimization instabil-ity, while the focal extraction drastically reduces the com-putational burden of the downstream decoder. 
+
+3.5. Iterative Refinement Decoder 
+
+To generate the final predictions, we employ an iterative refinement decoder. Unlike standard DETR-style architec-tures [3] that rely on learnable latent queries initialized from scratch, our decoder directly utilizes the Anchor Tokens 
+
+(PGQA Algorithm 1 when Nq > 6) as its initial queries. Before entering the decoder, these anchor tokens undergo an initial self-attention phase to model inter-modal rela-tionships among the proposed anchors. This “anchors-as-queries” formulation ensures a strict 1-to-1 correspondence between the latent queries and the retrieved physical trajec-tories, preserving their geometric interpretability through-out the network. Within each decoder layer, the queries are updated through a sequential Cross-Attention (CA) mechanism to aggregate scene context. Let Q(l−1) denote the input queries to layer l. The refinement proceeds by attending to two distinct contextual sources (acting as Keys and Values): 1. Target Context: The queries first attend to the focal agent token, extracting the target’s specific, scene-aware dynamic history: 
+
+Q(l)1 = CA 
+
+
+
+Q = Q(l−1) , KV = Ftarget 
+
+
+
+(5) 2. Environment Context: The queries then attend to the refined environmental tokens ( Menv ), which encompass both lane geometry and traffic light states, to incorporate structural constraints and road topology: 
+
+Q(l) = CA 
+
+
+
+Q = Q(l)1 , KV = Menv 
+
+
+
+(6) Because the queries are already grounded in the retrieved anchors, no further cross-attention to the anchor bank is re-quired. 
+
+Prediction Heads. The refined queries from the final de-coder layer, Q(L) ∈ RK×D , and the pre-decoder Anchor Tokens , Q(0) ∈ RK×D , are processed by parallel MLP heads: 
+
+ˆY = MLP kin (Q(L)) ∈ RK×Tf ×Dkin , (7) 
+
+ˆπ = MLP conf (Q(L)) ∈ RK×1, (8) 
+
+∆ˆ p = MLP off (Q(0) ) ∈ RK×2. (9) Here, Tf denotes the number of predicted future timesteps, 
+
+Dkin is the per-step kinematic state dimension (spatial means, covariance parameters, velocity, and heading), ˆY re-gresses the continuous future state sequence for the K rep-resentative modes, and ˆπ yields the confidence distribution over them. Crucially, the offset head derives continuous 2D spatial residuals ( ∆ˆ p) directly from the pre-decoder Anchor Tokens 
+
+rather than the refined queries Q(L). This strict decoupling prevents the decoder from lazily compensating for poor an-chor selections using its deep contextual refinement. By predicting offsets from the pre-decoder anchor embeddings, the network geometrically bridges the discretization gap of the retrieval bank during training, and these offsets can be safely discarded at inference. 
+
+3.6. Learning Objectives 
+
+Our model is trained end-to-end using a composite objec-tive function that balances accurate multi-modal trajectory regression with the retrieval of geometrically diverse and relevant priors: 
+
+Ltotal = λmotion Lmotion + 0 .1 Lendpoint + Ldiv (10) 
+
+3.6.1. Winner-Takes-All Kinematic Loss 
+
+We adopt a Winner-Takes-All (WTA) strategy to avoid mode-averaging: only the mode k∗ with the lowest cu-mulative displacement across all future timesteps is pe-nalized. Its spatial error is minimized via the Negative Log-Likelihood of a bivariate Gaussian, where the network jointly predicts the 2D mean and covariance parameters. This is augmented with a Huber loss on velocity ( Lvel ), a cosine penalty on heading ( Lyaw ), and a cross-entropy term that sharpens the confidence distribution toward k∗:
+
+Lmotion = wpos LNLL +wvel Lvel +wyaw Lyaw +wconf LCE ( ˆ π, k ∗)
+
+(11) where wpos , wvel , wyaw , and wconf are per-agent-type scalar weights that allow independent tuning across vehicles, pedestrians, and cyclists. 
+
+Dual-Objective Endpoint Loss. This loss evaluates the refined anchor endpoints, ˆpn = panch  
+
+> n
+
++ ∆ˆ pn, where ∆ˆ pn
+
+is the continuous 2D spatial correction predicted by the off-set head for the n-th anchor. By combining the discrete base 5anchor with continuous residuals, this formulation serves as a dual objective, simultaneously guiding the discrete anchor selection and optimizing local geometric accuracy. We ap-ply a soft-min weighting over the Nq anchor proposals: 
+
+Lendpoint =
+
+> Nq
+
+X
+
+> n=1
+
+wn
+
+h
+
+Huber (ˆ pn, p∗)
+
+i
+
+(12) where p∗ is the ground truth endpoint and wn represents the soft-min weight derived from the distance between ˆpn and 
+
+p∗. Coupling the offset directly to the pre-trained anchors ensures the network relies on the retrieved motion primi-tives for global trajectory structure, utilizing the continuous offsets solely for local calibration. 
+
+3.6.2. Latent Diversity Loss 
+
+To prevent retrieval queries from collapsing, where the re-trieval mechanism repeatedly fetches highly correlated an-chors regardless of scene context—we enforce strict or-thogonality in the latent space. Using the ℓ2-normalized adapted queries ˆQadapt , we compute the cosine similarity matrix S = ˆQadapt ˆQ⊤ 
+
+> adapt
+
+and penalize its deviation from the identity matrix: 
+
+Ldiv = λdiv ∥S − I∥2 
+
+> F
+
+(13) where ∥ · ∥ F denotes the Frobenius norm. This acts as a repulsive force, guaranteeing that the Nq selected anchors encapsulate distinct semantic intents (e.g., yielding distinct left, straight, and right-turn priors). 
+
+## 4. Experimental Setup 
+
+Datasets and Metrics. We train and evaluate our models on the Waymo Open Motion Dataset (WOMD) [7] and the Argoverse 2 (AV2) [28] dataset for the single-agent marginal motion prediction task. For evaluation, we report our results using the Brier minimum Final Displacement Error over six predictions (brier-minFDE) for AV2, and the mean Average Precision (mAP) for WOMD. While we conduct extensive ablation studies primarily on the AV2 validation dataset, we include results on WOMD to ensure the broader comparability and generalization of our approach. 
+
+Implementation Details. Our model processes ahighly efficient, constrained context size of only 256 map polylines - significantly fewer than the 1024 used by HPTR [32] and 768 by MTR++ [19]. Furthermore, we restrict the dynamic context to 32 surrounding actors and only the single traffic light state closest to the target agent. We employ a pre-trained motion bank containing 4096 trajectories constructed from the training distribution and use the same for evaluating test and validation baselines. Crucially, these priors possess an embedding dimension of 128, matching the decoder’s hidden dimension ( D = 128 ). Following standard practice for marginal motion prediction, our network outputs K = 6 future trajectory modes di-rectly, entirely circumventing the need for Non-Maximum Suppression (NMS) or other computationally expensive post-processing heuristics. 
+
+Training Details. To prevent latent collapse among the anchor proposals during training, we apply temperature an-nealing to Eq. (3). Specifically, we employ a cosine anneal-ing schedule that gradually reduces the temperature from an initial value of 5.0 to a final value of 0.25. For the AV2 dataset, we train the model for 75 epochs, achieving conver-gence in approximately 16 hours across 4 NVIDIA A100 (40GB) GPUs following DDP with a per-GPU batch size of 42. We utilize the OneCycleLR [20] scheduling policy with a peak Learning Rate (LR) of 1.4 × 10 −3, an initial and a final division factor of 20 and 50, respectively, with AdamW optimizer having a weight decay of 1 × 10 −2. The LR schedule incorporates a constant warm-up phase for the first 25% of the total training steps before initiating the de-cay. For the WOMD dataset, to account for the increased dataset size, training is scaled to 8 GPUs achieving a con-vergence in 26 hours, trained for a total of 100 epochs (peak LR is 2.1 × 10 −3 using square root scaling law) with each training epoch taking an average of 14 min 1.Due to the higher dataset size of WOMD when compared with AV2, we also scaled the model parameters to 13.2 Mil-lion, resulting in R2P-L and R2P-M having 8.1 Million pa-rameters. We have to acknowledge that if one follows the proper scaling law from [1], then the parameter for the R2P-L should be anywhere between 18.0 and 22.0 Million but since we are limited by compute and constrained by the lim-ited FLOPS in our possession, we choose 13.2 as x0.75 the total parameters when compared with the R2P-M model. 
+
+## 5. Results and Discussion 
+
+Our proposed framework, R2P-M, demonstrates competi-tive performance on the AV2 test splits, performing on par with and in certain geometric metrics exceeding established baselines like HPTR and ForecastMAE, while uniquely pre-serving transparent interpretability and using only 1/4th of the map information. On the WOMD, our architecture suc-cessfully adapts to the dataset’s challenging internal statis-tics and converges reliably. Notably, our WOMD validation scores are achieved cleanly, without relying on dense en-sembling or complex post-processing heuristics, except for a simple temperature scaling of 0.5 applied to the final con-fidence scores during validation. Evaluating standard geometric distance metrics, R2P-M achieves impressive minADE 6 and minFDE 6 scores across 
+
+> 1Benchmarked for the last 40 epochs to account for kernel warmups
+
+6Model minADE 6 ↓ minADE 1 ↓ minFDE 6 ↓ minFDE 1 ↓ MissRate ↓ brier-minFDE ↓                                                                                                            
+
+> ForecastMAE (Scratch) [4] 0.73 1.84 1.42 4.60 0.19 2.06 SIMPL [31] 0.72 2.03 1.42 5.50 0.19 2.05 HPTR [32] 0.73 –1.43 –0.19 2.03 GoReLa [5] 0.76 1.82 1.48 4.62 0.22 2.01 MTR [18] 0.73 1.74 1.44 4.39 0.15 1.98 EMP-D [15] 0.71 1.75 1.37 4.35 0.17 1.98 QCNET [16] 0.65 1.69 1.29 4.30 0.16 1.91 SmartRefine [34] 0.63 1.65 1.17 4.17 0.15 1.86 DeMo [30] 0.61 1.41 1.17 3.74 0.13 1.84 R2P-M(Ours) 0.69 1.75 1.33 4.37 0.17 2.03
+> Table 1. Performance on Argoverse 2 Test dataset.
+> Model minADE 6↓minFDE 6↓MissRate 6↓mAP ↑OR ↓
+> MTRv3 (Ensemble) 0.5539 1.1041 0.1097 0.4877 –ControlMTR [22] 0.5904 1.2010 0.1323 0.4220 –MTR [18] 0.6046 1.2251 0.1366 0.4160 –MTR++ [19] 0.5912 1.1986 0.1296 0.4351 –HPTR [32] 0.5378 1.0923 0.1326 0.4150 –EDA [12] 0.5708 1.1730 0.1178 0.4353 0.1273
+> R2P-L (Ours) 0.5579 1.1247 0.1343 0.3371 0.1314 R2P-M (Ours) 0.5474 1.1132 0.1387 0.2855 0.1418
+> Table 2. Performance on WOMD Validation dataset.
+
+both benchmarks. As shown in Tab. 1 (AV2), R2P yields a minFDE 6 of 1.33, actively outperforming both HPTR (1.43) and ForecastMAE (1.42), also in brier-minFDE (2.03). Similarly, on WOMD (Tab. 2), our R2P-M achieves a minADE 6 of 0.54 and a minFDE 6 of 1.11, surpassing strong recent baselines such as EDA and MTR++. However, we observe slightly less competitive results in confidence-dependent metrics, specifically brier-minFDE on AV2 and mAP on WOMD. We attribute this slight discrepancy pri-marily to the uncalibrated nature of our mode confidence head. Beyond benchmark comparisons, we investigated the structural properties of the motion bank. During train-ing, models utilizing subsets constructed via random sam-pling yielded severely degraded metrics compared to those trained with mean clustering. Furthermore, under random sampling, the distance between the retrieved anchor end-points and the ground-truth trajectory failed to converge meaningfully, indicating an inability of the network to re-liably select appropriate priors. Conversely, models trained with clustered subsets similar to Fig.2 of [26] successfully preserved multi-modal diversity and exhibited a steady, well-behaved decrease in endpoint error as can be seen from Tab. 3. This demonstrates that structured, cluster-based sampling provides a critical inductive bias for stable rep-resentation learning. However, we acknowledge a current limitation regard-ing Vulnerable Road Users (VRUs), such as pedestrians and cyclists. Because the current motion bank is predom-inantly biased toward vehicular kinematics, its representa-tion of VRUs remains relatively coarse. We hypothesize that employing a targeted, high-density clustering strategy specifically tailored to the long-tail distributions of VRUs will seamlessly resolve this bottleneck, presenting a highly promising direction for future work. 
+
+Interpretability of Context-Aware Retrieval. Fig. 3 il-lustrates how our orthogonally initialized queries dynam-ically distill representations from the available heteroge-neous context. By inspecting the intermediate cross-attention weights, we observe a striking distribution: the macro-level routing mechanism assigns roughly 42% of its attention mass to neighboring actors, compared to less than 8% for the target agent’s own history. Even within this marginal allocation to the target, attention is almost exclu-sively concentrated on the most recent four timesteps. This finding yields a crucial architectural insight: rather than relying on its own extended past, the model predomi-nantly infers its initial priors by contextualizing its immedi-ate recent kinematics (the last four timesteps) with the rich, temporally-aggregated representations of neighboring ac-tors. Furthermore, we observe that individual queries learn to capture unique social interactions. Instead of distribut-ing their attention evenly across all vehicles in the scene, each query focuses sharply on a completely different neigh-7Figure 3. Each row depicts a distinct driving scenario, illustrating three randomly selected latent queries alongside the top five scene elements they attend to (derived from cross-attention weights). This transparent retrieval mechanism highlights the inherent interpretability of our framework, allowing us to observe exactly how trajectory anchors are contextually molded by the environment prior to decoding. Notably, we observe that the queries predominantly aggregate features from neighboring actors, relying more heavily on social context than the target agent’s own historical state to formulate their adapted representations.    
+
+> Figure 4. Qualitative forecasting results on the Argoverse 2 (AV2) dataset. The diamond markers denote the spatial endpoints of 32 anchors retrieved by the Anchor Retrieval Layer, with the star marker indicating the last observed time step of the target agent. The network’s refined multi-modal predictions are illustrated as solid trajectories, while the ground truth path is highlighted in pink.
+
+boring actor to generate its distinct future prediction. Fi-nally, the learnable “null” sink consistently absorbs approx-imately 50% of the probability mass. This demonstrates that our gating strategy efficiently empowers queries to ig-nore irrelevant background elements, thereby maintaining the structural integrity and semantic purity of the retrieved anchor priors. 
+
+## 6. Conclusion 
+
+We presented Recall to Predict (R2P), an end-to-end motion forecasting framework that resolves the historical trade-off between predictive accuracy and multi-modal interpretabil-ity. By replacing opaque latent queries with a contrastively-trained motion bank, R2P grounds trajectory generation in a structured space of physically realizable driving be-haviors. At its core, the framework leverages a novel Anchor Retrieval Layer with a Straight-Through Gumbel-Softmax estimator - to dynamically retrieve trajectory pri-ors while maintaining continuous gradient flow. A subse-quent DETR-style decoder, regularized by a latent diversity penalty and a Dual-Objective Endpoint Loss, strictly decou-ples global semantic intent from local geometric refinement. This ensures that continuous offset corrections are utilized solely for spatial calibration, preventing the network from lazily compensating for poor anchor selection. Ultimately, R2P eliminates the “black box” nature of 8standard forecasting architectures. By exposing the exact motion primitives the model considers before the decod-ing phase, our approach provides transparency into the net-work’s intermediate reasoning. This natively constrained, interpretable initialization offers a compelling paradigm shift for autonomous driving, proving that state-of-the-art multi-modal forecasting can be achieved without sacrific-ing human-interpretable reasoning. 
+
+## 7. Acknowledgement 
+
+The research leading to these results is funded by the Ger-man Federal Ministry for Economic Affairs and Climate Action within the project “NXT GEN AI METHODS” and the authors gratefully acknowledge the Gauss Centre for Su-percomputing e.V. (www.gauss-centre.eu) for funding this project by providing computing time on the GCS Super-computer JUWELS [11] at J¨ ulich Supercomputing Centre (JSC) 
+
+## References 
+
+[1] Mustafa Baniodeh, Kratarth Goel, Scott Ettinger, Carlos Fuertes, Ari Seff, Tim Shen, Cole Gulino, Chenjie Yang, Ghassen Jerfel, Dokook Choe, Rui Wang, Benjamin Char-row, Vinutha Kallem, Sergio Casas, Rami Al-Rfou, Ben-jamin Sapp, and Dragomir Anguelov. Scaling Laws of Mo-tion Forecasting and Planning – Technical Report, 2025. arXiv:2506.08228 [cs]. 6 [2] Yuriy Biktairov, Maxim Stebelev, Irina Rudenko, Oleh Shli-azhko, and Boris Yangel. PRANK: motion Prediction based on RANKing. In Advances in Neural Information Processing Systems , pages 2553–2563. Curran Associates, Inc., 2020. 1 [3] Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas Usunier, Alexander Kirillov, and Sergey Zagoruyko. End-to-End Object Detection with Transformers. In European Conference on Computer Vision (ECCV) , pages 213–229. Springer, 2020. 1, 5 [4] Jie Cheng, Xiaodong Mei, and Ming Liu. Forecast-MAE: Self-supervised pre-training for motion forecasting with masked autoencoders. Proceedings of the IEEE/CVF Inter-national Conference on Computer Vision , 2023. 7 [5] Alexander Cui, Sergio Casas, Kelvin Wong, Simon Suo, and Raquel Urtasun. Gorela: Go relative for viewpoint-invariant motion forecasting, 2022. 7 [6] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Syl-vain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is worth 16x16 words: Transformers for image recognition at scale, 2021. 5 [7] Scott Ettinger, Shuyang Cheng, Benjamin Caine, Chenxi Liu, Hang Zhao, Sabeek Pradhan, Yuning Chai, Ben Sapp, Charles R. Qi, Yin Zhou, Zoey Yang, Aur’elien Chouard, Pei Sun, Jiquan Ngiam, Vijay Vasudevan, Alexander Mc-Cauley, Jonathon Shlens, and Dragomir Anguelov. Large scale interactive motion forecasting for autonomous driv-ing: The waymo open motion dataset. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pages 9710–9719, 2021. 6 [8] Jiyang Gao, Chen Sun, Hang Zhao, Yi Shen, Dragomir Anguelov, Congcong Li, and Cordelia Schmid. VectorNet: Encoding HD Maps and Agent Dynamics from Vectorized Representation, 2020. arXiv:2005.04259. 3 [9] Junru Gu, Chen Sun, and Hang Zhao. Densetnt: End-to-end trajectory prediction from dense goal sets. In Proceedings of the IEEE/CVF international conference on computer vision ,pages 15303–15312, 2021. 2 [10] Eric Jang, Shixiang Gu, and Ben Poole. Categorical repa-rameterization with gumbel-softmax, 2017. 2 [11] J¨ ulich Supercomputing Centre. JUWELS Cluster and Booster: Exascale Pathfinder with Modular Supercomputing Architecture at Juelich Supercomputing Centre. Journal of large-scale research facilities , 7(A183), 2021. 9 [12] Longzhong Lin, Xuewu Lin, Tianwei Lin, Lichao Huang, Rong Xiong, and Yue Wang. EDA: Evolving and Dis-tinct Anchors for Multimodal Motion Prediction, 2023. arXiv:2312.09501. 2, 7 [13] Nigamaa Nayakanti, Rami Al-Rfou, Aurick Zhou, Kratarth Goel, Khaled S. Refaat, and Benjamin Sapp. Wayformer: Motion Forecasting via Simple & Efficient Attention Net-works, 2022. arXiv:2207.05844. 1 [14] Tung Phan-Minh, Elena Corina Grigore, Freddy A. Boul-ton, Oscar Beijbom, and Eric M. Wolff. CoverNet: Mul-timodal Behavior Prediction using Trajectory Sets, 2020. arXiv:1911.10298. 1 [15] Alexander Prutsch, Horst Bischof, and Horst Possegger. Ef-ficient Motion Prediction: A Lightweight & Accurate Tra-jectory Prediction Model With Fast Training and Inference Speed, 2024. arXiv:2409.16154 [cs]. 7 [16] Charles R. Qi, Hao Su, Kaichun Mo, and Leonidas J. Guibas. Pointnet: Deep learning on point sets for 3d classification and segmentation. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , 2017. 3, 7 [17] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and Ilya Sutskever. Learning transferable visual models from natural language supervision, 2021. 4 [18] Shaoshuai Shi, Li Jiang, Dengxin Dai, and Bernt Schiele. Motion Transformer with Global Intention Localization and Local Movement Refinement, 2023. arXiv:2209.13508. 1, 7 [19] Shaoshuai Shi, Li Jiang, Dengxin Dai, and Bernt Schiele. MTR++: Multi-Agent Motion Prediction with Symmet-ric Scene Modeling and Guided Intention Querying, 2024. arXiv:2306.17770. 2, 6, 7 [20] Leslie N. Smith and Nicholay Topin. Super-convergence: Very fast training of neural networks using large learning rates, 2018. 6 [21] Haoran Song, Di Luan, Wenchao Ding, Michael Y Wang, and Qifeng Chen. Learning to predict vehicle trajectories with model-based planning. In Conference on Robot Learn-ing , pages 1035–1045. PMLR, 2022. 2 
+
+9[22] Jiawei Sun, Chengran Yuan, Shuo Sun, Shanze Wang, Yuhang Han, Shuailei Ma, Zefan Huang, Anthony Wong, Keng Peng Tee, and Marcelo H. Ang Jr. ControlMTR: Control-Guided Motion Transformer with Scene-Compliant Intention Points for Feasible Motion Prediction, 2024. arXiv:2404.10295. 2, 7 [23] Balakrishnan Varadarajan, Ahmed Hefny, Avikalp Srivas-tava, Khaled S. Refaat, Nigamaa Nayakanti, Andre Corn-man, Kan Chen, Bertrand Douillard, Chi Pang Lam, Dragomir Anguelov, and Benjamin Sapp. MultiPath++: Effi-cient Information Fusion and Trajectory Aggregation for Be-havior Prediction, 2021. arXiv:2111.14973. 1 [24] Abhishek Vivekanandan and J. Marius Z¨ ollner. Efficient Data Representation for Motion Forecasting: A Scene-Specific Trajectory Set Approach, 2024. arXiv:2407.20732. 2[25] Abhishek Vivekanandan, Ahmed Abouelazm, Philip Sch¨ orner, and J. Marius Z¨ ollner. KI-PMF: Knowledge Integrated Plausible Motion Forecasting. In 2024 IEEE Intelligent Vehicles Symposium (IV) , pages 176–183, 2024. 1, 2 [26] Abhishek Vivekanandan, Christian Hubschneider, and J. Marius Z¨ ollner. Contrast & Compress: Learning Lightweight Embeddings for Short Trajectories, 2025. arXiv:2506.02571. 1, 2, 7 [27] Xishun Wang, Tong Su, Fang Da, and Xiaodong Yang. ProphNet: Efficient Agent-Centric Motion Forecasting with Anchor-Informed Proposals. In 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 21995–22003. IEEE, 2023. 1, 2 [28] Benjamin Wilson, William Qi, Tanmay Agarwal, John Lam-bert, Jagjeet Singh, Siddhesh Khandelwal, Bowen Pan, Rat-nesh Kumar, Andrew Hartnett, Jhony Kaesemodel Pontes, Deva Ramanan, Peter Carr, and James Hays. Argoverse 2: Next generation datasets for self-driving perception and fore-casting, 2023. 6 [29] Bozhou Zhang, Nan Song, and Li Zhang. Decoupling motion forecasting into directional intentions and dynamic states. 
+
+Advances in Neural Information Processing Systems , 37: 106582–106606, 2024. 2 [30] Bozhou Zhang, Nan Song, and Li Zhang. Demo: Decoupling motion forecasting into directional intentions and dynamic states. In NeurIPS , 2024. 7 [31] Lu Zhang, Peiliang Li, Sikang Liu, and Shaojie Shen. Simpl: A simple and efficient multi-agent motion prediction base-line for autonomous driving, 2024. 7 [32] Zhejun Zhang, Alexander Liniger, Christos Sakaridis, Fisher Yu, and Luc Van Gool. Real-Time Motion Prediction via Heterogeneous Polyline Transformer with Relative Pose En-coding, 2023. arXiv:2310.12970 [cs]. 3, 6, 7 [33] Hang Zhao, Jiyang Gao, Tian Lan, Chen Sun, Ben Sapp, Balakrishnan Varadarajan, Yue Shen, Yi Shen, Yuning Chai, Cordelia Schmid, Congcong Li, and Dragomir Anguelov. TNT: Target-driven Trajectory Prediction. In Proceedings of the 2020 Conference on Robot Learning , pages 895–904. PMLR, 2021. 1, 2 [34] Yang Zhou, Hao Shao, Letian Wang, Steven L. Waslander, Hongsheng Li, and Yu Liu. Smartrefine: A scenario-adaptive refinement framework for efficient motion prediction, 2024. 7
+
+10 8. Supplementatal 
+
+8.1. Physical Grouped-Query Aggregation (PGQA) 
+
+To process situations when Nq > K and to maintain a constant computational overhead for the retrieved anchors which are to be used as queries in the decoder, we use Grouped Query Aggregation. This module mainly func-tions to reduce the unnecessary computational overhead when the number of generated anchors is more than the number of prediction queries which we require. To improve efficiency without sacrificing coverage, we compress the re-trieved set into K representative queries in the physical tra-jectory space, as many retrieved trajectories are spatially re-dundant and can be removed safely. We did a broad range of ablation on the Nq as can be seen from Sec. 8.5 range to study its impact on the downstream metrics. Let N = Nq denote the number of retrieved anchors, 
+
+zi ∈ RD the latent token of the i-th anchor, and Yi ∈
+
+RTf ×2 its associated physical trajectory. We first extract the final endpoint pi = Y(Tf ) 
+
+> i
+
+for each anchor. To en-sure spatial diversity, we select K representative ”seed” an-chors using farthest point sampling (FPS) over the set of endpoints {pi}Ni=1 . The FPS algorithm is initialized with the highest-ranked retrieved anchor, and subsequent seeds are iteratively chosen to maximize the distance from the al-ready selected set. For each selected seed anchor sk, we compute the squared Euclidean distance to every retrieved endpoint: 
+
+dk,i = ∥pi − psk ∥22 . (14) These physical distances are then converted into soft assign-ment weights via a temperature-scaled softmax: 
+
+ak,i = exp( −dk,i /τ g )
+
+PNj=1 exp( −dk,j /τ g ) , (15) where τg controls the sharpness of the assignment (distinct from the retrieval temperature τ in Eq. (3)). The grouped latent query corresponding to seed sk is constructed as a convex combination of all retrieved tokens: 
+
+qk =
+
+> N
+
+X
+
+> i=1
+
+ak,i zi. (16) Crucially, while the FPS seed selection is a discrete opera-tion, the subsequent grouping remains fully differentiable. This allows gradient information to flow back to every re-trieved anchor, ensuring that all Nq proposals are shaped by the downstream prediction loss. This design offers two key advantages. First, it signifi-cantly reduces the number of decoder queries while explic-itly preserving the spatial diversity of the predictions. Sec-ond, it maintains a strict physical grounding: each grouped CA1 CA2 
+
+> Q
+> KV
+
+Decoder xN 
+
+> Anchor Tokens
+
+PGQA   
+
+> Q
+> KV
+> Figure 5. Optional Physical Grouped Query Aggregation (PGQA) layer. By default, the number of DETR queries equals the number of output modes ( K= 6 ). PGQA decouples these by aggregating multiple anchor-conditioned queries into each mode, enabling ab-lations on the number of trajectory anchors independently of K.
+
+Algorithm 1 Physical Anchor Grouped-Query Aggregation (per sample). 
+
+Require: Latent tokens Z ∈ RN ×D ; trajectories Y ∈
+
+RN ×Tf ×2; groups K; temperature τg
+
+Ensure: Grouped queries ˜Z ∈ RK×D ; medoid trajectories 
+
+˜Y ∈ RK×Tf ×2; assignment A ∈ RK×N 
+
+> 1:
+
+en ← Yn,T f ,: ▷ endpoint of each anchor  
+
+> 2:
+
+s1 ← 1; dn ← ∞ for all n 
+
+> 3:
+
+for k = 1 , . . . , K do  
+
+> 4:
+
+dn ← min  dn, ∥en − esk ∥ 22
+
+ 
+
+> 5:
+
+sk+1 ← arg max n dn ▷ FPS step; indices non-differentiable  
+
+> 6:
+
+end for  
+
+> 7:
+
+˜ek ← esk ; ˜Yk ← Ysk ▷ differentiable gather  
+
+> 8:
+
+Ak,n ← softmax n
+
+  − ∥ en − ˜ek∥ 22 / τ g
+
+ 
+
+> 9:
+
+˜Zk, : ← P 
+
+> n
+
+Ak,n Zn, : 
+
+> 10:
+
+return ˜Z, ˜Y, A
+
+query remains tied to the exact trajectory of its selected rep-resentative medoid, such that ˆYk = Ysk .Finally, to encourage softer assignments and prevent pre-mature mode collapse, we compute the mean entropy of the assignment matrix Amat ∈ RK×N :
+
+H(A) = − 1
+
+K
+
+> K
+
+X
+
+> k=1
+> N
+
+X
+
+> i=1
+
+ak,i log ak,i . (17) This entropy term can optionally be maximized during training as a regularization objective. To maintain decoding efficiency, we compress the Nq
+
+retrieved trajectory anchors into K ≪ Nq representative queries while preserving gradient flow to the original set. 11 We select K medoid anchors via Farthest Point Sampling (FPS) over their 2D endpoints, ensuring the groups cover distinct behavioral modes. Each of the N anchors is then softly assigned to the K medoids using a τg -scaled softmax over the negative squared endpoint distances, producing an assignment matrix Amat ∈ RK×N . The grouped query to-kens are computed as ˜Z = Amat Z, and the regression loss is applied against the exact medoid trajectories. Because the soft assignment is fully differentiable, every retrieved an-chor—not just the K medoids—receives gradient updates from the downstream trajectory loss. 
+
+Complexity and Hyperparameters. PA-GQA intro-duces minimal computational overhead, requiring only 
+
+O(N K ) distance evaluations between 2D endpoints and a single K × N × D matrix multiplication. This cost is negli-gible compared to the self-attention mechanisms within the decoder. In our experiments, we perform ablations for a variety of Nq retrieved anchors, but keep the K = 6 con-sistently throughout the experiments. Ablations on these hyperparameters are detailed in Sec. 8.2. 
+
+8.2. Ablation Studies on Motion Bank and Trajec-tory Selection 
+
+To validate our design choices for the trajectory selector and the motion bank, we conduct comprehensive ablations on the Argoverse 2 validation dataset. 
+
+Table 3. Ablation study on motion bank bucket size and configu-ration.                                               
+
+> Bank Configuration minADE 6↓minFDE 6↓MR ↓mAP ↑
+> Impact of Motion Bank Size
+> 100% Baseline ( 128 ×64 )0.6741 1.2674 0.1473 0.2901 44% Subset 0.6928 1.2967 0.1488 0.2741 11% Subset 0.6938 1.3005 0.1536 0.2043
+> Impact of Bucket Size (Clusters ×Elements)
+> 32 ×128 0.6676 1.2417 0.1371 0.2923
+> 64 ×64 0.6698 1.2489 0.1426 0.2802
+> 64 ×128 0.6819 1.2673 0.1458 0.2167 9216 (Flat) 0.6892 1.2936 0.1469 0.2269
+
+Motion Bank Capacity. Tab. 3 demonstrates that reduc-ing the motion bank size progressively degrades perfor-mance. Compressing the baseline to a 44% subset drops mAP from 0.2901 to 0.2741, while extreme pruning to an 11% subset causes mAP to collapse to 0.2043 alongside an increased miss rate (0.1536). This confirms that a suffi-ciently dense geometric prior is essential to capture the long tail of complex driving behaviors. 
+
+Bank Topology and Structure. Evaluating the retrieval bank’s topology (Clusters × Elements) reveals that a 32 ×
+
+128 configuration optimizes all metrics (mAP 0.2923, minADE 6 0.6676). While a 128 × 64 configuration re-mains competitive, topologies that retrieve excessive ele-ments—such as 64 × 128 or a flat 9216 bank—cause severe mAP degradation (0.2167 and 0.2269, respectively). We hypothesize that retrieving too many anchors dilutes the at-tention weights, yielding noisy latent queries that lose their distinct multimodal characteristics. 
+
+Table 4. Ablation study on PGQA and retrieval strategies. ST 
+
+denotes the use of a discrete Straight-Through estimator for hard selection (as opposed to fully soft, differentiable retrieval). Soft-R 
+
+denotes soft retrieval where the STE is disabled and the attention weights are directly used for making a weighted combination of the embeddings from the bank.                       
+
+> Bank Configuration minADE 6↓minFDE 6↓MR ↓mAP ↑
+> 32 ×128 (GQA, ST) 0.6676 1.2417 0.1371 0.2923
+> 32 ×128 (GQA, Soft-R) 0.6973 1.2921 0.1519 0.2690
+
+Soft vs. Hard Retrieval (STE). We evaluated the im-pact of retrieval strategies by comparing a fully differen-tiable soft retrieval approach (Soft-R) against a discrete hard-selection bottleneck using a Straight-Through Estima-tor (STE). The hard-selection approach consistently outper-formed soft retrieval across all metrics, achieving a lower minADE 6 (0.6676 vs. 0.6973) and higher mAP (0.2923 vs. 0.2690). We hypothesize that soft assignment dilutes the gradient flow by constructing anchors as a weighted combi-nation of spatial trajectories. This blending degrades the learned representations and disrupts the one-to-one map-ping required during the decoding phase. In contrast, the discrete selection enforced by the STE preserves distinct trajectory representations, validating our architectural de-sign choice. 
+
+8.3. Ablation on Map Polylines 
+
+Table 5. Ablation on the number of map polylines ( Nmap ) provided to the network.                     
+
+> Map Polylines ( Nmap )minADE 6↓minFDE 6↓MR ↓mAP ↑
+> 128 0.7130 1.3490 0.1564 0.2480 256 0.6690 1.2440 0.1381 0.2923
+> 512 0.7095 1.2990 0.1459 0.2570
+
+Impact of Map Context Size. To understand the model’s reliance on static environmental geometry, we ablate the number of map polylines ( Nmap ) processed by the network. As shown in Table 5, expanding the context from 128 to 256 polylines yields a significant improvement across all metrics, achieving the best performance (minADE 0.6690, 12 mAP 0.2923). This highlights the critical role of compre-hensive road topology in trajectory forecasting, as it allows the mechanism to query a wider receptive field. However, further doubling the capacity to 512 polylines degrades the performance metrics. We hypothesize that an excessively large context window introduces noise or irrelevant distant geometry, diluting the attention mechanism’s ability to fo-cus on the immediate, highly relevant drivable areas. 
+
+8.4. Ablation on Network Gates                                   
+
+> Table 6. Impact of selective gating mechanisms on trajectory met-rics. Checkmarks ( ✓) and crosses ( ×) denote whether the specific context gate is active.
+> Target Map Other minADE 6↓minFDE 6↓MR ↓mAP ↑×××0.7292 1.3490 0.1550 0.2580
+> ✓××0.6690 1.2554 0.1480 0.2923
+> ✓×✓0.6652 1.2481 0.1441 0.3077
+> ✓✓✓0.7247 1.3630 0.1647 0.2440
+
+Selective Context Routing. Tab. 6 isolates the contribu-tion of specific network gates in routing semantic context. Disabling all routing mechanisms yields a weak baseline (mAP 0.2580). Co-activating the Target and Other gates emerges as the strictly optimal configuration, achieving the best performance across all evaluated metrics, including the highest mAP (0.3077), lowest minADE 6 (0.6652), and lowest Miss Rate (0.1441). While enabling only the Tar-get gate improves upon the baseline (mAP 0.2923), it falls short of this dual-gate approach. Conversely, activating all gates concurrently (Target, Map, and Other) severely de-grades both spatial and probabilistic performance, dropping mAP to 0.2440 and increasing Miss Rate to 0.1647. This indicates that unconstrained context aggregation introduces noise, whereas selective gating effectively filters irrelevant semantic features. 
+
+8.5. Ablation on Latent Anchors                             
+
+> Table 7. Ablation on the number of latent anchors used for down-stream forecasting.
+> Latent Anchors minADE 6↓minFDE 6↓MR ↓mAP ↑
+> 128 0.7030 1.3230 0.1520 0.2650 64 0.7290 1.3650 0.1660 0.2590 32 0.6900 1.2990 0.1460 0.2810 16 0.6980 1.3040 0.1510 0.2790 60.6741 1.2674 0.1473 0.2910
+
+Impact of the Number of Latent Anchors. Finally, we study the downstream impact of altering the number of bot-tleneck latent anchors. Table 7 reveals an inverse relation-ship between the number of latent anchors and overall ac-curacy. Configurations utilizing a high number of latent an-chors (e.g., 128 or 64) experience noticeable degradation in minADE and mAP. As the bottleneck is compressed fur-ther, performance strictly improves. Constraining the net-work to exactly 6 latent anchors achieves the most com-petitive results across the board (minADE 0.6741, mAP 0.2910). This confirms that a tighter latent bottleneck ef-fectively forces the network to converge on highly discrim-inative, high-quality multimodal trajectories. 13

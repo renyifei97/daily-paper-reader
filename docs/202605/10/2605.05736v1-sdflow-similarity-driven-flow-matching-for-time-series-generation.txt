@@ -1,0 +1,1232 @@
+Title: SDFlow: Similarity-Driven Flow Matching for Time Series Generation
+
+URL Source: https://arxiv.org/pdf/2605.05736v1
+
+Published Time: Fri, 08 May 2026 00:43:13 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# SDFlow: Similarity-Driven Flow Matching for Time Series Generation 
+
+Wei Li 1,2∗
+
+, Shibo Feng 3,∗, Pengcheng Wu 3, Xingyu Gao 4, Min Wu 5, Peilin Zhao 1†
+
+> 1
+
+Shanghai Jiao Tong University, 2Shanghai University, 3Nanyang Technological University 
+
+> 4
+
+Chinese Academy of Sciences, Beijing, 5Institute for Infocomm Research, A*STAR, Singapore 
+
+liwei008009@163.com , {Shibo001, pengchengwu}@ntu.edu.sg , gxy9910@gmail.com wumin@i2r.a-star.edu.sg, peilinzhao@sjtu.edu.cn ,
+
+Abstract 
+
+Vector quantization (VQ) with autoregressive (AR) token modeling is a widely adopted and highly competitive paradigm for time-series generation. However, such models are fundamentally limited by exposure bias: during inference, er-rors can accumulate across sequential predictions, leading to pronounced quality degradation in long-horizon generation. To address this, we propose SDFlow (Similarity-Driven Flow Matching), a non-autoregressive framework that operates entirely in the frozen VQ latent space and enables parallel sequence generation via flow matching. We tackle three key challenges in making this transition: (1) eliminating exposure bias by replacing step-wise token prediction with a global transport map; (2) mitigating the high-dimensionality of VQ token spaces via a low-rank manifold decomposition with a learned anchor prior over the latent manifold; and (3) incorporating discrete supervision into continuous transport dynamics by introducing a categorical posterior over codebook indices within a variational flow-matching formulation. Extensive experiments show that SD-Flow achieves state-of-the-art performance, improving Discriminative Score and substantially reducing Context-FID, particularly for challenging long-sequence generation. Moreover, SDFlow provides significant inference speedups over autore-gressive baselines, offering both high fidelity and computational efficiency. Code is available at https://anonymous.4open.science/r/SDFlow-D6F3/ 
+
+# 1 Introduction 
+
+Time series generation underpins critical applications spanning finance [ 10 ], healthcare [ 20 ], and energy systems [ 16 ]. Among generative paradigms, variational autoencoders (VAEs) offer fast one-step generation that bypasses the lengthy iterative sampling required by diffusion-based models while remaining competitive in both forecasting and generation quality. Within this lightweight paradigm, vector quantization approaches such as VQ-VAE [ 25 ] and VQGAN [ 12 ] have proven particularly effective, compressing multivariate sequences into finite codebooks that remove redundancy, suppress noise, and enable scalable high-fidelity reconstruction. SDformer [ 7] recently established state-of-the-art performance through VQ-VAE tokenization with similarity-driven quantization combined with autoregressive transformer generation. However, advancing this paradigm to robust long-term generation faces three challenges: 
+
+1. Exposure Bias in Autoregressive Modeling. AR models suffer from a fundamental train-test discrepancy [ 4 , 22 ]. During training, the model conditions on ground-truth tokens, but during inference, it must rely on its own predictions. Errors accumulate sequentially during inference, causing significant degradation in long-horizon generation. This is empirically verified in Figure 1(b), where the baseline’s fidelity deteriorates sharply as sequence length increases. 
+
+> ∗Equal contribution.
+> †Corresponding Author Preprint.
+> arXiv:2605.05736v1 [cs.AI] 7 May 2026
+
+(a) Space: Intrinsic Geometry 24 64 128 256  
+
+> Generation Length ( L)
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+> 0.06
+> Context-FID Score (  )
+> SDformer-ar (Baseline)
+> SDFlow (Ours)
+
+(b) Time: Temporal Consistency (c) Generalization: Novelty 
+
+Figure 1: The Three Pillars of SDFlow. (a) Space: Gaussian initialization (blue) starts from a high-rank space far from the data, whereas our manifold-anchored approach (red) initializes within the intrinsic low-rank subspace, making transport computationally tractable. (b) Time: Unlike autoregressive baselines (blue) that suffer from exposure bias on long sequences, SDFlow (red) maintains consistent high fidelity regardless of length. (c) Generalization: Nearest-neighbor distance distributions show that the generated-to-nearest-real distances (red) closely match the real-to-nearest-real distances (gray), supporting non-copying behavior. 
+
+2. The Curse of Dimensionality. While non-AR flow matching avoids sequential errors, SDFlow still operates in the frozen VQ latent space rather than raw data space. As shown in Figure 1(a), the latent data manifold is extremely low-rank ( r ≪ D) compared to the high-dimensional ambient space. Standard Gaussian initialization starts far from this manifold, making the learning of transport dynamics computationally intractable. 
+
+3. Discrete Supervision for Continuous Transport. VQ-VAE latents possess a dual discrete-continuous structure: each position corresponds to a discrete codebook index with an associated continuous embedding. Purely continuous flow matching ignores the categorical structure, while purely discrete approaches collapse geometry. An effective solution must provide categorical supervi-sion while maintaining continuous transport dynamics. Crucially, the relevant generalization failure mode is latent-anchor collapse rather than raw data-space interpolation. SDFlow learns a low-rank anchor manifold and uses a kernel-smoothed prior only as a tractable way to initialize flow near that scaffold. As shown in Figure 1(c), generated samples maintain substantial distances from training data, suggesting nontrivial synthesis and generalization. To address this triad of challenges, we propose SDFlow, making three key innovations. First , we learn a low-rank manifold decomposition that discovers the intrinsic subspace structure, enabling manifold-anchored initialization that reduces transport distance. Second , following variational flow matching [ 11 ] , we employ categorical posteriors over codebook indices that provide explicit discrete supervision through cross-entropy loss while computing velocity fields in continuous embedding space. Third , we use a learned anchor prior over the low-dimensional anchor coordinates as an auxiliary sampler for topology-preserving initialization. In summary, our contributions include: • Analysis: We identify exposure bias and the curse of dimensionality as fundamental barriers in VQ-based time series generation. • Method: SDFlow combines low-rank manifold discovery with categorical flow matching for non-autoregressive parallel generation. • Evaluation: SDFlow achieves the state-of-the-art performance in short- and long-term generation tasks, while offering 3–10 × speedup improvements. 
+
+# 2 Related Work 
+
+Time Series Generation. GAN-based methods like TimeGAN [ 28 ] and COT-GAN [ 26 ] pioneered deep generative modeling for time series but suffer from training instability and mode collapse. Diffusion approaches [ 15 , 8 , 29 , 23 , 3, 13 ] achieve high fidelity but require hundreds of denoising steps, limiting practical applicability. SDformer [ 7] established state-of-the-art through discrete tokens with autoregressive transformers, demonstrating the power of VQ-VAE representations for temporal data. We build upon this foundation while addressing the fundamental limitations of sequential generation. 
+
+Discrete Token Modeling and Exposure Bias. VQ-VAE [ 25 ] and VQGAN [ 12 ] enable discrete rep-resentations for continuous data, forming the backbone of modern generative models. Autoregressive methods like DALL-E [ 21 ] and GPT-based approaches generate tokens sequentially with powerful 2language model priors. However, all autoregressive methods suffer from exposure bias [ 4]: models are trained via teacher forcing with ground-truth conditioning but must rely on self-generated tokens at inference. This train-test mismatch leads to cascading errors where early mistakes compound through the sequence [ 22 ]. Various mitigation strategies have been proposed, including scheduled sampling [ 4] and random token replacement [ 30 ], but these only partially address the fundamental issue. Non-AR alternatives like MaskGIT [ 5] employ parallel decoding through iterative refinement, reducing but not eliminating sequential dependencies. 
+
+Flow Matching and Variational Extensions. Flow matching [ 17 , 18 , 1 , 24 ] provides simulation-free training for continuous normalizing flows, enabling efficient learning of transport maps. Recent work has also explored flow-based methods for time series, including rectified flows [ 14 ] and stochastic interpolants [ 2 , 6]. Variational flow matching (VFM) [ 11 ] reframes the problem as variational inference, enabling flexible posterior families beyond Gaussian. For discrete or quantized data, VFM yields categorical posteriors that provide direct supervision while maintaining continuous transport—an approach termed CatFlow and successfully applied to molecular generation. 
+
+# 3 Preliminaries 
+
+We establish notation and review the technical foundations underlying our approach. 
+
+Problem Formulation. Let X1: ℓ = ( x1, . . . , xℓ) ∈ Rℓ×d denote a multivariate time series of length 
+
+ℓ with d observed dimensions. The unconditional generation problem is defined as: Input: Z0 ∼ π0; Output: ˆX1: ℓ = G(Z0) ∈ Rℓ×d, (1) where Z0 ∈ Rℓ×d, π0 = N (0, I) is a tractable prior, and G maps samples from the prior to the target data distribution. The generative model can be implemented using GANs [ 28 ], VAEs [ 9 ], or diffusion models [ 29 ], which effectively capture complex temporal dependencies. During training, 
+
+G is optimized to minimize discrepancy between generated ˆX1: ℓ and real data X1: ℓ, ensuring high fidelity and diversity in generated sequences. 
+
+Similarity-Driven Vector Quantization. Following [ 7], we employ a VQ-VAE tokenizer that maps continuous time series to discrete token sequences. An encoder E produces latent vectors 
+
+H1: L = E(X1: ℓ) ∈ RL×dc , where L = ℓ/s for temporal downsampling rate s. Each latent vector is quantized to its nearest neighbor in a learned codebook C = {ck}K−1 
+
+> k=0
+
+⊂ Rdc using similarity-driven 
+
+quantization: 
+
+yi = Q(hi) := arg max 
+
+> k=0 ,...,K −1
+
+hi
+
+∥hi∥ · ck
+
+∥ck∥ . (2) This cosine similarity measure, with unit-normalized codes, improves codebook utilization by prevent-ing collapse to high-norm regions. The encoder output is normalized to unit length, simplifying quan-tization to yi = arg max k hi · ck. Dequantization recovers embeddings via ˜hi = Q−1(yi) := cyi ,and the decoder D reconstructs the time series: ˜X1: ℓ = D( ˜H1: L). Training minimizes reconstruction loss plus embedding regularization with exponential moving average (EMA) codebook updates and inactive code resetting. 
+
+Exposure Bias in Autoregressive Token Modeling. SDformer’s second stage employs autoregressive token modeling to learn the distribution at the discrete token level. During training, shifted tokens 
+
+Yin  
+
+> 1: L
+
+= ([ BOS ], y 1, . . . , y L−1) serve as input to predict targets Y1: L, where [BOS ] denotes the beginning-of-sequence token. The training objective minimizes negative log-likelihood: 
+
+Lar = −E
+
+"X
+
+> i
+
+log P (yi|Yin 
+
+> 1: i
+
+)
+
+#
+
+. (3) At inference, generation proceeds autoregressively from [BOS ], sampling each token from the predicted distribution. This creates a fundamental train-test discrepancy: training conditions on ground-truth tokens while inference conditions on self-generated tokens. Early prediction errors propagate through the sequence, causing cascading degradation—a phenomenon particularly severe for long sequences where errors accumulate over many steps. 
+
+Flow Matching. Flow matching [ 17 ] learns a time-dependent velocity field vθ : RD × [0 , 1] → RD
+
+that generates samples by integrating the ordinary differential equation: 
+
+dzt
+
+dt = vθ (zt, t ), z0 ∼ p0, z1 ∼ pdata . (4) 3𝑎𝑟𝑔𝑚ax ௘ೖ∈𝒞 (𝑧̂ ௜ȉ 𝑒 ௞)                    
+
+> Quantization
+> 𝐷𝑒𝑐𝑜𝑑𝑒𝑟
+> z௦
+> ଵ
+> z௦
+> ଴
+> D𝑖𝑇 ఏ𝑡
+> Sampling Training Stage 1 Stage 2
+> z௦
+> ଴= 𝑢 ௦𝑉 ்
+> × 𝑉 ்𝑢 ௦
+> 𝑈 ~ 𝑝
+> Logits
+> 𝑡 =1
+> 𝑂𝐷𝐸 𝑆𝑜𝑙𝑣𝑒𝑟
+> 𝑡 =0
+> zො௦
+> ଵ= 𝑬[z]
+> 𝑣 = zො௦
+> ଵ− z ௦
+> ௧
+> 1 − 𝑡
+> Input tokens
+> LayerNorm
+> Scale, Shift
+> Multi-head
+> attention
+> 𝒕
+> MLP
+> Scale
+> 𝛾 ଵ, 𝛽 ଵ
+> 𝛼 ଵ
+> LayerNorm
+> Scale, Shift
+> FFN
+> Scale
+> 𝛾 ଶ, 𝛽 ଶ
+> 𝛼 ଶ
+> 𝒕 z𝒔
+> 𝒕
+> Sinusoidal
+> Encoding
+> MLP
+> Embedding
+> MLP
+> ||
+> Conv1D
+> DiT Block × 𝑛
+> LayerNorm
+> Conv1D
+> Temporal-level
+> Concatenation
+> 𝐸𝑛𝑐𝑜𝑑𝑒𝑟
+> Reconstructed Time Series
+> Real Time Series
+> z௦
+> ௧=1 − 𝑡 ∗ 𝑧 ௦
+> ଴+ 𝑡 ∗ z ௦
+> ଵz௦
+> ଴
+> 𝑬 ௧[− log 𝑝 ఏ(𝒚|z ௦
+> ௧,𝑡 )]
+> z௦
+> ଵ
+> z௦
+> ଵ
+> Codebook
+> 𝒞
+> 0
+> 1
+> K-2
+> K-1
+> …
+> …𝑒 ଵଷ 𝑒 ଽ𝑒 ଻ଶ 𝑒 ଶଵ 𝑒 ସଵ
+> …𝑒 ଵଷ 𝑒 ଽ𝑒 ଻ଶ 𝑒 ଶଵ 𝑒 ସଵ
+> …
+> 2
+> 𝐿𝑜𝑠𝑠
+
+Figure 2: Overview of the SDFlow framework. Stage 1 pre-trains a VQ-VAE tokenizer with similarity-driven quantization (frozen during Stage 2). Stage 2 learns manifold-anchored flow matching in the frozen VQ latent space: low-rank decomposition discovers the intrinsic anchor manifold, a learned anchor prior provides topology-preserving initialization, and categorical posteriors over codebook indices enable discrete supervision with continuous transport. For the linear interpolation path zt = (1 − t)z0 + tz1, the conditional velocity field is vt(z|z1) = 
+
+z1 − z0. Training minimizes: 
+
+LFM = Et, z0,z1
+
+∥vθ (zt, t ) − (z1 − z0)∥2 . (5) This formulation provides simulation-free training and enables parallel generation—no sequential dependencies, thus completely eliminating exposure bias. 
+
+# 4 Method 
+
+SDFlow is a two-stage framework illustrated in Figure 2. Stage 1 pre-trains a VQ-VAE tokenizer with similarity-driven quantization (frozen during Stage 2). Stage 2 learns manifold-anchored flow matching with categorical supervision. We now detail each component. 
+
+4.1 Similarity-Driven VQ-VAE Tokenization 
+
+We adopt the similarity-driven VQ-VAE architecture from [ 7], which has demonstrated strong performance for time series. The encoder uses 1D convolutions with residual blocks to map input time series X1: ℓ ∈ Rℓ×d to latent vectors H1: L ∈ RL×dc , where L = ℓ/s is the compressed sequence length. As shown in Eq. (2) , The key innovation is similarity-driven quantization: rather than Euclidean distance, quantization maximizes cosine similarity between encoder outputs and codebook vectors. This normalization-based approach prevents codebook collapse where only a few high-norm codes are utilized. Training employs the standard VQ-VAE objective: 
+
+LVQ = ∥X1: ℓ − ˜X1: ℓ∥22 + λL
+
+LX
+
+i=1 
+
+
+
+1 − hi · sg (˜hi)
+
+
+
+, (6) where sg (·) denotes stop-gradient and the second term is the embedding loss. Codebook updates use exponential moving average (EMA) with inactive code resetting to maintain high utilization. Once trained, the tokenizer is frozen and all subsequent learning occurs in the discrete token space, ensuring the latent structure remains stable during flow matching training. 
+
+4.2 The Geometric Mismatch 
+
+Consider the VQ-VAE latent space with ambient dimension D = L × dc > 3, 000 for typical configurations. Standard flow matching from z0 ∼ N (0, ID ) fails due to two geometric issues: (1) 
+
+Norm mismatch : unit-normalized VQ codes yield ∥z∗∥ = √L, while Gaussian samples concentrate at ∥z0∥ ≈ √D, creating a norm ratio of √dc ≈ 22 (where dc = 512 is the embedding dimension), implying the noise prior is physically much larger than the data manifold; (2) Manifold sparsity :the analysis (Figure 1) reveals that only dozens of components capture 90% variance when t = 1 
+
+despite D > 3, 000 , which means that isotropic samples have negligible probability of landing near the data manifold. Our low-rank decomposition addresses both issues through manifold-anchored 4initialization. To address the dimensionality challenge, we learn a low-rank factorization of the latent space: 
+
+Z ≈ UV ⊤, U ∈ RM ×r , V ∈ RD×r, (7) where V is a global basis and U is a learnable set of low-rank support coordinates for the encoded Stage-2 VQ latents. We do not prefit a separate SVD or reconstruction loss; U, V are optimized end-to-end with the flow objective and coordinate regularization. These supports only parameterize latent initialization: no raw time series are stored or retrieved, and generation samples a continuous coordinate that is subsequently transported by the learned flow. The extra memory is O(M r + Dr )
+
+with r ≪ D, and Table 3 shows that M can be substantially reduced. 
+
+Coordinate Regularization. To ensure well-behaved coordinate distributions suitable for density estimation, we regularize toward zero mean and unit variance: 
+
+Lreg = λμ∥¯u∥2 + λσ (|std (U) − 1|), (8) where ¯u = 1
+
+> N
+
+P 
+
+> i
+
+ui is the mean coordinate and std (U) is the standard deviation across samples. 
+
+Topology-Preserving Latent Anchor Prior. Rather than fitting the transport initializer in raw data space or relying on an uninformative isotropic Gaussian prior, we construct a learned anchor prior over the low-rank latent anchors, implemented with kernel smoothing: 
+
+panchor (u) = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+Kh(u − ui), (9) where the bandwidth h is not an arbitrary noise scale, but a topological parameter governing manifold connectivity. Crucially, since the coordinates are globally regularized to unit variance ( std (U) ≈ 1), the average nearest-neighbor distance ¯dNN is empirically small relative to the coordinate scale. By enforcing h ∝ ¯dNN , this geometrically calibrated bandwidth bridges local gaps between latent supports without over-smoothing the global topology. Thus, the kernel smoother is an auxiliary continuous sampler over the support set, not a lookup generator; the learned flow carries the final generative dynamics. 
+
+Manifold-Anchored Initialization. Given a sampled coordinate u ∼ panchor , the flow initialization is z0 = normalize ℓ2 (uV ⊤). Because u is drawn from a continuous support within the highly bottlenecked r-dimensional subspace ( r ≪ D), this initialization acts as a principled manifold interpolation mechanism. The learned anchor scaffold shapes where generation starts, while the transport map vθ is responsible for producing final samples beyond those anchors. 
+
+4.3 Categorical Flow Matching for VQ-VAE Latents 
+
+In VQ-VAE latent spaces, endpoints z1 must be codebook embeddings {ck}Kk=1 . Following varia-tional flow matching [11] , we model the posterior over endpoints as categorical: 
+
+qθ (c|zt) = Cat (c|πtθ (zt)) , (10) 
+
+πt,k θ (zt) = exp( f kθ (zt, t )/τ )
+
+PKj=1 exp( f jθ (zt, t )/τ ) , (11) where fθ (zt, t ) ∈ RL×K outputs logits over codebook indices at each position and τ is a temperature parameter. This categorical posterior yields a continuous velocity field as a probability-weighted combination of codebook embeddings: Define the posterior mean embeddings 
+
+μ∗(zt) := 
+
+> K
+
+X
+
+> k=1
+
+p(ck | zt) ck, μθ (zt) := 
+
+> K
+
+X
+
+> k=1
+
+qθ (ck | zt) ck,
+
+and the induced velocity fields (for t ∈ [0 , 1) )
+
+v∗(zt, t ) := μ∗(zt) − zt
+
+1 − t , vθ (zt, t ) := μθ (zt) − zt
+
+1 − t .
+
+where μθ (zt) = P 
+
+> k
+
+πkθ (zt)ck is the expected codebook embedding under the predicted distribution. This formulation elegantly bridges discrete and continuous: the model predicts a distribution over discrete codes, but transport occurs smoothly in embedding space. 5Cross-Entropy Training Objective. The variational flow matching objective reduces to cross-entropy between predicted posteriors and ground-truth indices: 
+
+LCE = −Et, zt [log qθ (c∗|zt)] = −Et, zt
+
+" LX
+
+> i=1
+
+log πc∗ 
+
+> i
+> θ
+
+(zt)
+
+#
+
+, (12) where c∗ denotes the observed VQ endpoint label for each sampled path, i.e., the empirical hard-label realization of the endpoint posterior. This provides direct discrete supervision—unlike MSE regres-sion that ignores categorical structure—while maintaining geometric awareness through probability-weighted embedding combinations. 
+
+Advantages of Categorical Supervision. Cross-entropy loss provides three benefits: (1) explicit token-level supervision that directly teaches which codebook entry to select; (2) uncertainty quantifica-tion over plausible codes, enabling soft assignments during transport; and (3) temperature-controlled generation where lower τ sharpens predictions for higher fidelity while higher τ increases diversity. 
+
+Why SDFlow Generalizes. The kernel-smoothed anchor prior is a continuous initializer over low-rank VQ-latent coordinates, not a raw-data generator; Appendix C provides the theoretical perspective, while Section 5.3 reports held-out latent-flow stress tests. 
+
+4.4 Architecture and Training 
+
+Flow Network Architecture. We employ a Diffusion Transformer (DiT) [ 19 ] adapted for sequential data. The input is the interpolated latent zt ∈ RL×dc treated as a sequence of L tokens. Time conditioning uses adaptive layer normalization (AdaLN): sinusoidal embeddings of t are projected to scale and shift parameters that modulate layer statistics. A learnable global token is prepended to aggregate sequence-level information. The output is logits over the K-dimensional codebook at each position. The training loss combines categorical cross-entropy with coordinate regularization: 
+
+L = LCE + λμLμ + λσ Lσ . (13) where λμ and λσ are balancing coefficients that keep the U near zero mean and unit variance. 
+
+Inference Procedure. Generation proceeds in five steps: (1) Sample coordinate u ∼ panchor with bandwidth h; (2) Compute anchor z0 = normalize (uV ⊤); (3) Integrate the learned ODE forward using Euler steps with temperature-scaled softmax; (4) Quantize final latent to nearest codebook entries via cosine similarity; (5) Decode through the frozen VQ-VAE decoder to obtain generated time series. The kernel-smoothed prior only provides the initialization scaffold; the learned flow carries the sample to the final output. 
+
+4.5 Theoretical Foundation 
+
+Theorem 4.1 (Transport Complexity: Gaussian vs. Manifold-Anchored Initialization) . Let D be the data distribution supported on RD . Assume the data effectively lies near an r-dimensional linear subspace M spanned by a semi-orthogonal basis V ∈ RD×r (r ≪ D), such that any data sample 
+
+z ∼ D can be decomposed as z = Vu ∗ + ϵ, where u∗ ∈ Rr is the intrinsic coordinate and ∥ϵ∥2 ≤ ϵ2
+
+is the bounded approximation error. Let z0 denote the initialization point for the flow. The expected squared transport distance E[∥z − z0∥2] behaves as follows: 1. Gaussian Initialization. If z0 ∼ N (0, ID ) and the data is bounded (i.e., E[∥z∥2] = C < 
+
+∞), then the transport distance scales linearly with the ambient dimension: 
+
+Ez,z0
+
+∥z − z0∥2 = D + C = Θ( D). (14) 
+
+2. Manifold-Anchored Initialization. Let z0 = Vu , where u is sampled via a topology-preserving anchor prior with bandwidth h. Assuming the prior ensures local sampling such that E[∥u − u∗∥2] ≤ h2, the transport distance is independent of the ambient dimension D:
+
+Ez,z0
+
+∥z − z0∥2 ≤ σ2max (V)h2 + ϵ2 = O(h2 + ϵ2). (15) 
+
+Theoretical Implication. Theorem 4.1 highlights the fundamental advantage of our approach. Eq. (14) shows that standard flow matching must transport probability mass across a squared dis-tance proportional to the ambient dimension D (typically > 3000 in VQ-VAE spaces), creating an intractable optimization landscape. In contrast, Eq. (15) demonstrates that SDFlow reduces the transport cost to a term controlled by the intrinsic manifold properties ( h and ϵ), effectively bypassing the curse of dimensionality. This transforms a global transport problem into a local interpolation problem, drastically reducing the difficulty of learning the velocity field. 
+
+6Kernel-Smoothed Anchor Prior. The kernel smoother is used only to define a continuous ini-tialization distribution over the learned low-rank coordinates, not to generate time series by itself. Appendix C further shows that this prior can be interpreted as an explicit RBF mixture over latent anchors, and that kernel smoothing enjoys the standard KDE rate O(N −4/(r+4) ) on the intrinsic coordinate space rather than the much slower raw-space rate O(N −4/(D+4) ) with D ≫ r. This explains why local latent support smoothing is appropriate for initialization while the learned flow remains responsible for generation. 
+
+Proposition 4.2 (Consistency of Categorical Flow Matching) . Let C = {ck}Kk=1 ⊂ Rd be a codebook with bounded norm max k ∥ck∥2 ≤ R. Let p(c | zt) be the true categorical posterior over codebook indices and qθ (c | zt) be its model prediction. Let the time-weighted cross-entropy objective be 
+
+LwCE (θ) := Et∼τ, z t
+
+ 1(1 − t)2 Ec∼p(·| zt)[− log qθ (c | zt)] 
+
+
+
+,
+
+and denote its Bayes-optimal value 
+
+L∗ 
+
+> wCE
+
+:= Et∼τ, z t
+
+ H(p(· | zt)) (1 − t)2
+
+
+
+.
+
+Then minimizing this weighted categorical objective controls the mean-squared error of the induced velocity field: 
+
+Et∼τ, z t
+
+∥vθ (zt, t ) − v∗(zt, t )∥22
+
+ ≤ 2R2 ·
+
+
+
+LwCE (θ) − L ∗
+
+> wCE
+
+
+
+. (16) 
+
+For the unweighted CE used in practice, the same argument gives a time-weighted KL control; with 
+
+t ≤ 1 − δ or a bounded importance weight, this reduces to the usual CE control up to a finite constant. 
+
+Explanation. Proposition 4.2 shows that categorical supervision is not merely a classification surrogate: the time-weighted categorical cross-entropy controls the velocity-field MSE that standard flow matching seeks to minimize. In practice, our cosine time sampling avoids the singular region near t = 1 , making the unweighted CE a stable surrogate. The complete proofs can be found in Appendix A and Appendix B. 
+
+# 5 Experiments 
+
+5.1 Experimental Setup 
+
+We conduct comprehensive experiments to evaluate SDFlow on both standard benchmarks and challenging long-sequence generation scenarios. We evaluate on four datasets spanning diverse domains and complexities, following the protocol established by prior work [ 28 , 7]. Datasets include: Sines, Stocks, ETTh and Energy. We adopt three complementary metrics following standard practice: Discriminative Score (DS), Predictive Score (PS) and Context-FID. All experiments report mean and standard deviation over 5 random seeds. We compare against representative methods from each paradigm: GAN-based : TimeGAN [ 28 ], COT-GAN [ 26 ]; VAE-based : TimeVAE [ 9]; Diffusion-based : DiffWave [ 15 ], DiffTime [ 8], Diffusion-TS [ 29 ]; Discrete token : SDformer-m (masked), SDformer-ar (autoregressive) [7], TimeMAR-L [27]. Flow-based : FlowTS [14]. We use the same VQ-VAE tokenizer as SDformer for fair comparison, with codebook size K = 512 ,latent dimension dc = 512 , and downsampling rate s = 4 . For SDFlow, we use rank r = 256 with one DiT layer for L = 24 , and rank r = 1024 with three DiT layers for L = 256 . The low-rank coordinates are normalized before constructing the anchor prior, and the bandwidth h is selected from 
+
+[0 .03 , 0.20] ; in Energy, we use h = 0 .06 . More implementation details are provided in Appendix D. 
+
+5.2 Main Results 
+
+5.2.1 Short-Sequence Generation ( L = 24 ). 
+
+Table 1 presents results on the standard short-sequence benchmark. SDFlow achieves competitive or superior performance across all datasets. Notably, on Energy, SDFlow matches the state-of-the-art DS (0.006) while achieving dramatically superior Context-FID (0.001 vs. 0.003), indicating better distributional coverage beyond fooling discriminators. The t-SNE visualizations (Figure 7) confirm that generated samples align with real data, filling the manifold without complete overlap. 7Metric Dataset TimeGAN COT-GAN TimeVAE DiffWave DiffTime Diff-TS FlowTS SDformer-m SDformer-ar Ours DS ↓
+
+Sines .011 ±.008 .254 ±.137 .041 ±.044 .017 ±.008 .013 ±.006 .006 ±.007 .005 ±.005 .008 ±.004 .006 ±.004 .006 ±.006 
+
+Stocks .102 ±.021 .230 ±.016 .145 ±.120 .232 ±.061 .097 ±.016 .067 ±.015 .019 ±.013 .020 ±.011 .010 ±.006 .003 ±.003 ETTh .114 ±.055 .325 ±.099 .209 ±.058 .190 ±.008 .100 ±.007 .061 ±.009 .011 ±.015 .022 ±.001 .003 ±.001 .002 ±.003 Energy .236 ±.012 .498 ±.002 .499 ±.000 .493 ±.004 .445 ±.004 .122 ±.003 .053 ±.010 .062 ±.006 .006 ±.004 .006 ±.002 PS ↓
+
+Sines .093 ±.019 .100 ±.000 .093 ±.000 .093 ±.000 .093 ±.000 .093 ±.000 .092 ±.000 .093 ±.000 .093 ±.000 .092 ±.000 Stocks .038 ±.001 .047 ±.001 .039 ±.000 .047 ±.000 .038 ±.001 .036 ±.000 .036 ±.000 .037 ±.000 .037 ±.000 .036 ±.000 ETTh .124 ±.001 .129 ±.000 .126 ±.004 .130 ±.001 .121 ±.004 .119 ±.002 .118 ±.005 .119 ±.002 .118 ±.002 .118 ±.001 Energy .273 ±.004 .259 ±.000 .292 ±.000 .251 ±.000 .252 ±.000 .250 ±.000 .250 ±.000 .250 ±.000 .249 ±.000 .249 ±.000 C-FID ↓
+
+Sines .101 ±.014 1.337 ±.068 .307 ±.060 .014 ±.002 .006 ±.001 .006 ±.000 .002 ±.000 .010 ±.002 .001 ±.000 .0004 ±.000 Stocks .103 ±.013 .408 ±.086 .215 ±.035 .232 ±.032 .236 ±.074 .147 ±.025 .015 ±.003 .034 ±.008 .002 ±.000 .001 ±.000 ETTh .300 ±.013 .980 ±.071 .805 ±.186 .873 ±.061 .299 ±.044 .116 ±.010 .024 ±.001 .019 ±.003 .008 ±.001 .001 ±.000 Energy .767 ±.103 1.039 ±.028 1.631 ±.142 1.031 ±.131 .279 ±.045 .089 ±.024 .031 ±.004 .041 ±.005 .003 ±.000 .001 ±.000 
+
+Table 1: Unconditional generation results on standard benchmarks ( L = 24 ). Best results in bold ,second best underlined. Lower is better for all metrics. Results show mean ± std over 5 runs. 
+
+Discriminative Score ↓ Predictive Score ↓ Context-FID ↓
+
+Method L = 64 L = 128 L = 256 L = 64 L = 128 L = 256 L = 64 L = 128 L = 256 
+
+ETTh Dataset 
+
+TimeGAN 0.227 ± .078 0.188 ± .074 0.442 ± .056 0.132 ± .008 0.153 ± .014 0.220 ± .008 1.130 ± .102 1.553 ± .169 5.872 ± .208 COT-GAN 0.296 ± .348 0.451 ± .080 0.461 ± .010 0.135 ± .003 0.126 ± .001 0.129 ± .000 3.008 ± .277 2.639 ± .427 4.075 ± .894 TimeVAE 0.171 ± .142 0.154 ± .087 0.178 ± .076 0.118 ± .004 0.113 ± .005 0.110 ± .027 0.827 ± .146 1.062 ± .134 0.826 ± .093 DiffWave 0.254 ± .074 0.274 ± .047 0.304 ± .068 0.133 ± .008 0.129 ± .003 0.132 ± .001 1.543 ± .153 2.354 ± .170 2.899 ± .289 DiffTime 0.150 ± .003 0.176 ± .015 0.243 ± .005 0.118 ± .004 0.120 ± .008 0.118 ± .003 1.279 ± .083 2.554 ± .318 3.524 ± .830 Diffusion-TS 0.106 ± .048 0.144 ± .060 0.060 ± .030 0.116 ± .000 0.110 ± .003 0.109 ± .013 0.631 ± .058 0.787 ± .062 0.423 ± .038 FlowTS 0.010 ± .004 0.040 ± .012 0.081 ± .022 0.115 ± .005 0.104 ± .013 0.107 ± .005 0.039 ± .003 0.128 ± .007 0.302 ± .018 SDformer-ar 0.018 ± .007 0.013 ± .005 0.008 ± .006 0.116 ± .006 0.110 ± .007 0.095 ± .003 0.018 ± .003 0.024 ± .001 0.021 ± .001 TimeMAR-L 0.005 ± .004 0.008 ± .001 0.006 ± .006 0.114 ± .004 0.110 ± .007 0.105 ± .007 0.002 ± .002 0.002 ± .001 0.002 ± .001 
+
+SDFlow (Ours) 0.003 ± .000 0.007 ± .003 0.005 ± .002 0.113 ± .003 0.109 ± .006 0.105 ± .004 0.001 ± .000 0.001 ± .000 0.001 ± .000 
+
+Original — — — 0.114 ± .006 0.108 ± .005 0.106 ± .010 — — —
+
+Energy Dataset 
+
+TimeGAN 0.498 ± .001 0.499 ± .001 0.499 ± .000 0.291 ± .003 0.303 ± .002 0.351 ± .004 1.230 ± .070 2.535 ± .372 5.032 ± .831 COT-GAN 0.499 ± .001 0.499 ± .001 0.498 ± .004 0.262 ± .002 0.269 ± .002 0.275 ± .004 1.824 ± .144 1.822 ± .271 2.533 ± .467 TimeVAE 0.499 ± .000 0.499 ± .000 0.499 ± .000 0.302 ± .001 0.318 ± .000 0.353 ± .003 2.662 ± .087 3.125 ± .106 3.768 ± .998 DiffWave 0.497 ± .004 0.499 ± .001 0.499 ± .000 0.252 ± .001 0.252 ± .000 0.251 ± .000 2.697 ± .418 5.552 ± .528 5.572 ± .584 DiffTime 0.328 ± .031 0.396 ± .024 0.437 ± .095 0.252 ± .000 0.251 ± .000 0.251 ± .000 0.762 ± .157 1.344 ± .131 4.735 ± .729 Diffusion-TS 0.078 ± .021 0.143 ± .075 0.290 ± .123 0.249 ± .000 0.247 ± .001 0.245 ± .001 0.135 ± .017 0.087 ± .019 0.126 ± .024 SDformer-ar 0.010 ± .007 0.013 ± .007 0.017 ± .003 0.247 ± .001 0.244 ± .000 0.243 ± .002 0.031 ± .002 0.036 ± .002 0.041 ± .003 TimeMAR-L 0.006 ± .004 0.005 ± .005 0.009 ± .005 0.247 ± .001 0.244 ± .001 0.243 ± .003 0.002 ± .000 0.003 ± .000 0.008 ± .001 
+
+SDFlow (Ours) 0.004 ± .001 0.005 ± .004 0.007 ± .006 0.247 ± .000 0.244 ± .001 0.242 ± .002 0.002 ± .000 0.002 ± .000 0.002 ± .000 
+
+Original — — — 0.245 ± .002 0.243 ± .000 0.243 ± .000 — — —
+
+Table 2: Unconditional long-sequence generation results ( L = 64 , 128 , 256 ). Best results in bold ,second best underlined. Lower is better for all metrics. Results show mean ± std over 5 runs. 
+
+5.2.2 Long-Sequence Generation ( L : 64 , 128 , 256 ). 
+
+Table 2 presents results on the primary evaluation setting where SDFlow demonstrates its fundamental advantages over AR methods. As length increases, SDformer-ar exhibits systematic degradation due to exposure bias and error accumulation. At L = 256 , SDformer-ar achieves DS of 0.008 on ETTh and 0.017 on Energy—significant degradation from its strong short-sequence performance. Even when TimeMAR-L ( ≥ 40 M ) has a parameter quantity that is an order of magnitude larger than ours, its performance is still inferior to ours in the vast majority of cases. In contrast, SDFlow maintains stable quality across all lengths through parallel generation that eliminates cascading errors. At L = 256 : DS of 0.005 on ETTh (37.5% improvement over SDformer-ar, 16.6% improvement over TimeMAR-L). The Context-FID improvements are even more dramatic: 0.001 vs. 0.021 on ETTh (95.2% reduction) and 0.002 vs. 0.041 on Energy (95.1% reduction). These results indicate that exposure bias is a major bottleneck for AR token modeling in long-horizon generation. Non-AR generation via SDFlow provides a principled alternative. 
+
+5.2.3 Spectral Analysis 
+
+Figure 3: Singular Value Spectrum Analysis (Energy, D = 3072 ). To verify whether our model learns the intrinsic data structure, we analyze the singular value spectrum of the feature representations. As shown in Figure 3, we observe a significant difference between the learned Manifold (red) and the Gaussian noise (blue). When t is close to zero, the singular values of the Manifold drop sharply, with the top 200 components explaining more than 90% of the variance. 8Component Ablation Sensitivity Held-out Latent-Flow Generalization Variant DS ↓ Setting DS ↓ Train Eval DS ↓ C-FID ↓                                                                                                                       
+
+> Raw data space Rank ( r)Energy + Flow in data space 0.453 + Static SVD ( r= 42 ), h= 0 .06 0.094 100% latents Full 0.006 0.001 VQ latent space + Learned r= 128 ,h= 0 .06 0.015 20% latents Held-out 80% 0.007 0.001
+> + Gaussian prior 0.218 + Learned r= 256 ,h= 0 .06 0.006 10% latents Held-out 90% 0.009 0.002
+> + Anchor prior w/o low-rank 0.173 + Learned r= 512 ,h= 0 .06 0.006 ∆(10% vs. full) –.003 .001 Low-rank latent scaffold Bandwidth ( h)Sines + Gaussian prior 0.218 +h= 0 .60 ,r= 256 0.138 100% latents Full 0.006 0.0004
+> + Learned MLP prior 0.213 +h= 0 .12 ,r= 256 0.049 20% latents Held-out 80% 0.006 0.0009
+> + Interpolation prior 0.047 +h= 0 .06 ,r= 256 0.006 10% latents Held-out 90% 0.007 0.0013
+> + Learned anchor prior (Ours) 0.006 +h= 0 .01 ,r= 256 0.008 ∆(10% vs. full) –.001 .0009 Capacity (w/o low-rank) Solver steps ETTh + Smaller codebook, d= 256 0.223 + 10 ODE steps 0.018 100% latents Full 0.002 0.001
+> + Smaller codebook, d= 128 0.251 + 20 ODE steps (Ours) 0.006 50% latents Held-out 50% 0.003 0.002
+> + Smaller codebook, d= 64 0.299 + 50 ODE steps 0.006 ∆(50% vs. full) –.001 .001
+
+Table 3: Ablation, sensitivity, and held-out latent-flow generalization. The left panel isolates key design choices, the middle panel studies rank, bandwidth, and solver sensitivity, and the right panel keeps the VQ tokenizer as a shared representation layer while training the Stage-2 latent flow and anchors on small encoded subsets. This steep spectral decay indicates that our method effectively recovers the low-dimensional structure of the data. Conversely, the Gaussian baseline exhibits a flat spectrum, characteristic of unstructured high-dimensional noise. This suggests that the flow trajectories transport the noise distribution onto a concentrated data manifold. 
+
+5.2.4 Inference Efficiency 
+
+We compare the inference time for generating 1,024 samples ( L = 24 ). SDFlow requires only 
+
+0.04–0.05s across all datasets (e.g., 0.05s on Sines, 0.04s on Energy), drastically outperforming SDformer-ar (0.15–0.40s) and Diffusion-TS (9.57–34.92s). This translates to a 3.0 × to 10.0 ×
+
+speedup over the AR baseline. The gain comes from replacing L sequential AR decoding passes with S parallel refinement passes ( S = 20 ), while each pass still uses the same transformer attention pattern; therefore, we report wall-clock speedups to contextualize long-horizon efficiency. 
+
+5.3 Ablation, Hyperparameter and Generalization Study 
+
+Representation Space. Table 3 shows that applying flow in data space performs poorly (DS 0.453), whereas SDFlow operates after VQ tokenization. This supports our central design: generation is more effective over the frozen VQ latent space, producing meaningful synthetic samples for downstream tasks. The Predictive Score (TSTR, Train on Synthetic, Test on Real) further supports this point. 
+
+Low-Rank Scaffold. VQ tokenization alone is insufficient: Gaussian initialization (0.218) and anchor initialization without low-rank structure (0.173) remain weak. Anchor Prior. On top of the low-rank scaffold, generic Gaussian or amortized MLP priors still fail (0.218/0.213), while the learned anchor prior reaches 0.006, indicating a learned latent prototype sampler. Codebook Capacity. Simply reducing the codebook dimension does not help (0.223 for d = 256 , 0.251 for d = 128 ). ODE Solver. S = 20 matches S = 50 and is much better than S = 10 , giving an efficient solver budget. 
+
+Held-out Generalization. With the VQ tokenizer kept as the shared representation layer, training the Stage-2 latent flow and anchors on small encoded subsets (e.g., 10%) still yields close DS/C-FID on held-out real distributions. This supports that the low-rank latent manifold captures shared distributional geometry rather than relying on point-wise access to every training trajectory. More details are provided in Appendix G. 
+
+# 6 Conclusion 
+
+We have presented SDFlow, a principled framework for non-autoregressive time series generation that mitigates exposure bias in autoregressive token modeling. By combining low-rank manifold decomposition with categorical flow matching, SDFlow transforms long-range transport into tractable local refinement from manifold anchors, offering both high fidelity and computational efficiency. Comprehensive experiments demonstrate state-of-the-art performance across all benchmarks, with strong improvements on long sequences: up to 95% Context-FID reduction and 3–10 × faster inference. 
+
+Limitations. Currently, SDFlow uses a dataset-specific VQ tokenizer and codebook. A natural next step is to develop a universal time-series tokenizer with a shared codebook, enabling SDFlow to operate in a unified latent space for multi-domain generation. 9References 
+
+[1] Michael S Albergo and Eric Vanden-Eijnden. Building normalizing flows with stochastic interpolants. 
+
+arXiv preprint arXiv:2209.15571 , 2022. [2] Michael S Albergo, Nicholas M Boffi, and Eric Vanden-Eijnden. Stochastic interpolants: A unifying framework for flows and diffusions. arXiv preprint arXiv:2303.08797 , 2023. [3] Juan Miguel Lopez Alcaraz and Nils Strodthoff. Diffusion-based time series imputation and forecasting with structured state space models. arXiv preprint arXiv:2208.09399 , 2022. [4] Samy Bengio, Oriol Vinyals, Navdeep Jaitly, and Noam Shazeer. Scheduled sampling for sequence prediction with recurrent neural networks. Advances in neural information processing systems , 28, 2015. [5] Huiwen Chang, Han Zhang, Lu Jiang, Ce Liu, and William T Freeman. Maskgit: Masked generative image transformer. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,pages 11315–11325, 2022. [6] Ricky TQ Chen and Yaron Lipman. Flow matching on general geometries. arXiv preprint arXiv:2302.03660 , 2023. [7] Zhicheng Chen, FENG SHIBO, Zhong Zhang, Xi Xiao, Xingyu Gao, and Peilin Zhao. Sdformer: Similarity-driven discrete transformer for time series generation. Advances in Neural Information Processing Systems ,37:132179–132207, 2024. [8] Andrea Coletta, Sriram Gopalakrishnan, Daniel Borrajo, and Svitlana Vyetrenko. On the constrained time-series generation problem. Advances in Neural Information Processing Systems , 36:61048–61059, 2023. [9] Abhyuday Desai, Cynthia Freeman, Zuhui Wang, and Ian Beaver. Timevae: A variational auto-encoder for multivariate time series generation (2021). arXiv preprint arXiv:2111.08095 , 2021. [10] Qianggang Ding, Sifan Wu, Hao Sun, Jiadong Guo, and Jian Guo. Hierarchical multi-scale gaussian transformer for stock movement prediction. In Ijcai , pages 4640–4646, 2020. [11] Floor Eijkelboom, Grigory Bartosh, Christian Andersson Naesseth, Max Welling, and Jan-Willem van de Meent. Variational flow matching for graph generation. Advances in Neural Information Processing Systems , 37:11735–11764, 2024. [12] Patrick Esser, Robin Rombach, and Bjorn Ommer. Taming transformers for high-resolution image synthesis. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 12873–12883, 2021. [13] Shibo Feng, Chunyan Miao, Zhong Zhang, and Peilin Zhao. Latent diffusion transformer for probabilistic time series forecasting. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 38, pages 11979–11987, 2024. [14] Yang Hu, Xiao Wang, Zezhen Ding, Lirong Wu, Huatian Zhang, Stan Z Li, Sheng Wang, Jiheng Zhang, Ziyun Li, and Tianlong Chen. Flowts: Time series generation via rectified flow. arXiv preprint arXiv:2411.07506 , 2024. [15] Zhifeng Kong, Wei Ping, Jiaji Huang, Kexin Zhao, and Bryan Catanzaro. Diffwave: A versatile diffusion model for audio synthesis. arXiv preprint arXiv:2009.09761 , 2020. [16] Bryan Lim and Stefan Zohren. Time-series forecasting with deep learning: a survey. Philosophical transactions of the royal society a: mathematical, physical and engineering sciences , 379(2194), 2021. [17] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 , 2022. [18] Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. arXiv preprint arXiv:2209.03003 , 2022. [19] William Peebles and Saining Xie. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF international conference on computer vision , pages 4195–4205, 2023. [20] Robert B Penfold and Fang Zhang. Use of interrupted time series analysis in evaluating health care quality improvements. Academic pediatrics , 13(6):S38–S44, 2013. 
+
+10 [21] Aditya Ramesh, Mikhail Pavlov, Gabriel Goh, Scott Gray, Chelsea Voss, Alec Radford, Mark Chen, and Ilya Sutskever. Zero-shot text-to-image generation. In International conference on machine learning ,pages 8821–8831. Pmlr, 2021. [22] Florian Schmidt. Generalization in generation: A closer look at exposure bias. arXiv preprint arXiv:1910.00292 , 2019. [23] Yusuke Tashiro, Jiaming Song, Yang Song, and Stefano Ermon. Csdi: Conditional score-based diffusion models for probabilistic time series imputation. Advances in neural information processing systems , 34: 24804–24816, 2021. [24] Alexander Tong, Kilian Fatras, Nikolay Malkin, Guillaume Huguet, Yanlei Zhang, Jarrid Rector-Brooks, Guy Wolf, and Yoshua Bengio. Improving and generalizing flow-based generative models with minibatch optimal transport. arXiv preprint arXiv:2302.00482 , 2023. [25] Aaron Van Den Oord, Oriol Vinyals, et al. Neural discrete representation learning. Advances in neural information processing systems , 30, 2017. [26] Tianlin Xu, Li Kevin Wenliang, Michael Munn, and Beatrice Acciaio. Cot-gan: Generating sequential data via causal optimal transport. Advances in neural information processing systems , 33:8798–8809, 2020. [27] Xiangyu Xu, Qingsong Zhong, and Jilin Hu. Timemar: Multi-scale autoregressive modeling for uncon-ditional time series generation. In Proceedings of the ACM Web Conference 2026 , pages 5132–5143, 2026. [28] Jinsung Yoon, Daniel Jarrett, and Mihaela Van der Schaar. Time-series generative adversarial networks. 
+
+Advances in neural information processing systems , 32, 2019. [29] Xinyu Yuan and Yan Qiao. Diffusion-ts: Interpretable diffusion for general time series generation. arXiv preprint arXiv:2403.01742 , 2024. [30] J Zhang, Y Zhang, X Cun, S Huang, Y Zhang, H Zhao, H Lu, and X Shen. T2m-gpt: Generating human motion from textual descriptions with discrete representations. arXiv preprint arXiv:2301.06052 , 2023. 
+
+11 Appendices for SDFlow 
+
+# A Proof of Theorem 4.1 
+
+We prove the two claims in Theorem 4.1. 
+
+Part (i): Gaussian Initialization 
+
+Let z ∼ D and z0 ∼ N (0, ID ) be independent. Using the polarization identity, 
+
+∥z − z0∥2 = ∥z∥2 + ∥z0∥2 − 2⟨z, z0⟩. (17) Taking expectation over (z, z0) and using independence gives 
+
+E∥z − z0∥2 = E∥z∥2 + E∥z0∥2 − 2 E⟨z, z0⟩. (18) The cross term vanishes since z0 is zero-mean and independent of z:
+
+E⟨z, z0⟩ = Ez
+
+h
+
+z, Ez0 [z0]
+
+i
+
+= Ez
+
+⟨z, 0⟩ = 0 . (19) Moreover, for z0 ∼ N (0, ID ), we have 
+
+E∥z0∥2 = E
+
+h DX
+
+> i=1
+
+z20,i 
+
+i
+
+=
+
+> D
+
+X
+
+> i=1
+
+E[z20,i ] = 
+
+> D
+
+X
+
+> i=1
+
+Var( z0,i ) = D. (20) By the boundedness assumption E∥z∥2 = C < ∞, substituting (19) and (20) into (18) yields 
+
+Ez,z0
+
+∥z − z0∥2 = C + D, 
+
+which proves (14). Since C is independent of D, we have C + D = Θ( D).
+
+Part (ii): Manifold-Anchored Initialization 
+
+Assume V ∈ RD×r is semi-orthogonal and spans M, and each sample admits the decomposition 
+
+z = Vu ∗ + ϵ, ∥ϵ∥2 ≤ ϵ2, (21) where u∗ ∈ Rr is the intrinsic coordinate. Let the anchored initialization be z0 = Vu , where 
+
+u ∼ panchor is sampled from the anchor prior and satisfies 
+
+E∥u − u∗∥2 ≤ h2. (22) Define δ := u − u∗ so that u = u∗ + δ. Then, using (21), 
+
+z − z0 = ( Vu ∗ + ϵ) − Vu = V(u∗ − u) + ϵ = −Vδ + ϵ. (23) Hence, 
+
+∥z − z0∥2 = ∥ − Vδ + ϵ∥2 = ∥Vδ∥2 + ∥ϵ∥2 − 2⟨Vδ, ϵ ⟩. (24) 
+
+Cross term control. Since V is semi-orthogonal, col( V) = M. Interpreting ϵ as the approximation residual orthogonal to M (i.e., ϵ ∈ M ⊥), we have 
+
+⟨Vδ, ϵ ⟩ = 0 , (25) and therefore 
+
+∥z − z0∥2 = ∥Vδ∥2 + ∥ϵ∥2. (26) If one does not assume ϵ ∈ M ⊥, a weaker bound still holds by ∥a + b∥2 ≤ 2∥a∥2 + 2 ∥b∥2, but we proceed with (25) to match the statement of Theorem 4.1. 
+
+Bounding the two terms. First, by the operator norm inequality, 
+
+∥Vδ∥ ≤ ∥ V∥2∥δ∥ = σmax (V)∥δ∥, ⇒ ∥Vδ∥2 ≤ σ2max (V)∥δ∥2. (27) Taking expectation and using (22), 
+
+E∥Vδ∥2 ≤ σ2max (V) E∥δ∥2 ≤ σ2max (V) h2. (28) Second, by the bounded approximation error in (21), 
+
+E∥ϵ∥2 ≤ ϵ2. (29) 12 Putting everything together. Taking expectation in (26) and applying (28)–(29) gives 
+
+E∥z − z0∥2 = E∥Vδ∥2 + E∥ϵ∥2 ≤ σ2max (V) h2 + ϵ2,
+
+which is exactly (15) . Finally, since σmax (V) does not depend on D when V is semi-orthogonal (indeed σmax (V) = 1 ), we obtain 
+
+E∥z − z0∥2 = O(h2 + ϵ2),
+
+establishing the dimension-free scaling claimed in Theorem 4.1. While we assumes a semi-orthogonal basis V for theoretical tractability, our empirical results indicate that standard unconstrained optimization of V is practically sufficient to achieve the same geometric benefits. 
+
+# B Proof of Proposition 4.2 
+
+We prove the velocity-field mean-squared-error (MSE) bound induced by minimizing the cross-entropy objective. 
+
+Step 1: Reduce velocity-field error to posterior-mean embedding error. By definition, 
+
+vθ (zt, t ) − v∗(zt, t ) = μθ (zt) − zt
+
+1 − t − μ∗(zt) − zt
+
+1 − t = μθ (zt) − μ∗(zt)1 − t .
+
+Hence, 
+
+∥vθ (zt, t ) − v∗(zt, t )∥22 = ∥μθ (zt) − μ∗(zt)∥22
+
+(1 − t)2 . (30) 
+
+Step 2: Bound ∥μθ − μ∗∥ by the ℓ1 distance between categorical posteriors. Recall 
+
+μθ (zt) − μ∗(zt) = 
+
+> K
+
+X
+
+> k=1
+
+ qθ (ck | zt) − p(ck | zt) ck.
+
+Using the triangle inequality and the codebook radius bound ∥ck∥2 ≤ R,
+
+∥μθ (zt) − μ∗(zt)∥2 ≤
+
+> K
+
+X
+
+> k=1
+
+qθ (ck | zt) − p(ck | zt) ∥ck∥2
+
+≤ R
+
+> K
+
+X
+
+> k=1
+
+qθ (ck | zt) − p(ck | zt) = R ∥qθ (· | zt) − p(· | zt)∥1. (31) Squaring both sides yields 
+
+∥μθ (zt) − μ∗(zt)∥22 ≤ R2 ∥qθ (· | zt) − p(· | zt)∥21. (32) 
+
+Step 3: Convert ℓ1 distance to KL via Pinsker’s inequality. Pinsker’s inequality states that for any distributions p, q on a finite set, 
+
+∥p − q∥21 ≤ 2 KL( p∥q). (33) Applying (33) with p(· | zt) and qθ (· | zt) and combining with (32) gives 
+
+∥μθ (zt) − μ∗(zt)∥22 ≤ 2R2 KL( p(· | zt) ∥ qθ (· | zt)) . (34) 
+
+Step 4: Take expectations with the correct time weight. Substituting (34) into (30) yields the pointwise bound 
+
+∥vθ (zt, t ) − v∗(zt, t )∥22 ≤ 2R2
+
+(1 − t)2 KL( p(· | zt) ∥ qθ (· | zt)) .
+
+Taking expectation over (t, z t) gives 
+
+Et∼τ, z t
+
+∥vθ (zt, t ) − v∗(zt, t )∥22
+
+ ≤ 2R2 Et∼τ, z t
+
+ 1(1 − t)2 KL( p(· | zt) ∥ qθ (· | zt)) 
+
+
+
+. (35) This step keeps the time-dependent weight inside the expectation and therefore does not require any independence assumption between t, zt, and the posterior error. 13 Step 5: Relate weighted KL to weighted cross-entropy suboptimality. For each (t, z t), the standard decomposition holds: 
+
+Ec∼p(·| zt)[− log qθ (c | zt)] = H(p(· | zt)) + KL( p(· | zt) ∥ qθ (· | zt)) . (36) Multiplying both sides by (1 − t)−2 and taking expectation over (t, z t) yields 
+
+LwCE (θ) − L ∗ 
+
+> wCE
+
+= Et∼τ, z t
+
+ 1(1 − t)2 KL( p(· | zt) ∥ qθ (· | zt)) 
+
+
+
+. (37) 
+
+Step 6: Conclude the stated bound. Combining (35) and (37) gives 
+
+Et∼τ, z t
+
+∥vθ (zt, t ) − v∗(zt, t )∥22
+
+ ≤ 2R2 LwCE (θ) − L ∗
+
+> wCE
+
+,
+
+which is exactly Eq. (16). 
+
+# C Theoretical Perspective on the Kernel-Smoothed Anchor Prior 
+
+This section explains why the anchor prior in SDFlow is implemented as a kernel-smoothed distribu-tion over learned low-rank latent coordinates. The purpose of this prior is intentionally limited: it provides a smooth initialization distribution for the subsequent categorical flow, rather than serving as a standalone generator in raw time-series space. 
+
+Kernel smoothing as an explicit RBF mixture. Let {ui}Ni=1 ⊂ Rr denote the learned coordinates of VQ-latent anchors. The anchor prior used by SDFlow is 
+
+panchor (u) = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+Kh(u − ui), (38) where Kh(u) = h−r K(u/h ) is a Gaussian kernel with bandwidth h. Eq. (38) can be viewed as an equally weighted RBF mixture whose centers are the learned latent anchors. Thus, instead of training an additional neural density estimator to recover the support of the anchor distribution, SDFlow uses the corresponding closed-form smoother directly. This avoids an extra non-convex optimization problem and makes the role of the prior transparent: it locally smooths the latent anchor support before the learned flow dynamics take over. 
+
+Why a learned neural prior is unnecessary here. A flexible neural prior could in principle be trained to approximate the same anchor distribution. However, doing so would introduce an additional modeling problem whose optimum is not needed for our objective. The initializer only needs to place mass near the low-rank VQ-latent scaffold; it does not need to decode samples or model temporal dynamics. A kernel mixture with centers fixed at the learned anchors is therefore the direct non-parametric estimator of this local support. The learned velocity field vθ , not the kernel prior, is responsible for transporting initialized points to valid VQ endpoints and for producing final samples. 
+
+Effective dimension of latent smoothing. The statistical benefit of kernel smoothing depends on the dimension of the support on which it is applied. Assume that the anchor coordinates are sampled from a twice continuously differentiable density f0 supported on an intrinsic r-dimensional latent coordinate manifold, and that the kernel has finite second moment. The standard bias–variance decomposition for kernel density estimation gives 
+
+MISE( h) := E
+
+Z  panchor (u) − f0(u)2du
+
+
+
+= O(h4) + O
+
+ 1
+
+N h r
+
+
+
+. (39) Balancing the bias term O(h4) and the variance term O(( N h r )−1) yields the usual bandwidth scaling 
+
+h ≍ N −1/(r+4) and the rate 
+
+MISE latent = O
+
+
+
+N − 4
+
+> r+4
+
+
+
+. (40) If the same kernel smoother were applied directly in the ambient raw trajectory space of dimension 
+
+D, the corresponding rate would be 
+
+MISE raw = O
+
+
+
+N − 4
+
+> D+4
+
+
+
+, (41) which is substantially slower when D ≫ r. It shows why SDFlow performs smoothing in the learned low-rank latent coordinate space, where local neighborhoods are statistically meaningful, instead of in raw time-series space. 14 Role in SDFlow. The kernel prior should be understood as latent support smoothing , not as sample retrieval. Sampling from panchor produces an initialization z0 = normalize( uV ⊤) near the shared low-rank scaffold. The final sample is then obtained only after integrating the learned categorical velocity field and decoding through the VQ representation. Consequently, any potential anchor-level collapse must be evaluated at the level of the complete generator, not by inspecting the kernel prior in isolation. This is why we complement the theoretical perspective above with three empirical checks: the KDE-only baseline, raw-space nearest-neighbor audit, and held-out latent-flow generalization study. 
+
+# D Experimental Setup Details 
+
+Datasets. We evaluate on four datasets spanning diverse domains and complexities, following the protocol established by prior work [28, 7]: • Sines : Synthetic sinusoidal sequences with varying frequencies and phases, 5 features. This serves as a sanity check for basic temporal pattern capture. • Stocks : Daily Google stock prices from 2004–2019, including open/close/high/low prices and volume, 6 features. Real financial data with complex non-stationary dynamics. • ETTh : Hourly electrical transformer temperature measurements, 7 features. Industrial time series with periodic patterns and trend components. • Energy : UCI appliance energy use dataset with weather and environmental sensors, 28 features. High-dimensional multivariate series with complex cross-correlations. 
+
+Evaluation Metrics. We adopt three complementary metrics following standard practice: • Discriminative Score (DS) : A post-hoc 2-layer LSTM classifier is trained to distinguish real from synthetic sequences using a 80/20 train/test split. DS = |accuracy − 0.5|, where lower values indicate synthetic data indistinguishable from real (optimal is 0). • Predictive Score (PS) : A sequence model is trained on synthetic data to predict the next step, then evaluated on real test data. Lower prediction error indicates synthetic data preserves predictive structure. • Context-FID : Fréchet Inception Distance computed on contextualized embeddings from a pre-trained TS2Vec encoder. Lower values indicate distributional similarity. 
+
+Baselines. We compare against representative methods from each paradigm: • GAN-based : TimeGAN [ 28 ] (uses generative adversarial networks with an embedding function and supervised loss to capture temporal dynamics); COT-GAN [ 26 ] (combines GAN with causal optimal transport principles for efficient and stable generation of time series data); • VAE-based : TimeVAE [ 9] (employs variational autoencoders with an interpretable temporal structure for time series synthesis); • Diffusion-based : DiffWave [ 15 ] (directly applies denoising diffusion probabilistic models to waveform generation); DiffTime [ 8] (harnesses score-based diffusion models for time series generation); Diffusion-TS [ 29 ] (utilizes an encoder-decoder transformer with disentangled temporal representations for diffusion-based generation); • Discrete token : SDformer-m (masked) [ 7] (uses masked token modeling with random masking and iterative decoding); SDformer-ar (autoregressive) [ 7 ] (uses autoregressive token modeling with random replacement to mitigate training-inference inconsistency); • Flow-based : FlowTS [ 14 ] (employs the Rectified Flow framework, learn the linear transmis-sion path in the probability space). 
+
+Implementation Details. We use identical VQ-VAE tokenizers to SDformer for fair comparison: codebook size K = 512 , latent dimension dc = 512 , downsampling rate s = 4 . For SDFlow: L = 24 
+
+uses rank r = 256 , 1 DiT layer; L = 256 uses rank r = 1024 , 3 DiT layers. The anchor-prior bandwidth is h = 0 .06 for Energy. All experiments report mean and standard deviation over 5 random seeds. 
+
+D.1 Hyperparameter Configurations 
+
+Table 4 and Table 5 provides complete hyperparameter configurations for SDFlow across different sequence lengths. 15 Table 4: VQ-VAE hyperparameter configurations for SDFlow across sequence lengths.                                   
+
+> Setting Hidden dim Enc/Dec Layers Kdcλdown. rate
+> L= 24 512 2512/1024 256/512 0.01/0.5/2.0 2/4
+> L= 64 512 2512/1024 256/512 0.01/0.5/2.0 4
+> L= 128 512 2512/1024 256/512 0.01/0.5/2.0 4
+> L= 256 512 2512/1024 256/512 0.01/0.5/2.0 4
+
+Table 5: Flow Matching hyperparameter configurations for SDFlow across sequence lengths. 
+
+Setting ODE Steps Rank dmodel Layers Heads λμ λσ
+
+L = 24 20 256 512 1 16 0.1 10.0 
+
+L = 64 20 256/512 1024 3 16 0.1 10.0 
+
+L = 128 20 512 1024 3 16 0.1 10.0 
+
+L = 256 20 1024 1024 3 16 0.1 10.0 
+
+# E Core Algorithms 
+
+Algorithm 1 and Algorithm 2 are the core algorithms for our model training and inference. 
+
+Algorithm 1 SDFlow Training: Manifold-Anchored Categorical Flow Matching  
+
+> 1:
+
+Input: VQ-VAE codebook C = {ck}Kk=1 , training indices {yi}Ni=1  
+
+> 2:
+
+Parameters: Rank r, regularization coefficients λμ, λ σ 
+
+> 3:
+
+Output: Trained flow network vθ , low-rank factors U, V  
+
+> 4: 5:
+
+// Stage 1: VQ-VAE Tokenization (Frozen)  
+
+> 6:
+
+Pre-train VQ-VAE with similarity-driven quantization  
+
+> 7:
+
+Extract codebook embeddings: Z = [ cy1 , . . . , c yN ] ∈ RN ×D 
+
+> 8: 9:
+
+// Stage 2: Manifold-Anchored Flow Matching  
+
+> 10:
+
+Initialize:  
+
+> 11:
+
+Flow network θ (DiT architecture)  
+
+> 12:
+
+U ∈ RM ×r ∼ N (0 , 0.01 2I) # Manifold support anchors  
+
+> 13:
+
+V ∈ RD×r ∼ N (0 , 0.01 2I) # Subspace basis  
+
+> 14:
+
+for epoch = 1 to Tmax do  
+
+> 15:
+
+Sample batch indices B = {i1, . . . , i B } 
+
+> 16:
+
+Sample time t ∼ Beta (2 , 5) # Concentrate near t = 0  
+
+> 17:
+
+// Construct Flow Path  
+
+> 18:
+
+Retrieve coordinates: UB = [ ui1 , . . . , u iB ]⊤ ∈ RB×r 
+
+> 19:
+
+Retrieve targets: ZB = [ zi1 , . . . , z iB ]⊤ ∈ RB×D 
+
+> 20:
+
+// Low-rank Manifold Anchoring  
+
+> 21:
+
+Z0 = UBV ⊤ ∈ RB×D # Project to subspace  
+
+> 22:
+
+Z0 ← Z0/∥Z0∥2 # Unit normalization  
+
+> 23:
+
+Zt ← (1 − t)Z0 + t · ZB # Linear interpolation  
+
+> 24:
+
+// Categorical Flow Prediction  
+
+> 25:
+
+logits ← vθ (Zt, t ) # Shape: [B, L, K ] 
+
+> 26:
+
+// Cross-Entropy Loss with Regularization  
+
+> 27:
+
+LCE ← − 1
+
+> BL
+
+P 
+
+> i,ℓ
+
+log softmax (logits i,ℓ )[ yi,ℓ ] 
+
+> 28:
+
+Lμ ← ∥ Ei[ui]∥2 # Mean regularization  
+
+> 29:
+
+Lσ ← ∥ Std i(ui) − 1∥1 # Variance regularization  
+
+> 30:
+
+L ← L CE + λμLμ + λσ Lσ 
+
+> 31:
+
+// Optimization  
+
+> 32:
+
+Update θ with learning rate ηθ = 10 −4 
+
+> 33:
+
+Update U, V with learning rate ηU V = 10 −3 
+
+> 34:
+
+end for  
+
+> 35:
+
+return vθ , U, V 
+
+16 Algorithm 2 SDFlow Inference: Parallel Time Series Generation  
+
+> 1:
+
+Input: Trained flow vθ , coordinates U , basis V , codebook C 
+
+> 2:
+
+Parameters: Bandwidth factor α, temperature τ , steps S 
+
+> 3:
+
+Output: Generated time series { ˆXi}Ngen  
+
+> i=1
+> 4: 5:
+
+// Anchor Prior Construction  
+
+> 6:
+
+Compute pairwise distances: di = min j̸ =i ∥ui − uj ∥2 for i = 1 , . . . , N  
+
+> 7:
+
+Set bandwidth: h = α · 1
+
+> N
+
+PNi=1 di 
+
+> 8: 9:
+
+// Parallel Generation (No Sequential Dependency)  
+
+> 10:
+
+for i = 1 to Ngen do  
+
+> 11:
+
+Sample center index: j ∼ Uniform (1 , N ) 
+
+> 12:
+
+Sample noise: ϵ ∼ N (0 , h 2Ir ) 
+
+> 13:
+
+unew ← uj + ϵ # Kernel-smoothed anchor sampling  
+
+> 14:
+
+z0 ← normalize (unew V ⊤) # Manifold anchor  
+
+> 15:
+
+// ODE Integration  
+
+> 16:
+
+for s = 0 to S − 1 do  
+
+> 17:
+
+t ← s/S  
+
+> 18:
+
+logits ← vθ (zt, t ) 
+
+> 19:
+
+π ← softmax (logits /τ ) 
+
+> 20:
+
+μ ← P 
+
+> k
+
+πk · ck # Expected embedding  
+
+> 21:
+
+v ← (μ − zt)/(1 − t) 
+
+> 22:
+
+zt+1 /S ← zt + v/S  
+
+> 23:
+
+end for  
+
+> 24:
+
+// Quantization and Decoding  
+
+> 25:
+
+ˆyi ← arg max k z1 · ck # Nearest codebook  
+
+> 26:
+
+ˆXi ← D (ˆ yi) # VQ-VAE decoder  
+
+> 27:
+
+end for  
+
+> 28:
+
+return { ˆXi}Ngen 
+
+> i=1
+
+# F Manifold Analysis 
+
+Our analysis reveals that Gaussian initialization requires severe 45 × compression from high-dimensional space (rank 1900) to the target manifold (rank 50), creating a difficult optimization problem (Figure 1, Figure 4, Figure 5, and Figure 6). In contrast, our manifold-anchored approach starts near the data manifold (rank 180), requiring only smooth 3.6 × compression. This 11 ×
+
+reduction in compression ratio makes the transport problem substantially easier and supports the importance of initialization distance. 
+
+Figure 4: Dimension compression ratio during flow transport. 17 Figure 5: Cumulative variance detailed.    
+
+> (a) Sine (rank = 7) (b) Stock (rank = 7) (c) ETTh (rank = 22) (d) Energy (rank = 42)
+
+Figure 6: SVD analysis of VQ-VAE latent codes across datasets. 
+
+# G Detailed Ablation, Sensitivity, and Held-out Generalization Analysis 
+
+Table 3 studies three aspects of SDFlow: component necessity, hyperparameter sensitivity, and held-out latent-flow generalization. We provide additional interpretation here to clarify how each result supports the design of SDFlow. 
+
+Representation Space and Low-Rank Scaffold. Directly applying flow matching in raw data space performs poorly (DS 0.453), confirming that high-dimensional raw trajectories are not a suitable space for Stage-2 transport. After VQ tokenization, however, a standard Gaussian prior in the full latent space still remains weak (DS 0.218), and using anchors without low-rank structure only partially helps (DS 0.173). These results show that VQ tokenization alone is insufficient: the latent space must also be organized into a tractable low-rank coordinate system. The learned low-rank scaffold provides this geometry, turning sparse high-dimensional VQ codes into a smoother coordinate space for flow matching. 
+
+Anchor Prior Design. On top of the low-rank scaffold, the initialization prior is crucial. Generic alternatives such as Gaussian sampling (DS 0.218) and an amortized MLP prior (DS 0.213) fail to capture the latent topology. Simple interpolation improves performance (DS 0.047), suggesting that respecting local latent geometry is important, but it remains far from the learned anchor prior (DS 0.006). Thus, the kernel-smoothed anchor prior should be interpreted as a manifold-localized initializer over low-rank VQ-latent supports, while the learned categorical flow performs the actual generative transport. 
+
+Codebook Capacity and Solver Steps. Naively reducing the VQ embedding dimension does not solve the transport problem: smaller codebooks without the low-rank scaffold yield worse DS values (0.223 for d = 256 , 0.251 for d = 128 , and 0.299 for d = 64 ). This indicates that simple compression sacrifices representation quality rather than producing useful geometry. The solver-step ablation further shows that the method does not rely on excessive numerical refinement: S = 20 
+
+matches S = 50 (both DS 0.006), while S = 10 is only moderately worse (DS 0.018). We therefore use S = 20 as an efficient quality–speed trade-off. 
+
+Rank and Bandwidth Sensitivity. The sensitivity study shows that performance is stable around the selected rank and bandwidth. A static SVD rank ( r = 42 ) is insufficient (DS 0.094), while learned ranks improve substantially, with r = 256 reaching DS 0.006 and r = 512 offering no further gain. 18 For the bandwidth, large values such as h = 0 .60 over-smooth the latent support (DS 0.138), whereas overly small values such as h = 0 .01 slightly weaken local connectivity (DS 0.008). The best setting 
+
+h = 0 .06 balances local smoothing and manifold preservation. 
+
+Held-out Latent-Flow Generalization. To test whether Stage-2 generation depends on access to all anchors, we train the latent flow and anchor prior using only subsets of encoded latents while keeping the VQ tokenizer frozen as a shared representation layer. On Energy, using only 10% of latent anchors still achieves DS 0.009 and C-FID 0.002 on the held-out 90%; on Sines, the same 10% setting achieves DS 0.007 and C-FID 0.0013; on ETTh, using 50% anchors gives DS 0.003 and C-FID 0.002 on the held-out 50%. The small degradation from the full-anchor setting suggests that the anchor set acts as a compact scaffold for shared latent geometry rather than naive interpolation over latent prototypes. Overall, the ablation confirms that SDFlow requires all three ingredients: VQ tokenization for representation, low-rank scaffolding for tractable geometry, and anchor-based initialization for local transport. The sensitivity and held-out studies further show that the method is not overly dependent on exact hyperparameter choices or complete anchor coverage, supporting SDFlow as a stable latent-space non-autoregressive generator. 
+
+# H Comprehensive Generalization Study 
+
+While our manifold-anchored initialization efficiently bypasses the curse of dimensionality, a natural concern is whether the prior over latent anchors inadvertently leads to local resampling. We therefore conduct memorization diagnostics from three complementary perspectives: an isolated KDE baseline, raw-space nearest-neighbor analysis, and an additional strict held-out sanity check. 
+
+H.1 KDE is an Initializer, Not a Generator: KDE-only Baseline 
+
+We emphasize that the KDE prior serves as a manifold-localized initialization mechanism. It is not intended to model the complex data distribution by itself. To isolate the contribution of the categorical flow dynamics, we introduce a KDE-only (No Flow) baseline. In this setting, we sample an anchor coordinate u ∼ pKDE , project it to the latent space z0 = normalize (uV ⊤), and directly quantize and decode it without any ODE flow integration. As shown in Table 6, the KDE-only baseline fails to generate coherent sequences, yielding poor Discriminative Score (DS) and Context-FID. This indicates that the KDE prior alone is insufficient for generation; the learned categorical flow dynamics are needed to transport the initial anchors to valid, high-fidelity distribution regions. Table 6: KDE-only baseline vs. Full SDFlow on Energy ( L = 24 ). Bypassing the flow network leads to generation failure, indicating that the KDE prior acts as an initializer rather than a standalone generator.                 
+
+> Method Discriminative Score (DS) ↓Context-FID ↓
+> KDE-only (No Flow Integration) 0.462 ±.015 3.105 ±.124 SDFlow (Full Model) 0.006 ±.002 0.001 ±.000
+
+H.2 Raw-Space Nearest-Neighbor Memorization Audit 
+
+To assess whether generated samples are copies of the training data, we conduct a Nearest-Neighbor (NN) audit directly in the raw time-series space (rather than the VQ latent space). We compute Euclidean distances for three distributions: (1) Train → Train NN : Distance from each training sample to its nearest training neighbor; (2) Held-out → Train NN : Distance from real held-out sample to the nearest real train sample; (3) Generated → Train NN : Distance from generated samples to the nearest training sample. We define the Copy Rate as the proportion of generated samples that fall within the 1st percentile of the Train → Train NN distance (i.e., potential near-duplicates). As shown in Table 7, generated samples have similar distances to the training set as real held-out samples do. Furthermore, the Copy Rate is consistently below 1.5% .19 Table 7: Raw-space Nearest-Neighbor Audit on ETTh and Energy. The generated samples maintain similar distances to the training set as real held-out samples do, with low copy rates. 
+
+Dataset Held-out → Train NN Dist. Generated → Train NN Dist. Copy Threshold ( ϵ) Copy Rate ↓
+
+ETTh ( L = 24 ) 0.81 ± 0.12 0.83 ± 0.14 0.15 1.2% Energy ( L = 24 ) 2.25 ± 0.31 2.30 ± 0.28 0.45 0.8% 
+
+H.3 Additional Strict Held-out Sanity Check 
+
+As an additional sanity check, we also consider a stricter split than the held-out latent-flow study in Table 3. Here, neither the VQ-VAE tokenizer nor the Stage-2 latent flow and anchors are exposed to the held-out split during training. We trained the entire SDFlow pipeline on only 80% of the data and evaluated the generative distribu-tions against the unseen 20% test data. The results yield a DS of 0.008 and Context-FID of 0.001 on Sines, close to the full-data setting. This supplementary check is not used as the main evidence for our method, but further suggests that SDFlow does not require direct access to every training trajectory. 
+
+# I Additional Visualizations 
+
+Figure 7 shows t-SNE visualizations of the latent space across datasets. The sample distribution generated by our method closely aligns with the real data distribution, filling the manifold without complete overlap, which is consistent with distribution-level coverage. 
+
+(a) Sine (b) Stock (c) ETTh (d) Energy 
+
+Figure 7: t-SNE visualization in the latent space across multiple datasets. A comparative analysis of Context-FID is provided in Figure 8. The visualization shows that SDFlow attains markedly lower Context-FID values than existing approaches. 24 64 128 256             
+
+> Sequence Length (L)
+> 0.001
+> 0.010
+> 0.100
+> 1.000
+> Context-FID  (Log Scale)
+> 0.001 0.001 0.001 0.001
+> 0.003
+> 0.018
+> 0.024 0.021
+> 0.116
+> 0.631
+> 0.787
+> 0.423
+> 0.024
+> 0.039
+> 0.128
+> 0.302
+> ETTh
+> 24 64 128 256
+> Sequence Length (L)
+> 0.001
+> 0.010
+> 0.100
+> Context-FID  (Log Scale)
+> 0.001
+> 0.002 0.002 0.002
+> 0.008
+> 0.031
+> 0.036
+> 0.041
+> 0.089
+> 0.135
+> 0.087
+> 0.126
+> Energy
+> SDFlow SDformer-ar Diffusion-TS FlowTS
+
+Figure 8: Context-FID across different sequence lengths on ETTh and Energy datasets. To assess our model’s capability in reconstructing the real indices via the specific us, we conducted an experiment by sampling directly from the true us (bypassing the anchor-prior sampler) and processing these samples through the DiT to generate the final indices. The results in Figure 9 show low MSE while retaining flexibility, supporting the model’s ability to cover the latent manifold. 
+
+# J Conditional Generation: Forecasting 
+
+Beyond generation, SDFlow naturally extends to forecasting by conditioning on historical latent coordinates. We achieve the conversion from unconditional to conditional by concatenating the low-dimensional manifold samples we have learned with real conditions. Specifically, a complete 20 Figure 9: Visualizations of time series reconstruction samples using real coordinates instead of the anchor-prior sampler. sequence is sampled from the manifold distribution, then the first half is replaced with real history, and finally the second half is refined through dynamics to generate a coherent future prediction. Figure 10 demonstrates zero-shot forecasting where SDFlow predicts future time steps given only the first half. Despite no forecasting-specific training, our method achieves great MAE and MSE, with well-calibrated 80% confidence intervals (coverage 93%). 
+
+Figure 10: Forecasting Results (Energy, 12 → 12 ). This strong performance supports our hypothesis that the learned manifold structure captures not only spatial but also temporal dependencies of time series data. However, more specific modifications in model architecture may further benefit Time Series Forecasting, which is a promising future direction. 
+
+# K Additional Ablations 
+
+Categorical vs. Continuous Supervision. We compare our categorical cross-entropy objective against continuous MSE regression on embeddings. As shown in Table 8, the categorical objective yields superior performance. Beyond performance gains, it offers crucial theoretical advantages: (1) explicit discrete supervision aligned with the VQ structure; (2) temperature-controlled sampling at inference enabling quality-diversity trade-offs; and (3) interpretable uncertainty quantification over codebook indices. Table 8: Comparison of categorical cross-entropy (Ours) against continuous MSE regression.         
+
+> Objective DS -Sines ↓DS -ETTh ↓
+> MSE (continuous) 0.009 0.005
+> CE (categorical) 0.006 0.002
+
+Rank Sensitivity. Table 9 analyzes sensitivity to the rank parameter on Energy ( L = 24 ). Perfor-mance peaks at r = 256 , which captures 99% of variance while maintaining parameter efficiency. Lower ranks underfit the manifold structure, while higher ranks provide diminishing returns. Notably, relying solely on SVD to determine optimal rank is ineffective, demonstrating the necessity of the learnable low-rank decomposition. 
+
+ODE Integration Steps. Table 10 examines sensitivity to the number of ODE integration steps. 20 steps suffice for convergence; additional steps provide negligible improvement at increased computational cost. 21 Table 9: Rank sensitivity analysis on Energy ( L = 24 ). Performance peaks at r = 256 , which captures 99% of variance while maintaining parameter efficiency.                                                       
+
+> Rank DS ↓FID ↓Parameters
+> r= 32 0.149 ±.012 0.042 ±.005 0.6M SVD (r= 42) 0.094 ±.009 0.017 ±.002 0.8M
+> r= 64 0.062 ±.008 0.015 ±.002 1.2M
+> r= 128 0.015 ±.005 0.006 ±.001 2.4M
+> r= 256 0.006 ±.002 0.001 ±.000 4.8M
+> r= 512 0.006 ±.003 0.001 ±.000 9.6M
+
+Table 10: ODE integration steps sensitivity on Energy ( L = 24 ). 20 steps suffice for convergence; more steps provide negligible improvement. 
+
+Steps DS ↓ FID ↓ Time (s) 
+
+10 0.018 ± .006 0.008 ± .002 0.005 15 0.009 ± .003 0.003 ± .001 0.011 20 0.006 ± .002 0.001 ± .000 0.021 50 0.006 ± .002 0.001 ± .000 0.042 
+
+Table 11: Cross-dataset ablation ( L = 24 ). Both the low-rank anchor scaffold and kernel-smoothed prior are necessary on complex datasets (Energy, ETTh), while simpler datasets (Sines) are more tolerant.                                                          
+
+> Configuration Prior Sines Stocks ETTh Energy
+> w/o Low-Rank Gaussian 0.007 ±.006 0.038 ±.009 0.100 ±.015 0.217 ±.010 w/o Low-Rank Anchor Prior 0.006 ±.008 0.025 ±.010 0.074 ±.017 0.173 ±.015 w/ Low-Rank Gaussian 0.008 ±.005 0.031 ±.008 0.089 ±.012 0.218 ±.004
+> w/ Low-Rank Anchor Prior 0.006 ±.006 0.003 ±.003 0.002 ±.003 0.006 ±.002
+
+(a) ETTh dataset (b) Energy dataset 
+
+Figure 11: Nearest-neighbor distance analysis. Gray bars show the self-distance distribution among real training samples (baseline), while red bars show distances from generated samples to their nearest training neighbors. Generated samples maintain substantial distances from training data (mean > 0.8
+
+for ETTh, > 2.0 for Energy), consistent with non-copying behavior. 
+
+Cross-Dataset Ablation. Table 11 extends the ablation study across all datasets. Both low-rank decomposition and the anchor prior are essential on complex datasets (Energy, ETTh), while simpler datasets (Sines) are more tolerant of suboptimal configurations. 
+
+Nearest-neighbor distance analysis. Finally, to check whether generated sequences collapse to training examples, we conduct nearest-neighbor retrieval against the training set. Figure 11 shows the distribution of Euclidean distances from generated samples to their nearest training neighbors in the VQ-VAE latent space. Together, the held-out latent-flow, prior-ablation, and nearest-neighbor results suggest that the anchor prior is not merely copying individual training samples. Instead, the learned manifold structure provides a geometric scaffold that guides generation while preserving diversity. 22

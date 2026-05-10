@@ -1,0 +1,802 @@
+Title: A Hierarchical Agent System with Reinforcement Learning for Multivariate Time Series Data Cleaning
+
+URL Source: https://arxiv.org/pdf/2605.04902v1
+
+Published Time: Thu, 07 May 2026 00:59:21 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# AegisTS : A Hierarchical Agent System with Reinforcement Learning for Multivariate Time Series Data Cleaning 
+
+# Yuhan Shi 
+
+Zhejiang University, China shiyuhan@zju.edu.cn 
+
+# Yuanyuan Yao 
+
+National University of Singapore, Singapore yy.yao@nus.edu.sg 
+
+# Lu Chen 
+
+Zhejiang University, China luchen@zju.edu.cn 
+
+# Mourad Khayati 
+
+University of Fribourg, Switzerland mourad.khayati@unifr.ch 
+
+# Tianyi Li 
+
+Aalborg University, Denmark tianyi@cs.aau.dk 
+
+## ABSTRACT 
+
+Multivariate time series (MTS) are frequently affected by co-occurring quality issues, such as missing values, outliers, and constraint viola-tions, which significantly undermine downstream analytics. Exist-ing cleaning approaches fix only a limited set of such issues, making them ill-suited for scenarios where multiple quality problems arise simultaneously. Furthermore, these methods commonly depend on the availability of ground truth data or domain-specific rules, both of which are rarely accessible in real-world applications. In this paper, we introduce AegisTS , an agent system with rein-forcement learning designed to clean multiple data quality issues in MTS. We cast the cleaning process as a joint optimization prob-lem that simultaneously handles quality issue order and cleaning model selection, allowing efficient navigation of the large space of possible cleaning pipelines. Our framework relies on a hierarchical agent architecture, where a high-level agent determines the order in which data quality issues should be processed, while a low-level agent identifies the most suitable cleaning method for each issue. To guide the agent toward an optimal cleaning pipeline, we propose a dual-stage reward mechanism that couples upstream (cleaning) and downstream performance, enabling effective optimization with-out relying on ground truth. Our experimental results show that 
+
+AegisTS consistently outperforms existing methods, achieving up to 96% improvement in data cleaning quality and 27% improvement in downstream performance. 
+
+PVLDB Reference Format: 
+
+Yuhan Shi, Yuanyuan Yao, Lu Chen, Mourad Khayati, and Tianyi Li. 
+
+AegisTS : A Hierarchical Agent System with Reinforcement Learning for Multivariate Time Series Data Cleaning. PVLDB, 14(1): XXX-XXX, 2020. doi:XX.XX/XXX.XX 
+
+PVLDB Artifact Availability: 
+
+The source code, data, and/or other artifacts have been made available at https://github.com/Syh517/AegisTS. 
+
+> This work is licensed under the Creative Commons BY-NC-ND 4.0 International License. Visit https://creativecommons.org/licenses/by-nc-nd/4.0/ to view a copy of this license. For any use beyond those covered by this license, obtain permission by emailing info@vldb.org. Copyright is held by the owner/author(s). Publication rights licensed to the VLDB Endowment. Proceedings of the VLDB Endowment, Vol. 14, No. 1 ISSN 2150-8097. doi:XX.XX/XXX.XX
+
+## 1 INTRODUCTION 
+
+With the rapid proliferation of sensors, Internet of Things (IoT) devices, and large-scale information systems, massive amounts of time series data are continuously generated in real-world environ-ments. While univariate time series describe the temporal dynamics of a single variable, many real-world applications involve multi-variate time series (MTS) that record multiple correlated variables over time. By capturing both temporal patterns and cross-variable dependencies, MTS provide rich information to support a wide range of tasks such as forecasting, classification, and clustering. The value of MTS is fundamentally contingent on the quality of the underlying data, and in practice, this quality is far from guaranteed. Real-world time series data are often plagued with var-ious data quality issues, mainly including missing values, duplicate values, outliers, and constraint violations. Missing values lead to in-complete observations, duplicate values produce redundant records at the same timestamp, outliers deviate significantly from normal patterns, and constraint violations occur when observations fail to satisfy expected temporal, cross-variable, or speed constraints. Over the last decades, several specialized solutions for cleaning time series have been introduced [ 4, 5, 7, 14 , 17 , 21 , 32 , 33 , 35 – 37 ]. Among these, MissNet [ 29 ] and MPIN [ 26 ] address missing values through a state-space model and propagation; TransAD [ 36 ] and ImDiffusion [ 7 ] detect and repair outliers based on Transformer reconstruction errors and diffusion-based generative modeling; and SCREEN [ 33 ] resolves constraint violations by keeping modifica-tions minimal under speed constraints. Despite their effectiveness, these techniques are generally designed to target a single category of data quality problem, making them not applicable to real-world datasets where multiple quality issues tend to co-occur. A handful of algorithms tackle multiple quality issues simulta-neously (see Table 1). The Kalman Filter (KF) [ 21 ], Hidden Markov Model (HMM) [ 18 ], and EDITOR [ 23 ] all handle missing values and outliers. While the first two techniques rely on standard filtering and probabilistic techniques, EDITOR distinguishes itself by using an advanced two-stage bidirectional approach with Temporal Con-volutional Networks (TCN) and Graph Convolutional Networks (GCN) for context-aware repair. On the system side, Cleanits [ 13 ]and Clean4TSDB [ 12 ] (denoted as C4TSDB in Table 1) can address multiple data quality issues. Cleanits tackles missing values, out-liers, and certain structural inconsistencies, whereas Clean4TSDB further goes beyond basic imputation to detect and repair com-plex constraint violations, leveraging temporal and cross-variable constraints for more comprehensive data correction.  
+
+> arXiv:2605.04902v1 [cs.DB] 6 May 2026 (a) Quality issues in time series (b) Execution order comparison
+
+Figure 1: Impact of cleaning execution order. 
+
+These solutions fall short when applied to MTS with compound errors, for at least two reasons. First, they do not readily extend to quality issues beyond the specific combinations they were originally designed to address, restricting their generalizability to more di-verse scenarios. Second, naively stacking multiple cleaning methods in sequence can easily break the inherent temporal and cross-series dependencies in the data. The lack of a unified cleaning solution for time series highlights the need for an adaptive, integrated system that can automatically choose and order the appropriate operators. Achieving this goal, however, is far from trivial and introduces two fundamental challenges. First, designing an effective cleaning strategy requires more than simply selecting operators from a large candidate pool; it also requires determining the order in which they are applied. To illus-trate this point, we evaluated different execution orders of cleaning methods on the widely used ETTh1 forecasting dataset. Figure 1(a) shows a sample series that exhibits multiple co-occurring quality is-sues: duplicates (D), missing values (M), outliers (O), and constraint violations (C). Note that a cleaning sequence may invoke multi-ple operators of the same quality issue to handle distinct subtypes of errors. For instance, resolving both point outliers and segment outliers necessitates applying different outlier ( 𝑂 ) operators. The results in Figure 1(b) show substantial performance variation across orderings, with 𝐷 → 𝑀 → 𝑂 → 𝑂 → 𝐶 yielding the best cleaning performance in terms of NMSE and RRA, as well as the highest downstream gain ( ΔPerf ). Given that time series can encompass over 400 distinct features [ 22 ], it is easy to conceive that the optimal ordering identified in one series may not transfer to another. In addition to the quality, the quest for the best execution order induces a combinatorial search space of complexity up to 
+
+O( 𝑛 𝑚 ), where 𝑛 denotes the number of quality issue types and 
+
+𝑚 the number of candidate methods per issue type, making the identification of the optimal cleaning strategy a non-trivial problem. Second, selecting appropriate cleaning operators typically re-quires ground truth. In particular, existing constraint-based clean-ing methods, such as Clean4MTS[ 9 ] and MTSClean [ 11 ], depend on inferring constraints from relatively clean data, implicitly assuming that the data is largely clean. However, in real-world applications, whether the time series are sufficiently clean is usually unknown, making it difficult to directly assess the effectiveness of different cleaning operators. Moreover, in the absence of ground truth, in-dependently evaluating a single operator can be biased or even misleading, as its performance is often influenced by other unre-solved data quality issues as well as the execution order of the cleaning operators. 
+
+Table 1: Comparison of data quality issues addressed by dif-ferent cleaning methods. 
+
+Issue KF HMM EDITOR Cleanits C4TSDB AegisTS 
+
+Duplicates – – – – – ✓
+
+Missing ✓ ✓ ✓ ✓ ✓ ✓
+
+Outliers ✓ ✓ ✓ ✓ – ✓
+
+Constraint – – – – ✓ ✓
+
+To address those challenges, we devise a Reinforcement Learning (RL)-based system that formulates multivariate time series clean-ing as a sequential decision-making problem over an extensible space of cleaning operators. The system consists of three compo-nents: a preprocessing module for standardized data representation, a domain-specific operator repository for modeling cleaning op-erators and their dependencies, and a hierarchical agent with a dual-stage reward mechanism for automatically constructing effec-tive dataset-specific cleaning pipelines. To efficiently explore the combinatorial space induced by differ-ent cleaning operator choices and execution orders, the framework decomposes pipeline construction into two coordinated stages. A high-level policy first identifies the most critical data quality issue, and a low-level policy then selects and executes a corresponding repair operator. By separating issue selection from operator in-stantiation, this design maps the original joint decision space over execution order and operator choice to a two-stage process, thereby reducing search computation cost from exponential to linear. We further propose a dual-stage reward mechanism for learning without the clean ground truth. Dense rewards provide step-wise feedback based on both reductions in data quality issue rates and performance gains of a lightweight model, while sparse rewards evaluate the overall cleaning strategy using a more complex model at the end of each iteration. By jointly exploiting upstream and downstream performance, this mechanism enables effective learn-ing of high-quality cleaning policies without explicit supervision. The main contributions of this paper are summarized as follows: 
+
+• We propose AegisTS , the first agent system for MTS clean-ing, which formulates data cleaning as an automated prin-cipled composition of dataset-specific operator pipelines. 
+
+• AegisTS builds a hierarchical RL model, where a high-level agent prioritizes critical issues and guides a conditioned low-level agent to select appropriate repair operators. 
+
+• We introduce a dual-stage reward mechanism that inte-grates upstream cleaning quality and downstream perfor-mance gains, enabling effective cleaning without requiring ground truth. 
+
+• Extensive experiments on real-world MTS datasets show that AegisTS consistently outperforms state-of-the-art base-lines in both data quality and downstream performance, while incurring only a minimal one-time training overhead. The rest of this paper is organized as follows. Section 2 intro-duces the preliminaries and problem definition. Section 3 overviews 
+
+AegisTS , our hierarchical RL-based system for multivariate time series cleaning. Sections 4 and 5 present the technical details. Sec-tion 6 reports the experimental results, Section 7 reviews related work, and Section 8 concludes the paper. 
+
+> 2
+
+## 2 PRELIMINARIES 
+
+In this section, we begin by introducing the key concepts related to our holistic time series cleaning problem and conclude by formaliz-ing our problem definition. 
+
+## 2.1 Data Quality Constraints 
+
+Definition 1 (Multivariate Time Series). A multivariate time series is an ordered sequence of observations indexed by discrete times-tamps. Throughout the paper, we use X = {x𝑡 }𝑇 𝑡 =1 ∈ R𝑇 ×𝐷 to denote an observed multivariate time series of length 𝑇 , where each observa-tion x𝑡 ∈ R𝐷 is a 𝐷 -dimensional vector representing the values of 𝐷 
+
+distinct variables at time step 𝑡 .
+
+To avoid ambiguity, we use the term variable as the complete se-quence of observations for a specific dimension, effectively forming a univariate time series. Accordingly, we use x(𝑑 ) ∈ R𝑇 to denote the complete time series of the 𝑑 -th variable and 𝑥 𝑡,𝑑 to denote its scalar observation at time 𝑡 . Also, we distinguish the observed se-quence X, which is subject to potential data quality issues, from its corresponding unobserved ground-truth (clean) multivariate time series, denoted as X∗ ∈ R𝑇 ×𝐷 . To capture the dependencies that X∗
+
+adheres to, we identify two categories of data quality constraints: 
+
+Temporal Constraints (Column-wise). A temporal constraint regulates the continuity of a single variable 𝑑 across adjacent time steps, denoted as a quadruple Σ𝑐𝑜𝑙 = (𝑔, 𝑑, 𝑔 𝑚𝑖𝑛 , 𝑔 𝑚𝑎𝑥 ). Here, 𝑔 rep-resents a temporal transition function designed to capture the al-lowable physical dynamics for a specific sensor (e.g., the step-wise rate of change 𝑔 = 𝑥 𝑡,𝑑 − 𝑥 𝑡 −1,𝑑 , intuitively referred to as Speed ). This constraint restricts the transition 𝑔 at any time step to the range [𝑔 𝑚𝑖𝑛 , 𝑔 𝑚𝑎𝑥 ], formalized as: 
+
+𝑔 𝑚𝑖𝑛 ≤ 𝑔 (𝑥 𝑡,𝑑 ) ≤ 𝑔 𝑚𝑎𝑥 (1) where [ 𝑔 𝑚𝑖𝑛 , 𝑔 𝑚𝑎𝑥 ] defines the permissible range for the temporal transition function 𝑔 , capturing the allowable physical dynamics for a specific sensor. 
+
+Cross-variable Constraints (Row-wise). This constraint restricts the functional relationships among a specific subset of variables at any given timestamp. It is represented as Σ𝑟𝑜𝑤 = (𝑓 , V, 𝑓 𝑚𝑖𝑛 , 𝑓 𝑚𝑎𝑥 ).Here, V ⊆ { 1, . . . , 𝐷 } denotes the indices of the variables involved. The function 𝑓 : R| V | → R is a multivariate polynomial function that captures explicit algebraic interdependencies among these vari-ables. For any timestamp 𝑡 ∈ [ 1,𝑇 ], the output of this polynomial mapping must satisfy: 
+
+𝑓 𝑚𝑖𝑛 ≤ 𝑓 (x𝑡, V ) ≤ 𝑓 𝑚𝑎𝑥 (2) where x𝑡, V is the vector of values for variables indexed by V at time 𝑡 , and 𝑓 𝑚𝑖𝑛 and 𝑓 𝑚𝑎𝑥 denote the lower and upper bounds of the permissible interval for the constraint function 𝑓 .The complete set of semantic rules encoding data quality is defined as the union of both constraint families, i.e., Σ = Σ𝑟𝑜𝑤 ∪Σ𝑐𝑜𝑙 .Rather than treating Σ as prior domain knowledge, our approach seeks to automatically infer the concrete instantiations of these constraints, namely, the parameterization of 𝑔 , 𝑓 , and the bounding intervals, directly from the observed dirty data X.
+
+## 2.2 Cleaning Pipelines 
+
+We introduce an extensible set of 𝐾 specialized cleaning operators: 
+
+B = {𝑜 1, 𝑜 2, . . . , 𝑜 𝐾 } (3) where each operator 𝑜 𝑘 ∈ B is a transformation mapping a cor-rupted data entry to its corrected counterpart. We fix 𝐾 = 48 throughout this paper, though additional op-erators can be incorporated as needed. These operators serve as the building blocks of a cleaning pipeline aimed at detecting and resolving multiple data quality issues. 
+
+Definition 2. A cleaning pipeline 𝑃 of length L is a sequence of operators drawn from B. Formally, 
+
+𝑃 = (𝑜 𝑖 1 , 𝑜 𝑖 2 , . . . , 𝑜 𝑖 L ), where 𝑜 𝑖 𝑙 ∈ B (4) 
+
+so that 𝑜 𝑖 1 is the first operator applied to the input data. 
+
+The execution of a cleaning pipeline 𝑃 on dirty data X is equiva-lent to the composition of its constituent operators. Formally, the final cleaned data is obtained by applying all 𝐿 operators in order, which can be expressed as a function P ( X):
+
+Xcleaned = P ( X) = (𝑜 𝑖 L ◦ · · · ◦ 𝑜 𝑖 2 ◦ 𝑜 𝑖 1 )( X) (5) 
+
+## 2.3 Problem Statement 
+
+Unlike existing approaches that rely on ground-truth data, we cast holistic data cleaning as a task-driven combinatorial optimization problem. Our framework navigates a large space of candidate op-erator sequences to discover optimal cleaning pipelines that pro-duce cleaned datasets maximizing downstream model performance, while strictly preserving intrinsic structural constraints inferred directly from the dirty data, thereby eliminating any reliance on reference data. 
+
+Problem Definition. Let X be a dirty multivariate time series dataset, B be a set of candidate cleaning operators, and M be a target downstream task model. Our goal is to discover an optimal cleaning pipeline 𝑃 ∗ = (𝑜 𝑖 1 , 𝑜 𝑖 2 , . . . , 𝑜 𝑖 L ), where 𝑜 𝑖 𝑗 ∈ B , that maxi-mizes the downstream task performance while strictly satisfying a set of robustly mined intrinsic structural constraints Σ. Formally, we aim to solve: 
+
+𝑃 ∗ = arg max  
+
+> 𝑃 ∈Ω
+
+Φ M, P ( X) (6) where Φ(· , ·) is the evaluation metric of the downstream model 
+
+M, Ω is the space of all admissible repair operator sequences, and P ( X) = Xcleaned is the repaired dataset obtained by applying pipeline 𝑃 to the dirty data X. Note that since the pipeline utilizes third-party black-box operators, we do not impose a strict binary constraint (i.e., P ( X) | = Σ). Instead, the operators implicitly work towards satisfying the integrity constraint set Σ on a best-effort basis, guided by the downstream metric. 
+
+## 3 AEGISTS OVERVIEW 
+
+The goal of AegisTS is to take a dirty multivariate time series and automatically generate an optimal cleaning pipeline that max-imizes downstream task performance while preserving intrinsic structural constraints. Two salient design decisions motivate the architecture: (a) cleaning is formulated as a sequential decision-making problem guided by reinforcement learning, as opposed to    
+
+> 3Duplicate Values Handler Anomaly Detection
+> Model Selector Constraints Miner
+> Data Preprocessor
+> Deduplicated Data
+> Constraint
+> Violation Rate
+> Outlier Rate Missing Value Rate
+
+?  
+
+> Quality Evaluator
+> Extensible Library of Cleaning Operators
+> Selection
+> Quality Issue Type Selector
+> High-Level Agent
+> Cleaning Operator Selector
+> Low-Level Agent
+> Low Reward High Action
+> Lightweight Proxy Model
+> Dense Reward Component
+> High-Complexity Complex Model Sparse Reward Component
+> Chosen
+> Cleaning
+> Operator
+> Cleaned Multivariate Time Series Data
+
+Data Quality Detector Cleaning Pipeline Generator 
+
+> Dirty Multivariate Time Series Data
+> Agent-guided Operator Selector Cleaning Pipeline
+> Missing Value Imputers Outlier Correctors Constraint Violation Repairers
+> Dual-Stage
+> Mechanism
+> Appended Operator
+
+Figure 2: The Overall Framework of AegisTS .
+
+a single-shot selection process, and (b) the search operates over full operator sequences rather than individual operator choices in isolation. Figure 2 presents the framework’s main components and their interactions. The framework operates through two tightly cou-pled modules: the Data Quality Detector and the Cleaning Pipeline Generator. We discuss each in turn. 
+
+## 3.1 Data Quality Detector 
+
+The Data Quality Detector serves as the observation function of the RL environment. Given a dirty multivariate time series, it char-acterizes the data quality issues present and encodes them into a structured state representation consumable by the RL agent. The process begins with the Data Preprocessor, which removes dupli-cate records and simultaneously initializes two parallel components: a Constraints Miner, which extracts intrinsic structural rules di-rectly from the dirty data, and an Anomaly Detection Model Se-lector, which constructs appropriate outlier detection models for the dataset. Building on this, the Quality Evaluator quantifies data quality along three dimensions: the Missing Value Rate, the Outlier Rate derived from the selected anomaly detection models, and the Constraint Violation Rate assessed against the mined constraints. The deduplicated data and these quality metrics are consolidated into a unified state representation that provides the RL agent with an initial characterization of the current data quality, while the fetched constraints are propagated to downstream operators to guide subsequent cleaning decisions. 
+
+## 3.2 Cleaning Pipeline Generator 
+
+The Cleaning Pipeline Generator constitutes the core decision-making module of the framework, orchestrating the selection and sequencing of cleaning operators. To support diverse cleaning needs, it maintains an extensible set of operators spanning three functional categories: Missing Value Imputers, Outlier Correctors, and Constraint Violation Repairers. Operator selection is governed by a hierarchical RL architecture: a High-Level Agent determines which category of quality issue to address at each step, while a Low-Level Agent selects the most appropriate operator within the identified category. Pipeline construction is guided by a Dual-Stage Reward Mech-anism. A Lightweight Model provides dense, immediate rewards after each individual cleaning operation, accelerating policy explo-ration and convergence toward high-quality sequences. A High-Complexity Model is invoked once the complete pipeline is as-sembled, delivering sparse rewards reflective of true downstream task performance. By integrating dense and sparse feedback, this mechanism enables the learned policy to effectively balance data restoration fidelity with downstream utility. The framework oper-ates as a closed-loop system, iteratively observing the current data quality state, selecting strategic cleaning actions, and refining its policy through downstream task feedback, ultimately synthesizing a customized pipeline that transforms corrupted multivariate time series into high-quality data ready for downstream analytics. 
+
+## 4 DATA QUALITY DETECTOR 
+
+The first component of AegisTS includes two central modules acting sequentially. The Data Preprocessor standardizes the raw input, while the Quality Evaluator quantifies issue severity to guide downstream repair prioritization 
+
+## 4.1 Quality Evaluator 
+
+Although we identify four types of quality issues, we compute three quality issue rates: the missing rate r𝑚𝑖𝑠𝑠𝑖𝑛𝑔 , the outlier rate r𝑜𝑢𝑡𝑙𝑖𝑒𝑟 ,and the violation rate r𝑣𝑖𝑜𝑙𝑎𝑡𝑖𝑜𝑛 . We use only three rates, as duplicate values are converted into missing values. Specifically, each rate is calculated as the ratio of data points affected by a specific issue to the total dataset size. Through the above quantified metrics, we can evaluate the relative severity of different issues. By identifying the most prominent data quality issue, we can prioritize its resolution. Consequently, these rates act as critical indicators that guide the optimal order of cleaning operations. 
+
+> 4
+
+## 4.2 Data Preprocessor 
+
+To establish a foundation for the cleaning operators, we present the different techniques we apply to handle the quality issues. 
+
+4.2.1 Constraint Miner. Conventional constraint mining for time series assumes relatively clean data [ 10 , 11 ]. In practice, anomalies can severely distort regression-based constraint induction. To en-sure robustness, our mining process operates directly on dirty data 
+
+X and combines MAD-based statistics for temporal constraints with feature-residual pruning for cross-variable dependencies. 
+
+Temporal Constraint Mining. For column-wise temporal con-straints Σ𝑐𝑜𝑙 , we mine three types: Speed (first-order difference), Acceleration (second-order difference), and Variance (local variance within a sliding window). For each variable 𝑑 , applying function 
+
+𝑔 (cf. Section 2) to all valid samples yields an empirical value set 
+
+G (e.g., all speed values for 𝑑 ). Rather than relying on mean and standard deviation, both sensitive to extreme outliers, we adopt the Median Absolute Deviation (MAD) to derive a robust bounding interval: [𝑔 𝑚𝑖𝑛 , 𝑔 𝑚𝑎𝑥 ] =
+
+[median (G) − 𝑘 · 𝜎 𝑟𝑜𝑏𝑢𝑠𝑡 , median (G) + 𝑘 · 𝜎 𝑟𝑜𝑏𝑢𝑠𝑡 ] (7) where 𝜎 𝑟𝑜𝑏𝑢𝑠𝑡 = 1.48 · median (| G − median (G)|) and 𝑘 is set accord-ing to the three-sigma rule. This estimation is applied independently across all variables and constraint types, tightly capturing normal physical inertia while suppressing erratic corruptions. 
+
+Cross-variable Constraint Mining. To derive row-wise cross-variable constraints Σ𝑟𝑜𝑤 , we introduce a robust, lightweight proce-dure that integrates correlation-based feature screening with poly-nomial modeling. We first filter a relevant subset via correlation and redundancy analysis. Multivariate polynomial relationships are then modeled on this refined subset. Candidate constraints are retained only if they exhibit strong goodness-of-fit and low residual variance. Final tolerance bounds are derived from empirical resid-ual quantiles, followed by pruning of insignificant terms, yielding compact, stable, and interpretable constraint forms. 
+
+4.2.2 Anomaly detection model selection. We adopt FMMS [ 40 ] to automatically select the top-𝑘 anomaly detection models best suited to the target time series. By mapping meta-features (e.g., trend, sea-sonality) to the most suitable detection algorithms, FMMS ensures precise model–data alignment, substantially improving detection accuracy over a single default model. The selected models produce anomaly scores independently, which are then averaged into a uni-fied sequence; timestamps exceeding a predefined threshold are flagged as anomalies. 
+
+4.2.3 Duplicate values handler. We remove duplicate timestamps by retaining only the first occurrence, producing a strictly increas-ing time series. The sampling interval is estimated as the mode of adjacent time differences, enabling alignment to a regular time grid. Missing grid points are marked as missing values, yielding a regular multivariate time series for subsequent quality detection. 
+
+## 5 AGENT-GUIDED OPERATOR SELECTOR 
+
+Our agent-based solution dynamically selects operators conditioned on the current data state, enabling adaptive correction of earlier errors. To avoid combinatorial search, we introduce a two-layer hier-archy: a high-level agent diagnoses quality issues, while a low-level agent selects specific operators. This decomposition converts the joint optimization into tractable sub-tasks. A dual-stage reward fur-ther balances issue resolution and downstream task performance. 
+
+## 5.1 Hierarchical Agent Architecture 
+
+To address the combinatorial explosion in cleaning pipeline search space, we propose a two-layer hierarchical RL architecture that de-couples issue identification from repair execution. This decomposi-tion transforms an intractable joint search into structured sub-tasks, enabling efficient learning in large state–action spaces. 
+
+High-Level Agent (Strategic Issue Prioritization). The high-level agent selects a discrete action A𝐻 = {M, O, C, F}, where M , O,C, and F denote missing-value repair, outlier correction, constraint-violation resolution, and termination of the cleaning pipeline gen-eration, respectively. This choice determines which quality issue to address next. Its state representation captures four critical dimen-sions. First, Urgency ( 𝑖 𝑑𝑜𝑚 ) is a one-hot indicator of the most severe issue (i.e., the maximum among the three quality metrics), enabling priority-driven correction. Second, Memory ( 𝑎 𝐻 𝑝𝑟𝑒𝑣 ) is a one-hot encoding of the previous action, helping prevent redundant loops and promoting coherent action sequences. Third, Cost–Benefit Awareness ( 𝑝 𝑙𝑖𝑡𝑒 ) reflects downstream task performance from a lightweight model, signaling when further cleaning yields dimin-ishing returns. Finally, Budget Awareness ( 𝑙 ) is a normalized step count (current step divided by the maximum budget), guiding timely termination. The resulting state vector is 𝑠 𝐻 = [𝑖 𝑑𝑜𝑚 , 𝑎 𝐻 𝑝𝑟𝑒𝑣 , 𝑝 𝑙𝑖𝑡𝑒 , 𝑙 ].This design enables the high-level agent to dynamically prioritize, adapt, and terminate, effectively closing the loop between cleaning actions and downstream utility. 
+
+Low-Level Agent (Operator Selection). Given a high-level action 
+
+𝑎 𝐻 ∈ { M, O, C} (issue type), the low-level agent selects a concrete cleaning operator 𝑎 𝐿 ∈ A 𝐿 , where A𝐿 corresponds to the sub-library of candidate tools (e.g., imputers for missing values). To pre-vent policy interference across distinct quality issues, we maintain independent Q-tables per high-level action, enabling specialized learning of category-specific repair logic. The low-level state representation captures three complemen-tary perspectives: i) Goal Alignment ( 𝑔 𝑖𝑛𝑑 ): a one-hot mask de-rived from 𝑎 𝐻 that filters irrelevant operator sub-libraries, ensuring focus on the targeted issue; ii) Data Distribution ( 𝑑 𝑠𝑡𝑎𝑡 ): statisti-cal features (e.g., skewness, sparsity, variance) that characterize the data profile and support informed operator matching; and iii) Temporal Dynamics ( 𝑚 𝑠𝑡𝑟𝑢𝑐𝑡 ): time-series-specific metrics (e.g., sta-tionarity scores) that guide operator selection to preserve signal integrity and minimize distortion. The resulting state vector is 
+
+𝑠 𝐿 = [𝑔 𝑖𝑛𝑑 , 𝑑 𝑠𝑡𝑎𝑡 , 𝑚 𝑠𝑡𝑟𝑢𝑐𝑡 ]. This design enables the low-level agent to jointly consider what to fix (via 𝑔 𝑖𝑛𝑑 ) and how to fix it (via 𝑑 𝑠𝑡𝑎𝑡 
+
+and 𝑚 𝑠𝑡𝑟𝑢𝑐𝑡 ), enabling precise, context-aware operator selection. 
+
+## 5.2 Dual-Stage Reward Mechanism 
+
+To enable dense feedback without prohibitive computational costs, we decouple reward generation: a lightweight proxy model pro-vides dense intermediate rewards, while the target complex model 
+
+> 5
+
+supplies sparse terminal rewards. This dual-stage design aligns step-wise cleaning trajectories with end-to-end objectives. 
+
+5.2.1 Low-Level Dense Reward. The low-level reward evaluates four complementary dimensions. First, Temporal Smoothness (R𝑑𝑒𝑛𝑠𝑒 𝑠𝑡𝑟𝑢𝑐𝑡𝑢𝑟𝑒 ) penalizes spikes and jitter to preserve signal coher-ence. Second, the Modification Constraint ( R𝑑𝑒𝑛𝑠𝑒 𝑑𝑖𝑠𝑡𝑎𝑛𝑐𝑒 ) measures the RMS difference between pre- and post-cleaning data, discouraging excessive tampering. Third, Local Effectiveness ( R𝑑𝑒𝑛𝑠𝑒 𝑙𝑜𝑐𝑎𝑙 ) captures the direct reduction in the targeted issue rate (e.g., a decrease in missing values). Finally, to align local cleaning with the ultimate goal without the prohibitive computational bottleneck of complex downstream model evaluation, Task Alignment ( R𝑑𝑒𝑛𝑠𝑒 𝑙𝑖𝑡𝑒 ) reflects the performance gain of a lightweight model trained for the same down-stream task, enabling rapid task-oriented feedback. The aggregated dense reward is defined as follows: 
+
+R𝑑𝑒𝑛𝑠𝑒 𝑙𝑜𝑤 = 𝜇 1R𝑑𝑒𝑛𝑠𝑒 𝑠𝑡𝑟𝑢𝑐𝑡𝑢𝑟𝑒 − 𝜇 2R𝑑𝑒𝑛𝑠𝑒 𝑑𝑖𝑠𝑡𝑎𝑛𝑐𝑒 + 𝜇 3R𝑑𝑒𝑛𝑠𝑒 𝑙𝑜𝑐𝑎𝑙 + 𝜇 4R𝑑𝑒𝑛𝑠𝑒 𝑙𝑖𝑡𝑒 (8) Each term is normalized to stabilize the optimization. This joint design prioritizes data repairs that maximize downstream utility while preserving data integrity. 
+
+5.2.2 High-Level Reward. The high-level agent receives a compos-ite reward consisting of dense intermediate feedback and sparse terminal evaluation. 
+
+Dense Reward: At each non-terminal step, the high-level dense reward integrates four complementary signals. The Execution Feed-back Propagation ( R𝑑𝑒𝑛𝑠𝑒 𝑙𝑜𝑤 in Equation 8) propagates fine-grained low-level outcomes, favoring issue types that yield effective local repairs. The Global Quality Improvement ( R𝑑𝑒𝑛𝑠𝑒 𝑞𝑢𝑎𝑙𝑖𝑡 𝑦 ) reflects the re-duction in the overall data quality issue rate, guiding macroscopic cleaning progress. The Computational Cost Penalty ( R𝑑𝑒𝑛𝑠𝑒 𝑐𝑜𝑠𝑡 ) ac-counts for lightweight model execution time, balancing quality gains against efficiency. Finally, the Stagnation Penalty ( R𝑑𝑒𝑛𝑠𝑒 𝑝𝑒𝑛𝑎𝑙𝑡 𝑦 )imposes a discrete penalty for redundant operations (e.g., applying the same operator without improvement), breaking potential infi-nite loops and preventing conservative deadlock. The aggregated dense reward is defined as follows: 
+
+R𝑑𝑒𝑛𝑠𝑒 ℎ𝑖𝑔ℎ = 𝜆 1R𝑑𝑒𝑛𝑠𝑒 𝑙𝑜𝑤 + 𝜆 2R𝑑𝑒𝑛𝑠𝑒 𝑞𝑢𝑎𝑙𝑖𝑡 𝑦 − 𝜆 3R𝑑𝑒𝑛𝑠𝑒 𝑐𝑜𝑠𝑡 − R 𝑑𝑒𝑛𝑠𝑒 𝑝𝑒𝑛𝑎𝑙𝑡 𝑦 (9) The first three components are normalized for stable optimization; 
+
+R𝑑𝑒𝑛𝑠𝑒 𝑝𝑒𝑛𝑎𝑙𝑡 𝑦 remains unnormalized to strictly outweigh incremental gains, avoiding any deadlocks. 
+
+Sparse Reward: At episode termination (action F or budget ex-haustion), the agent receives: 
+
+R𝑠𝑝𝑎𝑟𝑠𝑒 ℎ𝑖𝑔ℎ = 𝑀 complex (𝑋 cleaned ) − 𝑀 complex (𝑋 ) (10) where 𝑀 complex (·) is the target downstream model performance. This delayed terminal reward propagates backward via Q-learning, anchoring the policy to true end-to-end objectives. Thus, the dual-stage design achieves efficiency via dense lightweight-model feedback and fidelity via sparse complex-model supervision. 
+
+## 5.3 Training and Optimization 
+
+5.3.1 Training Procedure. Algorithm 1 summarizes the reinforce-ment learning procedure for jointly training the high-level and 
+
+Algorithm 1: Iterative Training of Pipeline Generation 
+
+Input: Dirty data X; operator library B; quality evaluator 𝐸 ;lightweight model 𝑀 𝑙𝑖𝑡𝑒 ; complex model 𝑀 𝑐𝑜𝑚𝑝𝑙𝑒𝑥 ;episodes 𝑁 ; max pipeline length Lmax 
+
+Output: Trained high-level agent 𝐴𝑔𝑒𝑛𝑡 𝐻 (𝜃 𝐻 ) and low-level agent 𝐴𝑔𝑒𝑛𝑡 𝐿 (𝜃 𝐿 ) 
+
+> 1
+
+Initialize 𝑀 𝑙𝑖𝑡𝑒 , 𝑀 𝑐𝑜𝑚𝑝𝑙𝑒𝑥 , and parameters 𝜃 𝐻 , 𝜃 𝐿  
+
+> 2
+
+for 𝑛 ← 1 to 𝑁 do  
+
+> 3
+
+(X(0) , 𝑃, 𝑙 ) ← ( X, ∅, 0) 
+
+> 4
+
+while 𝑙 < Lmax do  
+
+> 5
+
+Rates (𝑙 ) ← 𝐸 (X(𝑙 ) ) 
+
+> 6
+
+𝑎 𝐻 ← 𝐴𝑔𝑒𝑛𝑡 𝐻 (ExtractHighState (X(𝑙 ) , Rates (𝑙 ) ) )  
+
+> 7
+
+if 𝑎 𝐻 = F then break  
+
+> 8
+
+𝑎 𝐿 ← 𝐴𝑔𝑒𝑛𝑡 𝐿 (ExtractLowState (X(𝑙 ) , 𝑎 𝐻 ) )  
+
+> 9
+
+(X(𝑙 +1) , 𝑃 ) ← ( 𝑜 (X(𝑙 ) ), 𝑃 ⊕ 𝑜 ) where 𝑜 = B ( 𝑎 𝐻 , 𝑎 𝐿 ) 
+
+> 10
+
+Rates (𝑙 +1) ← 𝐸 (X(𝑙 +1) ) 
+
+> 11
+
+R𝑑𝑒𝑛𝑠𝑒 𝑙𝑖𝑡𝑒 ← 𝑀 𝑙𝑖𝑡𝑒 (X(𝑙 +1) ) 
+
+> 12
+
+Update 𝜃 𝐿 using R𝑑𝑒𝑛𝑠𝑒 𝑙𝑜𝑤 (Rates (𝑙 +1) , R𝑑𝑒𝑛𝑠𝑒 𝑙𝑖𝑡𝑒 ) 
+
+> 13
+
+Update 𝜃 𝐻 using R𝑑𝑒𝑛𝑠𝑒 ℎ𝑖𝑔ℎ (Rates (𝑙 +1) , R𝑑𝑒𝑛𝑠𝑒 𝑙𝑖𝑡𝑒 ) 
+
+> 14
+
+𝑙 ← 𝑙 + 1 
+
+> 15
+
+end  
+
+> 16
+
+Update 𝜃 𝐻 with R𝑠𝑝𝑎𝑟𝑠𝑒 ℎ𝑖𝑔ℎ ≡ 𝑀 𝑐𝑜𝑚𝑝𝑙𝑒𝑥 (X(𝑙 ) ) − 𝑀 𝑐𝑜𝑚𝑝𝑙𝑒𝑥 (X) 
+
+> 17
+
+end  
+
+> 18
+
+return 𝐴𝑔𝑒𝑛𝑡 𝐻 , 𝐴𝑔𝑒𝑛𝑡 𝐿 
+
+low-level policies to generate a data cleaning pipeline. It takes as in-put the dirty dataset X, the operator pool candidates B, the quality evaluator 𝐸 , the lightweight model 𝑀 𝑙𝑖𝑡𝑒 , the downstream complex model 𝑀 𝑐𝑜𝑚𝑝𝑙𝑒𝑥 , and the training hyperparameters 𝑁 and Lmax .The procedure starts by initializing 𝑀 lite , 𝑀 complex , and the policy parameters 𝜃 𝐻 and 𝜃 𝐿 for the two agents (Line 1). Training then runs for 𝑁 episodes (Lines 2–16). At the start of each episode, the envi-ronment and pipeline 𝑃 are reset, setting X(0) ← X and initializing the step counter 𝑙 (Line 3). As operators are applied sequentially, the intermediate data state is denoted by X(𝑙 ) = 𝑜 𝑖 𝑙 (X(𝑙 −1) ), represent-ing the result after the 𝑙 -th operator. At each step 𝑙 , the evaluator 𝐸 
+
+computes the quality issue rates (Line 5). The high-level agent then selects an action 𝑎 𝐻 based on the high-level state (Line 6). If 𝑎 𝐻 = F,a termination action chosen when the marginal performance gain no longer justifies the additional computational cost, the pipeline construction stops (Line 7). Otherwise, the low-level agent selects a specific operator 𝑎 𝐿 based on the low-level state (Line 8), after which the corresponding cleaning operator 𝑜 is executed, producing 
+
+X(𝑙 +1) and appending 𝑜 to 𝑃 (Line 9)., After applying 𝑜 , 𝐸 re-evaluates X(𝑙 +1) and 𝑀 𝑙𝑖𝑡𝑒 computes the dense lightweight model reward R𝑑𝑒𝑛𝑠𝑒 𝑙𝑖𝑡𝑒 (Lines 10–11). The low-level reward updates 𝜃 𝐿 , and the high-level dense reward updates 
+
+𝜃 𝐻 (Lines 12–13). The step counter 𝑙 is then incremented (Line 14). When the inner loop ends (either triggered by F or reaching Lmax ), the full pipeline is validated by 𝑀 𝑐𝑜𝑚𝑝𝑙𝑒𝑥 . The sparse high-level reward R𝑠𝑝𝑎𝑟𝑠𝑒 ℎ𝑖𝑔ℎ is computed from the performance gain over the raw data and is used to update 𝜃 𝐻 (Line 16). Finally, the trained agents 𝐴𝑔𝑒𝑛𝑡 𝐻 and 𝐴𝑔𝑒𝑛𝑡 𝐿 are returned (Line 18). 
+
+5.3.2 Accelerated Convergence. A natural question arises regarding the convergence of our algorithm. In hierarchical decision-making 
+
+> 6
+
+Algorithm 2: Data Cleaning Using Trained Hierarchical Agents 
+
+Input: Dirty dataset X𝑑𝑖𝑟𝑡 𝑦 ; trained high-level agent 
+
+𝐴𝑔𝑒𝑛𝑡 𝐻 (𝜃 𝐻 ); trained low-level agent 𝐴𝑔𝑒𝑛𝑡 𝐿 (𝜃 𝐿 );operator library B; quality evaluator 𝐸 
+
+Output: Cleaned dataset X𝑐𝑙𝑒𝑎𝑛𝑒𝑑 ; final pipeline 𝑃 ∗ 
+
+> 1
+
+(X(0) , 𝑃, 𝑙 ) ← ( X𝑑𝑖𝑟𝑡 𝑦 , ∅, 0) 
+
+> 2
+
+while True do  
+
+> 3
+
+Rates (𝑙 ) ← 𝐸 (X(𝑙 ) ) 
+
+> 4
+
+𝑎 𝐻 ← 𝐴𝑔𝑒𝑛𝑡 𝐻 (ExtractHighState (X(𝑙 ) , Rates (𝑙 ) ) )  
+
+> 5
+
+if 𝑎 𝐻 = F then break  
+
+> 6
+
+𝑎 𝐿 ← 𝐴𝑔𝑒𝑛𝑡 𝐿 (ExtractLowState (X(𝑙 ) , 𝑎 𝐻 ) )  
+
+> 7
+
+𝑜 ← B ( 𝑎 𝐻 , 𝑎 𝐿 ) 
+
+> 8
+
+(X(𝑙 +1) , 𝑃 ) ← ( 𝑜 (X(𝑙 ) ), 𝑃 ⊕ 𝑜 ) 
+
+> 9
+
+𝑙 ← 𝑙 + 1 
+
+> 10
+
+end  
+
+> 11
+
+X𝑐𝑙𝑒𝑎𝑛𝑒𝑑 ← X(𝑙 ) , 𝑃 ∗ ← 𝑃  
+
+> 12
+
+return X𝑐𝑙𝑒𝑎𝑛𝑒𝑑 , 𝑃 ∗
+
+for data cleaning, the high-level agent typically explores different actions (e.g., missing value imputation, outlier correction, and con-straint violation repair) to find an optimal sequence. However, when the current data contains null values, most cleaning operations (such as outlier detection) are prone to error. This makes searching over a wide action space inefficient and potentially harmful. An intuitive strategy is to prioritize imputation immediately upon de-tecting missing values, effectively eliminating other choices. This not only simplifies the agent’s decision, but also ensures the dataset is structurally complete before executing subsequent cleaning. The following lemma formalizes this dependency-aware pruning. 
+
+Lemma 1 (Dependency-aware Search Pruning). The high-level agent’s action space A𝐻 is exclusively pruned to 𝑀 upon the identification of null values in the current data. 
+
+The proof is straightforward. If null values are identified in the current data, it means the data contains missing values. As we adopt an imputation-first priority on the high-level agent, the imputation is adopted directly without searching in the high-level agent’s ac-tion space. This ensures a consistent data foundation, effectively narrowing the search space to valid trajectories. In addition, we adopt a Stagnation-triggered Penalty Strategy (R𝑝𝑒𝑛𝑎𝑙𝑡 𝑦 ) to prevent infinite loops and stagnation. Specifically, if the agent executes the exact same action pair (𝑎 𝐻 , 𝑎 𝐿 ) for three consecutive steps without any substantive performance improve-ment, a massive penalty is directly added to R𝑑𝑒𝑛𝑠𝑒 ℎ𝑖𝑔ℎ (Line 13). For-mally, R𝑝𝑒𝑛𝑎𝑙𝑡 𝑦 is set to −5.0 when this stagnation condition is triggered, and remains 0 otherwise. This rigorous constraint delib-erately outweighs the incremental gains from other reward compo-nents, forcibly breaking behavioral deadlocks and prompting the exploration of alternative operators. 
+
+## 5.4 Cleaning Inference 
+
+Once training completes, the system enters the inference phase de-tailed in Algorithm 2. Given a new dirty dataset X𝑑𝑖𝑟𝑡 𝑦 , the trained agents deterministically construct a cleaning pipeline without any model updates or reward computations. The high-level agent re-peatedly selects the quality issue to clean and the low-level agent picks a concrete operator from B. Each selected operator is applied immediately, transforming the data incrementally. The loop ter-minates when the high-level agent returns both the fully cleaned dataset X𝑐𝑙𝑒𝑎𝑛𝑒𝑑 and the explicit, auditable pipeline 𝑃 ∗.This two-phase design cleanly separates expensive training (ex-ploration, reward shaping, model updates) from fast, deterministic deployment, making the approach practical for real-world data cleaning tasks. 
+
+## 5.5 Complexity Analysis 
+
+We analyze the computational complexity of both training and inference. Let Lmax be the maximum pipeline length (budget), 𝐾 =
+
+|B| the total cleaning operator pool size, 𝐾 max the maximum size of any single sub-library (i.e., max 𝑎 𝐻 ∈ A 𝐻 |B 𝑎 𝐻 |), and 𝑁 the number of training episodes. We assume |A 𝐻 | ≤ 𝐾 and 𝐾 max ≤ 𝐾 .At each cleaning iteration 𝑙 , the high-level agent selects an ac-tion from A𝐻 (cost O(|A 𝐻 |) ), and the low-level agent selects an operator from the corresponding sub-library (cost O( 𝐾 max )). Thus, the decision cost per step is: 
+
+O(|A 𝐻 | + 𝐾 max ) = O( 𝐾 ). (11) For each training episode, the inner loop executes at most Lmax 
+
+steps. In each step, besides the decision cost O( 𝐾 ), the algorithm (i) evaluates quality issue rates via 𝐸 (X(𝑙 ) ): typically O( 𝑑 ) where 𝑑 
+
+is the dataset size; (ii) computes dense reward R𝑑𝑒𝑛𝑠𝑒 𝑙𝑖𝑡𝑒 using light-weight model 𝑀 𝑙𝑖𝑡𝑒 : cost O( 𝑑 · ℎ𝑙𝑖𝑡𝑒 ) where ℎ𝑙𝑖𝑡𝑒 is the model’s hidden dimension; and (iii) updates policy parameters 𝜃 𝐿 and 𝜃 𝐻 :cost proportional to model size, typically O(| 𝜃 𝐿 | + | 𝜃 𝐻 |) . At the end of each episode, the sparse reward requires evaluating the complex model 𝑀 𝑐𝑜𝑚𝑝𝑙𝑒𝑥 on the cleaned data X(𝑙 ) , with cost O( 𝑑 · ℎ𝑐𝑜𝑚𝑝𝑙𝑒𝑥 ),where ℎ𝑐𝑜𝑚𝑝𝑙𝑒𝑥 ≫ ℎ𝑙𝑖𝑡𝑒 .Let 𝐶 𝐸 (𝑑 ) denote the cost of quality evaluation, 𝐶 𝑜𝑝 (𝑑 ) is the cost of applying a cleaning operator, 𝐶 𝑙𝑖𝑡𝑒 (𝑑 ) the cost of the lightweight model forward pass, 𝐶 𝑐𝑜𝑚𝑝𝑙𝑒𝑥 (𝑑 ) the cost of the complex model forward pass, and 𝐶 𝜃 the cost of policy updates (independent of 𝑑 ). The total training cost is: 
+
+O  𝑁 · L max ·  𝐾 + 𝐶 𝐸 (𝑑 ) + 𝐶 𝑜𝑝 (𝑑 ) + 𝐶 𝑙𝑖𝑡𝑒 (𝑑 ) + 𝐶 𝜃 
+
+ + 𝑁 · 𝐶 𝑐𝑜𝑚𝑝𝑙𝑒𝑥 (𝑑 )
+
+(12) During inference, no model updates or reward computations occur. At each step, the agents perform action selection O( 𝐾 ) and apply one cleaning operator (e.g., O( 𝑑 ) for operations like imputa-tion). Quality evaluation 𝐸 is also required at each step to extract the state. Hence, the inference cost for cleaning is: 
+
+O  Lmax ·  𝐾 + 𝐶 𝐸 (𝑑 ) + 𝐶 𝑜𝑝 (𝑑 ) . (13) Thus, both the training and inference phases of our method scale linearly with respect to the pipeline budget Lmax and the number of cleaning operations 𝐾 .
+
+## 6 EXPERIMENTAL EVALUATION 
+
+In this section, we validate our technical contributions through a series of experiments, divided into two main sets. The first evaluates 
+
+AegisTS in terms of upstream and downstream performance as 
+
+> 7
+
+Table 2: Dataset Statistics 
+
+Dataset #Categories Length # Samples #Attrs Task ETTh1 1 17,420 1 7 Pred. IDF_OilTemp 1 1,024 1 4 Pred. Libras 15 45 360 2 Clf./Clu. Handwriting 26 152 1,000 3 Clf./Clu. well as runtime. The second examines how individual components of AegisTS impact its effectiveness and efficiency. 
+
+## 6.1 Experimental Setup 
+
+6.1.1 Datasets. We evaluate AegisTS on four widely used real-world datasets from diverse domains, as summarized in Table 2. 
+
+• ETTh1 [ 41 ]: a power dataset it is collected from power trans-formers across two regions, capturing two years of hourly operational data with seven features (target oil temperature and six external power loads). 
+
+• IDF_OilTemp [ 11 ]: a heavy-equipment monitoring dataset with hourly sequences (length 1,024) and four continuous features representing the main oil temperature and corre-lated mechanical states. 
+
+• Libras [ 2]: a Brazilian Sign Language dataset with 360 samples across 15 classes, where each length-45 sequence records the spatial coordinates of the hand centroid. 
+
+• Handwriting [ 2]: a smartwatch-based dataset with 1,000 samples across 26 classes, capturing alphabet-writing mo-tions, where each sequence of length 152 consists of triaxial real-time acceleration signals. ETTh1 and IDF_OilTemp each contain a single category and are used only for forecasting (Pred.), whereas Libras and Handwriting include multiple categories and are used for classification (Clf.) and clustering (Clu.) tasks. To simulate real-world data quality degradation, we inject dis-crete corruptions and additive Gaussian white noise following the MTSClean contamination strategy [ 11 ]. Specifically, we inject four distinct types of data quality issues, including duplicate values, missing values, single-point and segment outliers, and constraint violations, into randomly selected variables. 
+
+6.1.2 Baselines. We compare AegisTS against four well-adopted cleaning methods: 
+
+• EDITOR [ 23 ]: A recent MTS cleaning method that han-dles multi-granularity issues (points, subsequences, cross-variable) via a multi-resolution pipeline for detection, local-ization, and repair, while mitigating over-cleaning. 
+
+• Clean4TSDB [ 12 ]: An integrated system combining con-straint mining and error profiling to detect violations of physical and statistical patterns, and repair them via tem-poral and multivariate dependencies. 
+
+• DiffPrep [ 25 ]: The state-of-the-art tabular pipeline genera-tion method that maps discrete preprocessing choices into a differentiable space, enabling joint optimization of pipelines and downstream model parameters. Designed for standard tabular data, we adapt it to time-series cleaning by replacing general preprocessing operators with time-series-specific cleaning operators. The adaptation works only in single-series datasets. 
+
+• Sampling: It adopts a brute-force pipeline generation strat-egy by randomly sampling up to Lmax operators from the predefined cleaning-operator pool and permuting them into a random execution order to clean the dataset. 
+
+6.1.3 Evaluation Metrics. We evaluate our method from two com-plementary perspectives. For upstream data cleaning, we use three metrics: F1-score [ 11 ] for quality issues detection; Normalized Mean Squared Error (NMSE) [ 6 ] and Relative Repair Accuracy (RRA) [ 11 ]for data cleaning. To evaluate downstream performance, we adopt task-specific evaluation metrics. For forecasting, we compute the average of expo-nentially scaled NRMSE ( 𝑒 −NRMSE ) and the normalized Correlation Coefficient (CC), capturing both prediction accuracy and align-ment of temporal trends. For classification, we average the Macro F1-score and ROC AUC, reflecting performance across balanced classes as well as threshold-independent discriminative power. For clustering, we use the average of the normalized Silhouette Score and the inversely scaled Davies–Bouldin Index, which together quantify intra-cluster cohesion and inter-cluster separation. All downstream metrics are normalized to the range [0, 1], with higher values indicating better performance, ensuring comparability across different tasks. Finally, ΔPerf represents the relative improvement in downstream performance. 
+
+6.1.4 Downstream Models. In the Dual-Stage Reward Mechanism, we employ DLinear [ 38 ] for forecasting, MiniRocketClassifier [ 8 ]for classification, and Catch22Clusterer [ 27 ] for clustering as light-weight proxy models. These models are widely used baselines in their respective tasks and are computationally efficient. For final end-to-end downstream utility, we evaluate each task using a cor-responding complex target model: LSTMForecast [ 20 ], Inception-TimeClassifier [ 16 ], and AEDCNNClusterer [ 3 ], respectively. These target models provide strong representational capacity for forecast-ing, classification, and clustering. 
+
+6.1.5 Implementation. All experiments are conducted on a Linux workstation (Ubuntu 24.04.1 LTS) equipped with an Intel Core i9-10900K CPU, 128 GB of RAM, and an NVIDIA RTX 3090 GPU (24 GB VRAM). The source code can be accessed at https://anonymous. 4open.science/r/AegisTS-ED40/. 
+
+## 6.2 Cleaning Performance 
+
+Table 3 presents a comprehensive comparison of all methods across six dataset-task configurations. We analyze the experimental results from the perspectives of both upstream and downstream metrics. 
+
+Upstream Performance. The results show that AegisTS consis-tently outperforms all baselines across most upstream performance settings. We further break down the results by dataset type. In the ETTh1 forecasting dataset, AegisTS dominates across all upstream metrics, achieving a 96.4% 𝑁 𝑀𝑆𝐸 reduction compared to the second-best solution, EDITOR. This is because AegisTS 
+
+leverages a robust constraint miner to capture physical and cross-variable dependencies from dirty data, preventing error accu-mulation. In addition, we observe the strategic trade-off on the 
+
+> 8
+
+Table 3: Overall comparison on all datasets across different downstream tasks. 
+
+Task Method ETTh1 IDF_OilTemp Upstream Downstream Upstream Downstream F1 ↑ NMSE ↓ RRA ↑ Perf ↑ ΔPerf ↑ F1 ↑ NMSE ↓ RRA ↑ Perf ↑ ΔPerf ↑
+
+> Forecasting
+
+Sampling 0.2419 0.0837 0.2245 0.8790 -0.0205 0.3733 0.0095 0.9905 0.9842 +0.1635 DiffPrep 0.6680 0.0041 0.7915 0.9334 +0.0339 0.2991 0.0113 0.9909 0.9767 +0.1560 EDITOR 0.2044 0.1112 0.2557 0.9100 +0.0105 0.2215 0.0059 0.9647 0.9659 +0.1452 Clean4TSDB 0.2393 0.0050 0.3522 0.9243 +0.0248 0.0561 0.0058 0.0895 0.8355 +0.0148 
+
+AegisTS 0.6758 0.0040 0.7966 0.9437 +0.0442 0.5546 0.0082 0.9924 0.9873 +0.1666 
+
+Task Method Libras Handwriting Upstream Downstream Upstream Downstream F1 ↑ NMSE ↓ RRA ↑ Perf ↑ ΔPerf ↑ F1 ↑ NMSE ↓ RRA ↑ Perf ↑ ΔPerf ↑
+
+> Classif.
+
+Sampling 0.1967 0.0018 0.8056 0.8216 +0.0043 0.1871 0.0035 0.1574 0.4182 -0.1078 EDITOR 0.6547 0.0162 0.5132 0.8191 +0.0018 0.3779 0.0010 0.4755 0.5281 +0.0021 Clean4TSDB 0.0197 0.0019 0.0372 0.9046 +0.0873 0.1373 0.0032 0.1170 0.4634 -0.0626 
+
+AegisTS 0.4898 0.0010 0.8374 0.9506 +0.1333 0.5450 0.0005 0.2034 0.5920 +0.0660 
+
+Task Method Libras Handwriting Upstream Downstream Upstream Downstream F1 ↑ NMSE ↓ RRA ↑ Perf ↑ ΔPerf ↑ F1 ↑ NMSE ↓ RRA ↑ Perf ↑ ΔPerf ↑
+
+> Clustering
+
+Sampling 0.1759 0.0092 0.5157 0.6704 +0.0198 0.2031 0.0032 0.1399 0.6009 +0.0605 EDITOR 0.6546 0.0215 0.4197 0.6760 +0.0254 0.3464 0.0011 0.4471 0.5674 +0.0270 Clean4TSDB 0.0145 0.0019 0.0284 0.6898 +0.0392 0.1346 0.0018 0.1485 0.5588 +0.0184 
+
+AegisTS 0.4731 0.0018 0.8030 0.6930 +0.0424 0.4033 0.0016 0.2716 0.6537 +0.1133 
+
+Table 4: Generalization evaluation across different datasets 
+
+Task Dataset NMSE ↓ ΔPerf ↑
+
+Forecasting IDF_OilTemp →ETTh1 0.0050 +0.0290 ETTh1 →IDF_OilTemp 0.0077 +0.1589 Classification Handwriting →Libras 0.0044 -0.0034 Libras →Handwriting 0.0012 +0.0395 Clustering Handwriting →Libras 0.0085 +0.0335 Libras →Handwriting 0.0026 +0.0403 IDF_OilTemp dataset: while Clean4TSDB achieves a marginally lower 𝑁 𝑀𝑆𝐸 , AegisTS achieves a significantly higher 𝐹 1 score and a near-optimal 𝑅𝑅𝐴 . This is attributed to the fact that the clean-ing strategy of AegisTS avoids the over-smoothing driven solely by minimizing numerical deviations, and instead prioritizes the recovery of meaningful temporal patterns. In the Libras classification dataset, AegisTS achieves higher cleaning quality (NMSE: 0.0010, RRA: 0.8374), while EDITOR at-tains higher F1. In the Handwriting dataset, AegisTS shows a slight decline in RRA compared to EDITOR. This is because AegisTS em-phasizes structure-aware restoration, using constraint modeling to avoid overfitting to local anomalies and better preserve global pat-terns. In contrast, EDITOR relies on multi-resolution local detection, tending to optimize specific metrics while potentially compromis-ing global structural consistency, which is critical for downstream analytical tasks like classification. Note that EDITOR’s results are not reported, as it cannot handle multi-series datasets. The clustering results show clear dataset-dependent trends. On Libras (low-frequency, smooth trajectories), AegisTS achieves the best cleaning quality (NMSE: 0.0018, RRA: 0.8030), while EDITOR attains a higher F1 (0.6546) due to its high-sensitivity detection. On Handwriting (high-frequency), AegisTS shows stronger anomaly identification (F1: 0.4033), whereas EDITOR’s smoothing (low-pass filtering) reduces point-wise error. In summary, AegisTS prioritizes structural fidelity, preserving meaningful dynamics for anomaly detection, while EDITOR favors accuracy through smoothing. 
+
+Downstream Performance. AegisTS consistently outperforms the baselines, achieving the highest absolute performance ( 𝑃𝑒𝑟 𝑓 )and performance gains ( Δ𝑃𝑒𝑟 𝑓 ) across all evaluated scenarios. This significant advantage stems from its robust capabilities in three specific downstream tasks: In forecasting, AegisTS achieves the highest downstream gains (ΔPerf: +0.0442) and IDF_OilTemp (+0.1666) by effectively restoring complex temporal dynamics. While baselines like Clean4TSDB min-imize numerical errors at the risk of over-smoothing critical trends, 
+
+AegisTS leverages its dual-stage reward mechanism to explicitly balance structural data fidelity with downstream utility. This en-sures the preservation of meaningful temporal patterns, yielding a substantial performance boost. In classification, AegisTS consistently outperforms all base-lines. In the highly sensitive Handwriting dataset, baselines such 
+
+> 9
+
+Table 5: Time cost of different cleaning methods 
+
+Method ETTh1 (Pred.) IDF_OilTemp (Pred.) Libras (Clf.) Handwriting (Clf.) Libras (Clu.) Handwriting (Clu.) Sampling 252 s 1071 s 864 s 1497 s 892 s 916 s DiffPrep 604 s 174 s – – – –EDITOR 1345 s 995 s 48 s 501 s 48 s 484 s Clean4TSDB 848 s 770 s 164 s 6236 s 151 s 6317 s Cross-Dataset Transfer 738 s 109 s 3742 s 6236 s 3278 s 5068 s Brute-Force Search > 3 days > 3 days > 3 days > 3 days > 3 days > 3 days Single Agent 4312 s 1208 s 32930 s 60103 s 30606 s 58302 s 
+
+AegisTS 2016 s 627 s 17617 s 21674 s 16193 s 20967 s 
+
+as Clean4TSDB degrade model accuracy, yielding a negative downstream impact ( Δ𝑃𝑒𝑟 𝑓 : -0.0626). In contrast, AegisTS safely cleans the data to deliver a robust positive gain (+0.0660), achiev-ing a 27.75% improvement in absolute performance ( 𝑃𝑒𝑟 𝑓 ) over Clean4TSDB. This highlights the limitation of task-agnostic clean-ing, such as Clean4TSDB, where statistical smoothing can erase subtle stroke dynamics. In contrast, AegisTS uses dual-stage re-wards to penalize repairs that damage class boundaries, preserving multi-class motion patterns while removing corruptions. In Clustering, the results also show the robustness of AegisTS 
+
+in unsupervised settings by preserving intrinsic spatial structures. The downstream gain on Handwriting ( ΔPerf: +0.1133) significantly exceeds that on Libras (+0.0424). This stems from Handwriting’s higher complexity (length-152 triaxial signals vs. length-45 spatial coordinates) and higher error rate (26.48% vs. 22.96%). Under such severe corruption, conventional methods tend to over-smooth and erase subtle stroke dynamics. AegisTS overcomes this via dual-stage rewards that penalize structural damage, successfully preserv-ing intricate motion patterns and yielding larger improvements on the more challenging dataset. 
+
+## 6.3 Generalization Evaluation 
+
+We assess the generalization ability of AegisTS by performing 
+
+Cross-Dataset Transfer within identical task categories. We first train AegisTS on a source dataset to obtain trained agents, then directly use these agents to generate a cleaning pipeline on a target dataset of the same task type, and finally evaluate the cleaned target dataset. Specifically, for forecasting, the agents trained on ETTh1 are transferred to IDF_OilTemp to generate cleaning pipelines, and the cleaned data is then evaluated, while the reverse transfer is con-ducted analogously. The same source-to-target transfer protocol is applied to Libras and Handwriting for classification and clustering. Table 4 evaluates the cross-dataset generalization of AegisTS by examining the interplay between cleaning effectiveness ( 𝑁 𝑀𝑆𝐸 )and downstream utility ( ΔPerf ). Across all tasks, the consistently low 𝑁 𝑀𝑆𝐸 (ranging from 0.0012 to 0.0085) demonstrates that the pre-trained agents can easily recover underlying temporal patterns without introducing detrimental artifacts or over-smoothing target observations. This zero-shot fidelity stems from the MDP design, where the agent makes decisions based on dataset-agnostic distri-butional and structural features rather than raw numerical values. Furthermore, the predominantly positive ΔPerf scores across trans-fer scenarios, peaking at a +0.1589 gain (ETTh1 → IDF_OilTemp) ETTh1  (Pred.) IDF_OilTemp (Pred.) Libras (Clf.) Handwriting (Clf.) Libras (Clu.) Handwriting (Clu.) 1E-4 0.001 0.01 0.1 1NMSE Dataset (Downstream Task)  Single Agent w/o Task w/o Metrics AEGISTS (a) Ablation Study on NMSE ETTh1  (Pred.) IDF_OilTemp (Pred.) Libras (Clf.) Handwriting (Clf.) Libras (Clu.) Handwriting (Clu.) -0.25 -0.05 00.1 0.2 ∆P e r f   
+
+> Dataset(DownstreamTask)
+> (b)AblationStudyon
+> ∆Perf
+
+Figure 3: Ablation Evaluation. 
+
+with only a negligible -0.0034 dip (Handwriting → Libras), confirm that AegisTS successfully transfers dataset-agnostic cleaning poli-cies to actively boost downstream utility on novel datasets without requiring retraining. This is because the agents capture universal structural priors, preserving task-relevant discriminative patterns instead of applying blind numerical smoothing, which aligns with the fundamental requirements of downstream tasks across datasets. 
+
+## 6.4 Efficiency Evaluation 
+
+Table 5 reports the CPU runtimes of the different methods. The results indicate that both sampling and EDITOR achieve very low runtimes, albeit at the cost of reduced quality. In contrast, AegisTS 
+
+incurs a higher computational cost because it explicitly prioritizes data quality, as discussed earlier. Despite this, AegisTS remains competitive with search-based approaches, as it avoids brute-force exploration through policy-guided pipeline generation. Moreover, it is consistently 1.9× to 2.8× faster than the flat ‘Single Agent’ variant, demonstrating that the hierarchical decision-making de-sign effectively narrows the search space. Finally, AegisTS out-performs Clean4TSDB, EDITOR, and even sampling in efficiency 
+
+> 10 0.2 0.4 0.6 0.8 0.00 0.04 0.08 0.12 0.16 0.20
+
+                   E T T h 1 N M S E I D F _ O i l T e m p N M S E
+
+ 1
+
+>     
+
+(a)
+
+Paramaterstudyof
+
+ 1
+
+> 0.000
+> 0.003
+> 0.006
+> 0.009
+> 0.012
+> 0.015
+> NMSE
+> 0.1
+> 0.3
+> 0.5
+> 0.7
+> 0.00
+> 0.04
+> 0.08
+> 0.12
+> 0.16
+> 0.20
+
+ 2
+
+>     
+
+(b)
+
+Paramaterstudyof
+
+  2
+
+> 0.000
+> 0.003
+> 0.006
+> 0.009
+> 0.012
+> 0.015
+> NMSE
+> 0.1
+> 0.3
+> 0.5
+> 0.7
+> 0.00
+> 0.04
+> 0.08
+> 0.12
+> 0.16
+> 0.20
+
+ 3
+
+>     
+
+(c)
+
+Paramaterstudyof
+
+ 3
+
+> 0.000
+> 0.003
+> 0.006
+> 0.009
+> 0.012
+> 0.015
+> NMSE
+
+Figure 4: Parameter Study of 𝜆 values. 0.2 0.4 0.6 0.8 0.00 0.04 0.08 0.12 0.16 0.20                    E T T h 1 N M S E I D F _ O i l T e m p N M S E        
+
+> 1
+>     
+> (a)
+> Paramaterstudyof
+> 1
+> 0.000
+> 0.005
+> 0.010
+> 0.015
+> 0.020
+> 0.025
+> NMSE
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 0.00
+> 0.04
+> 0.08
+> 0.12
+> 0.16
+> 0.20
+> 2
+>     
+> (b)
+> Paramaterstudyof
+>   2
+> 0.000
+> 0.005
+> 0.010
+> 0.015
+> 0.020
+> 0.025
+> NMSE
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 0.00
+> 0.04
+> 0.08
+> 0.12
+> 0.16
+> 0.20
+> 3
+>     
+> (c)
+> Paramaterstudyof
+>   3
+> 0.000
+> 0.005
+> 0.010
+> 0.015
+> 0.020
+> 0.025
+> NMSE
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 0.00
+> 0.04
+> 0.08
+> 0.12
+> 0.16
+> 0.20
+> 4
+>     
+> (d)
+> Paramaterstudyof
+> 4
+> 0.000
+> 0.005
+> 0.010
+> 0.015
+> 0.020
+> 0.025
+> NMSE
+
+Figure 5: Parameter Study of 𝜇 values. 
+
+on the IDF_OilTemp dataset, largely because this dataset is low-dimensional, exhibits strong inter-variable correlations, and has relatively regular temporal patterns, conditions that favor light-weight modeling of AegisTS and its accelerated convergence. From a practical perspective, the generalization ability of 
+
+AegisTS enables an effective acceleration strategy through Cross-Dataset Transfer. Notably, the reported runtime of AegisTS includes the training cost of hierarchical agents. Once trained on a source dataset, these agents can be directly reused to generate cleaning pipelines for target datasets within the same task category, without additional retraining. Therefore, transfer-time deployment is faster than training AegisTS from scratch, while still preserving strong cleaning effectiveness and downstream utility. 
+
+## 6.5 Ablation Study 
+
+We perform ablation studies on three key components to quantify their contributions to AegisTS , as illustrated in Figure 3. Specif-ically, Single Agent replaces the hierarchical architecture with a single flat agent that directly searches the full operator space. 
+
+w/o Task removes downstream task–guided rewards, retaining only task-agnostic reward terms. w/o Metrics excludes reward signals derived from quality issue rates in the Quality Evaluator (i.e., r𝑚𝑖𝑠𝑠𝑖𝑛𝑔 , r𝑜𝑢𝑡𝑙𝑖𝑒𝑟 , and r𝑣𝑖𝑜𝑙𝑎𝑡𝑖𝑜𝑛 in Section 4.1). The results in Figure 3 reveal three key observations. First, Sin-gle Agent variant suffers from severe performance degradation, yielding negative performance gains in classification ( ΔPerf < 0)and substantially increased 𝑁 𝑀𝑆𝐸 . This indicates that flattening the hierarchical action space exposes the RL agent to excessive combinatorial complexity, whereas the proposed hierarchical de-sign enables more efficient and safer policy exploration. Second, 
+
+w/o Task variant fails to consistently achieve the lowest 𝑁 𝑀𝑆𝐸 be-cause it optimizes solely for statistical data quality. This highlights the role of downstream task feedback as a crucial structural prior that preserves discriminative temporal patterns by preventing over-smoothing. Third, w/o Metrics variant suffers from severe 𝑁 𝑀𝑆𝐸 
+
+spikes and limited performance gains, as the absence of explicit quality issue indicators may lead the agent to subtly distort the data within conservative cleaning bounds to overfit downstream model preferences. These results confirm that the Quality Evaluator provides indispensable fine-grained supervision, guiding cleaning policies to restore the underlying data structure rather than gener-ate task-overfitted artifacts. The ablation results illustrate the complementary roles of the hierarchical agent architecture and the reward formulation that integrates downstream task feedback with explicit quality issue rates. Together, they enable AegisTS to effectively navigate the cleaning space and produce high-fidelity cleaned data. 
+
+## 6.6 Parameter Study 
+
+Finally, we evaluate the sensitivity of reward weights. Figure 4 shows results for the high-level parameters 𝜆 (Equation 9), while Figure 5 shows results for the low-level parameters 𝜇 (Equation 8). 
+
+High-Level Parameters ( 𝜆 ). 1) Execution feedback propagation 
+
+(𝜆 1): ΔPerf first increases and peaks at 0.4, while 𝑁 𝑀𝑆𝐸 reaches its minimum, and then performance declines. This is because a moderate 𝜆 1 introduces useful downstream feedback, whereas a larger value leads the policy to overfit local rewards and weaken global structural constraints. 2) Global quality improvement (𝜆 2): Performance is optimal at 𝜆 2 = 0.5, after which ΔPerf drops. This is because overly strong global constraints induce over-smoothing, which damages discriminative patterns. Computational cost penalty 
+
+(𝜆 3): As 𝜆 3 increases, 𝑁 𝑀𝑆𝐸 rises and ΔPerf declines, with the best value at 0.1. This is because a higher cost penalty encourages premature termination, resulting in under-cleaned data. 
+
+> 11
+
+Low-Level Parameters ( 𝜇 ). 1) Temporal smoothness (𝜇 1): As 𝜇 1
+
+increases, ΔPerf steadily declines and 𝑁 𝑀𝑆𝐸 rises, with the best value at 0.2. This is because excessive smoothness constraints pre-vent necessary corrections, leaving severe errors under-repaired. 2) 
+
+Modification constraint (𝜇 2): Larger 𝜇 2 leads to higher 𝑁 𝑀𝑆𝐸 and lower ΔPerf, with 0.2 performing best, due to excessive penalties restricting the repair of noise and anomalies. 3) Local effectiveness 
+
+(𝜇 3): Increasing 𝜇 3 reduces ΔPerf and causes unstable 𝑁 𝑀𝑆𝐸 , mak-ing 0.2 optimal, as the agent becomes biased toward point-wise fixes that weaken global structure. 4) Task alignment (𝜇 4): 𝑁 𝑀𝑆𝐸 
+
+shows a V-shaped trend and reaches its minimum at 𝜇 4 = 0.4, while 
+
+ΔPerf remains relatively high. This is because moderate task align-ment guides useful repairs, whereas excessive task emphasis may introduce unnatural artifacts and increase reconstruction error. 
+
+## 7 RELATED WORK 7.1 Time Series Data Cleaning Methods 
+
+Existing work on time series data cleaning primarily focuses on methods for detecting and repairing erroneous observations. These approaches can be broadly categorized into three families. 
+
+Statistical-based Methods. model time series probabilistically and detect errors as deviations from expected distributions. Maxi-mum Likelihood Estimation (MLE) [ 4] flags low-likelihood points by estimating parameters that maximize data likelihood, while Bayesian models [ 17 ] incorporate priors and update posterior be-liefs for repair. Markov models [ 14 ] capture temporal state tran-sitions, and Hidden Markov Models (HMM) [ 18 ] introduce latent states for likelihood-based inference. Similarly, MissNet [ 29 ] uses state-space models to mine latent dynamics and infer missing values. Expectation–Maximization (EM) [ 31 ] estimates hidden parameters iteratively, while Akane [ 19 ] selects the most probable sequence un-der a learned probabilistic model. These methods capture temporal dependencies, but often require strong assumptions and sufficient historical data, limiting their robustness to nonlinear, highly dy-namic, or non-stationary patterns. 
+
+Constraint-based Methods. detect and repair errors by enforcing predefined rules derived from domain knowledge. SCREEN [ 33 ]uses speed constraints to identify and correct temporal anomalies, while SpeedAcc [ 32 ] further incorporates velocity and accelera-tion constraints for consistency checking. For multivariate time series, MTSClean [ 11 ] and Clean4MTS [ 9] combine row and col-umn constraints for comprehensive error detection and repair. MTCSC [ 39 ] integrates clustering to improve repair accuracy, while Cleanits [ 13 ] addresses missing values, outliers, and structural in-consistencies through statistical correlation modeling and sequence constraints. Targeting time series databases, Clean4TSDB [ 12 ] in-troduces context-aware dependency constraints to capture broader structural relationships. Overall, constraint-based methods offer high interpretability and consistency guarantees by exploiting prior knowledge, but their performance depends heavily on constraint design and may suffer from high computational cost and limited scalability on complex or large-scale datasets. 
+
+Anomaly Detection-based Methods. treat cleaning as anom-aly detection followed by repair. Distance-based methods [ 13 ]flag points far from their neighbors, while clustering-based meth-ods [ 15 ] identify points that do not fit any cluster. Deep learning approaches further capture complex temporal patterns: LSTM mod-els [ 28 ] detect anomalies via reconstruction errors, GAN-based methods [ 34 ] learn data distributions adversarially, TransAD [ 36 ]models long-range dependencies with transformers, and ImDiffu-sion [ 7 ] uses diffusion-based reconstruction for anomaly detection. EDITOR [ 23 ] enables context-aware repair through a bidirectional framework combining TCN-based temporal modeling and GCN-based inter-variable interaction learning. These methods are effec-tive for subtle anomalies and nonlinear dynamics, but their repair quality depends heavily on detection accuracy. Existing methods target isolated quality issues and struggle with co-occurring errors, while naive chaining can break temporal and cross-variable dependencies. We propose AegisTS , which treats these methods as cleaning operators and formulates cleaning as a sequential decision process. Using hierarchical reinforcement learn-ing, AegisTS dynamically selects and orders operators to construct a dataset-specific cleaning pipeline without clean ground truth. 
+
+## 7.2 Time Series Data Cleaning Systems 
+
+Several systems have been proposed to automate data cleaning us-ing different technical paradigms. DiffPrep [25 ] models data prepa-ration as a differentiable process and jointly optimizes cleaning operations with downstream model training via gradient-based learning; however, it requires the downstream task to be differen-tiable, limiting its applicability in many practical scenarios. Holo-Clean [ 30 ] formulates data repairing as a probabilistic inference problem by integrating integrity constraints, statistical signals, and external knowledge sources, but its effectiveness heavily depends on the availability and correctness of predefined constraints. AutoD-CWorkflow [24 ] leverages large language models to automatically construct data cleaning workflows, yet its reliance on LLM inference incurs substantial token costs and latency, making it less suitable for large-scale or low-latency settings. ReClean [ 1] adopts RL to learn data cleaning strategies through iterative interaction and feedback. Those systems focus on tabular data and ignore temporal depen-dencies. Instead, we propose a hierarchical RL system for multivari-ate time series cleaning. AegisTS formulates cleaning as sequential decision-making over an operator repository, guided by a dual-stage reward combining quality signals and task performance. 
+
+## 8 CONCLUSION 
+
+We present AegisTS , a hierarchical reinforcement learning sys-tem for automated cleaning of multivariate time series with mul-tiple quality issues. It separates decision-making into a high-level policy for prioritizing issues and a low-level policy for selecting cleaning operations, enabling efficient exploration of large cleaning pipelines while preserving temporal and cross-variable structure. To overcome the lack of ground truth, we design a dual-stage re-ward combining step-wise data quality improvements with end-task performance feedback. Experiments on real-world datasets show that AegisTS outperforms existing methods in data quality, down-stream accuracy, and efficiency. Future work will extend AegisTS 
+
+to streaming data and incorporate time series foundation models to improve generalization to unseen domains. 
+
+> 12
+
+## REFERENCES 
+
+[1] Mohamed Abdelaal, Anil Bora Yayak, Kai Klede, and Harald Schöning. 2024. ReClean: Reinforcement Learning for Automated Data Cleaning in ML Pipelines. In ICDE 2024 - Workshops . IEEE, 324–330. [2] Anthony J. Bagnall, Hoang Anh Dau, Jason Lines, Michael Flynn, James Large, Aaron Bostrom, Paul Southam, and Eamonn J. Keogh. 2018. The UEA multivariate time series classification archive, 2018. CoRR abs/1811.00075 (2018). [3] Shaojie Bai, J. Zico Kolter, and Vladlen Koltun. 2018. An Empirical Evaluation of Generic Convolutional and Recurrent Networks for Sequence Modeling. CoRR 
+
+abs/1803.01271 (2018). [4] Yoram Bresler and Albert Macovski. 1986. Exact maximum likelihood parameter estimation of superimposed exponential signals in noise. IEEE Trans. Acoust. Speech Signal Process. 34, 5 (1986), 1081–1089. [5] David R. Brillinger. 2001. Time series - data analysis and theory . Classics in applied mathematics, Vol. 36. SIAM. [6] Wei Cao, Dong Wang, Jian Li, Hao Zhou, Lei Li, and Yitan Li. 2018. BRITS: Bidirectional Recurrent Imputation for Time Series. In Advances in Neural Infor-mation Processing Systems 31: Annual Conference on Neural Information Processing Systems 2018, NeurIPS 2018, December 3-8, 2018, Montréal, Canada , Samy Bengio, Hanna M. Wallach, Hugo Larochelle, Kristen Grauman, Nicolò Cesa-Bianchi, and Roman Garnett (Eds.). 6776–6786. [7] Yuhang Chen, Chaoyun Zhang, Minghua Ma, Yudong Liu, Ruomeng Ding, Bowen Li, Shilin He, Saravan Rajmohan, Qingwei Lin, and Dongmei Zhang. 2023. ImD-iffusion: Imputed Diffusion Models for Multivariate Time Series Anomaly Detec-tion. Proc. VLDB Endow. 17, 3 (2023), 359–372. [8] Angus Dempster, Daniel F. Schmidt, and Geoffrey I. Webb. 2021. MiniRocket: A Very Fast (Almost) Deterministic Transform for Time Series Classification. In 
+
+KDD ’21: The 27th ACM SIGKDD Conference on Knowledge Discovery and Data Mining, Virtual Event, Singapore, August 14-18, 2021 , Feida Zhu, Beng Chin Ooi, and Chunyan Miao (Eds.). ACM, 248–257. [9] Xiaoou Ding, Genglong Li, Hongzhi Wang, Chen Wang, and Yichen Song. 2024. Time Series Data Cleaning Under Expressive Constraints on Both Rows and Columns. In 40th IEEE International Conference on Data Engineering, ICDE 2024, Utrecht, The Netherlands, May 13-16, 2024 . IEEE, 3682–3695. [10] Xiaoou Ding, Yingze Li, Hongzhi Wang, Chen Wang, Yida Liu, and Jianmin Wang. 2024. TSDDISCOVER: Discovering Data Dependency for Time Series Data. In ICDE . IEEE, 3668–3681. [11] Xiaoou Ding, Yichen Song, Hongzhi Wang, Chen Wang, and Donghua Yang. 2024. MTSClean: Efficient Constraint-based Cleaning for Multi-Dimensional Time Series Data. Proc. VLDB Endow. 17, 13 (2024), 4840–4852. [12] Xiaoou Ding, Yichen Song, Hongzhi Wang, Donghua Yang, Chen Wang, and Jian-min Wang. 2024. Clean4TSDB: A Data Cleaning Tool for Time Series Databases. 
+
+Proc. VLDB Endow. 17, 12 (2024), 4377–4380. [13] Xiaoou Ding, Hongzhi Wang, Jiaxuan Su, Zijue Li, Jianzhong Li, and Hong Gao. 2019. Cleanits: A Data Cleaning System for Industrial Time Series. Proc. VLDB Endow. 12, 12 (2019), 1786–1789. [14] AM Dukhovny. 1990. Markov chains with quasitoeplitz transition matrix: Appli-cations. International Journal of Stochastic Analysis 3, 2 (1990), 141–152. [15] Martin Ester, Hans-Peter Kriegel, Jörg Sander, and Xiaowei Xu. 1996. A Density-Based Algorithm for Discovering Clusters in Large Spatial Databases with Noise. In Proceedings of the Second International Conference on Knowledge Discovery and Data Mining (KDD-96), Portland, Oregon, USA , Evangelos Simoudis, Jiawei Han, and Usama M. Fayyad (Eds.). AAAI Press, 226–231. [16] Hassan Ismail Fawaz, Benjamin Lucas, Germain Forestier, Charlotte Pelletier, Daniel F. Schmidt, Jonathan Weber, Geoffrey I. Webb, Lhassane Idoumghar, Pierre-Alain Muller, and François Petitjean. 2020. InceptionTime: Finding AlexNet for time series classification. Data Min. Knowl. Discov. 34, 6 (2020), 1936–1962. [17] Lise Getoor, Nir Friedman, Daphne Koller, and Benjamin Taskar. 2001. Learning Probabilistic Models of Relational Structure. In Proceedings of the Eighteenth International Conference on Machine Learning (ICML 2001), Williams College, Williamstown, MA, USA, June 28 - July 1, 2001 , Carla E. Brodley and Andrea Po-horeckyj Danyluk (Eds.). Morgan Kaufmann, 170–177. [18] Aditya Gupta and Bhuwan Dhingra. 2012. Stock market prediction using hidden markov models. In 2012 students conference on engineering and systems . 1–4. [19] Xiaoyu Han, Haoran Xiong, Zhenying He, Peng Wang, Chen Wang, and X. Sean Wang. 2024. Akane: Perplexity-Guided Time Series Data Cleaning. Proc. ACM Manag. Data 2, 3 (2024), 121. [20] Sepp Hochreiter and Jürgen Schmidhuber. 1997. Long short-term memory. Neural computation 9, 8 (1997), 1735–1780. [21] Rudolph Emil Kalman. 1960. A new approach to linear filtering and prediction problems. (1960). [22] Mourad Khayati, Guillaume Chacun, Zakhar Tymchenko, and Philippe Cudré-Mauroux. 2025. A-DARTS: Stable Model Selection for Data Repair in Time Series. In 41st IEEE International Conference on Data Engineering, ICDE 2025, Hong Kong, May 19-23, 2025 . IEEE, 2009–2023. [23] Chenyang Li, Chaohong Ma, Xiaohui Yu, Cailong Li, and Xiaofeng Meng. 2026. EDITOR: Multi-Resolution Cleaning of Multivariate Time Series via Detect-Localize-Repair. In Proc. (ICDE) .[24] Lan Li, Liri Fang, Bertram Ludäscher, and Vetle I. Torvik. 2025. AutoDCWork-flow: LLM-based Data Cleaning Workflow Auto-Generation and Benchmark. In 
+
+Findings of the Association for Computational Linguistics: EMNLP 2025, Suzhou, China, November 4-9, 2025 , Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng (Eds.). Association for Computational Linguistics, 7766–7780. [25] Peng Li, Zhiyi Chen, Xu Chu, and Kexin Rong. 2023. DiffPrep: Differentiable Data Preprocessing Pipeline Search for Learning over Tabular Data. Proc. ACM Manag. Data 1, 2 (2023), 183:1–183:26. [26] Xiao Li, Huan Li, Hua Lu, Christian S. Jensen, Varun Pandey, and Volker Markl. 2023. Missing Value Imputation for Multi-attribute Sensor Data Streams via Message Propagation. Proc. VLDB Endow. 17, 3 (2023), 345–358. [27] Carl Henning Lubba, Sarab S. Sethi, Philip Knaute, Simon R. Schultz, Ben D. Fulcher, and Nick S. Jones. 2019. catch22: CAnonical Time-series CHaracteristics - Selected through highly comparative time-series analysis. Data Min. Knowl. Discov. 33, 6 (2019), 1821–1852. [28] Pankaj Malhotra, Lovekesh Vig, Gautam Shroff, and Puneet Agarwal. 2015. Long Short Term Memory Networks for Anomaly Detection in Time Series. In 23rd European Symposium on Artificial Neural Networks, ESANN 2015, Bruges, Belgium, April 22-24, 2015 .[29] Kohei Obata, Koki Kawabata, Yasuko Matsubara, and Yasushi Sakurai. 2024. Min-ing of Switching Sparse Networks for Missing Value Imputation in Multivariate Time Series. In ACM SIGKDD , Ricardo Baeza-Yates and Francesco Bonchi (Eds.). ACM, 2296–2306. [30] Theodoros Rekatsinas, Xu Chu, Ihab F. Ilyas, and Christopher Ré. 2017. Holo-Clean: Holistic Data Repairs with Probabilistic Inference. Proc. VLDB Endow. 10, 11 (2017), 1190–1201. [31] Robert H Shumway and David S Stoffer. 1982. An approach to time series smoothing and forecasting using the EM algorithm. Journal of time series analysis 
+
+3, 4 (1982), 253–264. [32] Shaoxu Song, Fei Gao, Aoqian Zhang, Jianmin Wang, and Philip S. Yu. 2021. Stream Data Cleaning under Speed and Acceleration Constraints. ACM Trans. Database Syst. 46, 3 (2021), 10:1–10:44. [33] Shaoxu Song, Aoqian Zhang, Jianmin Wang, and Philip S. Yu. 2015. SCREEN: Stream Data Cleaning under Speed Constraints. In Proceedings of the 2015 ACM SIGMOD International Conference on Management of Data, Melbourne, Victoria, Australia, May 31 - June 4, 2015 , Timos K. Sellis, Susan B. Davidson, and Zachary G. Ives (Eds.). ACM, 827–841. [34] Yuqiang Sun, Lei Peng, Huiyun Li, and Min Sun. 2018. Exploration on Spa-tiotemporal Data Repairing of Parking Lots Based on Recurrent GANs. In 21st International Conference on Intelligent Transportation Systems, ITSC 2018, Maui, HI, USA, November 4-7, 2018 , Wei-Bin Zhang, Alexandre M. Bayen, Javier J. Sánchez Medina, and Matthew J. Barth (Eds.). IEEE, 467–472. [35] Jun’ichi Takeuchi and Kenji Yamanishi. 2006. A Unifying Framework for Detect-ing Outliers and Change Points from Time Series. IEEE Trans. Knowl. Data Eng. 
+
+18, 4 (2006), 482–492. [36] Shreshth Tuli, Giuliano Casale, and Nicholas R. Jennings. 2022. TranAD: Deep Transformer Networks for Anomaly Detection in Multivariate Time Series Data. 
+
+Proc. VLDB Endow. 15, 6 (2022), 1201–1214. [37] Wei Yin, Tianbai Yue, Hongzhi Wang, Yanhao Huang, and Yaping Li. 2018. Time Series Cleaning Under Variance Constraints. In Database Systems for Advanced Applications - DASFAA 2018 International Workshops: BDMS, BDQM, GDMA, and SeCoP, Gold Coast, QLD, Australia, May 21-24, 2018, Proceedings (Lecture Notes in Computer Science) , Chengfei Liu, Lei Zou, and Jianxin Li (Eds.). Springer, 108–113. [38] Ailing Zeng, Muxi Chen, Lei Zhang, and Qiang Xu. 2023. Are transformers effective for time series forecasting?. In Proc. AAAI , Vol. 37. 11121–11128. [39] Aoqian Zhang, Zexue Wu, Yifeng Gong, Ye Yuan, and Guoren Wang. 2024. Multivariate Time Series Cleaning under Speed Constraints. Proc. ACM Manag. Data 2, 6 (2024), 245:1–245:26. [40] Ruyi Zhang, Yijie Wang, Hongzuo Xu, and Haifang Zhou. 2022. Factorization Machine-based Unsupervised Model Selection Method * . In IEEE International Conference on Systems, Man, and Cybernetics, SMC 2022, Prague, Czech Republic, October 9-12, 2022 . IEEE, 796–802. [41] Haoyi Zhou, Shanghang Zhang, Jieqi Peng, Shuai Zhang, Jianxin Li, Hui Xiong, and Wancai Zhang. 2021. Informer: Beyond Efficient Transformer for Long Sequence Time-Series Forecasting. In AAAI . AAAI Press, 11106–11115.
