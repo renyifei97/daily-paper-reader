@@ -1,0 +1,553 @@
+Title: NoRIN: Backbone-Adaptive Reversible Normalization for Time-Series Forecasting
+
+URL Source: https://arxiv.org/pdf/2605.10823v1
+
+Published Time: Tue, 12 May 2026 03:09:17 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# NoRIN: Backbone-Adaptive Reversible Normalization for Time-Series Forecasting 
+
+Shun Zhang ∗† , Yuyang Xiao ∗† ,
+
+> ∗
+
+Graduate School of China Academy of Engineering Physics , Beijing 100193, China 
+
+> †
+
+Institute of Applied Physics and Computational Mathematics , Beijing 100094, China 
+
+Abstract —Reversible instance normalization (RevIN) and its successors (Dish-TS, SAN, FAN) have become the de facto plug-in for time-series forecasting, yet the map they apply to each data point is strictly affine, x 7 → ax + b, so they cannot reshape the underlying distribution—heavy tails remain heavy and skewness remains uncorrected. We propose NoRIN, a non-linear reversible normalization based on the arcsinh -form Johnson SU transform with two shape parameters (δ, ε ) that control tailedness and skewness; the linear Z-score used by RevIN is recovered only in the limit δ → ∞ . Training (δ, ε ) jointly with the backbone via gradient descent reliably pushes them toward this linear limit within a few epochs—a phenomenon we name the degeneration problem : the forecasting loss is locally indifferent to shape, and the high-capacity backbone compensates for any monotone reparameterization of its input. NoRIN escapes the degeneration by decoupling shape selection from gradient training: (δ, ε ) are initialized by a closed-form Slifker–Shapiro quantile fit and refined by Bayesian optimization on the validation objective, while the inner training loop is identical to standard RevIN-style training. Across six representative backbones × five real-world datasets × three prediction horizons ( 90 configurations, 
+
+1,620 training runs), NoRIN significantly outperforms every linear-normalization baseline (RevIN, SAN, Dish-TS, DeStat) at p < 10 −14 (paired Wilcoxon); the recovered (δ⋆, ε ⋆) sit systematically far from the linear limit and vary in a backbone-dependent way, supporting the thesis that different backbones genuinely require different normalization parameters to reach their best performance. 
+
+Index Terms —time-series forecasting, distribution shift, non-linear reversible normalization, decoupled optimization, degen-eration problem 
+
+I. I NTRODUCTION 
+
+Deep time-series forecasting has advanced rapidly in recent years, with Transformer- and MLP-based backbones such as PatchTST [1], iTransformer [2], and DLinear [3] repeatedly setting the state of the art on long-horizon benchmarks. A recurring observation across this literature is that how the raw series enters the network is at least as consequential as the network itself. Real-world time series are pervasively non-stationary: mean, variance, and higher-order moments drift over time, so the distribution of a lookback window can differ substantially from that of the horizon it is meant to predict [4]– [6]. Reversible instance normalization (RevIN) [4] has emerged as the de facto response to this challenge: each lookback window is standardized by its own mean and standard devia-tion before the forecaster, and the operation is inverted at the output. A stream of follow-up work has refined this recipe— Dish-TS [5] couples input- and output-space distributions, SAN [7] normalizes at the slice level, and FAN [8] moves the operation into the frequency domain—all consistently improving forecasting accuracy across backbones. However, these methods share an overlooked property: the per-element map always belongs to the affine family 
+
+x 7 → ax + b. Even RevIN’s optional learnable affine post-layer 
+
+(γ, β ) leaves the composed transformation affine; the variants differ only in how (a, b ) are computed—per-instance, per-slice, or in the frequency domain—while the transformation family 
+
+itself is fixed and identical across backbones. A recent analysis further shows that standard RevIN can inflate MSE by as much as 683% on outlier-rich datasets [9]. The natural way to break this ceiling is to replace the affine normalizer with a non-linear, monotone, invertible trans-formation: functions such as arcsinh behave linearly near zero but compress logarithmically for large values, so they can genuinely reshape the distribution—tame heavy tails, correct skewness—while preserving invertibility. Yet in the five years since RevIN, no genuinely non-linear reversible instance normalizer has become standard practice. The reason, we find, is not that the idea has been overlooked: it is that non-linear shape parameters cannot be learned end-to-end with the backbone . Our own first attempt exposed the issue: when the shape parameters (δ, ε ) of an arcsinh -style transform are treated as learnable scalars trained jointly with the backbone, gradients systematically push them toward the linear limit, silently collapsing the non-linear normalizer back into RevIN—and delivering no benefit on precisely the heavy-tailed datasets where non-linearity should matter most. We call this the degeneration problem : the forecasting loss is locally indifferent to shape, while the high-capacity backbone can compensate for any monotone reparameterization of its input by adjusting internal weights, so gradients are dominated by scale terms and drift steadily toward the easy-to-optimize Gaussian corner. This explains why the seemingly obvious idea of non-linear normalization has remained absent from deep forecasting. We propose NoRIN —a non-linear reversible normalization based on the arcsinh -form Johnson SU transform [10] with two shape parameters (δ, ε ) controlling tailedness and skew-ness. The linear Z-score used by RevIN is recovered only in the limit δ → ∞ ; for any finite (δ, ε ) the map is genuinely non-linear and therefore capable of reshaping the distribution. Rather than imposing a single fixed transformation across all backbones, NoRIN lets each backbone use its own (δ, ε ), se-
+
+> arXiv:2605.10823v1 [cs.LG] 11 May 2026
+
+lected by an outer process. To avoid the degeneration problem, we decouple parameter selection from gradient training: (δ, ε )
+
+is initialized by a closed-form Slifker–Shapiro quantile fit [11] and refined by Bayesian optimization [12], [13] against the true validation objective, while the inner training loop is identical to standard RevIN-style training. The framework is agnostic to both the specific non-linear family and the specific outer solver—JSU could be replaced, BO could be omitted—what matters is removing (δ, ε ) from the gradient and exposing them to a search. We further observe that the (δ⋆, ε ⋆) values recovered by Bayesian optimization vary systematically across backbones (Sec. IV-A). Backbones differ markedly in how much non-linear tail compression they prefer: attention-based backbones such as Informer [14] settle at substantially larger δ⋆, while PatchTST [1] and the linear baseline DLinear [3] converge near the lower search boundary at small δ⋆, with iTrans-former [2] in between. This empirical pattern confirms that different backbones genuinely require different normalization parameters. 
+
+Contributions.:  
+
+> •
+
+Degeneration problem. We discover and diagnose why naive non-linear extensions fail: end-to-end training sys-tematically collapses non-linear shape parameters back to the linear regime, because the loss is locally indifferent to shape and the high-capacity backbone absorbs any monotone reparameterization. This explains the absence of non-linear reversible normalization in deep forecasting despite its apparent obviousness.  
+
+> •
+
+Non-linear normalization with decoupled shape op-timization. We replace RevIN’s affine map with the 
+
+arcsinh -form Johnson SU transform, governed by two shape parameters (δ, ε ); the linear Z-score is recovered only in the limit δ → ∞ , and at any finite (δ, ε ) the transform is genuinely non-linear. To avoid degenera-tion, (δ, ε ) is selected by an outer process—closed-form Slifker–Shapiro warm initialization followed by Bayesian optimization against the validation objective—while the inner training loop is unchanged. The resulting normalizer is drop-in compatible with any RevIN-using backbone.  
+
+> •
+
+Empirical validation across backbones and datasets. 
+
+Across six representative backbones × five real-world datasets × three prediction horizons (90 configurations, 1,620 training runs), NoRIN significantly outperforms every linear-normalization baseline at p < 10 −14 (paired Wilcoxon). The HPO-recovered (δ⋆, ε ⋆) values lie sys-tematically far from the linear limit and vary in abackbone-dependent way, confirming that different back-bones genuinely require different normalization parame-ters to reach their best performance—a regime that end-to-end gradient training cannot access. II. R ELATED WORK 
+
+A. Reversible Instance Normalization and Its Linear Family 
+
+Instance-wise normalization for time-series forecasting was popularized by RevIN [4]: each lookback window is standard-ized by its own mean and standard deviation, the operation is reversed at the horizon, and a small learnable affine layer provides minor post-hoc adjustment. This simple recipe has become a near-universal component of modern forecasting backbones, including PatchTST [1], iTransformer [2], and linear baselines [3]. Several works extend RevIN to address limitations of the single-mean/single-variance assumption. Non-stationary Transformer [15] stationarizes inputs while re-introducing learned non-stationary signals through attention. Dish-TS [5] frames the problem as a distribution shift between input and output space and learns two coefficient networks to describe each. SAN [7] argues that whole-instance statistics are too coarse and normalizes at the temporal-slice level while ex-plicitly predicting future slice statistics. FAN [8] moves the operation into the frequency domain and adaptively normalizes dominant frequency components to handle evolving seasonal-ity. A concurrent analysis [9] studies RevIN’s behavior under outliers and shows that replacing non-robust statistics with robust counterparts (e.g., median, MAD) avoids catastrophic failure on heavy-tailed data. We emphasize a common thread across all of these methods: while they enrich where and how often statistics are computed, the transformation they apply to each data point remains affine 
+
+(x 7 → ax + b). No matter how sophisticated the statistic estimator, an affine map cannot reshape a distribution—this is the ceiling shared by the entire RevIN family. NoRIN is 
+
+orthogonal and complementary to all of the above: it changes the functional form of the normalizer from affine to non-linear-monotone, making it capable of reshaping the distribution itself, and can in principle be combined with any of the above granularity choices. 
+
+B. Non-Linear Distribution Transforms 
+
+Outside the deep-learning literature, non-linear variance-stabilizing transforms have a long history. Box–Cox [16] and Yeo–Johnson [17] use a single power parameter to correct skewness; the Johnson system [10] extends this further by covering the full (skewness , kurtosis) plane via three disjoint families ( SU for unbounded, SB for bounded, SL for lognor-mal limits). The Johnson SU variant in particular expresses any SU -distributed variable as an arcsinh -reparameterized normal, making it naturally invertible and differentiable— which is precisely why NoRIN adopts it as the non-linear instantiation of choice. While Johnson transforms are standard in statistical quality control and financial risk modeling, to our knowledge they have not been used as reversible instance normalizers in deep forecasting. This absence is not accidental: the degeneration problem blocks direct end-to-end use, and overcoming it is precisely the contribution of this paper. The closest work in spirit is DeepAR-style probabilistic forecasters that place heavy-tailed output distributions (e.g., Student-t) on the prediction, but those act on the output likelihood, not on the input representation. C. Decoupled Hyperparameter Optimization 
+
+Bayesian optimization is a well-established framework for tuning expensive black-box functions; the Tree-structured Parzen Estimator (TPE) [12] and Gaussian-process-based sam-plers excel in low-dimensional search spaces, and Optuna [13] provides a define-by-run interface together with pruning and distributed execution, making it a de-facto standard in the time-series community. In NoRIN, we treat the shape pa-rameters (δ, ε ) as hyperparameters of the training procedure: they are frozen during inner training and selected by an outer BO loop against validation MSE, warm-started from a closed-form Slifker–Shapiro fit [11] that keeps the search in a statistically sensible region. Our contribution is not BO itself but the recognition that shape parameters should be treated as hyperparameters —a paradigm shift that is the key to escaping the degeneration problem. III. M ETHOD 
+
+We first recall the general template of reversible instance normalization and emphasize that it does not require linearity (Sec. III-A). We then introduce Johnson SU as a non-linear instantiation of this template (Sec. III-B), expose the degenera-tion problem that arises when its shape parameters are learned end-to-end (Sec. III-C), and finally present Decoupled Shape Optimization —closed-form warm-start followed by Bayesian refinement—as the core paradigm of NoRIN (Sec. III-D). Figure 1 gives an end-to-end overview of the full pipeline. 
+
+A. Preliminaries: The Reversible Normalization Template 
+
+Let x ∈ RT ×C denote a lookback window of length 
+
+T with C channels, and y ∈ RH×C the corresponding horizon of length H. A reversible instance normalization layer can be written as a pair of maps (N , N −1) such that the forecaster fθ operates on the normalized input and the output is denormalized back to the original space: 
+
+ˆy = N −1(fθ (N (x)); s(x)) , (1) where s(x) denotes a collection of statistics extracted from x
+
+that are reused at denormalization time. In RevIN [4], s(x) = (μ, σ ) is the per-channel mean and standard deviation, and the forward map is the linear Z-score N (x) = ( x − μ)/σ ,optionally followed by a learnable affine rescaling γ ⊙ · + β.The crucial observation is that Eq. 1 requires N only to be invertible —not linear. Any smooth, monotone, invertible transformation whose parameters depend only on x can be plugged in. Yet RevIN, Dish-TS, SAN, and FAN all choose the affine form N (x) = ( x − a)/b , locking the entire family within the ceiling of not being able to reshape the distribution .NoRIN steps outside this ceiling by instantiating N with a non-linear monotone map. 
+
+B. Non-Linear Instantiation: Johnson SU
+
+We instantiate the non-linear normalizer using the John-son SU family [10], which parameterizes a random variable 
+
+X via 
+
+Z = ε + δ arcsinh 
+
+ X − λξ
+
+
+
+, Z ∼ N (0 , 1) , (2) where λ ∈ R is a location, ξ > 0 a scale, and (δ >
+
+0, ε ∈ R) are shape parameters controlling tailedness and 
+
+skewness respectively. Because arcsinh( ·) is a smooth, strictly monotone, elementwise-invertible function, the map X 7 → Z
+
+is a diffeomorphism on R with a closed-form inverse: 
+
+X = λ + ξ sinh 
+
+ Z − εδ
+
+
+
+. (3) We choose Johnson SU not because it is unique but because it is the cleanest classical family that simultaneously offers 
+
+non-linearity , invertibility , a closed-form inverse , and differ-entiability . The same paradigm could host other non-linear monotone invertible families. 
+
+JSU as reversible instance normalization.: We instantiate the template of Eq. 1 as follows: (λ, ξ ) are per-instance, per-channel empirical location and scale, and (δ, ε ) are per-channel parameters shared across instances. Concretely, for each chan-nel c we compute λc = median( x:,c ) and ξc = MAD( x:,c )
+
+(median absolute deviation), apply Eq. 2 elementwise, feed the result into the forecasting backbone fθ , and invert via Eq. 3 using the same (λc, ξ c). Robust statistics for (λ, ξ ) are essential on heavy-tailed data [9]: a mean/std estimator would itself be contaminated by the tails we are trying to tame. The shape parameters (δc, ε c) then control how aggressively 
+
+the transform compresses those tails—these are the quantities that NoRIN must set well. The necessity of the non-linear form is concrete: skewness and kurtosis of an instance are 
+
+algebraically invariant under any affine map, so RevIN leaves both unchanged regardless of the chosen (μ, σ ), while the 
+
+arcsinh -based JSU map pulls them close to the standard-normal values. 
+
+C. The Degeneration Problem 
+
+A seemingly obvious way to set (δc, ε c) is to treat them as learnable parameters and optimize them jointly with the backbone weights θ via the forecasting loss L(θ, δ, ε ) = ∥ˆy −
+
+y∥22, just as RevIN’s learnable affine (γ, β ) is trained. This approach fails reliably : (δ, ε ) are pushed back toward the near-linear regime over training, silently collapsing the non-linear normalizer into RevIN. Intuitively, the degeneration has two drivers. First, the forecasting loss is evaluated in the original space after de-normalization by Eq. 3: for any fixed backbone output, the reconstruction X is an analytic function of (δ, ε ) whose gradient is dominated by the instance scale ξ rather than by higher-order shape. Second, the backbone fθ is itself a high-capacity model that can compensate for any monotone repa-rameterization of its input by adjusting its internal weights; this leaves the loss locally flat along directions in (δ, ε )-space. Under such local flatness, stochastic gradient descent drifts the shape parameters toward the large-δ, small-|ε| corner—the Gaussian limit—because that corner has the lowest variance of the normalized intermediate representation and the cleanest optimization landscape for θ. The network, in other words, prefers the easy problem even when the hard problem would generalize better. Fig. 1. NoRIN architecture overview. Decoupled Shape Optimization (top) recovers the JSU shape parameters (δ⋆, ε ⋆) once via Slifker–Shapiro warm-start followed by Bayesian optimization on validation MSE; these parameters are then frozen and injected into both the forward (NoRIN Fwd) and inverse (NoRIN Inv) JSU transforms, which sandwich an arbitrary forecasting backbone fθ . Inputs x are heavy-tailed; the JSU non-linearity reshapes them to approximately Gaussian for the backbone, and the inverse maps predictions back to the original heavy-tailed scale. End-to-end gradient learning of (δ, ε ) (red dashed arrow) degenerates to RevIN (Sec. III-C); affine RevIN alone leaves the distribution shape unchanged. 
+
+This failure is in striking contrast to the fact that RevIN’s 
+
+(γ, β ) can be trained end-to-end stably—and the contrast itself reveals the cause. The pair (γ, β ) is a post-normalization affine 
+
+acting on an already-standardized representation; it cannot reshape the input distribution. With no way for the backbone to simplify its task through (γ, β ), there is no incentive to drive them anywhere in particular: they end up making small corrections, typically near the (1 , 0) identity. The shape parameters (δ, ε ) are the opposite—they change the form of the normalizer itself , so the backbone has a strong incentive to push them toward the regime where its own optimization is easiest. In short: (γ, β ) are learnable because they have small effect and cannot be bypassed; (δ, ε ) are not learnable because they have large effect and can be bypassed. The very non-linear parameters that matter most must be protected from gradient training in order to remain useful. Empirically (see Sec. IV), across every dataset we tested a jointly trained JSU normalizer collapses to (δ, ε ) statistically indistinguishable from a plain linear RevIN within the first few epochs and behaves identically thereafter. The capacity of the Johnson family exists in principle but is inaccessible in practice through end-to-end gradient descent. 
+
+D. Decoupled Shape Optimization 
+
+We resolve the degeneration by removing (δ, ε ) from the set of gradient-optimized parameters . The shape parameters are treated as hyperparameters of the training procedure and chosen by an outer process; the inner training loop is iden-tical to standard RevIN-style training with the shape frozen. This Decoupled Shape Optimization is the core paradigm of NoRIN, and it is agnostic to the specific outer solver—closed-form statistical fitting, Bayesian optimization, grid search, or combinations thereof are all admissible. The first line of defense is a training-free statistical estimate. For each channel c, we collect all training-time values into a univariate sample and fit a Johnson SU distribution by the classical closed-form quantile-matching procedure of Slifker– Shapiro [11], yielding (ˆδ (0)  
+
+> c
+
+, ˆε (0)  
+
+> c
+
+). This estimate reflects each dataset’s true skewness and tail weight and typically already delivers the bulk of the gains attainable by NoRIN. On top of the closed-form estimate, we apply Bayesian optimization to locally refine the shape against the true down-stream objective. Let S ⊂ R2C be the per-channel shape search space, and let g : S → R map a candidate configuration to the validation MSE of a forecaster trained to convergence with that configuration frozen. We minimize g using TPE [12] or a GP-based sampler in Optuna [13]: 
+
+(δ⋆, ε ⋆) = arg min  
+
+> (δ,ε )∈S
+
+g(δ, ε ), (4) 
+
+seeding the search with (ˆδ(0) , ˆε(0) ) and concentrating the prior around it . In practice the optimum is found within a small neighborhood of the warm-start point, making the outer procedure converge in a few dozen trials. The contribution of NoRIN is the act of removing shape from the gradient , not the specific non-linear family (JSU) or the specific outer solver (BO). The inner loop—training θ
+
+with (δ, ε ) frozen—is a standard, well-conditioned forecasting problem identical to RevIN-style training. The outer loop is a low-dimensional hyperparameter selection problem on which many simple methods suffice. Because the warm-start places the search inside a statistically sensible region, the outer loop adds only a small constant-factor overhead over a standard hyperparameter sweep while recovering non-linear optima that are unreachable by end-to-end gradients. NoRIN is therefore both a concrete method and a paradigm: any combination of a non-linear reversible shape parameterization with decoupled outer optimization falls within it. IV. E XPERIMENTS 
+
+We evaluate NoRIN on five public long-horizon forecasting benchmarks (Exchange, ETTh1, ETTh2, ETTm1, ETTm2) across six representative forecasting backbones (Informer [14], PatchTST [1], iTransformer [2], DLinear [3], TimesNet [18], FEDformer [19]), yielding 30 (backbone, dataset) pairs. Each pair is evaluated at three prediction horizons H ∈{96 , 336 , 720 }, so we report 90 (backbone, dataset, H) con-figurations. All runs are optimized with AdamW [20]. For each configuration, the shape parameters (δ, ε ) are warm-started from a Slifker–Shapiro closed-form fit and locally refined via Optuna’s GP-based sampler over δ ∈ [0 .8, 5.0] and 
+
+ε ∈ [−1.0, 1.0] for 60 trials against validation MSE (HPO uses random seed 42 ); the resulting (δ⋆, ε ⋆) are then frozen and retrained over 3 independent training seeds, so every reported MSE is a mean ±std over those 3 seeds. 
+
+A. Main Results 
+
+The full list of (δ⋆, ε ⋆) recovered for each (backbone, dataset, H) is given in Table V. The shape configurations chosen by Bayesian optimization across all 90 configurations lie systematically far from the linear ( δ → ∞ ) limit. On PatchTST and DLinear, δ⋆ frequently sits at or near the lower search boundary of 0.8, indicating that strong tail compression is required; on Informer, δ⋆ is systematically larger, consistent with the intuition that attention backbones are more sensitive to extreme values. ε⋆ also departs substantially from zero, occasionally reaching the search boundary at ±1.01. These non-trivial shape solutions are precisely the regions that the degeneration analysis in Sec. III-C predicts to be unreachable by end-to-end gradient training —they become accessible only under decoupled shape optimization. 
+
+B. Comparison with Baseline Normalizers 
+
+We compare NoRIN against five existing normalizers (no normalization, RevIN [4], SAN [7], Dish-TS [5], and De-Stat [21]) on the same 90 (backbone, dataset, H) grid. All methods, including NoRIN , are reported as mean ±std over 
+
+3 random seeds—NoRIN’s (δ⋆, ε ⋆) are obtained once via Optuna-GP HPO (seed 42 ) and then frozen during the 3-seed retraining, yielding 1,620 runs in total ( 6 normalizers × 90 
+
+configurations × 3 seeds). Tables I and II present the full per-configuration test MSE; the lowest MSE per row is shown in 
+
+bold . NoRIN attains the lowest test MSE in essentially every row, with NoRIN’s per-cell standard deviation consistently below 0.01 , confirming that the (δ⋆, ε ⋆) found by HPO trans-fers faithfully across seeds. Dish-TS and DeStat, by contrast,     
+
+> 1The ε-boundary contacts in a small number of configurations suggest the current search range is narrow for those channels; we plan to relax both the
+> δupper limit and the εrange in the extended evaluation to verify these are genuine optima rather than boundary artifacts.
+
+exhibit substantial instability on several configurations (large standard deviations), suggesting their second-order statistics are ill-conditioned for long-horizon, multivariate forecasting under the present training budget. 
+
+Statistical significance.: To establish that NoRIN’s gains are not noise, we run a paired Wilcoxon signed-rank test [22] on the 90 (backbone, dataset, H) configurations against each baseline (Table III). NoRIN is significantly better than every baseline at p < 10 −14 (∗∗∗ ), winning 83 /90 to 90 /90 config-urations depending on the comparator. The strongest absolute gain is over DeStat ( 90 /90 wins, mean ∆ = 1 .90 ), and the tightest comparison is against RevIN, where NoRIN still wins 
+
+83 /90 with mean ∆ = 0 .056 and p = 5 .8 × 10 −16 .
+
+C. Ablation Study 
+
+We isolate the role of each shape parameter on Informer + ETTh1, H=96 , seed 42 . Component ablation (Table IV) confirms that the two-parameter (δ, ε ) formulation is non-redundant: dropping either parameter degrades MSE notice-ably, while the full configuration (δ, ε )=(3 .96 , −0.64) matches the HPO best. 
+
+D. Sensitivity Analysis 
+
+A central concern with HPO-based methods is whether the recovered optimum is reproducible. Table VI runs five independent Optuna-GP searches with different HPO seeds: all five converge to nearly identical (δ⋆, ε ⋆) ≈ (3 .95 , −0.64) 
+
+with test-MSE standard deviation below 10 −4. This evidences that the discovered shape solution is a genuine optimum , not a sampler artefact. 
+
+Loss-landscape sensitivity (3A).: Table VII shows the full 
+
+11 ×11 = 121 -point evaluation of test MSE over δ ∈ [3 .0, 5.0] 
+
+(step 0.2) and ε ∈ [−1.0, 0.0] (step 0.1). The minimum sits at the centre of a smooth low-MSE plateau—small perturbations of (δ, ε ) produce sub-percent changes in MSE—confirming that the optimum is structurally stable rather than a sharp spike. 
+
+Hyperparameter robustness (3B).: Table VIII sweeps each training hyperparameter individually with (δ⋆, ε ⋆) frozen: NoRIN’s MSE remains within 10% across 5 orders of magni-tude in learning rate, 4 batch sizes, 4 training-epoch budgets, 3
+
+values of dmodel , and 4 sequence lengths. The shape parameters are therefore decoupled from training hyperparameters in practice, validating our central design principle. 
+
+Training-seed variance (3C).: Table IX reports test MSE over 10 training seeds (42-51) with (δ⋆, ε ⋆) frozen. The coefficient of variation is well below 1% , confirming that the per-cell numbers reported under NoRIN faithfully reflect method capacity rather than seed luck. V. C ONCLUSION 
+
+We identified a fundamental limitation of the RevIN family of normalizers: their per-point affine transformations cannot reshape the underlying distribution, so heavy tails and skew-ness pass through unchanged to the downstream backbone. We proposed NoRIN to lift this ceiling by replacing the affine map TABLE I COMPARISON OF TEST FORECASTING ERRORS BETWEEN NORIN AND FIVE BASELINE NORMALIZERS (N ONE , R EV IN, SAN, D ISH -TS, D ESTAT ). T HE ANALYSIS SPANS SIX BACKBONES (I NFORMER , P ATCH TST, ITRANSFORMER , DL INEAR , T IMES NET , FED FORMER ), FIVE DATASETS (E XCHANGE ,ETT H1, ETT H2, ETT M1, ETT M2), AND THREE PREDICTION HORIZONS H ∈ { 96 , 336 , 720 }. W E REPORT THE MEAN ±STD OF TEST MSE OVER THREE RANDOM SEEDS (1,620 RUNS TOTAL ). F OR NORIN, (δ⋆, ε ⋆) ARE OBTAINED BY OPTUNA -GP HPO ( 100 TRIALS , SEED 42 ) AND FROZEN DURING THE 
+
+3-SEED RETRAINING . T HE LOWEST MSE PER ROW IS SHOWN IN BOLD . B ACKBONES 1–3 ARE LISTED HERE ; BACKBONES 4–6 CONTINUE IN TABLE II. 
+
+Backbone Dataset H None RevIN SAN Dish-TS DeStat NoRIN Informer 
+
+Exchange 96 0.9383 ±0.089 0.2083 ±0.008 0.2223 ±0.011 3.0874 ±3.040 5.5280 ±0.189 0.1795 ±0.005 
+
+336 1.2922 ±0.107 0.5040 ±0.014 0.5379 ±0.027 1.9070 ±1.256 4.5115 ±0.028 0.4124 ±0.003 
+
+720 1.6406 ±0.305 1.2155 ±0.023 1.1761 ±0.013 2.9038 ±0.440 3.7798 ±0.691 0.9617 ±0.024 
+
+ETTh1 96 0.7654 ±0.089 0.4942 ±0.004 0.5079 ±0.003 1.5030 ±0.458 1.1723 ±0.153 0.4309 ±0.002 
+
+336 1.3003 ±0.151 0.5542 ±0.005 0.5532 ±0.006 1.4382 ±0.379 1.2162 ±0.123 0.4805 ±0.006 
+
+720 1.5694 ±0.057 0.6031 ±0.008 0.6002 ±0.008 1.1784 ±0.149 0.9665 ±0.095 0.5032 ±0.006 
+
+ETTh2 96 2.0683 ±0.054 0.4095 ±0.009 0.4267 ±0.005 4.0714 ±2.759 3.2571 ±0.501 0.3988 ±0.023 
+
+336 2.5881 ±0.459 0.4601 ±0.002 0.4588 ±0.011 3.5628 ±1.980 3.3517 ±0.255 0.4188 ±0.010 
+
+720 2.8745 ±0.189 0.5124 ±0.013 0.5166 ±0.013 1.9633 ±0.748 3.1672 ±0.052 0.4768 ±0.011 
+
+ETTm1 96 0.4131 ±0.009 0.3646 ±0.009 0.3507 ±0.003 1.2215 ±0.212 1.0298 ±0.131 0.3357 ±0.002 
+
+336 0.5300 ±0.021 0.4357 ±0.003 0.4372 ±0.003 1.4035 ±0.333 1.0210 ±0.009 0.4044 ±0.001 
+
+720 0.6752 ±0.006 0.4990 ±0.024 0.4925 ±0.003 1.0479 ±0.151 0.9568 ±0.095 0.4499 ±0.003 
+
+ETTm2 96 0.7617 ±0.098 0.2009 ±0.001 0.1973 ±0.002 3.8569 ±2.783 2.0285 ±0.591 0.1917 ±0.002 
+
+336 1.5279 ±0.224 0.3397 ±0.001 0.3397 ±0.003 3.1759 ±1.727 2.4460 ±0.458 0.2981 ±0.011 
+
+720 2.2950 ±0.207 0.4341 ±0.006 0.4215 ±0.006 1.9657 ±0.710 2.7516 ±0.449 0.3704 ±0.006 
+
+> PatchTST
+
+Exchange 96 0.4299 ±0.037 0.0980 ±0.001 0.0972 ±0.002 0.9323 ±1.045 3.2046 ±0.484 0.0982 ±0.001 
+
+336 1.1995 ±0.036 0.3698 ±0.005 0.3701 ±0.004 6.0701 ±8.302 3.3120 ±0.344 0.3665 ±0.005 
+
+720 1.7657 ±0.036 1.1470 ±0.006 1.1436 ±0.008 5.0858 ±6.314 3.5781 ±0.444 0.9416 ±0.005 
+
+ETTh1 96 0.4023 ±0.001 0.3935 ±0.000 0.3936 ±0.000 0.7770 ±0.229 0.9779 ±0.105 0.3901 ±0.001 
+
+336 0.4756 ±0.004 0.4572 ±0.002 0.4565 ±0.001 1.5235 ±1.172 1.0418 ±0.055 0.4444 ±0.001 
+
+720 0.5132 ±0.006 0.4935 ±0.006 0.5001 ±0.006 1.2631 ±0.872 1.1097 ±0.063 0.4511 ±0.002 
+
+ETTh2 96 0.3275 ±0.002 0.3215 ±0.001 0.3414 ±0.003 1.2061 ±0.979 2.9453 ±0.296 0.3153 ±0.002 
+
+336 0.5280 ±0.032 0.4294 ±0.000 0.4222 ±0.001 5.4592 ±6.962 3.0304 ±0.383 0.4133 ±0.005 
+
+720 0.8298 ±0.019 0.4543 ±0.002 0.4666 ±0.004 4.2241 ±5.052 2.8865 ±0.085 0.4481 ±0.007 
+
+ETTm1 96 0.3030 ±0.001 0.2985 ±0.001 0.2981 ±0.003 0.7050 ±0.091 0.8756 ±0.105 0.2967 ±0.002 
+
+336 0.3754 ±0.002 0.3700 ±0.001 0.3717 ±0.001 1.0010 ±0.499 0.8814 ±0.079 0.3657 ±0.001 
+
+720 0.4273 ±0.004 0.4138 ±0.002 0.4160 ±0.005 0.9996 ±0.627 0.9848 ±0.069 0.4093 ±0.001 
+
+ETTm2 96 0.1804 ±0.004 0.1765 ±0.003 0.1743 ±0.001 0.9040 ±0.766 1.9611 ±0.081 0.1737 ±0.001 
+
+336 0.3094 ±0.003 0.2925 ±0.005 0.2857 ±0.005 3.6557 ±4.658 2.3560 ±0.548 0.2885 ±0.003 
+
+720 0.4185 ±0.012 0.3804 ±0.004 0.3676 ±0.001 3.3481 ±4.353 2.5984 ±0.184 0.3782 ±0.003 
+
+> iTransformer
+
+Exchange 96 0.9567 ±0.036 0.1296 ±0.001 0.1830 ±0.001 2.2455 ±3.625 3.2907 ±0.518 0.1133 ±0.004 
+
+336 1.5746 ±0.038 0.4019 ±0.001 0.4630 ±0.001 6.2921 ±5.834 3.3524 ±0.366 0.3550 ±0.002 
+
+720 2.2124 ±0.073 1.1674 ±0.008 1.1484 ±0.003 8.3912 ±8.849 3.5816 ±0.127 0.8746 ±0.020 
+
+ETTh1 96 0.4973 ±0.006 0.4337 ±0.003 0.4333 ±0.003 0.9234 ±0.608 1.0533 ±0.109 0.4311 ±0.003 
+
+336 0.6403 ±0.010 0.5135 ±0.005 0.5094 ±0.006 1.4378 ±0.592 1.1292 ±0.173 0.5075 ±0.005 
+
+720 0.7118 ±0.012 0.5439 ±0.001 0.5408 ±0.001 1.7508 ±0.973 1.0186 ±0.048 0.5329 ±0.002 
+
+ETTh2 96 0.8893 ±0.042 0.3353 ±0.003 0.3348 ±0.001 2.1548 ±2.980 2.7241 ±0.299 0.3341 ±0.002 
+
+336 1.3067 ±0.028 0.4466 ±0.002 0.4325 ±0.001 5.0208 ±4.113 2.8935 ±0.324 0.4288 ±0.001 
+
+720 1.5837 ±0.027 0.4731 ±0.001 0.4652 ±0.001 6.8692 ±6.320 3.2549 ±0.285 0.4612 ±0.000 
+
+ETTm1 96 0.3366 ±0.003 0.3108 ±0.001 0.3099 ±0.001 0.8158 ±0.599 0.9131 ±0.186 0.3110 ±0.001 
+
+336 0.4319 ±0.001 0.3873 ±0.003 0.3891 ±0.001 1.3004 ±0.671 0.9996 ±0.076 0.3875 ±0.003 
+
+720 0.4895 ±0.006 0.4413 ±0.002 0.4431 ±0.002 1.7256 ±1.078 0.9286 ±0.054 0.4420 ±0.002 
+
+ETTm2 96 0.2347 ±0.014 0.1844 ±0.001 0.1853 ±0.001 1.9426 ±2.968 2.3357 ±0.474 0.1785 ±0.001 
+
+336 0.5148 ±0.067 0.2990 ±0.001 0.2897 ±0.001 4.7499 ±4.187 2.9004 ±0.331 0.2920 ±0.001 
+
+720 0.7885 ±0.094 0.3859 ±0.005 0.3854 ±0.001 6.7143 ±6.852 2.9861 ±0.345 0.3877 ±0.003 
+
+with an arcsinh -based Johnson SU shape transform, and by selecting its two shape parameters (δ, ε ) through decoupled shape optimization rather than end-to-end gradient learning. The decoupling step avoids the degeneration problem we identify, under which any shape-controlling parameter trained jointly with the backbone collapses to the linear (RevIN) regime within a few epochs. Across 1,620 experiments span-ning 6 backbones, 5 datasets, and 3 prediction horizons, NoRIN significantly outperforms every linear-normalization baseline at p < 10 −14 (paired Wilcoxon), and the (δ⋆, ε ⋆)
+
+recovered by decoupled shape optimization sit systematically far from the linear limit—a region that gradient training cannot reach. We view NoRIN as both a concrete method and a broader paradigm: any combination of a non-linear reversible shape parameterization with decoupled outer optimization falls within it, opening a design space that end-to-end gradient training cannot access. VI. L IMITATIONS AND FUTURE WORK 
+
+Several limitations are worth noting and motivate avenues for future work. First , decoupled shape optimization incurs a one-time offline overhead: each (backbone, dataset, H)TABLE II COMPARISON OF TEST FORECASTING ERRORS BETWEEN NORIN AND FIVE BASELINE NORMALIZERS (CONTINUED FROM TABLE I). B ACKBONES 4–6.
+
+Backbone Dataset H None RevIN SAN Dish-TS DeStat NoRIN DLinear 
+
+Exchange 96 0.1409 ±0.001 0.1247 ±0.001 0.1232 ±0.001 0.1459 ±0.009 3.4851 ±0.396 0.1183 ±0.001 
+
+336 0.4536 ±0.003 0.3747 ±0.001 0.3701 ±0.001 0.4401 ±0.006 3.3562 ±0.226 0.3550 ±0.001 
+
+720 1.1424 ±0.002 1.1638 ±0.005 1.1633 ±0.005 1.0954 ±0.019 2.9388 ±0.378 0.9251 ±0.010 
+
+ETTh1 96 0.4328 ±0.002 0.4385 ±0.001 0.4386 ±0.001 0.4340 ±0.003 0.8957 ±0.119 0.4330 ±0.002 
+
+336 0.5032 ±0.000 0.4893 ±0.000 0.4894 ±0.000 0.4981 ±0.003 0.9525 ±0.148 0.4862 ±0.000 
+
+720 0.5396 ±0.001 0.4966 ±0.001 0.4957 ±0.001 0.5384 ±0.005 0.8983 ±0.159 0.4844 ±0.001 
+
+ETTh2 96 0.3731 ±0.002 0.3305 ±0.001 0.3306 ±0.001 0.3726 ±0.008 3.0431 ±0.259 0.3310 ±0.001 
+
+336 0.5708 ±0.001 0.4205 ±0.000 0.4205 ±0.000 0.5461 ±0.024 3.1477 ±0.626 0.4192 ±0.000 
+
+720 0.8539 ±0.003 0.4531 ±0.000 0.4529 ±0.000 0.8190 ±0.055 3.0364 ±0.359 0.4506 ±0.000 
+
+ETTm1 96 0.3106 ±0.000 0.3118 ±0.000 0.3118 ±0.000 0.3106 ±0.001 0.7626 ±0.062 0.3115 ±0.000 
+
+336 0.3808 ±0.000 0.3812 ±0.000 0.3812 ±0.000 0.3805 ±0.000 0.8483 ±0.078 0.3785 ±0.000 
+
+720 0.4330 ±0.001 0.4340 ±0.000 0.4341 ±0.000 0.4331 ±0.000 0.7965 ±0.067 0.4307 ±0.000 
+
+ETTm2 96 0.1787 ±0.000 0.1708 ±0.000 0.1712 ±0.000 0.1796 ±0.001 2.0412 ±0.510 0.1708 ±0.000 
+
+336 0.3261 ±0.002 0.2817 ±0.000 0.2827 ±0.000 0.3275 ±0.006 2.4129 ±0.731 0.2811 ±0.000 
+
+720 0.4661 ±0.001 0.3783 ±0.000 0.3785 ±0.000 0.4689 ±0.006 2.5245 ±0.262 0.3773 ±0.000 
+
+> TimesNet
+
+Exchange 96 1.3155 ±0.220 0.2297 ±0.008 0.2492 ±0.003 3.6038 ±4.456 4.7927 ±0.911 0.1549 ±0.001 
+
+336 1.4501 ±0.265 0.5059 ±0.012 0.5421 ±0.019 1.3599 ±1.494 4.7237 ±0.830 0.5006 ±0.068 
+
+720 1.7856 ±0.177 2.2737 ±1.929 1.1584 ±0.003 5.7765 ±4.066 3.4700 ±0.407 0.9993 ±0.010 
+
+ETTh1 96 0.7872 ±0.024 0.5137 ±0.010 0.5218 ±0.013 2.0681 ±1.441 1.4112 ±0.123 0.4336 ±0.002 
+
+336 1.1195 ±0.030 0.5461 ±0.008 0.5452 ±0.006 1.3857 ±0.197 1.2904 ±0.168 0.4642 ±0.001 
+
+720 1.4005 ±0.004 0.6239 ±0.068 0.5872 ±0.017 1.4903 ±0.936 1.2727 ±0.012 0.4839 ±0.017 
+
+ETTh2 96 2.0105 ±0.102 0.4445 ±0.023 0.4468 ±0.021 6.7311 ±7.279 3.3447 ±0.167 0.3779 ±0.008 
+
+336 2.1473 ±0.118 0.4811 ±0.006 0.4635 ±0.006 2.6710 ±0.665 3.2288 ±0.241 0.4207 ±0.010 
+
+720 2.6151 ±0.608 0.5355 ±0.021 0.5408 ±0.008 4.6199 ±5.641 3.0237 ±0.135 0.4572 ±0.022 
+
+ETTm1 96 0.6162 ±0.025 0.4830 ±0.014 0.3808 ±0.002 1.7279 ±1.043 1.1018 ±0.056 0.3767 ±0.011 
+
+336 0.7175 ±0.023 0.5433 ±0.008 0.4734 ±0.002 1.2690 ±0.191 1.0735 ±0.105 0.4257 ±0.004 
+
+720 0.7798 ±0.033 0.5841 ±0.017 0.5345 ±0.009 1.4493 ±0.898 1.0797 ±0.053 0.4688 ±0.005 
+
+ETTm2 96 1.0152 ±0.057 0.2420 ±0.002 0.2177 ±0.004 6.3034 ±7.747 2.8246 ±0.489 0.2112 ±0.000 
+
+336 1.8831 ±0.046 0.3609 ±0.007 0.3366 ±0.004 2.4554 ±0.533 2.9424 ±0.312 0.3170 ±0.011 
+
+720 4.5847 ±0.156 0.4543 ±0.004 0.4273 ±0.001 5.1402 ±6.301 2.8447 ±0.321 0.4118 ±0.009 
+
+> FEDformer
+
+Exchange 96 6.5858 ±0.217 0.2246 ±0.002 0.2213 ±0.007 2.0828 ±2.091 5.3491 ±0.249 0.1968 ±0.006 
+
+336 6.2414 ±0.021 0.4565 ±0.005 0.4474 ±0.007 6.3362 ±5.467 4.6814 ±0.632 0.4054 ±0.005 
+
+720 4.3250 ±0.182 1.0296 ±0.028 1.0668 ±0.009 8.5210 ±9.606 3.9007 ±0.876 0.8837 ±0.015 
+
+ETTh1 96 1.1658 ±0.122 0.5089 ±0.010 0.5139 ±0.010 1.3629 ±0.405 1.1980 ±0.123 0.4467 ±0.001 
+
+336 1.2873 ±0.009 0.5314 ±0.002 0.5711 ±0.036 0.9057 ±0.060 1.1802 ±0.278 0.4679 ±0.003 
+
+720 1.2489 ±0.301 0.5704 ±0.002 0.5629 ±0.003 1.8873 ±0.132 1.1477 ±0.124 0.4766 ±0.003 
+
+ETTh2 96 3.2390 ±0.013 0.4188 ±0.005 0.4337 ±0.005 3.6703 ±2.660 3.2513 ±0.158 0.3804 ±0.002 
+
+336 3.2140 ±0.011 0.4657 ±0.010 0.4668 ±0.012 1.1592 ±0.441 2.7336 ±0.799 0.4168 ±0.002 
+
+720 3.1193 ±0.026 0.4923 ±0.012 0.5072 ±0.020 7.4904 ±1.259 2.9094 ±0.111 0.4648 ±0.005 
+
+ETTm1 96 1.0064 ±0.019 0.4614 ±0.061 0.4765 ±0.037 1.4278 ±0.448 1.0052 ±0.074 0.4136 ±0.012 
+
+336 1.0300 ±0.016 0.5110 ±0.040 0.5216 ±0.018 0.8884 ±0.130 0.9250 ±0.062 0.4798 ±0.025 
+
+720 1.0897 ±0.108 0.5330 ±0.031 0.5485 ±0.015 2.1510 ±0.286 1.0407 ±0.084 0.4992 ±0.018 
+
+ETTm2 96 3.0636 ±0.258 0.2631 ±0.001 0.2575 ±0.001 3.5611 ±2.664 2.4529 ±0.289 0.2478 ±0.003 
+
+336 3.2096 ±0.210 0.3650 ±0.003 0.3619 ±0.005 1.1095 ±0.408 2.1537 ±0.420 0.3244 ±0.003 
+
+720 3.1745 ±0.209 0.4407 ±0.004 0.4378 ±0.006 7.8575 ±1.485 2.6201 ±0.149 0.3935 ±0.004 
+
+triple requires 60 BO trials, comparable to a single standard hyperparameter sweep but more expensive than purely end-to-end training, and this cost compounds whenever the backbone changes. Second , NoRIN uses the two-parameter (δ, ε ) slice of the Johnson SU family; extreme non-Gaussian distributions— such as intraday financial data with multimodality or strong long-range dependence—may benefit from higher-capacity shape families (e.g., the four-parameter Johnson SU , or nor-malizing flows), which we leave for future work. Third , our current BO search space, δ ∈ [0 .8, 5.0] and ε ∈ [−1.0, 1.0] ,sees a small number of boundary contacts at ε⋆ = ±1,indicating that a wider range may yield better solutions in some channels; we plan to relax both ranges in an extended evaluation. Finally , our evaluation spans five long-horizon pub-lic benchmarks but does not cover event-driven non-stationary series (e.g., traffic incidents, sparse click streams), which may demand specialized shape assumptions and form a natural extension of the NoRIN paradigm. APPENDIX 
+
+This appendix provides supporting evidence referenced in the main text. Table V lists the full set of (δ⋆, ε ⋆) recovered by Optuna-GP HPO across all 90 (backbone, dataset, H) con-figurations, complementing the summary statistics discussed in Section IV-A. Table VII reports the fine-grained 11 ×11 δ-ε
+
+grid evaluation referenced in Section IV-D. Tables VIII and IX provide per-hyperparameter and per-seed sensitivity numbers, also referenced in Section IV-D. TABLE III PAIRED STATISTICAL SIGNIFICANCE TESTS BETWEEN NORIN AND EACH BASELINE NORMALIZER OVER THE 90 (BACKBONE , DATASET , H)
+
+> CONFIGURATIONS
+
+. “W INS ” COUNTS THE CONFIGURATIONS WHERE 
+
+NORIN’ S 3-SEED MEAN IS STRICTLY LOWER THAN THE BASELINE ’S. ∆ 
+
+> DENOTES THE MEAN
+
+MSE DIFFERENCE (BASELINE − NORIN; POSITIVE MEANS NORIN IS LOWER ). p-VALUES ARE COMPUTED BY THE PAIRED 
+
+WILCOXON SIGNED -RANK TEST ; ∗∗∗ MARKS p < 0.001 .Baseline Wins Mean ∆ Wilcoxon p Sig. No-Norm 88/90 +0 .8905 1.93 e − 16 ∗ ∗ ∗ 
+
+RevIN 83/90 +0 .0560 5.79 e − 16 ∗ ∗ ∗ 
+
+SAN 83/90 +0 .0426 6.40 e − 15 ∗ ∗ ∗ 
+
+Dish-TS 89/90 +2 .1349 1.80 e − 16 ∗ ∗ ∗ 
+
+DeStat 90/90 +1 .9035 1.74 e − 16 ∗ ∗ ∗ 
+
+TABLE IV ABLATION STUDY OF NORIN’ S SHAPE PARAMETERS ON INFORMER +ETT H1 WITH H=96 AND SEED 42 . W E COMPARE THE FULL NORIN 
+
+> PARAMETERIZATION AGAINST FOUR REDUCED VARIANTS
+
+: NO NORMALIZATION , R EV IN-EQUIVALENT (δ=1 , ε =0 ), δ-ONLY (ε=0 ), AND 
+
+ε-ONLY (δ=1 ). Configuration δ ε Test MSE No normalization – – 0.6626 RevIN-equivalent 1.0 0.0 0.4899 
+
+δ-only (no skew) 4.0 0.0 0.4470 
+
+ε-only 1.0 −0.7 0.5318 
+
+Full NoRIN 3.96 −0.64 0.4298 
+
+REFERENCES [1] Y. Nie, N. H. Nguyen, P. Sinthong, and J. Kalagnanam, “A time series is worth 64 words: Long-term forecasting with transformers,” in 
+
+International Conference on Learning Representations (ICLR) , 2023. [2] Y. Liu, T. Hu, H. Zhang, H. Wu, S. Wang, L. Ma, and M. Long, “iTrans-former: Inverted transformers are effective for time series forecasting,” in International Conference on Learning Representations (ICLR) , 2024. [3] A. Zeng, M. Chen, L. Zhang, and Q. Xu, “Are transformers effective for time series forecasting?” in Proceedings of the AAAI Conference on Artificial Intelligence , 2023. [4] T. Kim, J. Kim, Y. Tae, C. Park, J.-H. Choi, and J. Choo, “Reversible instance normalization for accurate time-series forecasting against distri-bution shift,” in International Conference on Learning Representations (ICLR) , 2022. [5] W. Fan, P. Wang, D. Wang, D. Wang, Y. Zhou, and Y. Fu, “Dish-TS: A general paradigm for alleviating distribution shift in time series forecast-ing,” in Proceedings of the AAAI Conference on Artificial Intelligence ,vol. 37, no. 6, 2023, pp. 7522–7529. [6] X. Hu, W. Fan, K. Yi, P. Wang, Y. Xu, Y. Fu, and P. Wang, “Boosting urban prediction via addressing spatial-temporal distribution shift,” in 
+
+2023 IEEE International Conference on Data Mining (ICDM) . IEEE, 2023. [7] Z. Liu, M. Cheng, Z. Li, Z. Huang, Q. Liu, Y. Xie, and E. Chen, “Adaptive normalization for non-stationary time series forecasting: A temporal slice perspective,” in Advances in Neural Information Pro-cessing Systems (NeurIPS) , 2023. [8] W. Ye, S. Deng, Q. Zou, and N. Gui, “Frequency adaptive normalization for non-stationary time series forecasting,” in Advances in Neural Information Processing Systems (NeurIPS) , 2024. [9] Huang et al. , “Noise or signal? deconstructing contradictions and an adaptive remedy for reversible normalization in time series forecasting,” 
+
+arXiv preprint arXiv:2510.04667 , 2025. [10] N. L. Johnson, “Systems of frequency curves generated by methods of translation,” Biometrika , vol. 36, no. 1/2, pp. 149–176, 1949. [11] J. F. Slifker and S. S. Shapiro, “The Johnson system: Selection and parameter estimation,” Technometrics , vol. 22, no. 2, pp. 239–246, 1980. [12] J. Bergstra, R. Bardenet, Y. Bengio, and B. K´ egl, “Algorithms for hyper-parameter optimization,” in Advances in Neural Information Processing Systems (NeurIPS) , 2011. [13] T. Akiba, S. Sano, T. Yanase, T. Ohta, and M. Koyama, “Optuna: A next-generation hyperparameter optimization framework,” in Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining , 2019, pp. 2623–2631. [14] H. Zhou, S. Zhang, J. Peng, S. Zhang, J. Li, H. Xiong, and W. Zhang, “Informer: Beyond efficient transformer for long sequence time-series forecasting,” in Proceedings of the AAAI Conference on Artificial Intelligence , vol. 35, no. 12, 2021, pp. 11 106–11 115. [15] Y. Liu, H. Wu, J. Wang, and M. Long, “Non-stationary transformers: Exploring the stationarity in time series forecasting,” in Advances in Neural Information Processing Systems (NeurIPS) , 2022. [16] G. E. P. Box and D. R. Cox, “An analysis of transformations,” Journal of the Royal Statistical Society: Series B (Methodological) , vol. 26, no. 2, pp. 211–243, 1964. [17] I.-K. Yeo and R. A. Johnson, “A new family of power transformations to improve normality or symmetry,” Biometrika , vol. 87, no. 4, pp. 954– 959, 2000. [18] H. Wu, T. Hu, Y. Liu, H. Zhou, J. Wang, and M. Long, “TimesNet: Temporal 2D-variation modeling for general time series analysis,” in 
+
+International Conference on Learning Representations , 2023. [19] T. Zhou, Z. Ma, Q. Wen, X. Wang, L. Sun, and R. Jin, “FEDformer: Frequency enhanced decomposed transformer for long-term series fore-casting,” in International Conference on Machine Learning . PMLR, 2022, pp. 27 268–27 286. [20] I. Loshchilov and F. Hutter, “Decoupled weight decay regularization,” in International Conference on Learning Representations , 2019. [21] D. Qin, Y. Li et al. , “A decoupled formulation of distribution shift in time series forecasting,” arXiv preprint , 2024. [22] F. Wilcoxon, “Individual comparisons by ranking methods,” Biometrics Bulletin , vol. 1, no. 6, pp. 80–83, 1945. TABLE V RECOVERED SHAPE PARAMETERS (δ⋆, ε ⋆) OBTAINED BY OPTUNA -GP HPO ON EACH (BACKBONE , DATASET , H) CONFIGURATION (90 RUNS OVER 6
+
+> BACKBONES
+
+, SEED 42 , 100 TRIALS , SEARCH SPACE δ ∈ [0 .8, 5.0] , ε ∈ [−1.0, 1.0] ). B OUNDARY CONTACTS ARE MARKED WITH † (δ=0 .8) AND ‡
+
+(ε= ± 1.0). Backbone, H Exchange ETTh1 ETTh2 ETTm1 ETTm2 
+
+δ⋆ ε⋆ δ⋆ ε⋆ δ⋆ ε⋆ δ⋆ ε⋆ δ⋆ ε⋆
+
+Informer, H=96 2.008 -0.498 3.960 -0.639 1.010 +0.609 1.403 +0.630 2.055 -0.215 Informer, H=336 1.729 -1.000 ‡ 2.620 -0.064 2.916 +0.146 3.758 -0.177 3.529 -0.591 Informer, H=720 1.656 -1.000 ‡ 2.469 +0.139 1.347 -1.000 ‡ 4.766 -0.536 3.933 +0.029 PatchTST, H=96 1.008 -0.011 1.092 -0.379 0.800 † -0.383 0.800 † +0.645 0.800 † +0.093 PatchTST, H=336 1.089 +0.022 2.459 -0.015 2.739 -0.791 0.800 † +0.502 1.739 +0.037 PatchTST, H=720 1.954 -1.000 ‡ 2.949 -0.540 3.122 -0.251 1.535 +0.040 1.095 +0.041 iTransformer, H=96 0.800 † -0.324 1.145 -0.108 1.296 -0.072 0.963 -0.020 1.181 -0.482 iTransformer, H=336 1.365 -1.000 ‡ 1.267 -0.008 4.131 -0.275 1.016 -0.015 1.368 -0.853 iTransformer, H=720 1.285 -1.000 ‡ 1.316 -0.007 3.266 -0.111 1.707 -0.202 1.356 -0.846 DLinear, H=96 0.995 -0.085 0.800 † +0.889 1.004 -0.005 0.800 † +1.000 ‡ 1.148 -0.097 DLinear, H=336 1.131 -0.107 0.800 † +0.063 0.800 † +0.071 0.923 +1.000 ‡ 1.112 -0.308 DLinear, H=720 0.800 † -0.364 0.820 +0.032 0.800 † +0.038 1.723 +0.004 1.015 -0.405 TimesNet, H=96 3.137 -0.313 3.199 -0.264 4.621 -0.113 2.758 -0.547 2.548 +0.011 TimesNet, H=336 2.727 -1.000 ‡ 3.146 -0.082 4.648 -1.000 ‡ 2.716 -0.293 1.984 +0.315 TimesNet, H=720 2.934 -1.000 ‡ 3.553 +0.253 3.484 -0.990 2.722 -0.311 4.853 -0.352 FEDformer, H=96 1.801 -0.061 2.487 -0.267 3.782 +0.345 0.883 +0.427 1.774 -0.656 FEDformer, H=336 1.526 -0.063 2.173 +0.346 2.598 +0.593 1.044 +0.732 3.482 -0.645 FEDformer, H=720 0.946 -0.506 2.351 +0.305 2.203 +0.918 2.904 +0.364 2.136 -0.089 TABLE VI REPRODUCIBILITY ANALYSIS OF NORIN UNDER FIVE DIFFERENT HPO 
+
+> RANDOM SEEDS
+
+, CONDUCTED ON INFORMER + ETT H1 WITH H=96 . W EREPORT THE RECOVERED (δ⋆, ε ⋆) AND CORRESPONDING TEST MSE FOR EACH INDEPENDENT OPTUNA -GP RUN .HPO seed δ⋆ ε⋆ Test MSE 42 3.960 -0.639 0.4298 43 3.958 -0.659 0.4297 44 3.902 -0.666 0.4298 45 3.980 -0.617 0.4299 46 3.938 -0.638 0.4297 mean ±std 3.948 ± 0.029 −0.644 ± 0.019 0.4298 ± 0.0001 TABLE VII SENSITIVITY ANALYSIS ON THE δ-ε SHAPE PLANE FOR INFORMER + ETT H1 WITH H=96 . W E EXHAUSTIVELY EVALUATE TEST MSE AT 11 ×11=121  
+
+> GRID POINTS COVERING
+
+δ ∈ [3 .0, 5.0] AND ε ∈ [−1.0, 0.0] . T HE GLOBAL MINIMUM AT (δ, ε )=(4 .0, −0.6) WITH MSE 0.4301 IS SHOWN IN BOLD .
+
+δε −1.0 −0.9 −0.8 −0.7 −0.6 −0.5 −0.4 −0.3 −0.2 −0.1 −0.03.0 0.4588 0.4537 0.4495 0.4457 0.4423 0.4402 0.4355 0.4358 0.4363 0.4371 0.4380 
+
+3.2 0.4499 0.4453 0.4401 0.4375 0.4355 0.4361 0.4360 0.4373 0.4394 0.4417 0.4384 
+
+3.4 0.4445 0.4390 0.4363 0.4341 0.4326 0.4322 0.4329 0.4358 0.4383 0.4410 0.4441 
+
+3.6 0.4405 0.4376 0.4343 0.4326 0.4314 0.4321 0.4330 0.4349 0.4375 0.4406 0.4437 
+
+3.8 0.4385 0.4362 0.4348 0.4339 0.4338 0.4309 0.4324 0.4379 0.4375 0.4403 0.4439 
+
+4.0 0.4357 0.4336 0.4323 0.4317 0.4301 0.4311 0.4329 0.4385 0.4412 0.4441 0.4470 
+
+4.2 0.4356 0.4342 0.4327 0.4323 0.4312 0.4326 0.4347 0.4397 0.4428 0.4452 0.4479 
+
+4.4 0.4369 0.4354 0.4349 0.4342 0.4348 0.4351 0.4372 0.4398 0.4426 0.4472 0.4493 
+
+4.6 0.4399 0.4380 0.4370 0.4360 0.4363 0.4383 0.4397 0.4425 0.4456 0.4501 0.4496 
+
+4.8 0.4439 0.4417 0.4403 0.4396 0.4396 0.4401 0.4431 0.4464 0.4482 0.4527 0.4539 
+
+5.0 0.4497 0.4471 0.4452 0.4442 0.4438 0.4441 0.4453 0.4490 0.4524 0.4550 0.4564 TABLE VIII SENSITIVITY ANALYSIS OF NORIN TO TRAINING HYPERPARAMETERS ON 
+
+INFORMER + ETT H1 WITH H=96 . W E VARY ONE OF FIVE HYPERPARAMETERS AT A TIME (LEARNING RATE , BATCH SIZE , TRAINING EPOCHS , dMODEL , AND SEQUENCE LENGTH ) WITH (δ⋆, ε ⋆)=(3 .96 , −0.64) 
+
+> FROZEN
+
+, AND REPORT TEST MSE. Hyperparameter Value Test MSE Learning rate 
+
+1e − 05 0.5015 
+
+5e − 05 0.4375 
+
+0.0001 0.4298 
+
+0.0005 0.4319 
+
+0.001 0.4385 Batch size 
+
+64 0.4325 
+
+128 0.4294 
+
+256 0.4298 
+
+512 0.4378 Training epochs 
+
+10 0.4375 
+
+20 0.4298 
+
+30 0.4323 
+
+50 0.4306 
+
+dmodel 
+
+32 0.4418 
+
+64 0.4298 
+
+128 0.4374 Sequence length 
+
+96 0.4297 
+
+192 0.4205 
+
+336 0.4298 
+
+720 0.4820 TABLE IX SENSITIVITY ANALYSIS OF NORIN TEST MSE ACROSS 10 TRAINING SEEDS (42–51) ON INFORMER + ETT H1 WITH H=96 ,
+
+(δ⋆, ε ⋆)=(3 .96 , −0.64) FROZEN . T HE COEFFICIENT OF VARIATION IS 
+
+0.73% .Seed Test MSE Seed Test MSE 42 0.4298 47 0.4310 43 0.4297 48 0.4362 44 0.4332 49 0.4383 45 0.4313 50 0.4293 46 0.4337 51 0.4361 mean ±std = 0 .4328 ± 0.0032 (CV = 0 .73% )

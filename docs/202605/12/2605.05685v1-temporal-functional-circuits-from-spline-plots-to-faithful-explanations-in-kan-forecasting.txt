@@ -1,0 +1,828 @@
+Title: Temporal Functional Circuits: From Spline Plots to Faithful Explanations in KAN Forecasting
+
+URL Source: https://arxiv.org/pdf/2605.05685v1
+
+Published Time: Fri, 08 May 2026 00:32:59 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# Temporal Functional Circuits: From Spline Plots to Faithful Explanations in KAN Forecasting 
+
+Naveen Mysore 
+
+University of California, Santa Barbara Dyssonance.ai 
+
+naveenmysore@ucsb.edu , nmysore.work@gmail.com 
+
+Abstract 
+
+Unlike MLPs, Kolmogorov-Arnold Networks (KANs) expose explicit learnable edge functions on every connection, enabling mechanistic explanation in time-series forecasting. This paper introduces Temporal Functional Circuits , a frame-work that transforms KAN edge functions from latent visualizations into faithful, temporally grounded explanations. Built on a gated residual KAN that decomposes forecasts into a linear base and a sparsely activated KAN correction, the framework (i) maps each edge to input lags via output-aware attribution, (ii) ranks edges by learned activation range, and (iii) validates faithfulness through edge-level inter-ventions including zeroing and spline removal. Removing the learned B-spline component while retaining the base SiLU term degrades forecasts, providing evi-dence that the spline shape itself carries predictive value beyond the base activation. On four synthetic regimes of increasing complexity, the learned gate opens progres-sively wider as signal complexity grows. On regime-switching signals, gated KAN achieves 59% lower MSE than linear-only models. Across eight benchmarks, the gated architecture is competitive with linear, attention, and MLP alternatives, while providing interpretable edge functions that MLP-based corrections cannot offer. 
+
+1 Introduction 
+
+Long-term time-series forecasting (LTSF) is a core problem in climate science, energy management, transportation, and healthcare [Zhou et al., 2021, Wu et al., 2021]. Recent work has shown that simple linear models can match or outperform complex Transformer architectures on standard benchmarks [Zeng et al., 2023], raising the question of when additional model complexity is justified. Kolmogorov-Arnold Networks (KANs) [Liu et al., 2025] provide an alternative to MLPs: instead of fixed activation functions on nodes, KANs place learnable univariate functions on edges, motivated by the Kolmogorov-Arnold representation theorem [Kolmogorov, 1957, Arnold, 1963]. These edge functions, typically parameterized as B-splines [de Boor, 1978], can be individually inspected, leading to claims that KANs are “inherently interpretable.” Several recent works apply KANs to time-series forecasting [Vaca-Rubio et al., 2024, Han et al., 2024, Huang et al., 2025], citing this interpretability as a key advantage. A recent investigation of KAN-based forecasting is consistent with this complexity [Anonymous, 2026]. In controlled ablation experiments within a decomposition-patching pipeline, three forecasting cores (KAN, linear, attention) were compared across standard benchmarks (Table 4 in the appendix). The result showed that no single core dominates : KAN ranked first on Weather, linear on ETTh1, and results were near-tied on ETTm2. Each core ranked first on a different subset of datasets. This finding motivated the central question of this paper: if KAN is not universally better, when does it help, and can we explain why? 
+
+> Preprint.
+> arXiv:2605.05685v1 [cs.LG] 7 May 2026
+
+This paper argues that visualizing learned splines is not the same as explaining forecasts . A KAN edge function ϕe(z) operates in latent space: it does not directly indicate which input time steps or channels activated it, whether the model actually used it (versus suppressing it via downstream layers), or whether removing it would change the forecast. The saliency-map literature has shown that visually plausible explanations can fail basic sanity checks [Adebayo et al., 2018], and time-series models pose additional challenges because temporal autocorrelation can create superficially meaningful but unfaithful attribution patterns. This work proposes a framework that transforms KAN edge functions from latent visualizations into 
+
+faithful, temporally grounded explanations . The contributions are: 1. Gated Residual KAN. A forecasting architecture ˆy = flin (x) + g(x) ⊙ fKAN (x) with an L1-regularized gate g(x) ∈ [0 , 1] C that provides a measurable KAN utilization metric UKAN (averaged over channels and branches; formal definition in §3). 2. Temporal Functional Circuits. An explanation tuple Ee = ( ϕe, A e, I e, ∆e) per KAN edge, comprising the learned function, lag attribution, importance, and interventional effect (§4). 3. Faithfulness validation. Synthetic mechanism recovery on four regimes, edge deletion curves, and spline-removal interventions providing evidence that the B-spline component accounts for up to 41% of the full zeroing effect on Weather (§5). 4. Empirical analysis. Across eight benchmarks, the gated architecture is competitive with linear, KAN-only, attention, and MLP alternatives. Gate utilization correlates with an independent nonlinear residual diagnostic ( ρ = 0 .46 , p = 0 .015 ; §6). 
+
+2 Related Work 
+
+KANs and KAN-based time-series forecasting. KANs [Liu et al., 2025] place learnable univariate functions on edges rather than fixed activations on nodes, motivated by the Kolmogorov-Arnold representation theorem [Kolmogorov, 1957, Arnold, 1963]. Several works apply KANs to time-series forecasting: Vaca-Rubio et al. [2024] first demonstrate KANs as temporal approximators; KAN4TSF [Han et al., 2024] benchmarks KANs as MLP replacements; TimeKAN [Huang et al., 2025] integrates KANs with frequency decomposition; and KAN4TSF/RMoK [Han et al., 2024] uses mixture-of-KAN-expert routing. These works largely treat visualizable edge functions as interpretability evidence. This paper argues that time-series forecasting requires temporal grounding 
+
+and intervention-tested faithfulness : the proposed gated residual design isolates nonlinear correction (unlike RMoK’s expert routing), and Temporal Functional Circuits map edges to raw lags, rank them by learned importance, and validate them through interventions. 
+
+Explainability for time series. Time-series XAI spans saliency-based methods [Ismail et al., 2020, Rojat et al., 2021, Theissler et al., 2022], learned perturbation masks [Crabbé and van der Schaar, 2021], windowed feature importance [Leung et al., 2023], and contrastive surrogate explana-tions [Queen et al., 2023]. Ismail et al. [2020] benchmark attribution methods on synthetic time series with known ground truth; this evaluation paradigm is adopted for the synthetic mechanism-recovery experiments. DynaMask [Crabbé and van der Schaar, 2021] learns dynamic masks over features and time steps, providing a baseline for the proposed edge-to-lag attribution. TimeX [Queen et al., 2023] trains an interpretable surrogate to explain black-box models. The present approach differs: rather than post-hoc surrogates, the model is explained through its intrinsic KAN edge functions, explicit univariate functions that can be inspected, edited, and intervened upon. Time-series shapelets [Ye and Keogh, 2009, Grabocka et al., 2014] offer another form of inherent interpretability via discriminative subsequences; the proposed temporal circuits are analogous but operate on learned edge functions grounded in forecast-horizon attribution rather than pattern matching. 
+
+Faithfulness and intervention-based evaluation. A central lesson from XAI research is that visual plausibility does not imply faithfulness [Adebayo et al., 2018, Jacovi and Goldberg, 2020]. Adebayo et al. [2018] showed that saliency maps can appear reasonable even for randomly parameterized models. The attention-as-explanation debate [Jain and Wallace, 2019, Wiegreffe and Pinter, 2019] further illustrates that inspectable internal objects (attention weights, or by analogy KAN splines) are not automatically faithful. Rudin [2019] argues for intrinsically interpretable models; KANs partially satisfy this via explicit edge functions, but this work shows that faithfulness still requires intervention testing. The evaluation draws on attribution axioms from Integrated Gradients [Sundararajan et al., 22017], concept-level testing from TCAV [Kim et al., 2018], and the mechanistic-interpretability tradition of activation patching and circuit analysis [Olah et al., 2020, Geiger et al., 2021]. These ideas are adapted to the time-series KAN setting: edge removal and spline-removal interventions establish 
+
+model-internal interventional effects, without claiming real-world causality in the data-generating process. 
+
+Forecasting backbones and gating. The controlled comparison builds on DLinear [Zeng et al., 2023], PatchTST [Nie et al., 2023], iTransformer [Liu et al., 2024], and RevIN [Kim et al., 2022]. The gated architecture relates to MoE designs [Jacobs et al., 1991, Shazeer et al., 2017], TFT’s gates [Lim et al., 2021], and MoLE [Ni et al., 2024]. Recent KAN-specific gating [Inzirillo and Genet, 2024b,a, Kim et al., 2025, Hasan et al., 2026] uses gating for performance routing ; our gate instead serves a dual purpose: suppressing KAN when unnecessary and providing a measurable diagnostic ( UKAN ). For edge importance, the original KAN [Liu et al., 2025] uses data-dependent L1
+
+pruning; CausalKANs [Almodóvar et al., 2025] and QuantKAN [Fuad and Chen, 2025] extend this to causal and quantized settings. The proposed Re instead uses data-independent activation range over the B-spline grid. 
+
+3 Gated Residual KAN 
+
+Given an input window x ∈ RL×C of L time steps across C variates, the forecast ˆy ∈ RH×C is computed via: 
+
+ˆy = flin (x) + gtrend (x) ⊙ f trend KAN (x) + gresid (x) ⊙ f resid KAN (x), (1) where flin is a linear forecasting branch, f trend KAN and f resid KAN are KAN-based nonlinear branches applied to trend and residual components respectively, and gtrend , g resid ∈ [0 , 1] C are per-channel scalar gates. 
+
+Pipeline. Both branches share a common preprocessing pipeline. (1) RevIN [Kim et al., 2022] normalizes each window to zero mean and unit variance per channel, storing statistics for denormal-ization. (2) Adaptive normalization encodes the temporal shape of the RevIN-normalized input via a two-layer MLP into a compact statistics vector s ∈ Rds (ds=8 ), then produces a learned per-channel scale and shift: x′ = γ(s) · x + β(s), where (γ, β ) = Linear (s) initialized to identity. (3) Decom-position splits the signal into trend and residual components via a moving-average filter [Wu et al., 2021]. Each component is processed independently with its own gate (Equation 1). The linear branch combines both: flin = f trend lin + f resid lin . All processing is channel-independent: x is reshaped from 
+
+[B, L, C ] to [B·C, L ] before entering the branches. 
+
+Linear branch. The input is divided into overlapping patches of length P with stride S, embedded via a linear layer into dimension d, flattened, and projected to the forecast horizon H through a single linear head. Under the shared preprocessing pipeline, this branch captures temporal patterns expressible as a linear function of patch embeddings. 
+
+KAN branch. The same patching produces token embeddings that are flattened and processed through a B-spline KAN [Liu et al., 2025, Blealtan, 2024] with two hidden layers. Each KAN edge implements a learnable univariate function ϕe(z) = w · SiLU (z) + P 
+
+> k
+
+ckBpk (z), where Bpk are cubic B-spline basis functions. This branch captures nonlinear residual structure that the linear branch cannot. 
+
+Gate. The gate network maps the flattened input to a single scalar per channel via a two-layer MLP with sigmoid activation: gc(x) = σ(MLP (xc)) ∈ [0 , 1] . The gate value is broadcast across all forecast horizons. 
+
+Training objective. 
+
+L = MSE (ˆ y, y ) + λg (E[∥gtrend (x)∥1] + E[∥gresid (x)∥1]) , (2) where λg controls gate sparsity. The L1 penalty encourages both gates to remain closed (use linear only) unless the KAN correction genuinely reduces forecast error. 30 100 200 300 400  
+
+> Time step
+> −1.0
+> −0.5
+> 0.0
+> 0.5
+> 1.0
+> Value
+> Horizon H=96
+> Edge e: 1299 → 17
+
+(a) Input Window (Weather, channel 10)      
+
+> Input x(t)
+> Patch [320, 336)
+> Ground truth
+> Forecast
+> 290 300 310 320 330
+> Time step
+> −1.6
+> −1.5
+> −1.4
+> −1.3
+> −1.2
+> −1.1
+> −1.0
+> −0.9
+> −0.8
+> Trend
+
+(b) Decomposition (zoomed)           
+
+> Trend
+> Residual
+> −0.3
+> −0.2
+> −0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> Residual
+> −3 −2 −1 0123
+> z(edge input)
+> −0.2
+> 0.0
+> 0.2
+> 0.4
+> ϕe(z) ze= −0.06
+> ϕe= −0.016
+> Resid branch, KAN layer 0
+> Patch 40 [320,336) → embed dim 19
+> Edge: input 1299 → hidden 17
+> Re= 0.744
+
+(c) Learned Edge Function  
+
+> gresid RKAN
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> Value
+> 0.034
+> 0.173
+
+(d) Gate & KAN Contribution     
+
+> 020 40 60 80
+> Forecast horizon
+> −1.0
+> −0.8
+> −0.6
+> −0.4
+> Value
+> Top-50 edges zeroed
+> (all from patch [320,336))
+> ΔMSE = -2.6e-04
+
+(e) Edge Intervention Effect 
+
+> Ground truth
+> Original
+> Top-50 removed
+> Forecast shift
+
+Circuit Walkthrough: Tracing a Weather Forecast Through a Temporal Functional Circuit           
+
+> Edge e: input dim 1299 → hidden 17 |Patch [320, 336) |Re= 0.74 |Gate g= 0.034
+
+Figure 1: Circuit walkthrough on Weather (channel 10). (a) Input window with the top-attributed patch [320, 336) highlighted. (b) Trend/residual decomposition at the patch region (dual axes; residual is small). (c) Learned B-spline edge function ϕe(z) for the top edge by Re, with the actual data point marked. (d) Gate value and calibrated KAN contribution RKAN for this window. (e) Forecast with and without the top-50 edges by Re: removing them visibly shifts the prediction, providing evidence that these edges carry functional load. 
+
+KAN utilization. Since the architecture has separate gates for trend and residual branches, we define UKAN = 12C
+
+PCc=1 (E[gtrend ,c (x)] + E[gresid ,c (x)]) as a scalar summary (averaged over channels 
+
+C) of how much each dataset relies on nonlinear correction. A dataset with UKAN ≈ 0 is well-served by linear forecasting; UKAN > 0 suggests the trained model uses nonlinear KAN correction under the chosen gate penalty. 
+
+4 Temporal Functional Circuits 
+
+A KAN edge function ϕe(z) operates in latent space; it does not directly reveal which input lags drove it, whether the model actually used it, or whether removing it changes the forecast. A Temporal Functional Circuit is defined as a tuple Ee = ( ϕe, A e, I e, ∆e) that answers each of these questions. Figure 1 illustrates a complete circuit walkthrough on a Weather test window: from the input signal through decomposition, to the learned edge function and its interventional effect on the forecast. 
+
+4.1 Edge-to-Lag Attribution 
+
+Each KAN edge e in the first layer maps from patched input dimension i to hidden dimension j.Through the patch embedding geometry, dimension i corresponds to patch index p = ⌊i/d ⌋, providing a coarse receptive field over raw lags [p · S, p · S + P ). Because the patch embedding mixes all P
+
+lag values through a learned linear projection, exact lag attribution requires gradients through the embedding. The output-aware edge contribution: 
+
+Ce(x) = ϕe(ze(x)) · ∂ ˆy∂a e
+
+, (3) where ae = ϕe(ze) is the scalar edge activation and ∂ ˆy/∂a e captures downstream sensitivity (summed over output channels and horizons for scalarization, with stop-gradient to avoid second-order deriva-4tives). Because ˆy depends on g(x) ⊙ fKAN (x) (Equation 1), the gate is implicitly incorporated in 
+
+∂ ˆy/∂a e via the chain rule; when the gate is closed, the gradient is near zero regardless of edge activation. The temporal attribution is: 
+
+Ae(c, t ) = Ex∼D 
+
+ ∂C e(x)
+
+∂x c,t 
+
+
+
+. (4) Because the model is channel-independent ( x is reshaped to [B·C, L ]), c indexes the channel being processed , not cross-channel influence. Ae(c, t ) tells us which time steps within each channel the edge responds to. 
+
+4.2 Data-Weighted Edge Importance 
+
+Edges are ranked by their expected contribution to the forecast: 
+
+Ie = Ex∼D 
+
+
+
+ϕe(ze(x)) · ∂ ˆy∂a e
+
+
+
+. (5) This combines two observable factors: (1) edge output magnitude—does the edge fire on real data? and (2) downstream sensitivity—does the edge affect the forecast? The gate’s influence enters implicitly through the gradient: ∂ ˆy/∂a e = g(x) · ∂f KAN /∂a e · (∂ ˆy/∂f KAN ), so edges in a closed-gate branch automatically receive near-zero importance. Edges with large Ie are the functionally important components of the nonlinear correction. A simpler alternative ranks edges by their activation range Re = max z∈[t0,t G] ϕe(z) −
+
+min z∈[t0,t G] ϕe(z), evaluated over the B-spline grid interval [t0, t G] (the learned knot boundaries), which measures functional capacity without requiring data. Direct comparison shows Re produces 20 × larger deletion effects than Ie on Weather (Appendix H), suggesting that for B-spline KANs, learned functional capacity is itself a strong faithfulness signal. Re is therefore used as the primary ranking in deletion experiments. 
+
+4.3 Edge Interventions 
+
+To validate faithfulness, the interventional effect of editing edge e on predictive loss: 
+
+∆e = E(x,y )∼D test 
+
+h
+
+ℓ(f (−e)(x), y ) − ℓ(f (x), y )
+
+i
+
+, (6) where f (−e) denotes the model with edge e intervened upon. Positive ∆e means the edge is beneficial. Three intervention types are considered: • Zero : ae(x) ← 0 (silence the edge completely). • Mean : ae(x) ← E[ae] (replace with population mean, avoiding out-of-distribution internal states). • Spline removal : remove only the B-spline component, retaining ϕe(z) = w · SiLU (z) (tests whether the learned spline shape matters beyond the base activation; this is KAN-specific). 
+
+Note: ∆e measures the edge’s interventional effect on the model’s computation , not a causal claim about the data-generating process. 
+
+Deletion curves. For aggregate faithfulness, all edges are ranked by an importance proxy (computed on validation data) and progressively delete the top-k, random-k, or bottom-k edges, measuring MSE increase on the test set . A faithful ranking satisfies: ∆top-k > ∆random-k > ∆bottom-k.
+
+5 Experiments 
+
+5.1 Setup Datasets. The evaluation covers eight benchmarks: seven standard LTSF datasets (Weather, 21 variates; Solar, 137; ECL, 321; ETTh1, ETTh2, ETTm1, ETTm2, 7 each) plus PPG-DaLiA [Reiss et al., 2019] (12 variates, physiological signals). All datasets use chronological train/validation/test splits following established LTSF protocols. ECL is included in the core ablation (Table 1) but excluded from multi-horizon and diagnostic analyses due to its high computational cost (321 variates 
+
+× 4 horizons × 3 seeds); all reported correlations use n = 28 (7 datasets × 4 horizons). 5Table 1: Core ablation at H = 96 (MSE, mean ±std over 3 seeds). Bold: best unrounded mean per dataset; rounded ties may appear identical. All cores use identical preprocessing.                                                               
+
+> Core Weather ETTh1 ETTh2 ETTm1 ETTm2 Solar ECL PPG Linear .152 ±.001 .453 ±.010 .240 ±.002 .350 ±.002 .150 ±.002 .204 ±.001 .131 ±.000 .564 ±.001
+> KAN .149 ±.001 .477 ±.022 .244 ±.000 .348 ±.000 .150 ±.001 .183 ±.000 .132 ±.000 .559 ±.001
+> Attention .150 ±.002 .460 ±.012 .251 ±.003 .347 ±.002 .150 ±.001 .180 .129 ±.000 .564 ±.002
+> Ungated .150 ±.001 .451 ±.006 .245 ±.003 .347 ±.002 .149 ±.001 .180 ±.001 .132 ±.000 .563 ±.002
+> Gated KAN .149 ±.001 .451 ±.007 .243 ±.003 .345 ±.003 .148 ±.001 .182 ±.000 .132 ±.001 .564 ±.001
+> Gated MLP .150 ±.001 .453 ±.008 .239 ±.003 .347 ±.003 .149 ±.001 .185 ±.001 .131 ±.000 .563 ±.001
+> Solar uses λg= 0 .01 ; all others λg= 0 .05 . Attention Solar: single seed. ETTh1 has high seed variance ( σ≈0.01 –0.02 ).
+
+Architecture. All cores share an identical pipeline: RevIN, adaptive normalization, moving-average decomposition ( K = 25 ), and patching ( P = 16 , S = 8 , d = 32 ). The input look-back window is 
+
+L = 336 for most datasets and L = 512 for ECL and ETTm1. KAN branches use grid size G = 5 ,spline order p = 3 , hidden dimension 64, depth 2. The only variable across ablation rows is the core type. 
+
+Training. Adam optimizer (initial learning rate 10 −3 for Weather/ETTh2/ETTm2, 2×10 −4 for ETTh1/ETTm1/Solar; see Appendix F), batch size 256 (Solar: 512, ECL: 128), cosine learning rate schedule, 50 epochs, patience 10. Gate regularization λg = 0 .05 for all datasets except Solar (λg = 0 .01 , selected via validation; see Appendix E for ablation). Table 1 reports mean ± std over 3 seeds (42, 123, 456). Synthetic experiments (Table 2) also report 3-seed statistics. 
+
+5.2 Core Ablation 
+
+Table 1 compares six architectures within the same pipeline at forecast horizon H = 96 . The key question is whether KAN’s spline-based nonlinearity provides unique value. 
+
+Findings. No single core dominates : Gated KAN is best or tied-best on 4/8 datasets (Weather, ETTh1, ETTm1, ETTm2), but Gated MLP wins on ETTh2 and many differences are within one standard deviation. Gated KAN improves over Ungated KAN on 4/8 datasets; the main value of gating is diagnostic control over nonlinear correction rather than uniform accuracy improvement. KAN’s value is therefore interpretability : Gated MLP can match accuracy, but cannot provide explicit edge functions for temporal circuits. Baselines and basis ablations are in Appendices C–D. 
+
+5.3 KAN Utilization 
+
+The gate produces a measurable diagnostic UKAN per dataset (full table in Appendix B). At H=96, 
+
+UKAN ranges from 0.022 (PPG, ETTh1—predominantly linear) to 0.144 (Solar—highest nonlinear demand). ETTh1 and ETTm2 show increasing UKAN at long horizons (0.022 →0.288, 0.020 →0.198), suggesting nonlinear correction becomes more important for difficult far-horizon forecasts. UKAN 
+
+reflects both nonlinear demand and L1 penalty; the calibrated RKAN in Section 6 controls for branch scaling. 
+
+5.4 Synthetic Mechanism Recovery 
+
+To validate that the gate and KAN respond to genuine signal complexity, four synthetic univariate regimes with increasing complexity are constructed: • Linear : x(t) = sin(2 π · 0.02 t) + ϵ.• Multi-frequency periodic : x(t) = sin(2 π · 0.05 t) + 0 .8 tri (2 π · 0.02 t) + 0 .5 sin(2 π ·
+
+0.13 t) + ϵ, where tri is a triangular wave (piecewise linear, requiring many AR terms). • Threshold AR (SETAR) : state-dependent dynamics— x(t) = 0 .6 x(t−1) − 0.3 x(t−2) + ϵ
+
+if x(t−1) > 0, else −0.4 x(t−1) + 0 .5 x(t−2) + ϵ. Provably nonlinear (no linear AR can represent state-dependent coefficient switching). • Regime-switching : alternates between linear and multi-frequency regimes every 500 steps with hidden state zt ∈ { 0, 1}.6Table 2: Synthetic regime experiments. MSE (mean ±std over 3 seeds) and KAN utilization UKAN .Gate regularization λg = 0 (no sparsity pressure), testing monotonic gate response to nonlinear complexity rather than sparse utilization. 
+
+Regime Core MSE UKAN 
+
+Linear (sine) Gated KAN .0027 ±.0001 0.49 Linear-only .0027 ±.0001 –KAN-only .0026 ±.0001 –Multi-freq periodic Gated KAN .0029 ±.0001 0.53 Linear-only .0033 ±.0001 –KAN-only .0028 ±.0001 –Threshold AR Gated KAN .990 ±.034 0.56 Linear-only .986 ±.034 –KAN-only .970 ±.030 –Regime-switching Gated KAN .0115 ±.0009 0.72 Linear-only .0280 ±.0052 –KAN-only .0122 ±.0013 –Linear    
+
+> (sine)
+> Multi-freq
+> Periodic
+> Threshold
+> AR (SETAR)
+> Regime
+> Switching
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> UKAN  = [g(x)]
+> 0.49
+> 0.53 0.56
+> 0.72
+> (a) Gate Utilization by Regime
+> Linear Multi-freq Regime-switch
+> 0.000
+> 0.005
+> 0.010
+> 0.015
+> 0.020
+> 0.025
+> 0.030
+> Test MSE
+> (b) Forecasting Performance by Regime
+> Gated KAN
+> Linear-only
+> KAN-only
+
+Figure 2: Synthetic regime experiments. (a) Gate utilization UKAN increases monotonically with signal complexity: 0.49 (linear) → 0.53 (multi-frequency) → 0.56 (threshold AR) → 0.72 (regime-switching). (b) On regime-switching, Gated KAN matches KAN-only while outperforming Linear-only by 59%. Table 2 reports results averaged over 3 seeds. Figure 2 visualizes the key findings. 
+
+Findings. (1) Gate utilization tracks signal complexity : UKAN increases monotonically (0.49 →0.53 →0.56 →0.72) without L1 pressure. The calibrated RKAN is even more discrimina-tive: 0.05 (linear) →0.13 (multi-freq) →0.50 (threshold AR) →0.42 (regime-switching), showing the KAN branch contributes 5% vs. 50% of the forecast on linear vs. nonlinear data (Appendix H). (2) KAN correction reduces error on complex regimes : on regime-switching, gated KAN (MSE 0.012) and KAN-only (0.012) both substantially outperform linear-only (0.028), a 59% MSE reduc-tion. The threshold AR regime (a provably nonlinear SETAR process with state-dependent dynamics) is difficult for all models but still elicits higher gate opening. On the simple linear regime, all cores perform identically; KAN does not hurt. (3) Gated KAN matches KAN-only : across all regimes, gated KAN achieves MSE comparable to KAN-only, showing the gate does not sacrifice accuracy. 
+
+5.5 Edge Faithfulness 
+
+Edge importance rankings are validated by testing whether removal of high-ranked edges degrades the forecast. All first-layer KAN edges are ranked by activation range Re = max z ϕe(z) − min z ϕe(z),which measures the learned functional capacity of each edge. The top-k, random-k (averaged over 50 draws), or bottom-k edges are then deleted by zeroing their weights, and MSE change is measured on the held-out test set. 7Table 3: Edge deletion on the residual branch. Values are ∆MSE × 10 4. Edges ranked by activation range Re. Weather random reports ±1 std over 50 draws; other datasets report mean only.                                   
+
+> Dataset k∆top ∆random ∆bottom
+> Weather 5+0.14 0.00 ±0.01 0.00 10 +0.44 0.00 ±0.02 0.00 50 +2.20 −0.01 ±0.05 0.00 ETTm2 10 +0.02 0.00 0.00 50 +0.20 0.00 <0.01 PPG 5+0.19 0.00 0.00 10 +0.40 0.00 0.00 Solar 5+0.06 0.00 0.00 50 +1.44 +0.06 <0.01
+
+Findings. Across Weather, ETTm2, PPG, and Solar, deletion of top-ranked edges consistently produces larger MSE increases than random or bottom-ranked deletion (Weather random: 50 draws, 
+
+±1 std reported). On Weather, top-50 deletion increases MSE by 2.20 × 10 −4 (0.15% relative), while random deletion is consistent with zero ( −0.01 ± 0.05 × 10 −4, 50 draws). On datasets where UKAN 
+
+is very low (ETTh1, ETTh2), deletion effects are near zero because the model barely uses the KAN branch. This provides evidence that activation range identifies edges whose removal causes consistent, non-random forecast degradation. The actual learned edge functions ϕe(z) for the top-ranked edges are visualized in Appendix G. 
+
+Intervention types. Two interventions are tested on the top-20 residual edges (by Re): zeroing and spline removal (removing only the B-spline component, retaining the base SiLU term). On Weather, spline removal accounts for 41% of the full zeroing effect ( ∆MSE +3 .8 × 10 −5 vs. +9 .1 × 10 −5). On ETTh1 (low UKAN ), the fraction drops to 6%. This test is KAN-specific: it isolates the value of the learned spline shape, which MLP connections cannot provide. 
+
+Temporal grounding validation. On a synthetic signal x(t) = 0 .6 x(t−3) + 0 .25 x(t−12) + ϵ
+
+with known causal lags, the proposed branch-level Ae recovers true lags with AUPRC = 0.44 ( 6×
+
+above random), while standard IG achieves 0.53. The key advantage of Ae is edge-level resolution: it identifies which KAN edges implement each lag dependency, which model-level methods cannot provide. Attributions are stable across seeds (Pearson r = 0 .94 –0.97 ). IG-based input masking on Weather increases MSE by 104% (top-5) vs. 3% (random), indicating the model relies on specific temporal positions. A direct comparison of edge-level deletion using Re vs. Ie rankings shows Re
+
+produces 20 × larger deletion effects on Weather, providing evidence that for B-spline KANs, learned functional capacity is itself a faithful importance signal (Appendix H). 
+
+6 Analysis 
+
+Nonlinear residual diagnostic. An independent diagnostic Snonlin = ( MSE lin − MSE MLP )/MSE lin 
+
+is computed per dataset-horizon pair, where MSE lin and MSE MLP correspond to the Linear-only and Gated MLP cores from Table 1 respectively. The Spearman correlation between Snonlin and UKAN is 
+
+ρ = 0 .46 (p = 0 .015 , n = 28 ), consistent with the gate tracking nonlinear residual structure that an independent diagnostic also detects (scatter plot in Appendix B). 
+
+Calibrated KAN contribution. UKAN can be confounded by branch scaling. The calibrated metric 
+
+RKAN = E[∥g(x)fKAN (x)∥2/∥ˆy(x)∥2] controls for this: Weather has RKAN = 0 .38 (38% of forecast from KAN), ETTh1 RKAN = 0 .004 (predominantly linear), Solar RKAN = 0 .71 (highest). Adaptive 
+
+λg selection (Appendix E) remains an open problem. 
+
+Why KAN over MLP. Gated MLP matches accuracy (Table 1), but MLP weights are opaque: no inspectable edge functions, no single-connection spline removal, no individually editable functional units. TFC exploits the explicit univariate functions KANs expose. 80 10 20 30 40 50  
+
+> k(edges deleted)
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> ΔMSE ( ×10 −4 )
+
+Weather       
+
+> 010 20 30 40 50
+> k(edges deleted)
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> ΔMSE ( ×10 −4 )
+
+ETTm2       
+
+> Top-k
+> Random-k
+> Bottom-k
+> 010 20 30 40 50
+> k(edges deleted)
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> ΔMSE ( ×10 −4 )
+
+PPG       
+
+> 010 20 30 40 50
+> k(edges deleted)
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> ΔMSE ( ×10 −4 )
+
+Solar 
+
+Edge Deletion Curves (Residual Branch) Figure 3: Edge deletion curves (residual branch, ranked by Re). Removing top-ranked edges (red) consistently increases MSE more than random (gray) or bottom-ranked (blue) deletion, providing evidence that activation-range ranking identifies functionally relevant edges. The effect is strongest on Weather and Solar, which have moderate-to-high UKAN .
+
+7 Limitations 
+
+Edge interventions establish model-internal effects, not causal claims about the data-generating process. Attribution is gradient-based and most direct for first-layer edges. KAN edge functions are inspectable but not automatically human-semantic. Gated KAN is competitive but not uniformly state-of-the-art; stronger regime-adaptive gating remains future work. 
+
+8 Conclusion 
+
+This paper argued that KAN interpretability requires temporal grounding and intervention testing, not spline visualization alone. Temporal Functional Circuits (ϕe, A e, I e, ∆e) map edges to input lags and validate faithfulness through interventions. Gate utilization tracks synthetic signal complexity, and activation-range deletion provides evidence that high-ranked edges are functionally important. 
+
+References 
+
+Julius Adebayo, Justin Gilmer, Michael Muelly, Ian Goodfellow, Moritz Hardt, and Been Kim. Sanity checks for saliency maps. In NeurIPS , 2018. Alejandro Almodóvar, Patricia A. Apellániz, Santiago Zazo, and Juan Parras. CausalKANs: Interpretable treatment effect estimation with Kolmogorov-Arnold networks. arXiv preprint arXiv:2509.22467 , 2025. 9Anonymous. DecompKAN: Decomposed patch-KAN for long-term time series forecasting. Under review , 2026. Anonymized for double-blind review. Manuscript included in supplementary material. Vladimir I Arnold. On the representation of functions of several variables as a superposition of functions of fewer variables. American Mathematical Society Translations , 28:51–54, 1963. Blealtan. efficient-kan: An efficient pure-PyTorch implementation of KAN, 2024. github.com/Blealtan/efficient-kan. Jonathan Crabbé and Mihaela van der Schaar. Explaining time series predictions with dynamic masks. In ICML , 2021. Carl de Boor. A Practical Guide to Splines . Springer, 1978. Kazi Ahmed Asif Fuad and Lizhong Chen. QuantKAN: A unified quantization framework for Kolmogorov-Arnold networks. arXiv preprint arXiv:2511.18689 , 2025. Atticus Geiger, Hanson Lu, Thomas Icard, and Christopher Potts. Causal abstractions of neural networks. In NeurIPS , 2021. Josif Grabocka, Nicolas Schilling, Martin Wistuba, and Lars Schmidt-Thieme. Learning time-series shapelets. In KDD , 2014. Xiao Han, Xinfeng Zhang, Yiling Wu, Zhenduo Zhang, and Zhe Wu. KAN4TSF: Are KAN and KAN-based models effective for time series forecasting? arXiv preprint arXiv:2408.11306 , 2024. Md Zahidul Hasan, A. Ben Hamza, and Nizar Bouguila. Time series forecasting with Hahn Kolmogorov-Arnold networks. arXiv preprint arXiv:2601.18837 , 2026. Songtao Huang, Zhen Zhao, Can Li, and Lei Bai. TimeKAN: KAN-based frequency decomposition learning architecture for long-term time series forecasting. In ICLR , 2025. Hugo Inzirillo and Remi Genet. A gated residual Kolmogorov-Arnold networks for mixtures of experts, 2024a. Hugo Inzirillo and Remi Genet. SigKAN: Signature-weighted Kolmogorov-Arnold networks for time series, 2024b. Aya Abdelsalam Ismail, Mohamed Gunady, Hector Corrada Bravo, and Soheil Feizi. Benchmarking deep learning interpretability in time series predictions. In NeurIPS , 2020. Robert A Jacobs, Michael I Jordan, Steven J Nowlan, and Geoffrey E Hinton. Adaptive mixtures of local experts. Neural Computation , 3(1):79–87, 1991. Alon Jacovi and Yoav Goldberg. Towards faithfully interpretable NLP systems: How should we define and evaluate faithfulness? In ACL , 2020. Sarthak Jain and Byron C Wallace. Attention is not explanation. In NAACL-HLT , 2019. Been Kim, Martin Wattenberg, Justin Gilmer, Cai Carrie, James Wexler, Fernanda Viegas, and Rory Sayres. Interpretability beyond feature attribution: Quantitative testing with concept activation vectors (TCAV). In ICML , 2018. Dongwoo Kim, Junghyo Kang, Heesung Hwang, and Hyungju Kim. MoEKAN: Multi-scale transformer-based gating KAN experts network for time series forecasting. Sensors , 25(23): 7287, 2025. doi: 10.3390/s25237287. Taesung Kim, Jinhee Kim, Yunwon Tae, Cheonbok Park, Jang-Ho Choi, and Jaegul Choo. Reversible instance normalization for accurate time-series forecasting against distribution shift. In ICLR ,2022. Andrey N Kolmogorov. On the representation of continuous functions of several variables by superposition of continuous functions of one variable and addition. Doklady Akademii Nauk SSSR ,114:953–956, 1957. 10 Kin Kwan Leung, Clayton Rooke, Jonathan Smith, Saba Zuberi, and Maksims Volkovs. Temporal dependencies in feature importance for time series prediction. In ICLR , 2023. Bryan Lim, Sercan Ö Arık, Nicolas Loeff, and Tomas Pfister. Temporal fusion transformers for interpretable multi-horizon time series forecasting. International Journal of Forecasting , 37(4): 1748–1764, 2021. Yong Liu, Tengge Hu, Haoran Zhang, Haixu Wu, Shiyu Wang, Lintao Ma, and Mingsheng Long. iTransformer: Inverted transformers are effective for time series forecasting. In ICLR , 2024. Ziming Liu, Yixuan Wang, Sachin Vaidya, Fabian Ruehle, James Halverson, Marin Soljaˇ ci´ c, Thomas Y Hou, and Max Tegmark. KAN: Kolmogorov-arnold networks. In ICLR , 2025. Ronghao Ni, Zinan Lin, Shuaiqi Wang, and Giulia Fanti. Mixture-of-linear-experts for long-term time series forecasting. In AISTATS , 2024. Yuqi Nie, Nam H Nguyen, Phanwadee Sinthong, and Jayant Kalagnanam. A time series is worth 64 words: Long-term forecasting with transformers. In ICLR , 2023. Chris Olah, Nick Cammarata, Ludwig Schubert, Gabriel Goh, Michael Petrov, and Shan Carter. Zoom in: An introduction to circuits. Distill , 2020. Owen Queen, Thomas Hartvigsen, Teddy Koker, Huan He, Theodoros Tsiligkaridis, and Marinka Zitnik. Encoding time-series explanations through self-supervised model behavior consistency, 2023. Attila Reiss, Ina Indlekofer, Philip Schmidt, and Kristof Van Laerhoven. Deep PPG: Large-scale heart rate estimation with convolutional neural networks. Sensors , 19(14):3079, 2019. doi: 10.3390/s19143079. Thomas Rojat, Raphaël Puget, David Filliat, Javier Del Ser, Rodolphe Gelin, and Natalia Díaz-Rodríguez. Explainable artificial intelligence (XAI) on time series data: A survey. arXiv preprint arXiv:2104.00950 , 2021. Cynthia Rudin. Stop explaining black box machine learning models for high stakes decisions and use interpretable models instead. Nature Machine Intelligence , 1:206–215, 2019. Noam Shazeer, Azalia Mirhoseini, Krzysztof Maziarz, Andy Davis, Quoc Le, Geoffrey Hinton, and Jeff Dean. Outrageously large neural networks: The sparsely-gated mixture-of-experts layer. In 
+
+ICLR , 2017. Mukund Sundararajan, Ankur Taly, and Qiqi Yan. Axiomatic attribution for deep networks. In ICML ,2017. Andreas Theissler, Francesco Spinnato, Udo Schlegel, and Riccardo Guidotti. Explainable AI for time series classification: A review, taxonomy and research directions. IEEE Access , 2022. Cristian J Vaca-Rubio, Luis Blanco, Roberto Pereira, and Markku Mäkisara. Kolmogorov-Arnold networks (KANs) for time series analysis. arXiv preprint arXiv:2405.08790 , 2024. Sarah Wiegreffe and Yuval Pinter. Attention is not not explanation. In EMNLP , 2019. Haixu Wu, Jiehui Xu, Jianmin Wang, and Mingsheng Long. Autoformer: Decomposition transformers with auto-correlation for long-term series forecasting. In NeurIPS , 2021. Lexiang Ye and Eamonn Keogh. Time series shapelets: A new primitive for data mining. In KDD ,2009. Ailing Zeng, Muxi Chen, Lei Zhang, and Qiang Xu. Are transformers effective for time series forecasting? In AAAI , 2023. Haoyi Zhou, Shanghang Zhang, Jieqi Peng, Shuai Zhang, Jianxin Li, Hui Xiong, and Wancai Zhang. Informer: Beyond efficient transformer for long sequence time-series forecasting. In AAAI , 2021. 11 A Motivating Investigation: DecompKAN 
+
+This work was motivated by an investigation of DecompKAN, an attention-free forecasting ar-chitecture combining trend-residual decomposition, patching, learned normalization, and B-spline KAN layers [Anonymous, 2026]. In controlled experiments (same training recipe across all models), DecompKAN achieved competitive results, ranking first on 5 of 7 datasets by MSE at H=96 (Table 4). However, ablation analysis revealed that the pipeline (decomposition, patching, normalization) drives performance more than the choice of nonlinear layer . Figure 4 shows that on ETTh1, replacing KAN with a linear layer actually improves performance, while on Weather, KAN provides genuine benefit (see Table 4 for exact values). This dataset-dependent behavior, KAN helps on some datasets but not others, is what led to the question: when does KAN help, and can we explain why? 
+
+The gated residual architecture (Section 3) directly addresses this by learning when to apply KAN correction, while Temporal Functional Circuits (Section 4) explain what the KAN edges learn when they are used. 0.000 0.025 0.050 0.075 0.100 0.125 0.150            
+
+> MSE
+> Full DecompKAN
+> No AdaptNorm
+> No Patching
+> KAN→Attention
+> KAN→Linear
+> No Decomp
+> No RevIN
+> 0.1480
+> 0.1490
+> 0.1500
+> 0.1510
+> 0.1530
+> 0.1530
+> 0.1540
+> Weather
+> 0.000 0.025 0.050 0.075 0.100 0.125 0.150
+> MSE
+> KAN→Linear
+> KAN→Attention
+> Full DecompKAN
+> No AdaptNorm
+> No RevIN
+> No Patching
+> No Decomp
+> 0.1500
+> 0.1510
+> 0.1510
+> 0.1510
+> 0.1520
+> 0.1560
+> 0.1570
+> ETTm2
+> 0.0 0.1 0.2 0.3 0.4 0.5
+> MSE
+> KAN→Linear
+> KAN→Attention
+> No AdaptNorm
+> Full DecompKAN
+> No Decomp
+> No RevIN
+> No Patching
+> 0.4570
+> 0.4730
+> 0.4950
+> 0.4980
+> 0.5000
+> 0.5170
+> 0.5380
+> ETTh1
+> Ablation Study (H=96, seed=42, no bidirectional augmentation)
+
+Figure 4: DecompKAN ablation study ( H=96). On Weather, the full KAN pipeline is best. On ETTh1, replacing KAN with a linear layer improves performance. The choice of nonlinear core is dataset-dependent, motivating the gated residual design. Table 4: DecompKAN controlled comparison ( H=96, seed=42). All models trained with the same recipe. Red : best. Blue : second. DecompKAN ranks first on 5/7 datasets (MSE), but ablation (Figure 4) shows the pipeline matters more than the KAN core, motivating the gated residual investigation. 
+
+Dataset DecompKAN PatchTST iTransformer DLinear MSE MAE MSE MAE MSE MAE MSE MAE Weather 0.146 0.194 0.155 0.206 0.170 0.220 0.181 0.246 Solar 0.176 0.227 0.179 0.236 0.187 0.236 0.221 0.298 ECL 0.130 0.226 0.149 0.258 0.132 0.228 0.135 0.233 ETTh1 0.450 0.453 0.478 0.467 0.474 0.465 0.444 0.442 
+
+ETTh2 0.233 0.323 0.248 0.340 0.252 0.338 0.234 0.325 ETTm1 0.349 0.384 0.382 0.400 0.370 0.399 0.363 0.391 ETTm2 0.150 0.253 0.163 0.267 0.183 0.293 0.150 0.254 
+
+B Full Horizon Results 
+
+Table 5: Gated Residual KAN: MSE and UKAN across all horizons (seed=42). UKAN reveals how gate utilization changes with forecast difficulty. 
+
+Test MSE UKAN 
+
+Dataset 96 192 336 720 96 192 336 720 Weather .150 .193 .242 .327 .046 .044 .041 .036 ETTh1 .443 .493 .546 .667 .022 .050 .194 .288 ETTh2 .245 .288 .347 .451 .044 .050 .110 .058 ETTm1 .343 .399 .442 .503 .041 .033 .018 .039 ETTm2 .147 .190 .230 .293 .020 .049 .074 .198 PPG .565 .620 .719 .945 .022 .017 .019 .021 Solar .182 .197 .205 .208 .144 .139 .153 .151 
+
+12 Notable patterns: ETTh1 and ETTm2 show sharply increasing UKAN at longer horizons (0.022 →0.288 and 0.020 →0.198), suggesting nonlinear correction becomes more important for difficult far-horizon forecasts. Solar maintains consistently high utilization ( ∼0.14–0.15) across all horizons. PPG remains uniformly low ( ∼0.02), indicating predominantly linear dynamics regardless of horizon. H=96 H=192 H=336 H=720 
+
+Weather 
+
+ETTh1 
+
+ETTh2 
+
+ETTm1 
+
+ETTm2 
+
+PPG 
+
+Solar                      
+
+> 0.046 0.044 0.041 0.036
+> 0.022 0.050 0.194 0.288
+> 0.044 0.050 0.110 0.058
+> 0.041 0.033 0.018 0.039
+> 0.020 0.049 0.074 0.198
+> 0.022 0.017 0.019 0.021
+> 0.144 0.139 0.153 0.151
+
+UKAN Across Datasets and Horizons 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+0.20 
+
+0.25 
+
+0.30 
+
+> UKAN
+
+Figure 5: UKAN heatmap across datasets and horizons. 0.00 0.05 0.10 0.15 0.20 
+
+Snonlin 
+
+0.05 
+
+0.10 
+
+0.15 
+
+0.20 
+
+0.25 
+
+0.30 
+
+> UKAN
+
+Spearman ρ = 0.456 (p = 0.015, n = 28) 
+
+> Weather
+> ETTh1
+> ETTh2
+> ETTm1
+> ETTm2
+> PPG
+> Solar
+
+Figure 6: Snonlin vs. UKAN scatter. Spearman ρ = 0 .46 , p = 0 .015 .
+
+C Published Baselines D Basis Function Ablation 
+
+> ∗
+
+SinCos on Solar diverged during training (learnable frequency initialization issue). 
+
+The choice of basis function is dataset-dependent: B-spline is strongest on Solar (where smooth seasonal splines match the signal), Fourier and SinCos excel on ETTh2 (periodic structure), and SinCos achieves competitive performance with the fewest parameters. Temporal Functional Circuits are not tied to B-splines; any KAN variant with explicit edge functions supports the framework. 13 Table 6: Architectural comparison under identical training conditions ( H=96, seed=42). All models use the same preprocessing pipeline, optimizer, schedule, and hyperparameters; only the forecasting core differs. This isolates the effect of the core architecture rather than training recipe. 
+
+Model Weather ETTh1 ETTh2 ETTm1 ETTm2 PPG Solar DLinear .181 .444 .234 .363 .150 .589 .221 PatchTST .168 .478 .255 .382 .243 .626 .183 iTransformer .167 .474 .253 .370 .184 .582 .191 Gated KAN (ours) .150 .443 .245 .343 .147 .565 .182 
+
+> All models share identical pipeline (RevIN, adaptive norm, decomposition, patching) and training recipe (Adam, cosine LR, same epochs/patience/seed=42). Note: results may differ from published numbers since baselines use our shared preprocessing rather than their original configurations. The comparison isolates core architecture effects.
+
+Table 7: Basis function ablation ( H=96, seed=42). All use the gated residual architecture; only the KAN basis differs. SinCos achieves competitive MSE with ∼2.5 × fewer parameters than B-spline. Fourier outperforms B-spline on ETTh2. 
+
+Basis Weather ETTh1 ETTh2 Solar Params B-spline (default) .150 .443 .245 .181 2.19M Fourier (sin/cos) .153 .454 .239 .188 2.57M SinCos (learnable ω) .149 .443 .239 –∗ 0.87M MLP (control) .151 .444 .242 .185 0.50M 
+
+E Gate Ablation 
+
+Table 8: Gate configuration ablation ( H=96, seed=42). Among learned-gate configurations, λg =0.05 –0.10 gives the best MSE on Weather and ETTh1; KAN-only remains slightly better on Weather. Without L1, the gate drifts to ∼0.7 (lazy blending). 
+
+Config Weather ETTh1 ETTh2 MSE UKAN MSE UKAN MSE UKAN 
+
+KAN-only (no gate) .149 – .452 – .243 –Ungated (gate=1) .151 – .444 – .245 –Fixed gate=0.5 .153 0.50 .449 0.50 .256 0.50 Learned, λg =0 .153 0.68 .446 0.72 .236 0.72 Learned, λg =0.01 .152 0.16 .451 0.11 .240 0.16 Learned, λg =0.05 .150 0.05 .443 0.02 .245 0.04 Learned, λg =0.10 .150 0.02 .445 0.01 .244 0.02 
+
+On Weather and ETTh1, stronger L1 ( λg ≥ 0.05 ) produces the best MSE by forcing the gate to be selective. On ETTh2, no regularization ( λg = 0 ) works best, allowing the gate to blend freely. Solar uses λg = 0 .01 (selected via validation on this table’s protocol; λg = 0 .05 over-suppresses the gate on Solar’s 137 variates, reducing UKAN to < 0.01 ). This dataset-dependent behavior motivates adaptive λg selection as future work. 
+
+F Hyperparameters G Temporal Functional Circuit Examples 
+
+Table 10 shows complete Temporal Functional Circuit tuples (ϕe, R e, ∆e, lags ) for the top-3 Weather residual edges. All three edges map to the most recent patch (lags 320–336) and have complex nonlinear shapes (Figure 7). Individual ∆e values are near zero, consistent with the small per-edge effects observed in Table 3. 14 Table 9: Full hyperparameter specification. 
+
+Hyperparameter Value Input length L 336 (512 for ETTm1, ECL) Forecast horizon H 96, 192, 336, 720 Patch length / stride 16 / 8 Embedding dim d 32 KAN grid / spline order 5 / 3 Hidden dim / depth 64 / 2 Batch size 256 (Solar: 512, ECL: 128) Optimizer Adam Initial learning rate 1e-3 (dataset-specific; see code) Scheduler Cosine with warmup Epochs / patience 50 / 10 Gate penalty λg 0.05 (Solar: 0.01) Seeds 42, 123, 456 Train/val/test split Chronological per LTSF protocol 
+
+Table 10: Compact Temporal Functional Circuit summaries for Weather top-3 residual edges. Re:activation range. Ie rank: position in data-weighted importance ranking (out of 200 scored edges). 
+
+∆zero 
+
+e /∆spline 
+
+e : MSE change under zeroing/spline removal. 
+
+Edge (i→j) Lags Re Ie rank ∆zero 
+
+e ∆spline 
+
+e Shape 
+
+1299 →17 [320, 336) 0.74 >200 +6 .0 × 10 −8 −6.3 × 10 −7 S-curve 
+
+1299 →8 [320, 336) 0.74 >200 −2.8 × 10 −7 −1.2 × 10 −6 Oscillatory 
+
+1308 →2 [320, 336) 0.72 >200 +1 .4 × 10 −5 +3 .2 × 10 −6 Kink −3 −2 −1 0 1 2 3                                                      
+
+> −0.2
+> 0.0
+> 0.2
+> 0.4
+> Weather
+> lags [320,336)
+> Re=0.74
+> −3 −2 −1 0123
+> −0.2
+> 0.0
+> 0.2
+> 0.4
+> lags [320,336)
+> Re=0.74
+> −3 −2 −1 0123
+> −0.2
+> −0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> lags [320,336)
+> Re=0.72
+> −3 −2 −1 0123
+> −0.6
+> −0.5
+> −0.4
+> −0.3
+> −0.2
+> −0.1
+> 0.0
+> 0.1
+> lags [320,336)
+> Re=0.72
+> −3 −2 −1 0123
+> −0.4
+> −0.3
+> −0.2
+> −0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> lags [320,336)
+> Re=0.70
+> −3 −2 −1 0123
+> −0.20
+> −0.15
+> −0.10
+> −0.05
+> 0.00
+> 0.05
+> 0.10
+> ETTm1
+> lags [496,512)
+> Re=0.31
+> −3 −2 −1 0123
+> −0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> lags [496,512)
+> Re=0.30
+> −3 −2 −1 0123
+> −0.10
+> −0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> lags [496,512)
+> Re=0.29
+> −3 −2 −1 0123
+> −0.20
+> −0.15
+> −0.10
+> −0.05
+> 0.00
+> 0.05
+> lags [496,512)
+> Re=0.28
+> −3 −2 −1 0123
+> −0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> lags [496,512)
+> Re=0.28
+
+Top-5 KAN Edge Functions ϕe(z) by Activation Range 
+
+Figure 7: Top-5 learned KAN edge functions ϕe(z) ranked by Re for the residual branch. Weather edges (top) show complex nonlinear shapes concentrated on the most recent patch (lags 320–336). ETTm1 edges (bottom) are smoother with lower Re, consistent with lower UKAN .
+
+H Temporal Grounding Validation 
+
+Synthetic lag recovery and Ae validation. A synthetic signal x(t) = 0 .6 x(t−3)+0 .25 x(t−12)+ 
+
+ϵ (ϵ ∼ N (0 , 0.12)) is constructed with two known causal lags {3, 12 } (positions 93 and 84 in a length-96 input window). After training a gated KAN ( H = 16 ), multiple attribution methods are used to rank input positions. This directly validates whether the proposed edge-to-lag attribution Ae
+
+recovers known causal structure. 15 Method Recall@5 Recall@10 Recall@20 AUPRC                    
+
+> Ae(branch-level) 0.50 0.50 0.67 0.44 Integrated Gradients 0.50 1.00 1.00 0.53
+> Gradient ×Input 0.50 1.00 1.00 0.53
+> Random 0.17 0.17 0.33 0.07
+
+Ae (aggregated across all KAN edges via the gradient of the gated branch output) recovers true lags with AUPRC 6× above random (0.44 vs. 0.07). On the best seed, Ae achieves AUPRC = 0.75 with both true lags in the top-5. IG achieves higher mean recall by operating on the full model (both linear and KAN branches jointly), but cannot identify which KAN edges implement the lag dependency—this edge-level granularity is the unique contribution of TFC’s Ae.
+
+Attribution stability. IG-based temporal attributions on Weather are compared across three in-dependently trained models (seeds 42, 123, 456). Pairwise Pearson correlations are r = 0 .94 –0.97 
+
+and Spearman ρ = 0 .57 –0.63 . The same temporal positions are consistently identified as important regardless of training initialization. 
+
+Input-level attribution baselines. Masking the top-k attributed input positions and measuring MSE increase on Weather (Table 11): Table 11: Input masking on Weather ( H=96). Relative MSE increase when masking top-k positions ranked by each method.             
+
+> kIG Grad Saliency Random 5+104% +88% +3% 10 +114% +103% +4% 50 +126% +122% +16%
+
+IG and gradient saliency both produce large effects, suggesting the model relies on specific temporal lags. Random masking produces much smaller effects, validating that the attribution identifies genuinely important positions. 
+
+Re vs. Ie edge ranking comparison. Edge-level deletion curves are computed using three ranking methods: activation range Re, data-weighted importance Ie (with top-200 prefilter), and random (20 draws). Results span three datasets with varying UKAN levels.                                                                               
+
+> Dataset k∆Re∆Ie∆rand
+> Weather 5+1 .4×10 −5+5 .5×10 −7−2.1×10 −7
+> 10 +4 .4×10 −5+1 .0×10 −6−1.2×10 −7
+> 20 +9 .0×10 −5+3 .4×10 −6−9.0×10 −7
+> 50 +2 .2×10 −4+1 .1×10 −5−5.1×10 −7
+> ETTm1 10 +6 .0×10 −7−3.0×10 −8−4.8×10 −8
+> 50 +2 .1×10 −6+6 .0×10 −8−2.2×10 −8
+> ETTh1 10 −1.2×10 −7+3 .0×10 −8+3 .0×10 −9
+> 50 −4.8×10 −7−8.9×10 −8−6.4×10 −8
+
+On Weather ( UKAN = 0 .046 ), Re produces 20–42 × larger deletion effects than Ie across all k values, and the effect grows monotonically with k. On ETTm1 ( UKAN = 0 .041 ), Re still dominates but absolute effects are smaller. On ETTh1 ( UKAN = 0 .022 ), all three methods produce near-zero effects indistinguishable from noise, consistent with the gate suppressing the KAN branch. This pattern provides evidence that Re faithfully identifies important edges when the KAN branch is active, and that the gating mechanism correctly governs when edge-level analysis is informative. A combined metric Se = Re · Ie was also tested but produced identical deletion effects to Ie alone, suggesting the two metrics capture overlapping information. For B-spline KANs, learned functional capacity (activation range) is a strong and computationally efficient faithfulness signal. 16 Multi-seed deletion with statistical tests. Deletion experiments are repeated across 3 training seeds (42, 123, 456) with 50 random draws per seed and 1000-sample bootstrap confidence intervals. 
+
+Dataset k ∆top (mean) 95% CI p RelDeg Weather 10 +4 .6 × 10 −5 [3 .8, 5.0] × 10 −5 <10 −4 0.031% 50 +1 .8 × 10 −4 [1 .7, 2.1] × 10 −4 <10 −4 0.123% ETTm2 10 +8 .9 × 10 −6 — <10 −3 0.006% 50 +3 .3 × 10 −5 — <10 −4 0.022% Solar 10 +3 .6 × 10 −5 — <10 −4 0.020% 50 +1 .4 × 10 −4 — <10 −4 0.079% 
+
+Top-k deletion effects are statistically significant ( p < 10 −3) across all seeds on Weather, ETTm2, and Solar. PPG shows non-significant effects ( p > 0.3), consistent with UKAN ≈ 0.02 . RelDeg = 
+
+∆/MSE base × 100 .
+
+Normalized KAN-branch deletion. To contextualize the small absolute deletion effects, the full KAN-branch removal effect ∆all-KAN is measured (zeroing all KAN layers in both branches): 
+
+Dataset ∆all-KAN RelDeg η50 
+
+Weather +1 .03 × 10 −2 6.9% 2.1% Solar +9 .04 × 10 −2 49.7% 0.16% 
+
+The KAN branch contributes 6.9% on Weather and 49.7% on Solar. Individual edge effects are small because the contribution is distributed across ∼22K edges; the top-50 edges capture η50 =∆top-50 /∆all-KAN of the total branch effect. 
+
+RKAN on synthetic regimes. The calibrated contribution metric RKAN =
+
+E[∥g(x)fKAN (x)∥2/∥ˆy(x)∥2] shows stronger discrimination than UKAN on synthetic regimes (λg = 0 ): 
+
+Regime UKAN RKAN 
+
+Linear (sine) 0.49 0.046 Multi-freq periodic 0.53 0.127 Threshold AR 0.56 0.497 Regime-switching 0.72 0.420 
+
+While UKAN already reaches 0.49 on the linear regime (the gate has no sparsity incentive to close), 
+
+RKAN correctly shows that the KAN branch contributes only 4.6% of the forecast on linear data vs. 50% on the nonlinear threshold AR. 
+
+Faithfulness sanity checks. Following Adebayo et al. [2018], deletion ranking is tested after randomizing model weights. On Weather: 
+
+Condition Top-50 ∆MSE Trained model (normal) +2 .20 × 10 −4
+
+Randomized all KAN weights 0.0
+
+Randomized spline coefficients only +7 .4 × 10 −5
+
+Randomizing all KAN weights eliminates the deletion effect entirely, confirming that the ranking reflects learned structure. Randomizing only spline coefficients (keeping base SiLU weights) reduces but does not eliminate the effect, consistent with the base activation carrying partial signal. 
+
+Extended deletion: fraction of KAN branch captured. To address whether the nonlinear correc-tion is concentrated or diffuse, the fraction ηk = ∆ top-k/∆all-KAN is computed over a wider range of 
+
+k:17 ηk (% of KAN branch effect) Dataset k=50 100 250 500 1K 2.5K 5K Weather 2.1 3.7 8.1 13.1 20.0 29.2 35.0 Solar 0.2 0.3 0.6 1.1 2.2 4.1 7.8 
+
+On Weather ( ∆all-KAN = +0 .010 , 6.9% relative), the top 1% of edges (1K of ∼84K) capture 20% of the branch effect, and the top 6% capture 35%. The nonlinear correction is distributed but not uniform: a small fraction of edges carries disproportionate load. Solar’s KAN branch is larger (∆all-KAN = +0 .090 , 50%) but more diffuse across its 137 variates. 
+
+Gate sweep: RKAN under sparsity pressure. With λg > 0, the gate closes on linear data but remains open on nonlinear regimes: 
+
+Regime λg UKAN RKAN MSE ∆all-KAN 
+
+Linear 0 0.48 0.046 .0026 +.0025 0.01 0.00 0.000 .0026 00.05 0.00 0.000 .0026 0Threshold AR 0 0.55 0.475 .951 +.0004 0.01 0.14 0.263 .952 +.0004 0.05 0.02 0.080 .953 −.0001 Regime-switch 0 0.72 0.373 .011 +.143 0.01 0.06 0.141 .011 +.056 0.05 0.00 0.023 .019 +.013 
+
+Any λg > 0 fully closes the gate on linear data ( RKAN = 0 , ∆all-KAN = 0 ). On regime-switching, the KAN branch remains essential even at λg = 0 .05 : removing it increases MSE by +0 .013 (from 0.019 to 0.032), and RKAN = 0 .023 indicates residual nonlinear contribution. At λg = 0 , the KAN branch accounts for ∆all-KAN = +0 .143 , a 13 × increase in MSE. 18 NeurIPS Paper Checklist 
+
+1. Claims 
+
+Question: Do the main claims made in the abstract and introduction accurately reflect the paper’s contributions and scope? Answer: [Yes] Justification: The abstract states that no single core dominates, that gate utilization tracks signal complexity on synthetic data, and that edge deletion curves show faithfulness. All claims are supported by the reported tables and figures. 2. Limitations 
+
+Question: Does the paper discuss the limitations of the work performed by the authors? Answer: [Yes] Justification: Section 7 discusses five explicit limitations: model-internal (not real-world causal) interventions, gradient saturation in deep layers, KAN edges are not automatically human-semantic, performance is competitive but not uniformly SOTA, and synthetic regime discrimination is imperfect. 3. Theory assumptions and proofs 
+
+Question: For each theoretical result, does the paper provide the full set of assumptions and a complete (correct) proof? Answer: [N/A] Justification: The paper does not make theoretical claims. It is an empirical XAI framework paper. 4. Experimental result reproducibility 
+
+Question: Does the paper fully disclose all the information needed to reproduce the main experimental results? Answer: [Yes] Justification: Section 5.1 and Appendix F specify all architecture details, training hyper-parameters, dataset splits, and random seeds. Anonymized source code is included in the supplementary material. 5. Open access to data and code 
+
+Question: Does the paper provide open access to the data and code? Answer: [Partly] Justification: All datasets are publicly available standard benchmarks. PPG-DaLiA is from the UCI Repository under CC BY 4.0. Anonymized source code is included in the supplementary material. 6. Experimental setting/details 
+
+Question: Does the paper specify all the training and test details? Answer: [Yes] Justification: Section 5.1 specifies optimizer, learning rate schedule, epochs, patience, gate regularization, patch size, stride, KAN grid/order, and batch sizes. 7. Experiment statistical significance 
+
+Question: Does the paper report error bars suitably and correctly? Answer: [Yes] Justification: Table 1 reports mean ± std over 3 seeds. Synthetic experiments (Table 3) also report 3-seed statistics. ETTh1 shows high seed variance; other datasets are stable. 8. Experiments compute resources 
+
+Question: Does the paper provide sufficient information on compute resources? Answer: [Yes] 19 Justification: Experiments were run on NVIDIA H100 80GB GPUs. The model has 2.2M parameters and trains in 2–30 minutes per dataset depending on variate count. 9. Code of ethics 
+
+Question: Does the research conform with the NeurIPS Code of Ethics? Answer: [Yes] Justification: The work uses publicly available benchmarks. PPG-DaLiA is a previously published, anonymized public dataset. No private data or dual-use concerns. 10. Broader impacts 
+
+Question: Does the paper discuss potential societal impacts? Answer: [Partly] Justification: Faithful temporal explanations could benefit domains requiring transparent forecasts (healthcare, energy). Interpretability claims are carefully qualified to avoid over-stating readiness for safety-critical deployment. 11. Safeguards 
+
+Question: Does the paper describe safeguards for responsible release? Answer: [N/A] Justification: Standard forecasting architecture with public benchmarks. No safeguards needed beyond standard open-source practices. 12. Licenses for existing assets 
+
+Question: Are creators of assets properly credited? Answer: [Yes] Justification: All datasets and libraries are cited. PPG-DaLiA under CC BY 4.0. efficient-kan library credited. 13. New assets 
+
+Question: Are new assets well documented? Answer: [Yes] Justification: The Gated Residual KAN codebase, XAI utilities, and experiment scripts will be released with documentation. 14. Crowdsourcing and human subjects 
+
+Question: For research with human subjects, does the paper include instructions given to participants? Answer: [N/A] Justification: No new human-subject data collected. 15. IRB approvals 
+
+Question: Does the paper describe potential risks to study participants? Answer: [N/A] Justification: No new human-subject data collected. 16. Declaration of LLM usage 
+
+Question: Does the paper describe the usage of LLMs? Answer: [Yes] Justification: Large language models were used during manuscript preparation for prose edit-ing and code generation assistance. All scientific content, experimental design, architecture design, and analysis are the original work of the authors. 20
