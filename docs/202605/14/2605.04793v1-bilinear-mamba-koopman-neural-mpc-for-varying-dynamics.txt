@@ -1,0 +1,930 @@
+Title: Bilinear Mamba-Koopman Neural MPC for Varying Dynamics
+
+URL Source: https://arxiv.org/pdf/2605.04793v1
+
+Published Time: Thu, 07 May 2026 01:22:50 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Bilinear Mamba-Koopman Neural MPC for Varying Dynamics 
+
+## Matan Pagi Zohar Sorek Psistar AI 
+
+## {matan,zohar }@psistar.ai 
+
+# Abstract 
+
+Koopman-based neural MPC models generate time-varying dynamics from historical data, but preserve convexity by enforcing that the system operator is independent of the current control input. This con-ditional independence constraint limits adaptation to changing dynamics within a single MPC horizon, particularly under time-varying conditions and under stale-plan execution. We propose Bilinear Mamba-Koopman Neural MPC ,a minimal extension that introduces control-dependent coupling in the latent dynamics, allowing the effective operator to adapt to the current input. The resulting model is a strict generalization of the standard linear, conditional-independence formulation, adds less than 1% parameters through a low-rank structure, and admits exact model Jacobians that enable efficient Se-quential Convex Programming (SCP) with monotone-descent and KKT convergence results under standard trust-region assumptions. Across CartPole and RSCP benchmarks in time-invariant and time-varying regimes, the proposed model matches or improves forecasting accuracy on every cell when training noise is averaged out, with strict gains where control-state coupling is structurally present. Its main closed-loop gains appear in the RSCP TV task, where iterative SCP improves adap-tation within the horizon and substantially stabilizes training; in CartPole TV, the gains are modest but consistent. In delayed re-planning experiments on the time-varying variants, the bilinear model degrades more gracefully under stale-plan execution, maintain-ing a consistent advantage on CartPole TV and a substantially larger robustness margin on RSCP TV. These results show that control-dependent latent dy-namics provides a simple and effective mechanism for robust MPC under varying conditions. 
+
+# 1 Introduction 
+
+The Koopman operator offers an elegant reformulation of nonlinear dynamics: any nonlinear system, however complex in state space, admits a linear representa-tion in an infinite-dimensional function space [Koop-man, 1931, Mezi´ c, 2005]. Finite-dimensional approx-imations learned from trajectory data have enabled controllers that combine the tractability of linear MPC with operation on genuinely nonlinear physi-cal systems [Korda and Mezi´ c, 2018, Lusch et al., 2018, Williams et al., 2015]. For real-time indus-trial control-chemical reactors, compressors, power converters-tractable convex optimization at each con-trol step is a hard operational requirement. Recent work has extended Koopman learning to 
+
+time-varying systems by replacing fixed operator matrices with sequences generated from historical data. A representative instance of this class is the Mamba-based Koopman operator (MamKO) [Li et al., 2025], which processes recent state and control his-tory through a convolutional-FCNN network to emit the matrices ¯Ak, ¯Bk, ¯Ck of a local linear system at each step, substantially outperforming static Koop-man models while retaining the convex MPC formu-lation. 
+
+The structural constraint. This class of meth-ods rests on a deliberate architectural choice: the drift operator ¯Ak is generated from historical data 
+
+Xhist = {zk−H:k−1, u k−H:k−1} but is explicitly not 
+
+a function of the current control input uk. Making ¯Ak depend on uk would introduce a bilinear term ¯Ak(uk) zk, breaking MPC convexity. This constraint is acknowledged in the MamKO formulation [Li et al., 2025] and is forced more generally by any control architecture that preserves single-shot QP convex-ity. The consequence is conditional independence ¯Ak ⊥⊥ uk | Xhist . This constraint limits the model’s expressive power along two distinct axes. 
+
+Control–state coupling. When the governing physics contains u · x terms-convective fluxes in flow-actuated reactors, multiplicative inputs in mechanical systems, voltage-dependent impedances in power electron-ics [Mohler, 1973], the mixed partial ∂2zk+1 /∂z k∂u (i)
+
+> k
+
+is structurally nonzero. MamKO’s architecture forces this quantity to zero, requiring its backbone to absorb 1
+
+> arXiv:2605.04793v1 [cs.LG] 6 May 2026
+
+the coupling indirectly via step-by-step regeneration of ¯Ak. Over a multi-step rollout, the resulting approx-imation error accumulates fastest in regimes where the controller is deliberately exercising large control variation-precisely where MPC matters most. 
+
+Time-varying parameters. When the dynam-ics themselves drift over time—catalyst aging, heat-exchanger fouling, mechanical wear, friction modulation—the effective operator must track changes that the historical encoder may not yet have observed within its lookback window. A bilinear coupling provides an additional, structured channel through which the operator can adapt to the present operating point in a way that the linear lift cannot reach within a single MPC horizon. Both regimes are pervasive in industrial control: the first is structural, the second operational. A single architectural mechanism that addresses both-without requiring a different model class for each-is the contri-bution of this paper. 
+
+Our contribution. We propose a minimal, prin-cipled extension of the Mamba-Koopman dynamics that relaxes conditional independence while retaining the features that make the model useful for control: 
+
+zk+1 =
+
+
+
+diag( A) + 
+
+> m
+
+X
+
+> i=1
+
+u(i) 
+
+> k
+
+Gi
+
+| {z }   
+
+> =: Aeff (uk)
+
+zk + Bkuk, (1) where A ∈ Rdz contains the diagonal continuous-time eigenvalues of the existing Mamba–Koopman back-bone (unchanged), Gi ∈ Rdz ×dz are learned bilinear coupling tensors and Bk ∈ Rdz ×m is the step-varying actuator matrix from the existing dynamics network. Setting Gi = 0 restores MamKO exactly. The bilinear structure exposes exact analytical model Jacobians, making Sequential Convex Programming (SCP) nat-ural: linearize around a nominal trajectory, solve a convex QP, update, repeat. 
+
+Summary of contributions. 
+
+1. Bilinear Koopman dynamics (Section 3): a strict generalization of the conditional-independence class modeling control–state cou-pling, with low-rank parameterization for param-eter efficiency and a spectral penalty enforcing stability of the resulting dense operator. 2. SCP controller (Section 4): an iterative MPC algorithm exploiting exact model Jacobians, with monotone-descent and KKT convergence results under standard trust-region assumptions. 3. Empirical evaluation (Section 5) across Cart-Pole and RSCP in time-invariant and time-varying regimes, establishing four consistent ef-fects: forecasting non-inferiority on every cell, training stabilization on RSCP TV, closed-loop MPC wins on RSCP TV when SCP is iterated, and graceful degradation under stale-plan execu-tion. 
+
+Scope and limitations. Our method inherits the conditional-independence baseline’s assumptions: the latent dynamics are approximately linear at each step, and the encoder is expressive enough to find a lift-ing where this holds. The SCP controller provides local (KKT) rather than global optimality guaran-tees, and convergence rate depends on initialization quality. We position this work as closing a specific, well-characterized structural gap in the Koopman-for-control literature without claiming a new operator class. 
+
+# 2 Background 
+
+## 2.1 Koopman Operators for Con-trolled Systems 
+
+For a discrete-time controlled system xk+1 =
+
+f (xk, u k), the Koopman operator [Koopman, 1931] acts on observables g via composition: Kg = g ◦ f .This operator is linear even when f is not. One seeks a finite-dimensional lifting ψ : Rn → Rdz such that the lifted state zk = ψ(xk) evolves approximately linearly [Korda and Mezi´ c, 2018]: 
+
+zk+1 = Az k + Bu k, ˆxk = Cz k. (2) EDMD [Williams et al., 2015] identifies A, B, C by least squares over a fixed observable dictionary. Deep Koopman methods replace the fixed dictionary with a learned encoder [Lusch et al., 2018]. 
+
+## 2.2 Mamba-Koopman and Conditional Independence 
+
+MamKO [Li et al., 2025] addresses the limitation of a fixed operator for time-varying systems. Inspired by Mamba’s selective state-space mechanism [Gu and Dao, 2023], a matrices-generation network takes the historical sequence Xhist = [ z⊤
+
+> k−H:k−1
+
+, u ⊤
+
+> k−H:k−1
+
+]⊤
+
+and emits time-varying operators via 1D convolution and FCNNs. After ZOH discretization: 
+
+zk+1 = ¯Ak(Xhist ) zk + ¯Bk(Xhist ) uk, ˆxk = ¯Ckzk.
+
+(3) 2Generating all matrices from Xhist alone enforces ¯Ak ⊥⊥ uk Xhist , (4) preserving linearity in uk and hence MPC convexity, but preventing control-state coupling. 
+
+## 2.3 Bilinear Systems 
+
+A discrete-time bilinear system takes the form xk+1 =
+
+Ax k + P 
+
+> i
+
+u(i) 
+
+> k
+
+Nixk + Bu k, where Ni ∈ Rn×n are interaction matrices. Bilinear systems occupy a well-studied middle ground between linear and fully nonlin-ear: they represent a broad class of physical phenom-ena including chemical reactions and mechanical sys-tems with multiplicative inputs [Mohler, 1973]. The Koopman literature has identified bilinear lifted mod-els and related finite-dimensional approximations as a useful middle ground for control, making this a natural target for Koopman approximation. SCP [Mao et al., 2018] and iterative LQR [Li and Todorov, 2004] han-dle optimization over bilinear dynamics by exploiting the analytic Jacobian structure. 
+
+# 3 Bilinear Koopman Extension 
+
+## 3.1 Bilinear Latent Dynamics 
+
+We relax eq. (4) by parameterizing the latent transi-tion as eq. (1), where A ∈ Rdz , Gi ∈ Rdz ×dz , and Bk
+
+are as described in Section 1. The observation map ˆxk = Cz k remains linear. The effective drift operator 
+
+Aeff (uk) = diag (A) + P 
+
+> i
+
+u(i) 
+
+> k
+
+Gi is a linear function of uk, making the full dynamics bilinear in ( zk, u k)jointly. 
+
+Proposition 1 (Strict Generalization) . The function class of eq. (1) strictly contains that of eq. (3) .Proof. Setting Gi = 0 for all i recovers eq. (3) exactly. Conversely, any system with ∂2zk+1 /(∂z k ∂u (i) 
+
+> k
+
+) = 
+
+Gi̸ = 0 is representable by eq. (1) but not by eq. (3), since eq. (4) forces this cross-derivative to zero. Hence the containment is strict. 
+
+Proposition 2 (Population-Level Forecasting Non-In-feriority) . Let FMamKO ⊊ FBL denote the hypothesis classes induced by eq. (3) and eq. (1) . Then 
+
+min  
+
+> f∈F BL
+
+E∥zk+1 − f (zk, u k)∥2
+
+≤ min  
+
+> f∈F MamKO
+
+E∥zk+1 − f (zk, u k)∥2,
+
+with strict inequality whenever the true latent dynam-ics admit nonzero control–state coupling. Proof. The inequality follows from Proposition 1: any optimum in FMamKO is achievable in FBL by set-ting Gi = 0. For strictness, suppose the true la-tent dynamics satisfy zk+1 = A⋆(uk) zk + B⋆uk with 
+
+∂A ⋆/∂u (i) 
+
+> k
+
+= G⋆i̸ = 0. Any f ∈ F MamKO incurs irre-ducible error proportional to ∥G⋆i ∥ · ∥ uk − ¯u∥, where ¯u is the training-set mean control. This error van-ishes only when uk is constant across the evaluation distribution-vacuous in any MPC setting. 
+
+Remark 1. Empirically the strictness condition parti-tions the systems we evaluate. On CartPole, where the equations of motion couple horizontal force with pen-dulum geometry, the bilinear extension produces strict forecasting gains on TI and TV. On RSCP, where heat duties enter additively and the governing ODE contains no u · x terms, ∥G⋆i ∥ ≈ 0 and the proposition predicts equality—which is what we observe on RSCP TI, and on RSCP TV under deployment-relevant av-eraging (Table 2). The 23% bilinear-vs-linear gap visible in best-checkpoint MSE on RSCP TV reflects a training-noise asymmetry between the two models, not a violation of the proposition: the Linear baseline oscillates throughout training while bilinear converges smoothly, so single-epoch selection from linear’s trajec-tory captures one of its downward spikes. Mean-last-50 
+
+MSE—which averages across the spikes—restores the equality the proposition predicts. The learned ∥G∥F
+
+values (Table 9) empirically confirm the partition. 
+
+## 3.2 Low-Rank Parameterization 
+
+The tensors {Gi}mi=1 add m·d2 
+
+> z
+
+parameters. For typical settings ( m ≤ 5, dz ≤ 64), this is at most ∼20K parameters, under 1% of a standard Mamba-Koopman backbone. We impose a low-rank prior: 
+
+Gi = LiR⊤ 
+
+> i
+
+, Li, R i ∈ Rdz ×r , r ≪ dz , (5) reducing the addition to 2 mrd z parameters and regu-larizing the coupling strength when r < d z . Both Li
+
+and Ri are initialized to zero, so the model begins as an exact copy of the Linear baseline; any divergence in training is attributable solely to the bilinear terms. The rank r is a single interpretable hyperparameter: 
+
+r = 1 encodes a rank-1 perturbation per control chan-nel; r = dz recovers the unconstrained bilinear model. We use r = dz in all reported runs, as dz ∈ { 8, 15 }
+
+is small enough that further parameter reduction is unnecessary; the low-rank option remains available for deployments with larger latent dimensions. 33.3 Lie–Trotter Split ZOH Discretiza-tion 
+
+Write the effective generator as 
+
+Aeff (uk) = D + P (uk),D = diag( A),P (uk) = 
+
+> m
+
+X
+
+> j=1
+
+u(j) 
+
+> k
+
+Gj .
+
+(6) Dense ZOH would exponentiate D + P (uk) at a single scalar period T , collapsing the baseline MamKO per-mode timescales δn. This would break the exact zero-coupling reduction to the linear baseline. We therefore use a first-order Lie–Trotter splitting [McLachlan and Quispel, 2002], historically rooted in the Trotter prod-uct formula [Trotter, 1959]: exp(( D + P (uk)) T ) ≈ exp( P (uk)T )
+
+| {z }  
+
+> =: EP(uk)
+
+diag(exp( A ⊙ δ)) 
+
+| {z }
+
+> =: ED
+
+. (7) With ¯Bdiag ,k the corresponding diagonal ZOH input integral, the implemented one-step map is 
+
+FLT (zk, u k) := EP (uk) ED zk + ¯Bdiag ,k uk
+
+. (8) When P (uk) ≡ 0, EP (uk) = I, so the scheme reduces exactly to the baseline per-mode diagonal ZOH. Im-plementation details, numerical stabilization, and cost are deferred to Section C.3. 
+
+## 3.4 Stability 
+
+The negative celu activation in the Mamba-Koopman backbone constrains the diagonal entries of A to be at most 1, guaranteeing ρ(Adisc ) ≤ 1 for the diagonal case. This guarantee does not extend to the dense Aeff (uk): the bilinear terms can shift eigenvalues outside the unit disk. We apply a two-tier approach at training and inference. 
+
+Training: spectral penalty. We add to the loss 
+
+Lstab = X
+
+> j
+
+ReLU  |λj (Adisc ,k )| − 1 + ms
+
+, (9) with margin ms = 0.05, computed via 
+
+torch.linalg.eigvals in float32 to avoid mixed-precision artifacts. Zero initialization of Gi
+
+ensures the model starts in the stable regime. 
+
+Inference. At inference we evaluate ρ(Adisc ,k ) at each MPC step via torch.linalg.eigvals , at O(d3 
+
+> z
+
+)cost; for dz ≤ 64 this is negligible relative to backbone inference. A discussion of why we did not use a Gersh-gorin pre-check for screening is deferred to Section A. 
+
+## 3.5 Training Objective 
+
+We train end-to-end on multi-step observation-space prediction loss: 
+
+L = 1
+
+T
+
+> T
+
+X
+
+> k=1
+
+∥ˆxk − xk∥2 + λs Lstab , (10) with the stability penalty disabled at inference. All baseline training hyperparameters (optimizer, sched-ule, context window H) are held fixed; only {Li, R i}
+
+and the jointly trained backbone parameters are up-dated. 
+
+# 4 SCP Controller for Bilinear MPC 
+
+## 4.1 Problem Formulation 
+
+The open-loop MPC problem over horizon H is min 
+
+> u0: H−1
+> H−1
+
+X
+
+> k=0
+
+ℓ(zk, u k)s.t. zk+1 = FLT (zk, u k),uk ∈ U .
+
+(11) This problem is non-convex in (zk, u k) jointly. The conditional-independence baseline sidesteps non-convexity by design (conditional independence makes the QP trivially convex in one shot). We instead solve eq. (11) iteratively via SCP, exploiting the exact differentiable structure of the implemented bilinear model. 
+
+## 4.2 Exact Model Jacobians 
+
+SCP linearizes the implemented Lie–Trotter map eq. (8) around a nominal trajectory ( ¯z0: H , ¯u0: H ). Since FLT (zk, u k) is affine in zk, the state Jacobian is ˜Ak = ∂F LT 
+
+∂z k (¯ zk ,¯uk )
+
+= EP (¯ uk)ED , (12) ˜Bk = ∂F LT 
+
+∂u k (¯ zk ,¯uk )
+
+. (13) 4Algorithm 1 SCP-Bilinear MPC 
+
+Require: Initial state z0, nominal controls ¯u0: H−1,initial trust-region radius ε0, model params 
+
+Ensure: Optimized control sequence u⋆ 
+
+> 0: H−1
+> 1:
+
+ε ← ε0 
+
+> 2:
+
+Roll out ¯ z0: H under eq. (8)  
+
+> 3:
+
+for n = 1 , . . . , N SCP do  
+
+> 4:
+
+Compute ˜Ak, ˜Bk via eqs. (12) to (13)  
+
+> 5:
+
+Eliminate δz ; form dense QP in δu 0: H−1 
+
+> 6:
+
+Solve QP via OSQP (warm-started)  
+
+> 7:
+
+if J(¯ u + δu ) ≤ J(¯ u) then  
+
+> 8:
+
+¯u ← ¯u + δu ; roll out ¯ z0: H 
+
+> 9:
+
+else  
+
+> 10:
+
+ε ← ε/ 2 
+
+> 11:
+
+end if  
+
+> 12:
+
+end for  
+
+> 13:
+
+return ¯u0: H−1
+
+The input Jacobian ˜Bk contains the derivative of the matrix exponential EP (uk) with respect to uk. In implementation, we compute ˜Bk by reverse-mode au-tomatic differentiation of the full Lie–Trotter update using torch.func.jacrev . This yields exact model Jacobians of the implemented differentiable dynamics up to floating-point precision, with no finite-difference linearization inside SCP. 
+
+## 4.3 SCP Algorithm 
+
+Each SCP iteration solves the convex subproblem obtained by evaluating the finite-horizon quadratic tracking objective on the linearized trajectory. Denot-ing this objective by Jlin , we solve min 
+
+> δu 0: H−1
+
+Jlin (δu ; ¯ z, ¯u)s.t. δz 0 = 0 ,δz k+1 = ˜Akδz k + ˜Bkδu k,
+
+¯uk + δu k ∈ U ,
+
+∥δu k∥∞ ≤ ε. 
+
+(14) Here Jlin includes the same stage and terminal terms as the true MPC objective; when a ∆ u penalty is used, the previous applied input is treated as fixed data, so the subproblem remains a convex QP in δu 0: H−1.Eliminating the linearized dynamics yields a dense box-constrained QP solved via OSQP [Stellato et al., 2020] with warm-starting between iterations. 
+
+Proposition 3 (SCP Monotone Descent and KKT Convergence) . Consider the bilinear MPC prob-lem eq. (11) with a continuously differentiable finite-horizon objective J whose stage and terminal terms are convex quadratic in the variables of each SCP subprob-lem (including, when used, control-increment penalties with the previous input treated as fixed problem data), and with box constraints U = {u : umin ≤ u ≤ umax }.Suppose the SCP iterates {( ¯u(n), ¯z(n))} remain in a bounded set, the implemented dynamics map FLT 
+
+of eq. (8) has locally Lipschitz Jacobian on a neighbor-hood of that set, and each convex subproblem includes both the feasibility constraint ¯uk + δu k ∈ U and the trust-region constraint ∥δu k∥∞ ≤ ε. Then: 
+
+(i) Monotone descent. Let ∆(n) > 0 denote the predicted QP cost decrease at iteration n. Because FLT 
+
+has locally Lipschitz Jacobian, the first-order model error on a trust region of radius ε is O(ε2) uniformly on bounded sets. Hence the discrepancy between the linearized and true objectives over a finite horizon satisfies 
+
+|Jlin − Jtrue | = O(ε2). (15) 
+
+When ε is chosen so that this approximation error is less than ∆(n), the accepted step is truly descent, so the sequence {J( ¯u(n))} is non-increasing. The trust-region shrinkage ε ← ε/ 2 on failed steps guarantees this condition is eventually met because the right-hand side of eq. (15) vanishes as ε → 0.
+
+(ii) KKT convergence. If the standard regularity assumptions for trust-region SCP hold at an accumu-lation point—in particular a constraint qualification for the active box constraints—then any accumulation point ( ¯u⋆, ¯z⋆) of the accepted iterates is a KKT point of eq. (11) . Equivalently, the predicted QP decrease vanishes only at first-order stationary points of the original nonlinear MPC problem, and the associated multipliers satisfy the KKT conditions by the stan-dard trust-region SCP argument of Mao et al. [2018, Theorem 2]. Proof. By construction, the matrices ˜Ak, ˜Bk in eqs. (12) to (13) are the exact Jacobians of the im-plemented Lie–Trotter map FLT , computed without finite differences. For part (i), local Lipschitz continuity of the Jaco-bian of FLT yields a quadratic first-order remainder on each trust region. Over a finite horizon, boundedness of the iterates implies a uniform constant in the bound, so |Jlin − Jtrue | = O(ε2) on the trust region. Hence sufficiently small trust regions guarantee that the true cost decrease matches the predicted decrease up to higher-order error, which yields monotone descent after finitely many shrinkage steps. For part (ii), feasibility is preserved because each QP enforces ¯uk + δu k ∈ U . Once the predicted de-crease tends to zero, the accepted iterates satisfy the first-order necessary conditions of the nonlinear MPC 5problem under the standard trust-region SCP regu-larity assumptions. The cited result of Mao et al. [2018, Theorem 2] then implies that every accumu-lation point of the accepted iterates is a KKT point of eq. (11). 
+
+Remark 2. The boundedness assumption on iterates is retained as an explicit hypothesis. In practice it is promoted by compact control constraints together with the spectral regularization and runtime stability checks of Section 3.4, but those mechanisms do not by themselves constitute a formal proof that ρ(Aeff (u)) <
+
+1 uniformly for all u ∈ U .
+
+Corollary 3.1. The conditional-independence base-line eq. (4) solves a single QP per MPC step but cannot represent control–state coupling. The proposed method solves NSCP ∈ { 1, 5} QPs on the implemented bilinear model. Both are polynomial-time per iteration; the additional QPs incur negligible wall-clock cost relative to the modeling gain (Table 3). 
+
+# 5 Experiments 
+
+## 5.1 Setup 
+
+Systems. We evaluate on two benchmarks across time-invariant and time-varying regimes, yielding four cells. 
+
+CartPole. Standard underactuated cart-pole swing-up; 4 states ( x, ˙x, θ, ˙θ), 1 control (horizontal force). The horizontal force enters the equations of motion through products with trigonometric func-tions of θ, making the system control-affine with state-dependent input gain g(x). The Koopman gen-erator of such a system acts bilinearly on observ-ables in the control input [Goswami and Paley, 2020], so any sufficiently expressive lifting that captures cos θ, sin θ, and ˙θ2 inherits a u · z coupling that MamKO’s conditional-independence constraint ex-cludes. Whether the learned encoder spans these coordinates well enough for the gap to be empirically detectable is one of the questions our forecasting ex-periments answer (Table 2). The time-invariant vari-ant ( TI ) uses constant cart friction; the time-varying variant ( TV ) modulates the friction coefficient as 
+
+μc(t) = μbase  
+
+> c
+
++ Aμ sin( ωμt). 
+
+RSCP. The reactor–separator process of Liu et al. [2008], adopted as the MamKO benchmark in Li et al. [2025]. Two CSTRs in series followed by a flash sepa-rator with recycle; 9 states and 3 controls (heat duties 
+
+Q1, Q 2, Q 3). The heat duties enter the energy bal-ances additively as + Qi/(ρc pVi): the governing ODE contains no u·x terms, only nonlinearity in state. The TV variant modulates feed composition sinusoidally, introducing time-varying parameters without adding control–state coupling. RSCP exercises the second axis of Section 1 (time-varying parameters) without the first (control coupling), making the two bench-marks complementary tests of the bilinear extension. 
+
+Baselines. Our primary structural ablation is the conditional-independence baseline, which is equivalent to our model with Gi = 0. We instantiate this baseline using the MamKO architecture [Li et al., 2025], which is representative of the class. Throughout, “Linear” refers to this Gi = 0 baseline. MamKO itself was eval-uated against the Deep Koopman Operator (DKO) in the original work and established as the stronger time-varying Koopman baseline; we inherit this comparison by transitivity. Our method is denoted Bilinear-r; we use r = dz (full rank) in all reported runs, giving r = 8 on CartPole and r = 15 on RSCP (Table 6). Closed-loop variants are Bilinear-SCP-N for N ∈ { 1, 5}
+
+SCP iterations. 
+
+Protocol. We generate 5 ,000 training, 1 ,000 vali-dation, and 1 ,000 test trajectories per system using mixed sinusoidal and step-function control excitation. All Koopman-based methods use the same latent di-mension dz , prediction horizon, and training budget; dataset splits and random seeds are held constant. Forecasting is reported as 30-step open-loop MSE on held-out test trajectories. Closed-loop MPC is evaluated over 10 episodes per cell under a setpoint-tracking task; we report cumulative running-average cost as a function of time, with shaded 0 .3σ bands 1
+
+for visual comparison. 
+
+Reproducibility against published values. Our re-trained Linear baseline reproduces the forecast MSE of Li et al. [2025, Table 1] within ∼ 3% on CartPole TI and within 0 .78 × on RSCP TI. On Cart-Pole TV our Linear baseline trains to MSE 7 .8 × 10 −3
+
+versus the published 4 .3 × 10 −4, a gap we have not closed under matched hyperparameters; on RSCP TV our Linear baseline trains to 7 .1 × 10 −4 versus the published 9 .7 × 10 −3, a 13 × improvement that we attribute to the training-stability mechanism docu-mented in Section 5.4. Bilinear-vs-Linear compar-isons throughout this paper are reported against our own re-trained baseline; reviewers comparing absolute numbers should reference this calibration.   
+
+> 1Bands are reported at 0 .3σfor visual readability of model separation; the conclusions are unchanged at 1 σ, though some panels then exhibit fully overlapping bands. We report the band width explicitly so readers can interpret the figures under the variance scale of their preference.
+
+65.2 Time-Varying Capture: SCP Iter-ation and Lead-Time Robustness 
+
+The headline cell of this paper is RSCP TV : a chem-ical reactor benchmark with sinusoidally modulated feed composition, no u · x coupling in its governing ODE, and time-varying parameters that the linear lift can only track through history-driven re-generation of the operator at each MPC step. Two experiments converge on a single finding: under TV physics, the bilinear coupling provides operator-level correction that the linear lift architecturally cannot reach within a single MPC horizon, but unlocking it requires either iterative re-linearization at solve time or commitment to a control sequence whose effect on the operator is structurally encoded. 
+
+SCP iteration unlocks TV capture under stan-dard MPC. Figure 1 reports cumulative running-average closed-loop cost for Linear (single QP), Bilinear-SCP-1 (one SCP iteration on the bilinear model—equivalent to LQR-style single linearization), and Bilinear-SCP-5 (five iterations) across the four cells. On RSCP TV (bottom right), Bilinear-SCP-5 separates from both other controllers at t ≈ 0.4 h and the gap widens monotonically through end of horizon. Bilinear-SCP-1, by contrast, does not distinguish itself from Linear and trails it slightly. A single lineariza-tion of the bilinear model is insufficient to exploit the additional capacity under TV physics: the SCP itera-tions are what unlock the operator-level corrections the bilinear coupling makes available, by repeatedly re-linearizing Aeff (uk) = diag (A) + P 
+
+> i
+
+u(i) 
+
+> k
+
+Gi at the current operating point as the iterates converge. Table 1 reports per-cell closed-loop tracking cost for Linear and our Bilinear-SCP-5 controller over the matched evaluation window of Li et al. [2025, Fig. 3]. Bilinear-SCP-5 wins on three of four cells, with the largest gap on RSCP TV (3 .44 vs 4 .91 × 10 −3, a 30% reduction). The single loss is a 5% gap on CartPole TI; this regime carries no u · x coupling, no time-varying parameters, and benign dynamics, so the additional SCP overhead does not compound into a benefit. We emphasize that Bilinear-SCP-1 is not a stripped-down ablation but a realistic deployment baseline: it is what one obtains from running the bilinear model under a budget-constrained MPC stack (e.g., compute-limited edge controllers). The separation between SCP-1 and SCP-5 on RSCP TV is the empirical cost of single linearization in the TV regime. 
+
+Lead-time commitment unlocks the same cor-rection with a frozen backbone. In deployment, MPC controllers are not always free to re-plan at 
+
+Figure 1: Closed-loop MPC cost over 10 episodes per cell. Bilinear-SCP-5 separates from both other controllers on RSCP TV (bottom right) starting around t ≈ 0.4 h, with the gap widening monoton-ically through end of horizon. Other cells discussed in Section 5.5. every control step: compute budgets, network round-trip delays, and asynchronous sensor updates force the controller to commit to a previously computed plan for some lead time before re-planning. We probe this regime via a lead-time experiment : at each MPC step the controller commits to its plan for d subse-quent steps before re-planning, with d ∈ { 0, 1, 3, 5}.The d = 0 case recovers standard receding-horizon MPC. Crucially, we hold both the original plan and the backbone dynamics fixed during the lead window (regen=never ), so neither model receives intermedi-ate corrections from new sensor data. This isolates the open-loop correction capacity of the model class itself: the linear lift’s drift ¯Ak is fixed across the entire lead window because it depends only on history; the bilinear model’s effective drift Aeff (uk) varies with the 
+
+committed control uk along the lead window, provid-ing operator-level correction even with the backbone frozen. We exclude d = 10 from analysis: at over three minutes of stale plan on RSCP, both models saturate from discretization-induced error rather than model-class differences. Figure 2 shows the result on RSCP TV. The bi-linear model sits below Linear at every commitment window (Table 7), with the gap widening sharply once planning becomes stale. At d = 0 the bilinear ad-vantage is modest ( −2.54 vs −2.32, a gap of 0 .22 in log-cost). At d = 1, Linear degrades sharply—its cumulative log-cost plateaus near −1.87 by end of horizon, while the bilinear model reaches −2.78, a gap of nearly 1 in log-cost. The pattern persists at d = 3 (Linear plateau −2.06, bilinear −2.57) and shrinks at 
+
+d = 5 where both models saturate but bilinear still 7Table 1: Closed-loop MPC cumulative cost over 10 episodes per cell, on the matched evaluation window of Li et al. [2025, Fig. 3]. Bold : best per cell. 
+
+Cell Linear Bilinear-SCP-5 
+
+CartPole TI (20 s) 2.40 ×10 −2 2.54 ×10 −2
+
+CartPole TV (20 s) 1.79 ×10 −2 1.73 ×10 −2
+
+RSCP TI (2 h) 7.90 ×10 −4 6.43 ×10 −4
+
+RSCP TV (2 h) 4.91 ×10 −3 3.44 ×10 −3
+
+leads by ∼ 0.22 in log-cost. Figure 3 reports the same experiment on CartPole TV. The bilinear advantage is small throughout and roughly constant in d (Ta-ble 8); the underlying dynamics are benign enough that plan staleness does not catastrophically degrade either model. 
+
+Figure 2: Lead-time robustness on RSCP TV under stale-plan execution ( regen=never ): both the plan and the backbone are frozen during the lead window. The bilinear model maintains an advantage at every 
+
+d, with the gap widening sharply at d ∈ { 1, 3} where Linear degrades while bilinear continues to converge; at d = 5 both models saturate but bilinear still leads. Bands are ±0.3σ over 10 episodes. 
+
+One mechanism, two regimes. Both findings identify the same mechanism. The bilinear coupling encodes how the drift varies with the control, and this variation is exploitable through any control regime that exercises the dependency: iterated SCP exercises it via re-linearization at the current operating point; lead-time commitment exercises it via rollout of the committed control sequence with the backbone frozen. The Linear baseline, lacking the coupling, has no analogous mechanism: its only access to time-varying physics is backbone re-generation, which fails under 
+
+Figure 3: Lead-time robustness on CartPole TV under stale-plan execution. Bilinear sits modestly below Linear at every d, with the gap roughly constant across the sweep. The system is benign enough that staleness does not catastrophically degrade either model. Bands are ±0.3σ over 10 episodes. freeze and is insufficient under standard MPC. This regime is operationally relevant: control deployments commonly enforce re-planning at intervals longer than the underlying simulator step due to compute, com-munication, or scheduling constraints. 
+
+## 5.3 Forecasting Non-Inferiority 
+
+Table 2 reports forecast MSE under best-checkpoint (the single epoch with lowest validation loss, matching the convention of Li et al. [2025, Table 1]) and mean over the final 50 training epochs (the value a deployed system would see, robust to selection from noisy train-ing curves). The two metrics agree on three of four cells: bilinear wins CartPole TI by ∼ 29%, edges Cart-Pole TV by 3–5%, and ties RSCP TI within noise—all consistent with Proposition 2. The cells diverge on RSCP TV. Best-checkpoint fa-vors Linear by 23%; mean 50 ties (bilinear marginally lower at 9 .05 vs 9 .09 × 10 −4). Figure 4 (bottom right) 8Table 2: Forecast MSE on held-out trajectories. Best-checkpoint (single minimum-validation-loss epoch, the convention of Li et al. [2025, Table 1]) and mean over the final 50 training epochs (deployment-relevant, robust to selection from noisy training curves). Bold : best per cell per metric. 
+
+Model Metric CP TI CP TV RSCP TI RSCP TV 
+
+Linear best 6.31 ×10 −4 7.80 ×10 −3 2.28 ×10 −3 7.14 ×10 −4
+
+mean 50 6.67 ×10 −4 8.01 ×10 −3 2.36 ×10 −3 9.09 ×10 −4
+
+Bilinear best 4.45 ×10 −4 7.43 ×10 −3 2.28 ×10 −3 8.80 ×10 −4
+
+mean 50 4.77 ×10 −4 7.77 ×10 −3 2.36 ×10 −3 9.05 ×10 −4
+
+explains the gap: the Linear baseline trains into a noisy basin that oscillates with amplitude ±0.5 in log-loss for the entire 400-epoch run, while bilinear converges smoothly within ∼ 50 epochs and remains flat. Best-checkpoint selects one of Linear’s down-ward spikes; the tail mean averages across them. A model selected by best-checkpoint cannot be reliably re-deployed without the validation-loss oracle that selected it; the tail mean is the deployment-relevant comparison. 
+
+## 5.4 Training Stability 
+
+Validation-loss curves (Figure 4) reveal a striking asymmetry between cells. On CartPole TI/TV and RSCP TI, both models train smoothly to convergence. On RSCP TV, the Linear model exhibits sustained oscillations of ±0.5 in log-loss throughout the entire 400-epoch run, while the bilinear model converges smoothly within the first ∼ 50 epochs and remains flat thereafter. The variance of the Linear model’s val loss across the final 200 epochs exceeds the bilinear model’s by an order of magnitude. We interpret this as an optimization-side benefit of the bilinear parameterization: under time-varying physics, the linear lift must continuously adjust its operator generation to track the moving target, pro-ducing the noisy training signal we observe. The bi-linear coupling absorbs a portion of the time-varying capacity directly into a stationary operator structure, decoupling the optimization landscape from the data’s non-stationarity. The headline best-checkpoint num-ber for RSCP TV (bilinear +23% worse than Linear) and the tied mean 50 comparison (Table 2) together tell a single story: Linear’s apparent advantage is the selection artifact, while bilinear achieves comparable forecasting performance with dramatically more reli-able training—a property that matters for deployment even when raw MSE does not separate the models. The structural origin of this stabilization—the bilin-ear coupling absorbing TV capacity into a stationary operator—is the same mechanism that produces the closed-loop gains documented in Section 5.2. The training-time and inference-time effects of the cou-pling are two faces of one phenomenon. 
+
+Figure 4: Validation loss over training. RSCP TV (bottom right) exhibits sustained oscillation of the Linear model’s val loss; the bilinear model converges smoothly. The variance gap across the final 200 epochs is an order of magnitude. 
+
+## 5.5 Other Cells: CartPole and RSCP TI 
+
+The remaining cells (CartPole TI/TV, RSCP TI) ex-ercise the bilinear extension under conditions in which it is either underutilized (CartPole, where forecasting wins do not translate to closed-loop separation) or operating outside its primary regime (RSCP TI, no time-varying parameters, no u · x coupling). They are reported here for completeness; none is the headline cell. 
+
+CartPole TI/TV. All three closed-loop controllers (Linear, Bilinear-SCP-1, Bilinear-SCP-5) track within overlapping bands on both variants (Figure 1, top row); the bilinear extension does not hurt closed-loop performance even when its strict forecasting advantage (Table 2) does not translate into MPC gains. Lead-time results (Figure 3) show bilinear sitting modestly 9Table 3: Mean wall-clock per control step under lead-time execution on the time-varying benchmarks                         
+
+> Method d= 0 d= 1 d= 3 d= 5 CP — Linear 0.077 s 0.077 s 0.078 s 0.078 s CP — Bilinear 0.844 s 0.818 s 0.774 s 0.770 s RSCP — Linear 0.099 s 0.095 s 0.098 s 0.098 s RSCP — Bilinear 0.876 s 0.875 s 0.889 s 0.905 s
+
+below Linear at every d, with a roughly constant gap across the sweep. The system is benign enough that staleness does not catastrophically degrade either model. 
+
+RSCP TI. Both bilinear variants sit below Linear from t ≈ 0.5 h through the end of horizon, with 0 .3σ
+
+bands clearly separated by t ≈ 1.5 h (Figure 1, lower left). Bilinear-SCP-1 marginally edges Bilinear-SCP-5 here—unlike the RSCP TV pattern, single lineariza-tion is sufficient on time-invariant dynamics. We attribute the bilinear gain to compounding accuracy in the multi-step rollout under the convex, u · x-free dynamics: even without TV physics, the additional lifting capacity offered by G is occasionally useful when the controller exercises the input range broadly during transients. 
+
+## 5.6 Coupling Strength Across Cells 
+
+The learned ∥G∥F values vary substantially across cells in ways that illuminate the structural mecha-nisms above: high under TV physics where G absorbs operating-point drift, low under TI physics where Proposition 2 predicts G⋆ ≈ 0, and elevated on RSCP TI where the optimizer absorbs training slack into G
+
+without physical target. Per-cell values and qualita-tive training-trajectory shapes are reported in Sec-tion E. 
+
+## 5.7 Computational Cost 
+
+For the TV stale-plan experiments, Table 3 reports mean wall-clock per control step under lead-time ex-ecution for the Linear controller and Bilinear-SCP-5 across commitment windows d ∈ { 0, 1, 3, 5}. Bilinear-SCP-5 is substantially slower than the single-QP Lin-ear baseline but remains practical relative to the 18 s RSCP sampling period; on CartPole, the timings should be read as an offline stress-test rather than a real-time deployment target. The decrease on Cart-Pole TV with larger commitment window appears to be problem-dependent: the fixed prefix provides a better SCP warm start and often triggers earlier ter-mination, whereas on RSCP TV the solver typically still reaches the maximum SCP iteration count. 
+
+# 6 Related Work 
+
+Koopman operators for control. Korda and Mezi´ c [2018] first demonstrated that EDMD-based Koopman models enable efficient convex MPC. Sub-sequent work has extended this to probabilistic mod-els [Han et al., 2021], graph neural network liftings [Li et al., 2020], and time-varying-system modeling [Hao et al., 2024]. MamKO [Li et al., 2025] introduced time-varying operators via Mamba-inspired matrix generation. Our work is orthogonal: we introduce a structural extension (bilinear coupling) that any of these could in principle adopt. 
+
+Bilinear dynamical systems. The theory of bi-linear systems is classical [Mohler, 1973] and their controllability properties well characterized [Elliott, 2009]. The contribution here is bringing this struc-ture into the learned Koopman-for-control pipeline, with a low-rank parameterization that regularizes sam-ple complexity and a tractable SCP controller that exploits the resulting Jacobian structure. 
+
+Sequential convex programming. SCP meth-ods have a long history in aerospace trajectory op-timization [Mao et al., 2018, Malyuta et al., 2022]. Our application is standard; the novelty is that the bilinear Koopman model provides exact model Jaco-bians eqs. (12) to (13), avoiding the finite-difference ap-proximations that degrade SCP convergence in black-box settings. 
+
+Data-driven nonlinear control. SINDy-C [Brun-ton et al., 2016, Kaiser et al., 2018] can learn bilinear terms but requires a fixed polynomial library and does not scale to high-dimensional systems. Neural ODE methods [Chen et al., 2018] are highly expressive but relinquish the convex MPC structure. Our method occupies a deliberate middle ground: more expressive than linear Koopman, more tractable than black-box dynamics. 
+
+# 7 Conclusion 
+
+We have shown that the conditional-independence constraint shared across the Mamba-Koopman family, while necessary to preserve MPC convexity in single-shot formulations, leaves two regimes structurally underrepresented: control-state coupling and time-varying parameters. Our bilinear extension addresses both with a minimal architectural change, fewer than 1% added parameters, exact model Jacobians, and a provably convergent SCP controller. 10 Across CartPole (which exercises u · x coupling) and RSCP (which exercises time-varying parameters in the TV variant without u · x coupling), four consistent effects emerged: forecasting non-inferiority on all cells under deployment-relevant averaging, with strict gains where Proposition 2 predicts them; substantial train-ing stabilization on RSCP TV; closed-loop MPC gains on RSCP TV when SCP is iterated to convergence; and graceful degradation under stale-plan execution, where the bilinear model maintains a clear robustness advantage. The learned ∥G∥F patterns provide an ad-ditional interpretive diagnostic for which mechanism each cell primarily exercises. Open directions include extending the bilinear pa-rameterization to the step-varying Bk matrices, im-posing structured priors on Gi that encode known physical coupling topology, and designing benchmarks that isolate the u · x structural axis from time-varying parameters more cleanly. 
+
+# AI Assistance Disclosure 
+
+We used AI assistants (large language models) for language editing, phrasing, and LaTeX formatting throughout this manuscript. All technical content, mathematical results, experimental design, code, and analyses are the authors’ own work. The AI tools did not contribute novel ideas, proofs, or empirical results. 
+
+# References 
+
+S. L. Brunton, J. L. Proctor, and J. N. Kutz. Dis-covering governing equations from data by sparse identification of nonlinear dynamical systems. Pro-ceedings of the National Academy of Sciences , 113 (15):3932–3937, 2016. R. T. Chen, Y. Rubanova, J. Bettencourt, and D. Du-venaud. Neural ordinary differential equations. In 
+
+Advances in Neural Information Processing Systems (NeurIPS) , volume 31, 2018. S. Chen. A Machine Learning-Based Approach to Cy-bersecurity and Safety of Model Predictive Control Systems . Ph.d. dissertation, University of Califor-nia, Los Angeles, 2022. Section 2.4 documents the corrected RSCP formulation used in this work. D. L. Elliott. Bilinear Control Systems: Matrices in Action . Springer, 2009. D. Goswami and D. A. Paley. Global Bilinearization and Reachability Analysis of Control-Affine Nonlin-ear Systems , pages 81–98. Springer International Publishing, Cham, 2020. ISBN 978-3-030-35713-9. doi: 10.1007/978-3-030-35713-9 4. A. Gu and T. Dao. Mamba: Linear-time sequence modeling with selective state spaces. arXiv preprint arXiv:2312.00752 , 2023. M. Han, J. Euler-Rolle, and R. K. Katzschmann. DeSKO: Stability-assured robust control with a deep stochastic Koopman operator. In International Conference on Learning Representations (ICLR) ,2021. W. Hao, B. Huang, W. Pan, D. Wu, and S. Mou. Deep Koopman learning of nonlinear time-varying systems. Automatica , 159:111372, 2024. E. Kaiser, J. N. Kutz, and S. L. Brunton. Sparse identification of nonlinear dynamics for model pre-dictive control in the low-data limit. Proceedings of the Royal Society A , 474:20180335, 2018. D. P. Kingma and J. Ba. Adam: A method for stochas-tic optimization. In International Conference on Learning Representations (ICLR) , 2015. B. O. Koopman. Hamiltonian systems and transfor-mation in Hilbert space. Proceedings of the National Academy of Sciences , 17(5):315–318, 1931. M. Korda and I. Mezi´ c. Linear predictors for nonlin-ear dynamical systems: Koopman operator meets model predictive control. Automatica , 93:149–160, 2018. W. Li and E. Todorov. Iterative linear quadratic regulator design for nonlinear biological movement systems. ICINCO , pages 222–229, 2004. Y. Li, H. He, J. Wu, D. Katabi, and A. Torralba. Learning compositional Koopman operators for model-based control. In International Conference on Learning Representations (ICLR) , 2020. Z. Li, M. Han, and X. Yin. MamKO: Mamba-based Koopman operator for modeling and predictive con-trol. In International Conference on Learning Rep-resentations (ICLR) , 2025. J. Liu, D. Mu˜ noz de la Pe˜ na, B. J. Ohran, P. D. Christofides, and J. F. Davis. A two-tier archi-tecture for networked process control. Chemical Engineering Science , 63(22):5394–5409, 2008. J. Liu, D. Mu˜ noz de la Pe˜ na, and P. D. Christofides. Distributed model predictive control of nonlinear process systems. AIChE Journal , 55(5):1171–1184, 2009. 11 B. Lusch, J. N. Kutz, and S. L. Brunton. Deep learn-ing for universal linear embeddings of nonlinear dynamics. Nature Communications , 9:4950, 2018. D. Malyuta, T. P. Reynolds, M. Szmuk, T. Lew, R. Bonalli, M. Pavone, and B. A¸ cikme¸ se. Convex op-timization for trajectory generation: A tutorial on generating dynamically feasible trajectories reliably and efficiently. IEEE Control Systems Magazine ,42(5):40–113, 2022. Y. Mao, M. Szmuk, X. Xu, and B. A¸ cikme¸ se. Suc-cessive convexification: A superlinearly convergent algorithm for non-convex optimal control problems. 
+
+arXiv preprint arXiv:1804.06539 , 2018. R. I. McLachlan and G. R. W. Quispel. Splitting methods. Acta Numerica , 11:341–434, 2002. doi: 10.1017/S0962492902000053. I. Mezi´ c. Spectral properties of dynamical systems, model reduction and decompositions. Nonlinear Dynamics , 41:309–325, 2005. R. R. Mohler. Bilinear Control Processes . Academic Press, 1973. B. Stellato, G. Banjac, P. Goulart, A. Bemporad, and S. Boyd. OSQP: An operator splitting solver for quadratic programs. Mathematical Programming Computation , 12:637–672, 2020. H. F. Trotter. On the product of semi-groups of oper-ators. Proceedings of the American Mathematical Society , 10(4):545–551, 1959. doi: 10.1090/S0002-9 939-1959-0108732-6. M. O. Williams, I. G. Kevrekidis, and C. W. Row-ley. A data-driven approximation of the Koopman operator: Extending dynamic mode decomposition. 
+
+Journal of Nonlinear Science , 25:1307–1346, 2015. 
+
+# A Stability: Training Penalty and Inference Screening 
+
+Training. The spectral penalty in the loss is 
+
+Lstab = X
+
+> j
+
+ReLU  |λj (Adisc ,k )| − 1 + ms
+
+,
+
+with margin ms = 0 .05. Eigenvalues are computed via torch.linalg.eigvals cast to float32 to avoid mixed-precision artifacts. Zero initialization of Gi
+
+ensures the model starts as an exact copy of the Linear baseline and the penalty is inactive at the start of training. 
+
+Inference. We do not perform a per-step spectral check at inference. Closed-loop stability is enforced indirectly through the SCP trust-region constraint and the QP control bounds, both of which keep the linearized dynamics within the regime where our trained operators are well-conditioned. We did, how-ever, evaluate the cheap Gershgorin disk pre-check (|Adisc ,k,ii | + P  
+
+> j̸=i
+
+|Adisc ,k,ij | < 1) as an O(d2 
+
+> z
+
+) sta-bility certificate at each MPC step. Empirically the disks straddle the unit circle in 100% of MPC steps across both bilinear TV cells (CartPole and RSCP, 
+
+d ∈ { 0, 1, 3, 5}, 10 episodes ×1000 steps each), be-cause the off-diagonal mass introduced by the bilinear factor EP (uk) = exp (P 
+
+> i
+
+u(i) 
+
+> k
+
+Gi) inflates the radii past unity even when ρ(Adisc ,k ) < 1. A full eigendecom-position would therefore be required for any runtime spectral gate; for dz ≤ 64 this is sub-millisecond per step and does not bottleneck the MPC loop, but we leave runtime stability gating to future work. 
+
+# B System Dynamics 
+
+This appendix specifies the governing ODEs, param-eters, and action spaces of the four system variants (CartPole TI/TV, RSCP TI/TV) used in the paper. 
+
+## B.1 CartPole (TI, TV) 
+
+The state is ( x, ˙x, θ, ˙θ) with θ measured from the up-right. The control is the horizontal force F applied to the cart. Following the MamKO benchmark proto-col [Li et al., 2025], we use gravity g = 10 m s −2, cart mass mc = 1 kg, pole mass mp = 0 .1 kg, half-length 
+
+ℓ = 0 .5 m, force bound |F | ≤ 20 N, and sampling pe-riod ∆ t = 0 .02 s. The equations of motion include cart and pole friction terms μc, μ p as in the MamKO reference implementation. 
+
+Time-invariant variant (TI). The friction coeffi-cients are fixed at μc = 0, μp = 0 (frictionless limit). This recovers the standard frictionless CartPole. 
+
+Time-varying variant (TV). The cart friction is modulated as 
+
+μc(t) = μbase  
+
+> c
+
++ sin( ω t ),
+
+with μbase  
+
+> c
+
+= 5 × 10 −4, μp = 2 × 10 −6, and ω =1 rad s −1, matching the MamKO TV configuration. This is the specific cell used in the closed-loop MPC and lead-time experiments; results for ω ∈ { 0.1, 10 }
+
+are not reported here. 12 Note on the sin/cos discrepancy. The MamKO paper writes μc(t) = μbase  
+
+> c
+
++ cos (ωt ) (Eq. 16 of Li et al. [2025]); the official MamKO repository uses sin 
+
+in cartpole V.py . We follow the repository, which is the executable ground truth. 
+
+Parameters. Table 4 lists the numerical constants used for the CartPole benchmark. The dynamical constants and time-varying friction settings follow the MamKO benchmark protocol [Li et al., 2025]; the shared MamKO architecture hyperparameters for CartPole are summarized separately in Table 6. 
+
+## B.2 RSCP: Reactor–Separator Pro-cess 
+
+RSCP is a reactor–separator process consisting of two continuous stirred-tank reactors (CSTR-1 and CSTR-2) operating in series, feeding a flash separator whose liquid bottoms are partially recycled to CSTR-1 [Liu et al., 2008]. The system was adopted as the MamKO benchmark in Li et al. [2025]. Two parallel first-order reactions A → B → C proceed in each CSTR with Arrhenius kinetics; the separator performs ideal vapor– liquid equilibrium at fixed pressure with no reaction. The state vector is 
+
+x = ( xA, 1, x B, 1, T 1, x A, 2, x B, 2, T 2, x A, 3, x B, 3, T 3),
+
+where xA,i , x B,i are the mass fractions of species A, B 
+
+in vessel i and Ti is the corresponding temperature in Kelvin; vessel indices 1 , 2 refer to the two CSTRs and 3 to the flash separator. The control is u = ( Q1, Q 2, Q 3), the heat duties applied to each vessel in kJ h −1.
+
+Governing ODEs. The mass and energy balances follow Chen [2022, Section 2.4] rather than the formu-lation in the original Liu papers; see “Reproducibility notes” below for the discrepancies that motivated this choice. Letting F1 = F10 + Fr and F2 = F1 + F20 
+
+denote the total throughput of each CSTR, r1,i =
+
+k1 exp (−E1/(RT i)) and r2,i = k2 exp (−E2/(RT i)) the Arrhenius rates, and βj = ( −∆Hj )CM /(ρc p) the heat-of-reaction coefficients (see paragraph below), the governing equations for CSTR-1 and CSTR-2 are ˙xA, 1 = F10  
+
+> V1
+
+(xA, 10 − xA, 1) + Fr 
+
+> V1
+
+(xA,r − xA, 1)
+
+− r1,1xA, 1,
+
+˙xB, 1 = F10  
+
+> V1
+
+(xB, 10 − xB, 1) + Fr 
+
+> V1
+
+(xB,r − xB, 1)+ r1,1xA, 1 − r2,1xB, 1,
+
+˙T1 = F10  
+
+> V1
+
+(T10 − T1) + Fr 
+
+> V1
+
+(T3 − T1)+ β1r1,1xA, 1 + β2r2,1xB, 1
+
++ Q1 
+
+> ρc pV1
+
+,
+
+and analogously for CSTR-2 with ( F1, F 20 , V 2, T 20 , Q 2)replacing ( F10 , F r , V 1, T 10 , Q 1) and the previous-vessel state replacing the recycle stream. The flash separator carries no reaction: ˙xA, 3 = F2 
+
+> V3
+
+(xA, 2 − xA, 3) − Fr +Fp 
+
+> V3
+
+(xA,r − xA, 3),
+
+˙xB, 3 = F2 
+
+> V3
+
+(xB, 2 − xB, 3) − Fr +Fp 
+
+> V3
+
+(xB,r − xB, 3),
+
+˙T3 = F2 
+
+> V3
+
+(T2 − T3) + Q3
+
+> ρc pV3
+
++ (Fr +Fp)CM
+
+> ρc pV3
+
+ xA,r ∆Hvap ,A 
+
++ xB,r ∆Hvap ,B + xC,r ∆Hvap ,C 
+
+.
+
+The recycle compositions xA,r , x B,r , x C,r are deter-mined by ideal vapor-liquid equilibrium with relative volatilities ( αA, α B , α C ), 
+
+xA,r = αAxA, 3 
+
+> D
+
+,xB,r = αB xB, 3 
+
+> D
+
+,xC,r = αC (1 −xA, 3−xB, 3) 
+
+> D
+
+.
+
+(16) 
+
+D = αAxA, 3 + αB xB, 3 + αC (1 − xA, 3 − xB, 3).
+
+The structurally important property for this paper is that the heat duties Qi enter the energy balances 
+
+additively as + Qi/(ρc pVi) with constant coefficients, contributing no u · x terms. 
+
+Parameters. Table 5 lists the numerical values used. Volumes, flows, feed states, kinetic constants, activa-tion energies, heats of reaction, and relative volatilities are taken from Chen [2022, Table 2.1]; the molar con-centration factor CM = 2 kmol m −3 is the constant that converts mass fractions to molar concentrations in the energy balance (see “Reproducibility notes”). 
+
+Reproducibility notes. We verified that the RSCP ODE system as written in Liu et al. [2008, 2009] does not reproduce the steady state reported by those papers under their stated parameter val-ues. The discrepancy resolves under three corrections drawn from Chen [2022, Section 2.4]: (i) the heat-of-reaction term carries a molar concentration factor 
+
+βj = ( −∆Hj )CM /(ρc p) rather than ∆ Hj /c p, where 
+
+CM = 2 kmol m −3; (ii) the separator energy balance includes the convective transport of vaporization en-thalpies ∆ Hvap ,{A,B,C } for the three species; (iii) the steady-state heat duties Qi are of order 10 6 kJ h −1
+
+rather than the 10 9 value listed in Chen [2022, Ta-ble 2.1], which we identified as a typographical ex-ponent error. Under the corrected formulation, for-ward integration from the published steady state has 
+
+∥ ˙x∥∞ < 10 −6 on temperatures and within 4 × 10 −3 on compositions. We use this corrected system through-out. The published MamKO implementation of RSCP 13 Table 4: CartPole parameters for the time-invariant and time-varying benchmarks.                           
+
+> Symbol Value Description
+> g10 m s −2gravitational acceleration
+> mc1 kg cart mass
+> mp0.1 kg pole mass
+> ℓ0.5 m pole half-length ∆t0.02 s sampling period
+> |F|≤20 N control bound on horizontal force
+> μbase
+> c5×10 −4base cart friction coefficient setting
+> μp2×10 −6pole friction coefficient
+> ω(TV) 1 rad s −1frequency in μc(t) = μbase
+> c+ sin( ωt )
+
+Table 5: RSCP parameters (after the corrections in Section B.2).                                                        
+
+> Symbol Value Description
+> V1, V 2, V 31.0,0.5,1.0 m 3vessel volumes
+> F10 , F 20 5.04 ,5.04 m 3h−1feed flows
+> Fr, F p50 .4,5.04 m 3h−1recycle, purge
+> T10 , T 20 300 ,300 K feed temperatures
+> xA, 10 , x A, 20 1.0,1.0feed compositions ( A)
+> k1, k 29.972 ×10 6,9.36 ×10 6h−1kinetic constants
+> E1, E 25×10 4,6×10 4kJ kmol −1activation energies ∆H1,∆H2−1.2×10 5,−1.4×10 5kJ kmol −1reaction enthalpies
+> ρ1000 kg m −3density
+> cp4.2 kJ kg −1K−1specific heat
+> CM2 kmol m −3molar concentration factor ∆Hvap ,A,B,C −3.53 ,−1.57 ,−4.07 ×10 4kJ kmol −1vap. enthalpies
+> αA, α B, α C3.5,1.0,0.5relative volatilities
+> R8.314 kJ kmol −1K−1gas constant
+
+is not publicly available, so we cannot directly confirm that our reconstructed system matches theirs; how-ever, the MamKO paper’s reported steady state and our forward-integration check are mutually consistent under the corrected ODEs. 
+
+Time-varying variant. The TV variant follows the MamKO synthetic time-varying modifier φc(t) = 
+
+e−0.01 t [Li et al., 2025, Appendix C.3], applied multi-plicatively to both Arrhenius rate terms in all three vessels. This simulates catalyst deactivation: reaction rates decay exponentially with time, and the model must track operating-point drift induced by the slowly shrinking effective kinetics. Crucially, φc(t) multiplies only the kinetic terms, not the convective or heat-duty terms, so the structural property that uk does not couple multiplicatively with xk is preserved in the TV variant: RSCP TV exercises the time-varying-parameter axis of Section 1 without introducing u · x
+
+structure. 
+
+Nominal operating point and controls. The MPC tracking task drives the system to the nominal steady state 
+
+xs = (0 .18 , 0.67 , 480 .32 , 0.20 , 0.65 ,
+
+472 .79 , 0.07 , 0.67 , 474 .89) following Li et al. [2025, Appendix C.3]. The con-trol bounds are |Qi − Qi,s | ≤ 10 6 kJ h −1 around the nominal heat duties Qi,s ; these are enforced by the simulator’s action-space clipping rather than by the QP, since the QP operates in normalized control space (see Section D.4). The sampling period is ∆ t = 18 s (= 0 .005 h). 
+
+# C Data Generation and Train-ing Protocol 
+
+## C.1 Trajectory Generation 
+
+For each system variant we generate training and test data with the official MamKO ReplayMemory 
+
+pipeline. Continuous rollouts under per-step i.i.d. uniform random control excitation are segmented into overlapping input–output windows of length 
+
+Hlookback + Hpred = 60. Episodes are integrated by forward Euler at the system sampling period, with no 14 sub-stepping: ∆ t = 0 .02 s for CartPole and ∆ t = 18 s for RSCP. Episodes terminate on physical bound vi-olations or at a fixed horizon, whichever comes first: for CartPole, when |θ| > 20 ◦ or |x| > 10; for RSCP, when concentration or temperature bounds are vio-lated; for both systems, at 20 ,040 steps for training episodes and 1 ,000 steps for test episodes. Windows are pooled across episodes until the configured target is reached: 39 ,900 training windows, split 80 /20 into train/validation subsets via a random split with seed 1, and 4 ,000 test windows. Control excitation is drawn independently at each step. For CartPole, the force is sampled as F ∼U(−20 , 20) N. For RSCP, each heat duty is sampled as Qi ∼ U (Qsi − 10 6, Qsi + 10 6) kJ h −1, where Qs
+
+denotes the steady-state heating rates. Initial states are sampled at the start of each episode: for Cart-Pole, x0 ∼ U (−4, 4) m and θ0 ∼ U (−0.1, 0.1) rad, with zero initial velocities; for RSCP, components are drawn independently and uniformly within per-component half-widths around a verified fixed point ¯x of the ODEs, x0 ∼ U ( ¯x − ρ, ¯x + ρ) with ρ =(0 .05 , 0.05 , 10 K , 0.05 , 0.05 , 10 K , 0.02 , 0.05 , 10 K) in the state ordering ( xA,i , x B,i , T i) for i = 1 , 2, 3. Here ¯x denotes the numerically verified fixed point of the corrected RSCP ODEs rather than the approxi-mate steady state reported in the MamKO appendix; we use ¯x as the perturbation center to avoid system-atic drift back toward the true equilibrium during data generation. The data-generation seed for the train/validation split is 1 and is reported alongside the released code. 
+
+## C.2 Model Architecture 
+
+The encoder, backbone, and decoder follow the MamKO configuration [Li et al., 2025] for each system class. We re-use the MamKO reference implemen-tation hyperparameters; only the bilinear extension introduces new parameters ( Gi tensors at full rank 
+
+r = dz , plus the spectral penalty weight λs). Table 6 summarizes the per-system settings. The Gi tensors are factorized as Gi = LiR⊤ 
+
+> i
+
+with 
+
+Li, R i ∈ Rdz ×r , both initialized to zero. Zero initial-ization makes the bilinear model an exact copy of the Linear baseline at training step zero, so any training-time divergence between the two is attributable solely to the bilinear terms. 
+
+## C.3 Lie–Trotter Discretization Details 
+
+The baseline MamKO diagonal step is preserved ex-actly by evaluating the diagonal flow element-wise: [ED ]nn = exp( anδn).
+
+Table 6: Architecture hyperparameters per system. CartPole settings follow the MamKO reference im-plementation; RSCP settings follow its RSCP bench-mark configuration. Bilinear-specific entries ( r, λs,discretization scheme) are reported under Bilinear-only .                     
+
+> CartPole RSCP
+> Lookback window 30 30 Forecast horizon 30 30 Latent dimension dz815 Mamba conv kernel dconv 15 5Hidden dimension 64 64
+> Bilinear-only
+> Bilinear rank r815 Spectral penalty λs0.01 0.01 Discretization lie trotter lie trotter
+
+The associated diagonal input integral is computed element-wise as [ ¯Bdiag ,k ]n,j = exp( anδn) − 1
+
+an
+
+[B(c) 
+
+> k
+
+]n,j . (17) In implementation, the numerator is evaluated with 
+
+torch.expm1 to avoid catastrophic cancellation as 
+
+an → 0, with a small sign-preserving denominator offset used only for numerical stability. The coupling factor EP (uk) is evaluated with a sin-gle dz × dz torch.linalg.matrix exp call, yielding the discrete-time matrices 
+
+Adisc ,k = EP (uk)ED ,Bdisc ,k = EP (uk) ¯Bdiag ,k . (18) Thus the diagonal ZOH step costs O(dz ) and the coupling step costs O(d3 
+
+> z
+
+), rather than the augmented (dz + m) × (dz + m) matrix exponential required by a dense ZOH implementation that jointly recovers 
+
+Adisc ,k and Bdisc ,k . For dz ≤ 64, this overhead remains negligible relative to backbone inference. 
+
+## C.4 Optimization 
+
+All models are trained with Adam [Kingma and Ba, 2015] for 401 epochs at initial learning rate 1e −3, weight decay 1e −3, batch size 256, and a step learning-rate schedule (step size 50 epochs, γ = 0 .9). Gradient clipping is applied at 1 .0. Best-validation-loss check-points are retained for evaluation. Due to compute constraints, results are reported from a single seed per configuration; per-cell dispersion is reported across the 10 closed-loop episodes and across the final 50 training epochs (mean 50 in Table 2). Multi-seed val-idation is deferred to a follow-up. Training ran in FP32 throughout; mixed precision was not used. 15 The training loss is the multi-step observation-space prediction loss of Equation (10), with the spectral penalty λsLstab disabled at inference. 
+
+## C.5 Hardware and Wall-Clock 
+
+Training runs were executed on NVIDIA A100 GPUs on GCE a2-ultragpu-1g instances. Per-run training wall-clock was approximately 4 .8 hours for CartPole and 9 .75 hours for RSCP (bilinear Lie–Trotter models; corresponding linear baselines train roughly 6 × faster, at ∼ 0.7 hours per run on either system). Total com-pute budget for the experiments reported in this paper, including ablations and the lead-time sweep, was ap-proximately 58 GPU-hours (training: 32 h across 8 runs; closed-loop MPC regen=never d-sweeps: 26 h across 4 sweeps). 
+
+# D Closed-Loop MPC Tasks 
+
+This appendix specifies the closed-loop MPC problems evaluated in Sections 5.2 and 5.5: cost functions, con-trol bounds, warmup protocol, lead-time scheduling, and SCP hyperparameters. 
+
+## D.1 Common Setup 
+
+For all systems we use prediction horizon HMPC = 30, apply horizon 1 (standard receding-horizon MPC at 
+
+d = 0), and 10 episodes per configuration. Each episode is 1 ,000 MPC steps. Following MamKO Eq. 10a, the receding-horizon objective at time k is ˆxj|k := Cj|k ˆzj|k,Jk =
+
+> k+H−1
+
+X
+
+> j=k+1
+
+
+
+∥ˆxj|k − xref ∥2 
+
+> Q
+
++ ∥uj|k − uj−1|k∥2
+
+> R
+
+
+
++ ∥ˆxk+H|k − xref ∥2 
+
+> P
+
+.
+
+(19) that is, a quadratic tracking term on the predicted decoded state together with a ∆ u smoothness penalty, plus a terminal tracking cost. The QP is built by dynamics elimination over the HMPC -step horizon and solved by OSQP [Stellato et al., 2020]. 
+
+Warmup. Following the MamKO evaluation pro-tocol, the lookback buffer is initialized synthetically by repeating the simulator’s reset state H times with zero control. MPC begins at simulator step t = 0; no real warmup rollout is performed. This conven-tion matches MamKO’s published evaluation loop [Li et al., 2025] and is the operating point under which the forecasting and closed-loop numbers in the main text are reported. 
+
+## D.2 CartPole TV 
+
+Reference: upright stabilization at xref = (0 , 0, 0, 0) under sinusoidal cart friction (Section B.1). Stage and terminal cost weights are 
+
+Q = diag(1 .0, 0.01 , 100 .0, 0.01) ,R = 0 .5,P = diag(5000 , 0, 0, 0) ,
+
+matching the MamKO reference configuration [Li et al., 2025]. The heavy weighting on θ (state in-dex 3) reflects the priority of pole-angle stabilization over cart-position regulation, and the terminal cost penalizes only cart position. The control bound is 
+
+|F | ≤ 20 N. There is no safety constraint; the trajec-tory is unconstrained over the action range. 
+
+## D.3 RSCP (TI, TV) 
+
+Reference: setpoint tracking to the nominal steady state xs of Section B.2. The cost weights heavily em-phasize composition tracking over temperature track-ing: 
+
+Q = diag(10 4, 10 4, 1, 10 4, 10 4, 1, 10 4, 10 4, 1) ,R = 5 × 10 −12 · I3,P = Q. 
+
+The asymmetric weighting follows the MamKO RSCP configuration: the relevant operational quantities are the species mass fractions, while the temperature states float to whatever the heat duties drive them to. The small R value reflects the magnitude of the heat duties ( u ∼ 10 6 in raw units): R = 5 × 10 −12 
+
+balances the ∥∆u∥2 ∼ 10 12 contribution against the 
+
+∥x − xs∥2 ∼ O(1) tracking term. Control bounds are 
+
+|Qi − Qi,s | ≤ 10 6 kJ h −1 around the nominal duties; these are enforced as action-space clipping in the simulator after the QP returns its result in normalized control space (see Section D.4). 
+
+## D.4 SCP Hyperparameters 
+
+The SCP controller of Algorithm 1 runs with initial trust-region radius ε0 = 1 .0 (in normalized control space), shrinkage factor 1 /2 on cost-increase steps, and maximum SCP iterations NSCP ∈ { 1, 5} as reported in Section 5.2. The inner QP is solved by OSQP [Stel-lato et al., 2020] with default tolerances, warm-started from the previous receding-horizon call’s solution to amortize solver iterations across the closed-loop tra-jectory. The QP is built in normalized control space using the MamKO instance-normalization statistics output by the dynamics-generation network at each 16 MPC step; control bounds and the reference state are normalized correspondingly. After the QP returns, the optimal control is denormalized and clipped to the simulator’s raw-space action bounds before appli-cation. 
+
+## D.5 Lead-Time Sweep 
+
+The lead-time experiment of Section 5.2 sweeps the commitment window d ∈ { 0, 1, 3, 5} on both RSCP TV and CartPole TV with NSCP = 5 and 10 episodes per d. The protocol is implemented by holding both the optimizer’s plan and the backbone’s dynamics output fixed during the lead window: at each MPC call the controller commits to the next d controls from a queue, applies the next queued control to the sim-ulator, and refills the queue from the freshly solved plan only after the queue empties; during this window the backbone is not re-evaluated, so the ¯Ak, ¯Bk ma-trices used for any auxiliary roll-forward are the ones generated at the start of the window. We refer to this as regen=never in our implementation; it isolates the open-loop correction capacity of the model class itself, with neither model receiving intermediate sensor or backbone updates within the lead window. The d = 10 point is generated but excluded from the analysis in the main text on grounds of discretization-saturation: at the RSCP sampling period of 18 s, d = 10 corre-sponds to three minutes of stale plan, beyond the regime in which the underlying linearization is infor-mative (cumulative costs converge for both models, see Table 7). The exact end-of-horizon values reported in Figures 2 and 3 are tabulated in Tables 7 and 8 for RSCP TV and CartPole TV, respectively. 
+
+# E Coupling Strength Diagnos-tic 
+
+Table 9 reports the learned ∥G∥F at training conver-gence across the four cells, alongside the qualitative shape of the training trajectory. The four cells exhibit distinct training trajectories that together provide an interpretive scaffold for the empirical results in the main text. The CartPole TI trajectory rises early to ∥G∥F ≈
+
+0.48, then decays under spectral regularization, set-tling at 0 .36. The bilinear capacity is genuinely used— consistent with the strict forecasting gain on this cell—but constrained from over-recruitment. CartPole TV grows monotonically to 0 .57. The pro-gressive recruitment matches the time-varying nature of the perturbed dynamics: as training proceeds, the model leans on G to absorb friction-coefficient drift that the linear lift cannot track within a single MPC horizon. RSCP TI plateaus high at 0 .76, but the closed-loop and forecast results show no clear advantage of the bilinear model on this cell. We interpret this as the optimizer absorbing residual training slack into 
+
+G, which has no physical target on this cell ( u · x is structurally absent in the ODE). ∥G∥F alone should not be read as evidence of bilinear strength : its size on RSCP TI is set by training-time slack, not by physics. RSCP TV decays monotonically from an early peak to 0 .44. Under time-varying parameters, G must serve simultaneously across the family of operating regimes induced by the modulation; the optimizer responds by shrinking G toward a setting that works on average rather than overfitting to any single regime. This is consistent with Section 5.2: Bilinear-SCP-5, which iteratively re-linearizes the operator at the current operating point, outperforms Bilinear-SCP-1 on this cell because the average G is what the model carries while iterative SCP is what extracts operating-point-specific use of it. The four trajectories provide an interpretive scaffold rather than a predictive theory: ∥G∥F is the empirical witness for the structural condition in Proposition 2 (CartPole TI), the recruitment indicator under TV physics (CartPole TV, RSCP TV), and the slack-absorption diagnostic where no physical target exists (RSCP TI). The proposition does not predict trajec-tory shape; the trajectories make sense in light of it. 17 Table 7: Cumulative log-cost at end of horizon, RSCP TV, lead-time sweep under regen=never with NSCP = 5 and 10 episodes per cell. Lower is better. 
+
+d = 0 d = 1 d = 3 d = 5 Linear −2.3233 −1.8717 −2.0559 −2.2037 Bilinear-SCP-5 −2.5442 −2.7764 −2.5662 −2.4252 Table 8: Cumulative log-cost at end of horizon, CartPole TV, lead-time sweep under regen=never with 
+
+NSCP = 5 and 10 episodes per cell. Lower is better. 
+
+d = 0 d = 1 d = 3 d = 5 Linear −1.9119 −1.8033 −1.6527 −1.4707 Bilinear-SCP-5 −1.9450 −1.9086 −1.7219 −1.4972 Table 9: Learned bilinear coupling norm ∥G∥F at training convergence, per cell, with the qualitative shape of the training trajectory.           
+
+> Cell ∥G∥FTrajectory shape
+> CartPole TI 0.36 Peak 0 .48 at ep. 60, decays CartPole TV 0.57 Monotonic growth, recruitment RSCP TI 0.76 Plateau, slack absorption RSCP TV 0.44 Monotonic decay, multi-context
+
+18
