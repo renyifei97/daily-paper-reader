@@ -1,0 +1,6908 @@
+Title: RareCP: Regime-Aware Retrieval for Efficient Conformal Prediction
+
+URL Source: https://arxiv.org/pdf/2605.08857v1
+
+Published Time: Tue, 12 May 2026 01:01:26 GMT
+
+Number of Pages: 51
+
+Markdown Content:
+# RareCP: Regime-Aware Retrieval for Efficient Conformal Prediction 
+
+Manuel Heurich 
+
+Institute for Computer Science Freie Universität Berlin Arnimallee 7 14195 Berlin 
+
+manuel.heurich@fu-berlin.de 
+
+Maximilian Granz 
+
+Institute for Computer Science Freie Universität Berlin Arnimallee 7 14195 Berlin 
+
+maximilian.granz@fu-berlin.de 
+
+Tim Landgraf 
+
+Institute for Computer Science Freie Universität Berlin Arnimallee 7 14195 Berlin 
+
+tim.landgraf@fu-berlin.de 
+
+Abstract 
+
+Recent advances in uncertainty quantification for time series forecasting show that conformal prediction can provide reliable prediction intervals, yet standard conformal methods are often inefficient under temporal dependence, drift, and heterogeneous error behavior. Existing methods typically either update miscover-age rates over time or learn unconstrained calibration weights, without explicitly separating two central sources of nonstationarity: smoothly drifting error distribu-tions and co-existing distinct error regimes. We introduce RareCP , a regime-aware retrieval method for adaptive conformal time series prediction. RareCP learns local calibration representations through a mixture of cosine-attention experts that each capture distinct error regimes, while a compact hypernetwork adapts the kernel parameters to track temporal drift. Given a new forecasting context, RareCP re-trieves the top-k most relevant calibration examples, assigns similarity weights, and forms a weighted conformal quantile over their signed residuals, yielding asym-metric prediction intervals. The adaptive kernel is trained using a smooth interval score objective, with a parameter-space anchor to a lightweight teacher kernel to preserve stable local representations. On the GIFT-Eval benchmark, RareCP improves interval efficiency over recent conformal baselines and foundation model uncertainty estimates while maintaining empirical coverage. Ablations confirm that regime-specific experts, drift-adaptive kernels, sparse retrieval, and teacher anchoring each contribute to the final performance. 
+
+1 Introduction 
+
+Time series data is ubiquitous across critical domains including finance, healthcare, and industrial operations. While deep neural networks have dramatically advanced forecasting capabilities, reliable uncertainty quantification (UQ) remains essential for risk-aware decision-making. Traditional proba-bilistic forecasting methods rely on asymptotic guarantees or impose restrictive assumptions on the data-generating process, such as distributional families, linearity, independence, or stationarity [ 1]. This gap between forecasting accuracy and reliable uncertainty estimation motivates distribution-free UQ methods that remain valid under realistic conditions.            
+
+> Preprint.
+> arXiv:2605.08857v1 [cs.LG] 9 May 2026 050 100 150 200 250
+> 500
+> 250
+> 0
+> 250
+> 500
+> 750
+> Residual
+> Mixing learned experts for shifting residual regimes
+> target - prediction mixed experts interval
+> 050 100 150 200 250
+> test step
+> Gate mixture
+
+Figure 1: RareCP adapts its 80%-interval prediction locally to the residual regime on m4_daily. Different residual regimes recruit different experts, so the interval tightens in calm stretches and widens across volatile ones rather than inflating uniformly. See Appendix Figure 4 for other examples. Conformal Prediction (CP) offers a powerful, model-agnostic UQ framework that provides finite-sample coverage guarantees without distributional requirements, under the exchangeability assump-tion that the joint distribution of samples is invariant under reordering [ 2]. These properties have led to widespread adoption across diverse domains, including image classification, graph-based modeling, and natural language processing. However, the sequential structure of time series data fundamentally violates exchangeability, introducing substantial challenges for CP in forecasting [3, 4]. Existing adaptations generally fall into two categories: (1) adaptive miscoverage methods that dynam-ically adjust the target coverage rate based on observed under- or overcoverage, and (2) weighted CP approaches that assign calibration weights to leverage varying sample relevance. Adaptive conformal methods explicitly address temporal drift by updating the miscoverage level over time, and weighted conformal prediction tackles distribution shift by reweighting calibration samples. However, adaptive methods typically react through changes in the target miscoverage level, while weighted approaches often rely on fixed or non adaptive similarity weighting schemes. We instead argue that time series forecasting errors, i.e., the signed residuals between point forecasts and realized values, exhibit structural biases that can be built directly into the calibration design. These structural biases take two forms: (i) gradual drift, where the similarities of residuals evolves as the underlying process changes, and (ii) regime structure, where residual distributions switch between distinct contexts rather than varying smoothly along a single trajectory. We address these limitations with RareCP , a regime-aware retrieval adapter for conformal time series prediction. RareCP calibrates a fixed forecasting backbone by retrieving past signed residuals that are most relevant to the current forecasting context under a learned linear cosine-attention similarity. The retrieved residuals define local lower and upper conformal quantiles, yielding asymmetric prediction intervals that adapt to temporal drift and recurring error regimes (see Figure 1). This gives conformal prediction a retrieval-based mechanism for improving interval efficiency while retaining a direct connection to coverage through the size and locality of the calibration set. Our key contributions are: • Conformal prediction is competitive with state-of-the-art quantile forecasters. In the single-step-horizon quantile prediction setting, we show that conformal prediction equipped with RareCP is competitive with the native quantile-based prediction intervals of state-of-the-art time series forecasting models, while remaining backbone-agnostic and applicable to forecasters that only provide point predictions. • Retrieval conformal prediction with an explicit efficiency-coverage trade-off. We introduce sparse residual retrieval for conformal calibration and analyze its effect through a local-CDF framework. The trade-off is controlled by Kn, the number of retrieved calibration residuals from a calibration set of size n: smaller Kn can improve efficiency by focusing on local residual behavior, whereas increasing Kn improves effective sample size and supports asymptotic local quantile and coverage consistency under stated assumptions. • An architecture matched to time series residual structure. We build a linear cosine-attention retrieval architecture designed for two structural biases of forecasting residuals: time-drifting similarities and clustered error regimes. This allows RareCP to adapt conformal intervals locally without relying on unconstrained calibration weights. 22 Related work 
+
+2.1 Conformal prediction 
+
+Conformal prediction (CP) is a model-agnostic, distribution-free framework with finite-sample cover-age [ 2, 5]. Classical variants include SplitCP , which calibrates on a held-out set under exchangeability [ 6]; cross-conformal prediction, which aggregates multiple calibration folds for tighter regions [ 7]; and Jackknife+ , which builds intervals from leave-one-out predictions while retaining finite-sample guarantees [ 8]. A broad literature extends CP across online, quantile, and tree-based settings [ 9–16 ]. A separate line tightens intervals via differentiable conformal surrogates, either end-to-end [ 17 , 18 ]or as post-hoc boosting on a fixed model [19]. 
+
+2.2 Conformal prediction in sequential settings 
+
+Sequential data violates exchangeability, motivating CP variants that adapt calibration to drift [ 20 ]. One line adjusts the miscoverage rate online: ACI updates α at a fixed learning rate [ 21 ], AgACI 
+
+removes manual rate tuning by aggregating multiple learning-rate experts [ 3 ], DtACI reweights those experts by recent performance [ 22 ], and Conformal PID Control treats the threshold update as a PID loop [23]. A second line upweights calibration points by relevance to the test distribution: via covariate or label likelihood ratios [ 24 , 25 ], recency decay [ 20 ], or kernel-based weighted quantile regression on nonconformity scores with asymptotic guarantees under mixing [ 26 ]. Learned variants replace these hand-crafted weights with similarity in a representation space or attention over latent nonconformity scores [ 27 – 29 ], and Kong et al. [30] structure that similarity weighting as a mixture-of-experts gate over calibration regimes. A separate residual-modeling line builds intervals from bootstrap or ensemble residuals ( EnbPI ) and from residual-distribution estimates ( SPCI ) [4, 31]. Retrieval augmentation [ 32 ] has been adopted in time series forecasting via multi-resolution retrieval, relational retrieval with synthesis, diffusion guidance, and LLM-based conditioning [ 33 – 37 ], all aimed at improving mean predictions. RareCP applies a similar retrieval principle to past signed residuals under a linear cosine-attention similarity, trained for interval efficiency rather than point accuracy. 
+
+2.3 Hypernetworks 
+
+Beyond the retrieval mechanism, RareCP’s other architectural choice is a hypernetwork: a network that emits the weights of a primary network from a low-dimensional input [ 38 ], decoupling ca-pacity from parameter count and enabling parameter sharing across tasks. The template has been used in continual learning, where catastrophic forgetting [ 39 , 40 ] has motivated task-conditioned hypernetworks that emit task specific parameters [ 41 ], and in personalised federated learning, where client-conditioned hypernetworks produce per-client weights from compact descriptors [ 42 ]. To our knowledge, RareCP is the first method to amortise the parameters of a conformal weighting rule with a hypernetwork. We train it by teacher-student distillation, but in contrast to standard distillation, which operates in output space [ 43 ] or on intermediate features [ 44 ], our distillation acts directly in parameter space. 
+
+3 Method 
+
+RareCP is a retrieval-based conformal adapter for a fixed forecasting backbone. Given a point forecast and its recent history, RareCP retrieves past calibration residuals from similar forecasting contexts, forms a local signed-residual distribution, and converts its lower and upper quantiles into an asymmetric prediction interval. The retrieval rule is sparse, cosine-normalized, and regime-aware: several low-capacity experts each construct a local residual CDF, and a gate mixes these CDFs in residual space. Figure 2 summarizes the full pipeline. 3INFERENCE 
+
+TRAINING Figure 2: RareCP overview. A forecasting backbone provides a point prediction and history context. Dataset-conditioned retrieval experts produce normalized query and calibration keys, retrieve a sparse top k support by cosine similarity, and assign temperature-softmax weights over the retrieved residuals. A lightweight gate mixes the expert residual distributions, and the resulting signed-residual quantiles define the prediction interval. 
+
+3.1 Local signed-residual calibration 
+
+For dataset d, let μ be the forecasting backbone. At prediction time t, the backbone receives history 
+
+Ht and produces 
+
+byt = μ(Ht), at = ψ(Ht, byt) ∈ Rp, (1) where ψ is the flattened input-window representation, optionally augmented with the point prediction. For every past calibration index i, RareCP stores 
+
+ai = ψ(Hi, byi), ri = yi − byi. (2) We calibrate signed residuals rather than absolute residuals so that the lower and upper tails can adapt separately. Let Id,t be the calibration indices available immediately before predicting time t, and define 
+
+Cd,t = {(ai, r i) : i ∈ I d,t }. (3) The initial set Cd, 0 is used to fit the RareCP adapter and initialize retrieval. During chronological evaluation, Cd,t is updated only after yt is observed. Given a query at, a support St ⊆ I d,t , and nonnegative weights wi,t with P 
+
+> i∈St
+
+wi,t = 1 , RareCP forms 
+
+bFt(ρ) = X
+
+> i∈St
+
+wi,t 1{ri ≤ ρ}, (4) 
+
+Qt(τ ) = inf {ρ ∈ R : bFt(ρ) ≥ τ }. (5) 4For current miscoverage level αt, the prediction interval is 
+
+Cαt 
+
+> t
+
+= [ byt + Qt(αt/2) , byt + Qt(1 − αt/2)] . (6) 
+
+3.2 Regime-aware top-k retrieval 
+
+RareCP learns several retrieval experts to represent co-existing residual regimes. Each expert uses a low-capacity affine key map followed by cosine normalization. Crucially, the affine map is produced by a hypernetwork conditioned on both the current query context and a dataset descriptor. Thus, for each prediction time t, the expert constructs a query-specific retrieval metric and applies it to both the query and all candidate calibration contexts. Let 
+
+Nd = |I d, 0|, μd = 1
+
+Nd
+
+X
+
+> i∈I d, 0
+
+ai, σd =
+
+ 1
+
+Nd
+
+X
+
+> i∈I d, 0
+
+(ai − μd)⊙2
+
+
+
+> 1/2
+
+. (7) We use the dataset descriptor 
+
+ηd = {d, μ d, σ d, log( Nd)}, (8) where d denotes the dataset identifier, implemented as the dataset embedding or identifier available to the hypernetwork, and μd, σ d are componentwise statistics of the initial calibration contexts. For expert m ∈ { 1, . . . , M }, the hypernetwork receives the current query at and the dataset descriptor 
+
+ηd, and outputs an affine retrieval map 
+
+(Am,t,d , b m,t,d ) = H(m) 
+
+> θm
+
+(at, η d). (9) This map is then applied to any context a by 
+
+ezm,t,d (a) = Am,t,d a + bm,t,d , um,t,d (a) = ezm,t,d (a)
+
+∥ezm,t,d (a)∥2
+
+. (10) We write 
+
+qm,t = um,t,d (at), km,i |t = um,t,d (ai),
+
+to emphasize that the calibration key km,i |t is computed under the query-conditioned map induced by the current test query at.Expert m retrieves the k largest cosine similarities, 
+
+Sm,t = TopK i∈I d,t 
+
+ q⊤
+
+> m,t
+
+km,i |t; k, (11) and assigns temperature-softmax weights only on this support: 
+
+vm,i,t = exp( q⊤
+
+> m,t
+
+km,i |t/T w)1{i ∈ Sm,t }
+
+P 
+
+> ℓ∈Sm,t
+
+exp( q⊤
+
+> m,t
+
+km,ℓ |t/T w) . (12) The normalization makes the score a nearest-neighbor rule on the unit sphere, since 
+
+∥u − ui∥22 = 2 − 2u⊤ui. (13) Thus top-k cosine retrieval keeps the calibration residuals closest to the query under the learned query- and dataset-conditioned representations. Smaller k enforces stronger locality and can reduce mass on unrelated regimes; larger k increases effective sample size and supports stronger coverage behavior. A lightweight gate maps the query and dataset descriptor to simplex weights 
+
+(π1,t , . . . , π M,t ) = softmax( gω (at, η d)) ,
+
+> M
+
+X
+
+> m=1
+
+πm,t = 1 . (14) Each expert forms its own local residual CDF, and the gate mixes these CDFs: 
+
+bF RareCP  
+
+> t
+
+(ρ) = 
+
+> M
+
+X
+
+> m=1
+
+X
+
+> i∈Sm,t
+
+πm,t vm,i,t 1{ri ≤ ρ}. (15) 5Equivalently, the final weight assigned to residual ri is 
+
+wRareCP  
+
+> i,t
+
+=
+
+> M
+
+X
+
+> m=1
+
+πm,t vm,i,t 1{i ∈ Sm,t }. (16) The interval in Eq. (6) is obtained by applying the weighted quantile in Eq. (5) to bF RareCP  
+
+> t
+
+. Mixing residual distributions, rather than keys or logits, preserves each expert’s local neighborhood while allowing the adapter to switch between clustered error regimes. Unlike MoE-CP, which uses MoE gating probability vectors as soft domain assignments and weights residuals by gating-vector similarity, RareCP makes each expert a separate top-k retriever and lets the gate mix the resulting local CDFs in residual-weight space [30]. 
+
+Top-Kn calibration behavior. We now formalize the trade-off between local adaptivity and calibration reliability induced by this retrieval mechanism. Let bFn(ρ | u) be the weighted residual CDF built from the top Kn neighbors of a normalized query state u, and let Fu be the corresponding conditional signed-residual CDF. Theorem 1 gives 
+
+∆n(u) := sup 
+
+> ρ∈R
+
+| bFn(ρ | u) − Fu(ρ)| ≤ Rn(u) + Dn(u) + ωu(hn(u)) . (17) Here Rn(u) = Op(K−1/2 
+
+> n
+
+) is finite-support stochastic error, Dn(u) measures leakage from temporal dependence, hn(u) is the radius of the retrieved neighborhood, and ωu(hn(u)) is localization bias. Under the local mass and Hölder conditions stated in Appendix C.2, 
+
+∆n(u) = Op K−1/2 
+
+> n
+
++
+
+ Kn
+
+n
+
+β/d loc 
+
+!
+
++ Dn(u). (18) The conditions require Kn → ∞ and Kn/n → 0: growing support controls stochastic error, while vanishing relative support preserves locality. For a finite expert mixture, the same argument applies expert-wise and the mixed-CDF error is bounded by the gate-weighted sum of the expert errors (see Remark 3). Our experiments use a fixed finite k. Since Kn/n → 0 only requires sublinear growth, we assume that fixed-k perform well for our finitely growing calibration sets. For benchmarks with more timesteps, k could be increased accordingly, but adaptive growing schedules are a natural extension to our work. Finally, we note that the top-Kn analysis assumes a conservative split in which the retrieval rule is fixed before the residuals used for conformal quantiles are observed. Our experiments instead follow the data-efficient protocol of learned local CP baselines such as HopCPT [ 27 ]: we reuse the initial calibration period both to learn the similarity and gating rules and to provide the residuals in Cd,t . This violates the strict split condition used in the analysis, but improves finite-sample efficiency, especially for small calibration sets where a separate split leaves too little data for learning stable retrieval and gating representations. We expect a sample-size crossover: with sufficiently large calibration sets, a fully split protocol may become advantageous. We leave a detailed split-ablation to future work and evaluate RareCP under the data-efficient protocol in Section 4.2. 
+
+3.3 Training and inference 
+
+RareCP is fitted on the initial calibration set Cd, 0 before chronological test evaluation. Training uses leave-one-out calibration episodes introduced by [ 27 ]. For each minibatch B ⊆ I d, 0 and query element j ∈ B , the model excludes j, retrieves residuals from B \ { j}, forms an interval for j, and scores that interval against the observed target yj . This mirrors test-time calibration: the query target is unavailable when its interval is constructed. The training objective is a smooth relaxation of the Winkler interval score. Evaluation uses the hard score 
+
+Wink α(ℓ, u ; y) = ( u − ℓ) + 2
+
+α (ℓ − y)1{y < ℓ } + 2
+
+α (y − u)1{y > u }. (19) For optimization, the hard weighted quantile is replaced by a sigmoid-CDF quantile and the miss indicators are replaced by softplus penalties. The full smooth surrogate is defined in Appendix A. 6The retrieval experts are trained first. Each student hypernetwork is anchored to a lightweight prefit teacher map 
+
+t(m) 
+
+> d
+
+(a) = Bm,d a + cm,d , (20) which stabilizes the learned representations and discourages collapsed similarity maps. After the experts are frozen, the gate is trained on leave-one-out mixed-CDF intervals, with an entropy regularizer to discourage premature collapse to a single expert. The expert and gate losses are given in Appendix A. At inference time, RareCP computes at, retrieves top k residuals for each expert using Eq. (11) ,mixes their residual CDFs using Eq. (15) , and returns the interval in Eq. (6) . Because the expert maps depend on the current query at, RareCP caches raw calibration contexts and residuals; the normalized calibration keys are recomputed under the query-conditioned map for each test point. To account for distributional drift, we adapt the target miscoverage level at test time using adaptive conformal inference [ 21 ]. With nt = |I d,t |, exact retrieval costs O(M n tdz ) dot products per query, and the final weighted quantile is computed over at most M k residual entries. 
+
+4 Experiments 
+
+We evaluate our RCP framework on the comprehensive GIFT-Eval benchmark [ 45 ]. This section presents our evaluation results. All experiments were conducted on a single NVIDIA A6000 GPU (48GB VRAM) and a 64-core CPU with 256GB RAM. 
+
+4.1 Setup Benchmarks. We evaluate on GIFT-Eval in two configurations: Bench10 (10 core datasets) and 
+
+Bench22 (the full 22-dataset suite, a superset of Bench10), covering energy, transport, climate, web, finance, and demographics. The datasets span sampling intervals from five minutes to weekly and heterogeneous noise, seasonality, scale, and drift. For each, we cap the test region at the most recent 30,000 samples (or the full series if shorter) and construct in chronological order train, calibration, and 7,500-sample evaluation splits. Bench10 is additionally reported at a 100,000 cap and the full set to probe scaling. HPO uses strictly earlier validation splits from the GIFT-Eval pre-train region so no test-region context enters tuning. All experiments use a 64-step context window and single-step-ahead targets and per-dataset statistics are reported in D.1. 
+
+Baselines and backbones. RareCP is paired with four point-forecast backbones to demonstrate backbone-agnosticism: TiRex , TimesFM-2.5 and TabPFN-TS (zero-shot FMs) plus ARIMA (Au-toARIMA from statsforecast [ 46 ], default parameters). We compare RareCP against two baseline families on the same backbone predictions and calibration set: CP methods (Uniform SplitCP, NexCP, ACI, DtACI, HopCPT, KOWCPI, ResCP [ 6, 20 – 22 , 27 , 26 , 47 ]) and FM native UQ heads (TiRex, Chronos-2, Chronos-Bolt, Moirai-2.0, TimesFM-2.5, TabPFN-TS, TOTO, Lag-Llama [ 48 – 54 ]). Backbone predictions are precomputed and cached, so every method scores identical point forecasts per query. 
+
+Training and calibration. RareCP’s teacher encoders, student hypernetworks, and post-hoc gate are trained consecutively on the calibration split; hyperparameters come from a 100-trial HPO run on the Bench10 validation splits, matching the trial budget given to HopCPT, KOWCPI, and ResCP (full hyperparameters in D.3). The same Bench10-tuned hyperparameters are reused without modification on Bench22 and on the larger benchmark scenarios. At test time, the shared rolling-window calibration set Dcal is initialized from the most recent validation samples and updated first-in-first-out (FIFO) as each test query arrives. Non-deterministic methods are run on ten seeds. 
+
+4.2 Results 
+
+Table 1 summarises CP and FM-native uncertainty quantification performance at the 80% target. Per-dataset breakdowns are in Tables 6 -10. We report nWink (mean Winkler / std (y)), nW (mean width / std (y)), and empirical coverage Cov . Since std (y) is a dataset-level constant, cells are directly comparable across methods and backbones. We treat normalised Winkler (Eq. 19) as the primary metric. Width and coverage in isolation are exploitable as a method can shrink intervals simply by 7Table 1: Result summary at 80% target coverage. Cells show nWink (mean Winkler / std (y)) and nW (mean width / std (y)) / Cov, where std (y) is the standard deviation of the target on the eval split. Top: per-backbone CP Average rows from Tables 6, 7, 8, 9. Bottom: FM native UQ from Table 10. All rows show unweighted means over ten seeds for non-deterministic methods. Their std are displayed in the full result tables linked above. Bold marks the smallest displayed nWink per row among entries with Cov ≥ 0.70 .
+
+Main Results                                                                                                                                                                                                                                                            
+
+> Uniform ACI KOWCPI HopCPT ResCP RareCP (Ours)
+> Backbone nWink ↓nW ↓/ Cov ↑nWink ↓nW ↓/ Cov ↑nWink ↓nW ↓/ Cov ↑nWink ↓nW ↓/ Cov ↑nWink ↓nW ↓/ Cov ↑nWink ↓nW ↓/ Cov ↑
+> Bench10
+> TiRex 0.72 0.36 / 0.79 0.69 0.38 / 0.80 0.74 0.27 / 0.65 0.70 0.38 / 0.78 0.68 0.36 / 0.77 0.61 0.38 / 0.80 TimesFM-2.5 0.77 0.38 / 0.79 0.73 0.40 / 0.80 0.74 0.28 / 0.67 0.77 0.39 / 0.78 0.70 0.36 / 0.76 0.62 0.40 / 0.80 TabPFN-TS 0.81 0.39 / 0.79 0.77 0.41 / 0.80 0.73 0.30 / 0.70 0.81 0.40 / 0.79 0.72 0.37 / 0.72 0.63 0.39 / 0.79 ARIMA 0.90 0.46 / 0.79 0.84 0.48 / 0.80 0.84 0.35 / 0.70 0.90 0.47 / 0.77 0.83 0.42 / 0.72 0.68 0.43 / 0.80
+> Bench22
+> TiRex 1.09 0.48 / 0.77 1.06 0.53 / 0.80 1.11 0.44 / 0.66 1.13 0.46 / 0.75 1.31 0.35 / 0.66 1.01 0.48 / 0.75 TimesFM-2.5 1.08 0.46 / 0.77 1.04 0.51 / 0.79 1.37 0.29 / 0.58 1.06 0.41 / 0.75 1.25 0.35 / 0.67 1.00 0.47 / 0.75 TabPFN-TS 1.13 0.48 / 0.77 1.09 0.52 / 0.79 1.31 0.33 / 0.63 1.15 0.47 / 0.75 1.34 0.33 / 0.60 1.13 0.45 / 0.72 ARIMA 1.29 0.56 / 0.77 1.24 0.61 / 0.80 1.56 0.39 / 0.61 1.34 0.52 / 0.74 1.53 0.46 / 0.61 1.10 0.51 / 0.73
+> Bench10_100k
+> TiRex 0.67 0.32 / 0.78 0.64 0.34 / 0.80 0.68 0.21 / 0.63 0.65 0.34 / 0.78 0.62 0.33 / 0.78 0.52 0.33 / 0.80 ARIMA 0.85 0.42 / 0.78 0.79 0.44 / 0.80 0.77 0.32 / 0.70 0.84 0.43 / 0.77 0.77 0.40 / 0.74 0.56 0.36 / 0.80
+> Bench10_full
+> TiRex 0.68 0.33 / 0.78 0.64 0.34 / 0.80 0.69 0.20 / 0.62 0.66 0.35 / 0.78 0.63 0.33 / 0.77 0.52 0.33 / 0.80 ARIMA 0.85 0.42 / 0.78 0.79 0.44 / 0.80 0.77 0.32 / 0.70 0.85 0.44 / 0.77 0.78 0.40 / 0.74 0.57 0.37 / 0.80
+> Foundation model native UQ
+> TiRex Chronos-2 Moirai-2 TimesFM-2.5 TabPFN-TS Toto
+> Benchmark nWink ↓nW ↓/ Cov ↑nWink ↓nW ↓/ Cov ↑nWink ↓nW ↓/ Cov ↑nWink ↓nW ↓/ Cov ↑nWink ↓nW ↓/ Cov ↑nWink ↓nW ↓/ Cov ↑
+> Bench10 0.59 0.39 / 0.80 0.64 0.38 / 0.76 0.63 0.40 / 0.80 0.66 0.42 / 0.83 0.66 0.38 / 0.78 0.71 0.43 / 0.76
+> Bench22 0.83 0.50 / 0.80 0.83 0.48 / 0.76 0.78 0.46 / 0.78 0.88 0.50 / 0.83 0.86 0.48 / 0.76 0.91 0.50 / 0.75
+
+undercovering, whereas Winkler jointly penalises both. Among methods at the same coverage, the lower Winkler scoring one redistributes its width better (narrower on easy queries, wider on hard ones), which is exactly the behaviour we expect from an adaptive method. 
+
+CP methods. RareCP attains the lowest average nWink on every Bench10 backbone and on three of four backbones in Bench22, trailing only ACI on TabPFN-TS in Bench22. ResCP is the consistent runner-up on Bench10; ACI takes that role on Bench22, reflecting the drift-adaptation strength of the same ACI controller that RareCP wraps. KOWCPI produces the narrowest intervals throughout but undercovers by at least 0.1. Scaling Bench10’s test region from the 30 k default to 100 k and to the full series further widens RareCP’s lead on TiRex and ARIMA, where richer regime structure rewards retrieval over uniform smoothing. The strongest single per-dataset improvement is ARIMA on electricity_H at the full series, where RareCP roughly halves Uniform’s nWink (Tables 8, 9). Per-dataset gains concentrate on series with sharp regime shifts (M_DENSE_H, solar_H, electricity_H, m4_quarterly, m4_monthly). Recall that RareCP’s hyperparameters are tuned only on Bench10, so the Bench22 and larger-set results measure transfer rather than fit. 
+
+Comparison with foundation model native UQ. On Bench10, pairing RareCP with an FM as backbone is competitive with the FM’s own native UQ, despite adding only a head of 1.5 to 5.5Mparameters on top of backbones spanning 11 M to 200 M (Table 16). The strongest native models pull ahead on Bench22, where RareCP carries over its Bench10 hyperparameters without refitting. Two structural advantages of the CP wrapper remain. First, CP provides finite-sample coverage guarantees that FM native UQ does not. Second, CP is agnostic to the backbone and wraps any point forecaster, including ARIMA, where no native UQ exists and still beats most zero-shot FMs. Within the native block, no single FM dominates: TiRex and Moirai-2 lead on different scenarios (Table 10). 
+
+4.3 Ablation study 
+
+Figure 3 decomposes RareCP relative to uniform weighting. A low-capacity trained dense similarity model with cosine-normalized scores improves Winkler by 13 .9% . Since this step changes both the scorer and the similarity normalization, we treat it as a learned dense reference rather than attributing the gain to cosine attention alone. On TiRex Bench10, this variant reaches nWink 0.635 , compared to HopCPT at 0.70 and ResCP at 0.68 in Table 1. Adding hard top-k retrieval gives another 4.6% ,showing that sparse local calibration improves beyond learned dense weighting. 80 5 10 15 20 25 
+
+> Cumulative normalized Winkler improvement relative to uniform (%)
+> Cosine attention
+> + Retrieval
+> + Hypernetwork
+> + Teacher distillation
+> + MoE
+> + ACI
+> +13.88% / 0.687 nWink
+> +4.61% / 0.649 nWink
+> +1.67% / 0.636 nWink
+> +0.37% / 0.633 nWink
+> +2.08% / 0.616 nWink
+> +0.96% / 0.608 nWink
+> Stepwise decomposition of normalized Winkler gain
+
+Figure 3: Stepwise RareCP ablation on Bench10. Bars show additional percentage improvement in Winkler score over uniform weighting, averaged over forecasting backbones. The first bar is a trained dense linear similarity model without hard retrieval. The remaining components add smaller but consistent gains: the hypernetwork adds 1.7% by conditioning retrieval on the current test context, teacher anchoring adds 0.4% , residual-regime mixtures add 2.1% , and ACI adds 1.0% for online coverage-drift correction. Together, these steps yield the final RareCP improvement of 23 .6% over uniform weighting. Table 2 shows that the hypernetwork gain is not simply due to added capacity. All MLP and hypernetwork variants were tuned with Optuna TPE for 100 trials. Fixed MLP encoders reuse calibration embeddings across test points, while RareCP uses each test sample to emit a small retrieval and weighting map. This makes retrieval time-dependent, but also requires refactoring calibration samples for each query, motivating the low-capacity emitted model. Our interpretation is that having too much capacity for the weighting mechanism can easily lead to overfitting. The solution, we propose, is to scale the parameters in the time dimension by allowing the current test target more control over the retrieved similarites while preventing similarity collapse. Empirically, the hypernetwork achieves the best nWink, 0.6221 ± 0.0014 , outperforming the best MLP, 0.6325 ±
+
+0.0020 , and the larger MLP-5, 0.6338 ± 0.0034 .Finally, Table 3 varies only the number of residual regime experts with the best RareCP hyperpa-rameters fixed. Increasing from one to three experts gives the main gain, reducing nWink from 
+
+0.6195 ± 0.0024 to 0.6105 ± 0.0014 . More experts improve only slightly, reaching 0.6065 ± 0.0025 
+
+at 30 experts, while runtime rises from 182 .4s to 842 .5s. Thus, multiple residual regimes help, but most of the benefit comes from separating a small number of regimes. 
+
+5 Conclusion 
+
+We introduced RareCP , a backbone-agnostic conformal adapter for time series forecasting that calibrates prediction intervals by retrieving residuals from locally relevant error regimes. Its main contribution is a learned local retrieval mechanism: sparse top-k retrieval selects relevant calibration contexts produced by time-conditioned local experts that are build for the structural bias of the residual distributions of time series forecasting models. Across GIFT-Eval, RareCP improves normalized Winkler score over the strongest CP baselines on Bench10 for all four forecasting backbones and remains competitive on the larger Bench22 setting. The scaling experiments show stronger gains as larger calibration streams expose more repeated residual regimes, while the ablations confirm the importance of learned similarity, sparse retrieval, hypernetwork conditioning, teacher anchoring, expert mixtures, and ACI correction. Overall, the results suggest that conformal calibration for time series forecasting benefits from modeling drift and residual-regime structure separately. 95.1 Limitations 
+
+RareCP still has important limitations. The theoretical analysis covers a clean setting in which the retrieval rule is fixed before calibration, or learned from data with residual labels distinct from the calibration residuals. It therefore does not fully resolve the finite-sample trade-off between learning a stronger retrieval rule and reserving data for calibration. Empirically, RareCP maintains coverage close to the target on Bench10 and at larger Bench10 scales, but coverage is weaker on the more heterogeneous Bench22 split, suggesting that sparse or abrupt drift remains challenging. RareCP also has a higher offline training cost than simpler conformal baselines. 
+
+5.2 Future Work 
+
+Future work should study the learning-calibration split at larger scale, where using separate data to learn the retrieval metric and to compute conformal quantiles may yield both cleaner theory and stronger empirical performance. Another direction is to reduce training cost through cached calibration embeddings, approximate retrieval, or lighter expert and gating parameterizations. These extensions preserve the central principle of RareCP: prediction intervals should be calibrated using residuals from the same local error regime, while the retrieval geometry adapts as the time series evolves. 10 References 
+
+[1] Rafal Weron. Electricity price forecasting: A review of the state of the art and outlook. 
+
+International Journal of Forecasting , 2014. [2] Vladimir Vovk, Alex Gammerman, and Glenn Shafer. Algorithmic Learning in a Random World . 01 2005. doi: 10.1007/b106715. [3] Margaux Zaffran, Aymeric Dieuleveut, Olivier Féron, Yannig Goude, and Julie Josse. Adaptive conformal predictions for time series, 2022. URL https://arxiv.org/abs/2202.07282 .[4] Chen Xu and Yao Xie. Conformal prediction interval for dynamic time-series. In Marina Meila and Tong Zhang, editors, Proceedings of the 38th International Conference on Machine Learning , volume 139 of Proceedings of Machine Learning Research , pages 11559–11569. PMLR, 18–24 Jul 2021. URL https://proceedings.mlr.press/v139/xu21h.html .[5] Glenn Shafer and Vladimir Vovk. A tutorial on conformal prediction, 2007. URL https: //arxiv.org/abs/0706.3188 .[6] Jing Lei, Max G’Sell, Alessandro Rinaldo, Ryan J. Tibshirani, and Larry Wasserman. Distribution-free predictive inference for regression, 2017. URL https://arxiv.org/abs/ 1604.04173 .[7] Vladimir Vovk. Cross-conformal predictors, 2012. URL https://arxiv.org/abs/1208. 0806 .[8] Rina Foygel Barber, Emmanuel J. Candes, Aaditya Ramdas, and Ryan J. Tibshirani. Predictive inference with the jackknife+, 2020. URL https://arxiv.org/abs/1905.02928 .[9] Eugene Ndiaye. Stable conformal prediction sets. In Kamalika Chaudhuri, Stefanie Jegelka, Le Song, Csaba Szepesvari, Gang Niu, and Sivan Sabato, editors, Proceedings of the 39th Inter-national Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , pages 16462–16479. PMLR, 17–23 Jul 2022. URL https://proceedings.mlr. press/v162/ndiaye22a.html .[10] Adam Fisch, Tal Schuster, Tommi Jaakkola, and Regina Barzilay. Efficient conformal prediction via cascaded inference with expanded admission, 2021. URL https://arxiv.org/abs/ 2007.03114 .[11] Yachong Yang and Arun Kumar Kuchibhotla. Selection and aggregation of conformal prediction sets, 2024. URL https://arxiv.org/abs/2104.13871 .[12] Yaniv Romano, Matteo Sesia, and Emmanuel Candes. Classification with valid and adaptive coverage. In H. Larochelle, M. Ranzato, R. Hadsell, M.F. Balcan, and H. Lin, editors, Advances in Neural Information Processing Systems , volume 33, pages 3581–3591. Curran Associates, Inc., 2020. URL https://proceedings.neurips.cc/paper_files/paper/2020/file/ 244edd7e85dc81602b7615cd705545f5-Paper.pdf .[13] Aadyot Bhatnagar, Huan Wang, Caiming Xiong, and Yu Bai. Improved online conformal prediction via strongly adaptive online learning, 2023. URL https://arxiv.org/abs/2302. 07869 .[14] Yaniv Romano, Evan Patterson, and Emmanuel Candes. Conformalized quantile regression. In H. Wallach, H. Larochelle, A. Beygelzimer, F. d'Alché-Buc, E. Fox, and R. Garnett, ed-itors, Advances in Neural Information Processing Systems , volume 32. Curran Associates, Inc., 2019. URL https://proceedings.neurips.cc/paper_files/paper/2019/file/ 5103c3584b063c431bd1268e9b5e76fb-Paper.pdf .[15] Ulf Johansson, Henrik Boström, and Tuve Löfström. Conformal prediction using decision trees. 12 2013. doi: 10.1109/ICDM.2013.85. [16] U. Johansson, Henrik Boström, Tuwe Löfström, and Henrik Linusson. Regression conformal prediction with random forests. Machine Learning , 97:155 – 176, 2014. URL https://api. semanticscholar.org/CorpusID:14015369 .11 [17] David Stutz, Krishnamurthy, Dvijotham, Ali Taylan Cemgil, and Arnaud Doucet. Learning optimal conformal classifiers, 2022. URL https://arxiv.org/abs/2110.09192 .[18] Yu Bai, Song Mei, Huan Wang, Yingbo Zhou, and Caiming Xiong. Efficient and differentiable conformal prediction with general function classes, 2022. URL https://arxiv.org/abs/ 2202.11091 .[19] Ran Xie, Rina Foygel Barber, and Emmanuel J. Candès. Boosted conformal prediction intervals, 2024. URL https://arxiv.org/abs/2406.07449 .[20] Rina Foygel Barber, Emmanuel J. Candes, Aaditya Ramdas, and Ryan J. Tibshirani. Conformal prediction beyond exchangeability, 2023. URL https://arxiv.org/abs/2202.13415 .[21] Isaac Gibbs and Emmanuel Candes. Adaptive conformal inference under distribution shift. In M. Ranzato, A. Beygelzimer, Y. Dauphin, P.S. Liang, and J. Wortman Vaughan, editors, 
+
+Advances in Neural Information Processing Systems , volume 34, pages 1660–1672. Curran Associates, Inc., 2021. URL https://proceedings.neurips.cc/paper_files/paper/ 2021/file/0d441de75945e5acbc865406fc9a2559-Paper.pdf .[22] Isaac Gibbs and Emmanuel Candès. Conformal inference for online prediction with arbitrary distribution shifts, 2023. URL https://arxiv.org/abs/2208.08401 .[23] Anastasios Angelopoulos, Emmanuel Candes, and Ryan J Tibshirani. Conformal pid control for time series prediction. In A. Oh, T. Naumann, A. Globerson, K. Saenko, M. Hardt, and S. Levine, editors, Advances in Neural Information Processing Systems , volume 36, pages 23047–23074. Curran Associates, Inc., 2023. URL https://proceedings.neurips.cc/paper_files/ paper/2023/file/47f2fad8c1111d07f83c91be7870f8db-Paper-Conference.pdf .[24] Ryan J. Tibshirani, Rina Foygel Barber, Emmanuel J. Candes, and Aaditya Ramdas. Conformal prediction under covariate shift, 2020. URL https://arxiv.org/abs/1904.06019 .[25] Aleksandr Podkopaev and Aaditya Ramdas. Distribution-free uncertainty quantification for classification under label shift, 2021. URL https://arxiv.org/abs/2103.03323 .[26] Jonghyeok Lee, Chen Xu, and Yao Xie. Kernel-based optimally weighted conformal time-series prediction, 2026. URL https://arxiv.org/abs/2405.16828 .[27] Andreas Auer, Martin Gauch, Daniel Klotz, and Sepp Hochreiter. Conformal prediction for time series with modern hopfield networks, 2023. URL https://arxiv.org/abs/2303.12783 .[28] Jiaye Teng, Chuan Wen, Dinghuai Zhang, Yoshua Bengio, Yang Gao, and Yang Yuan. Predictive inference with feature conformal prediction, 2023. URL https://arxiv.org/abs/2210. 00173 .[29] Baiting Chen, Zhimei Ren, and Lu Cheng. Conformalized time series with semantic features. In A. Globerson, L. Mackey, D. Belgrave, A. Fan, U. Paquet, J. Tomczak, and C. Zhang, editors, 
+
+Advances in Neural Information Processing Systems , volume 37, pages 121449–121474. Curran Associates, Inc., 2024. doi: 10.52202/079017-3859. [30] Jingsen Kong, Wenlu Tang, Dezheng Kong, Linglong Kong, Guangren Yang, and Bei Jiang. Adaptive conformal prediction via mixture-of-experts gating similarity. In The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview. net/forum?id=vCmnu4q8C3 .[31] Chen Xu and Yao Xie. Sequential predictive conformal inference for time series, 2023. URL 
+
+https://arxiv.org/abs/2212.03463 .[32] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen tau Yih, Tim Rocktäschel, Sebastian Riedel, and Douwe Kiela. Retrieval-augmented generation for knowledge-intensive nlp tasks, 2021. URL 
+
+https://arxiv.org/abs/2005.11401 .[33] Sungwon Han, Seungeon Lee, Meeyoung Cha, Sercan O Arik, and Jinsung Yoon. Retrieval augmented time series forecasting, 2025. URL https://arxiv.org/abs/2505.04163 .12 [34] Kanghui Ning, Zijie Pan, Yu Liu, Yushan Jiang, James Yiming Zhang, Kashif Rasul, Anderson Schneider, Lintao Ma, Yuriy Nevmyvaka, and Dongjin Song. Ts-rag: Retrieval-augmented generation based time series foundation models are stronger zero-shot forecaster, 2025. URL 
+
+https://arxiv.org/abs/2503.07649 .[35] Baoyu Jing, Si Zhang, Yada Zhu, Bin Peng, Kaiyu Guan, Andrew Margenot, and Hanghang Tong. Retrieval based time series forecasting, 2022. URL https://arxiv.org/abs/2209.13525 .[36] Jingwei Liu, Ling Yang, Hongyan Li, and Shenda Hong. Retrieval-augmented diffusion models for time series forecasting, 2024. URL https://arxiv.org/abs/2410.18712 .[37] Silin Yang, Dong Wang, Haoqi Zheng, and Ruochun Jin. Timerag: Boosting llm time series forecasting via retrieval-augmented generation, 2024. URL https://arxiv.org/abs/2412. 16643 .[38] David Ha, Andrew M. Dai, and Quoc V. Le. Hypernetworks. CoRR , abs/1609.09106, 2016. URL http://arxiv.org/abs/1609.09106 .[39] James Kirkpatrick, Razvan Pascanu, Neil Rabinowitz, Joel Veness, Guillaume Desjardins, Andrei A. Rusu, Kieran Milan, John Quan, Tiago Ramalho, Agnieszka Grabska-Barwinska, Demis Hassabis, Claudia Clopath, Dharshan Kumaran, and Raia Hadsell. Overcoming catas-trophic forgetting in neural networks. Proceedings of the National Academy of Sciences ,114(13):3521–3526, March 2017. ISSN 1091-6490. doi: 10.1073/pnas.1611835114. URL 
+
+http://dx.doi.org/10.1073/pnas.1611835114 .[40] David Lopez-Paz and Marc' Aurelio Ranzato. Gradient episodic memory for continual learning. In I. Guyon, U. Von Luxburg, S. Bengio, H. Wallach, R. Fergus, S. Vishwanathan, and R. Garnett, editors, Advances in Neural Information Processing Systems , volume 30. Curran Associates, Inc., 2017. URL https://proceedings.neurips.cc/paper_files/paper/2017/file/ f87522788a2be2d171666752f97ddebb-Paper.pdf .[41] Johannes von Oswald, Christian Henning, Benjamin F. Grewe, and João Sacramento. Continual learning with hypernetworks, 2020. URL https://arxiv.org/abs/1906.00695 .[42] Aviv Shamsian, Aviv Navon, Ethan Fetaya, and Gal Chechik. Personalized federated learning using hypernetworks, 2021. URL https://arxiv.org/abs/2103.04628 .[43] Geoffrey Hinton, Oriol Vinyals, and Jeff Dean. Distilling the knowledge in a neural network, 2015. URL https://arxiv.org/abs/1503.02531 .[44] Adriana Romero, Nicolas Ballas, Samira Ebrahimi Kahou, Antoine Chassang, Carlo Gatta, and Yoshua Bengio. Fitnets: Hints for thin deep nets, 2015. URL https://arxiv.org/abs/ 1412.6550 .[45] Taha Aksu, Gerald Woo, Juncheng Liu, Xu Liu, Chenghao Liu, Silvio Savarese, Caiming Xiong, and Doyen Sahoo. Gift-eval: A benchmark for general time series forecasting model evaluation, 2024. URL https://arxiv.org/abs/2410.10393 .[46] Azul Garca, Max Mergenthaler Canseco, Challú Cristian, and Kin G. Olivares. StatsForecast: Lightning fast forecasting with statistical and econometric models. PyCon Salt Lake City, Utah, US 2022, 2022. URL https://github.com/Nixtla/statsforecast .[47] Roberto Neglia, Andrea Cini, Michael M. Bronstein, and Filippo Maria Bianchi. ResCP: Reser-voir Conformal Prediction for Time Series Forecasting. arXiv e-prints , art. arXiv:2510.05060, October 2025. doi: 10.48550/arXiv.2510.05060. [48] Andreas Auer, Patrick Podest, Daniel Klotz, Sebastian Böck, Günter Klambauer, and Sepp Hochreiter. Tirex: Zero-shot forecasting across long and short horizons with enhanced in-context learning, 2025. URL https://arxiv.org/abs/2505.23719 .[49] Abdul Fatir Ansari, Lorenzo Stella, Caner Turkmen, Xiyuan Zhang, Pedro Mercado, Huibin Shen, Oleksandr Shchur, Syama Sundar Rangapuram, Sebastian Pineda Arango, Shubham Kapoor, Jasper Zschiegner, Danielle C. Maddix, Hao Wang, Michael W. Mahoney, Kari Torkkola, Andrew Gordon Wilson, Michael Bohlke-Schneider, and Yuyang Wang. Chronos: Learning the language of time series, 2024. URL https://arxiv.org/abs/2403.07815 .13 [50] Gerald Woo, Chenghao Liu, Akshat Kumar, Caiming Xiong, Silvio Savarese, and Doyen Sahoo. Unified training of universal time series forecasting transformers, 2024. URL https: //arxiv.org/abs/2402.02592 .[51] Abhimanyu Das, Weihao Kong, Rajat Sen, and Yichen Zhou. A decoder-only foundation model for time-series forecasting, 2024. URL https://arxiv.org/abs/2310.10688 .[52] Shi Bin Hoo, Samuel Müller, David Salinas, and Frank Hutter. From Tables to Time: Extending TabPFN-v2 to Time Series Forecasting. arXiv e-prints , art. arXiv:2501.02945, January 2025. doi: 10.48550/arXiv.2501.02945. [53] Ben Cohen, Emaad Khwaja, Kan Wang, Charles Masson, Elise Ramé, Youssef Doubli, and Othmane Abou-Amal. Toto: Time series optimized transformer for observability, 2024. URL 
+
+https://arxiv.org/abs/2407.07874 .[54] Kashif Rasul, Arjun Ashok, Andrew Robert Williams, Hena Ghonia, Rishika Bhagwatkar, Arian Khorasani, Mohammad Javad Darvishi Bayazi, George Adamopoulos, Roland Riachi, Nadhir Hassen, Marin Biloš, Sahil Garg, Anderson Schneider, Nicolas Chapados, Alexandre Drouin, Valentina Zantedeschi, Yuriy Nevmyvaka, and Irina Rish. Lag-llama: Towards foundation models for probabilistic time series forecasting, 2024. URL https://arxiv.org/abs/2310. 08278 .14 A Smooth Winkler surrogate and training losses 
+
+This section defines the differentiable surrogate used to train RareCP. Evaluation uses the hard weighted quantile in Eq. (5) and the hard Winkler score in Eq. (19) ; the surrogate is used only for optimization. Consider one leave-one-out query with weighted residual support 
+
+P = {(ri, p i)}si=1 , pi ≥ 0,
+
+> s
+
+X
+
+> i=1
+
+pi = 1 .
+
+Sort by residual value and write the sorted support as {(r(i), p (i))}si=1 . Define the left and right CDF endpoints of bin i by 
+
+Ci−1 = X
+
+> j<i
+
+p(j), Ci = X
+
+> j≤i
+
+p(j), C0 = 0 . (21) For quantile level q ∈ (0 , 1) , sigmoid temperature τq > 0, and σ(x) = (1 + exp( −x)) −1, define 
+
+bi(q; τq ) = 
+
+
+
+σ
+
+ q − Ci−1
+
+τq
+
+
+
+− σ
+
+ q − Ci
+
+τq
+
+ 
+
+> +
+
+, λi(q; τq ) = bi(q; τq )
+
+Psℓ=1 bℓ(q; τq ) . (22) The smooth weighted quantile is 
+
+eQq (P ; τq ) = 
+
+> s
+
+X
+
+> i=1
+
+λi(q; τq )r(i). (23) Large τq spreads gradient across a broad CDF neighborhood; as τq ↓ 0, the mass concentrates on the hard weighted-quantile bin. For target residual rj = yj − byj , define the temperature-softplus penalty 
+
+softplus τp (x) = τp log  1 + exp( x/τ p), τp > 0. (24) The smooth residual-space Winkler loss is 
+
+^Wink α(P ; rj , τ q , τ p) := eQ1−α/ 2(P ; τq ) − eQα/ 2(P ; τq )+ 2
+
+α
+
+h
+
+softplus τp
+
+  eQα/ 2(P ; τq ) − rj
+
+ + softplus τp
+
+ rj − eQ1−α/ 2(P ; τq )i
+
+.
+
+(25) The point forecast cancels in residual space, so this is equivalent to applying the interval score to 
+
+hbyj + eQα/ 2(P ; τq ), byj + eQ1−α/ 2(P ; τq )
+
+i
+
+.
+
+As τq , τ p ↓ 0, Eq. (25) recovers the hard weighted quantiles and the hard Winkler score. Training averages the smooth score over a small grid Gα centered at the target miscoverage αtar :
+
+W(P ; rj ) = 1
+
+|G α|
+
+X
+
+> α∈G α
+
+^Wink α(P ; rj , τ q , τ p). (26) In experiments, τq follows a cyclic schedule: high-temperature phases provide broad gradients for exploration of residual weights, and low-temperature phases refine weights near the target CDF thresholds. Let D denote the collection of training datasets. During leave-one-out training, the current query is the held-out calibration context aj . Therefore, for expert m, the hypernetwork outputs the query- and dataset-conditioned affine map 
+
+(Am,j,d , b m,j,d ) = H(m) 
+
+> θm
+
+(aj , η d). (27) Here ηd = {d, μ d, σ d, log( Nd)} is the dataset descriptor defined in Eq. (8) . The map (Am,j,d , b m,j,d )
+
+is applied to both the query aj and each candidate calibration context ai, i̸ = j, before computing cosine similarities. The leave-one-out support for query j ∈ I d, 0 is 
+
+P (−j) 
+
+> m,j
+
+= {(ri, v (−j) 
+
+> m,i,j
+
+) : i ∈ S(−j) 
+
+> m,j
+
+},
+
+15 where S(−j) 
+
+> m,j
+
+and v(−j) 
+
+> m,i,j
+
+are computed by Eqs. (11) – (12) , with j excluded and with the query-conditioned map (Am,j,d , b m,j,d ).Each student expert is anchored to a prefit teacher map for the same leave-one-out query, 
+
+t(m) 
+
+> d,j
+
+(a) = Bm,d,j a + cm,d,j . (28) The expert objective is 
+
+L(m)enc (θm) = 1
+
+|D|
+
+X
+
+> d∈D
+
+1
+
+|I d, 0|
+
+X
+
+> j∈I d, 0
+
+W(P (−j) 
+
+> m,j
+
+; rj )+ λanch 
+
+1
+
+|D|
+
+X
+
+> d∈D
+
+1
+
+|I d, 0|
+
+X
+
+> j∈I d, 0
+
+ ∥Am,j,d − Bm,d,j ∥2 
+
+> F
+
++ ∥bm,j,d − cm,d,j ∥22
+
+ .
+
+(29) The first term trains interval efficiency under leave-one-out retrieval; the second term regularizes the query-conditioned student geometry toward the corresponding teacher map. If the teacher maps are dataset-level rather than query-level in an implementation, then Bm,d,j and cm,d,j reduce to Bm,d 
+
+and cm,d .After the experts are frozen, the gate is trained on leave-one-out mixed-CDF intervals. For query j,the gate uses the same query and descriptor, 
+
+(π1,j , . . . , π M,j ) = softmax( gω (aj , η d)) .
+
+The RareCP leave-one-out residual weights are 
+
+w(−j) 
+
+> i,j
+
+=
+
+> M
+
+X
+
+> m=1
+
+πm,j v(−j) 
+
+> m,i,j
+
+1{i ∈ S(−j) 
+
+> m,j
+
+}.
+
+If a calibration index appears in multiple expert supports, its weights are summed. The mixed support is therefore 
+
+P (−j)RareCP ,j = {(ri, w (−j) 
+
+> i,j
+
+) : i ∈ ∪ Mm=1 S(−j) 
+
+> m,j
+
+}.
+
+Let H(πj ) = − PMm=1 πm,j log πm,j . The gate objective is 
+
+Lgate (ω) = 1
+
+|D|
+
+X
+
+> d∈D
+
+1
+
+|I d, 0|
+
+X
+
+> j∈I d, 0
+
+W(P (−j)RareCP ,j ; rj )
+
+− λent 
+
+1
+
+|D|
+
+X
+
+> d∈D
+
+1
+
+|I d, 0|
+
+X
+
+> j∈I d, 0
+
+H(πj ).
+
+(30) The entropy term encourages use of multiple experts during gate training and discourages early collapse to a single residual regime. The outer average gives each dataset equal weight before averaging over its calibration examples. 16 B Further ablations 
+
+Table 2: Normalized Winkler score on Tirex bench10. Scores are normalized by the test-set standard deviation per dataset and then averaged across datasets and seeds. Relative improvement is the percentage reduction in normalized Winkler versus Uniform. Lower nWink is better. Architecture Params nWink ↓ vs. Uniform ↑
+
+Uniform −− 0.7195 −− 
+
+MLP-2 28 ,416 0.6374 ± 0.0025 11 .4% 
+
+MLP-3 58 ,496 0.6325 ± 0.0020 12 .1% 
+
+MLP-4 149 ,376 0.6421 ± 0.0038 10 .8% 
+
+MLP-5 3,305 ,276 0.6338 ± 0.0034 11 .9% 
+
+Hypernetwork 1,226 ,720 0.6221 ± 0.0014 13 .5% 
+
+Table 3: Expert-count ablation for RareCP on the bench10. We vary the number of teacher/student experts while keeping the selected hyperparameter configuration fixed. Runtime is mean wall-clock seconds per seed. 
+
+Experts Seeds nWink Uniform impr. (%) Avg. runtime (s) 1 10 0.6195 ± 0.0024 13.91 ± 0.33 112.2 3 10 0.6105 ± 0.0014 15.16 ± 0.20 182.4 10 3 0.6078 ± 0.0007 15.53 ± 0.10 293.7 30 3 0.6065 ± 0.0025 15.70 ± 0.35 842.5 
+
+Table 4: Hyperparameter search spaces for the architecture ablation on Tirex bench10. We use 
+
+A = {0.20 } ∪ { 0.20 ± 0.02 m} : m = 1 , . . . , 5} for the searched alpha sets. 
+
+Group Parameter Search space Shared Activation {ReLU , tanh , Softsign , LipSwish }
+
+Shared Top-k {8, 16 , 24 , 32 , 48 , 64 , 96 }
+
+Shared Batch size {128 , 256 , 384 , 512 , 768 , 1024 , 2048 , 4096 }
+
+Shared Training epochs {50 , 100 , 200 , 300 , 500 }
+
+Shared Hopfield inverse temperature β log U(0 .5, 24) 
+
+Shared Learning rate log U(2 ×10 −5, 5×10 −3)
+
+Shared Start temperature τstart log U(0 .005 , 0.20) 
+
+Shared End temperature τend log U(2 ×10 −5, 5×10 −3)
+
+Shared Penalty temperature τpen log U(5 ×10 −5, 3×10 −3)
+
+Shared Alpha set A
+
+Hypernetwork Latent dimension d {16 , 24 , 32 , 48 , 64 , 96 , 128 }
+
+Hypernetwork Hidden dimension {32 , 64 , 96 , 128 , 192 }
+
+Hypernetwork Hidden layers {1, 2, 3, 4}
+
+MLP-N Depth N ∈ { 2, 3, 4, 5} with hidden layers = N − 1
+
+MLP-N Latent dimension d {16 , 24 , 32 , 48 , 64 , 96 , 128 , 192 , 884 }
+
+MLP-N Hidden dimension d
+
+17 C Theoretical background 
+
+C.1 Motivation: top K as proposal efficiency control 
+
+We use hard top K retrieval to concentrate the retrieval proposal on locally relevant calibration points. This concentration is useful as a tradeoff. It can reduce mass on irrelevant points when the learned scores rank local points well, but it can also remove target relevant points if the support is truncated too aggressively. Fix a normalized query state u⋆, and let 
+
+In := {1, . . . , n }
+
+be the calibration index set. Let I⋆ ⊆ I n denote the calibration points from the same local error regime as u⋆, and write 
+
+Ioff := In \ I ⋆
+
+for the off regime points. Let sθ (u⋆, u i) be a learned retrieval score. Dense softmax assigns 
+
+qden ,i (θ) = exp( sθ (u⋆, u i)/T w)
+
+P 
+
+> j∈I n
+
+exp( sθ (u⋆, u j )/T w) , Tw > 0.
+
+Hence, whenever Ioff ̸ = ∅,
+
+δden (θ) := X
+
+> i∈I off
+
+qden ,i (θ) > 0.
+
+Thus dense softmax always spends some retrieval mass on off regime calibration points. By contrast, hard top K restricts the proposal to 
+
+SK (θ) := TopK i∈I n (sθ (u⋆, u i); K)
+
+and assigns 
+
+qtop ,i (θ) = 1{i ∈ SK (θ)} exp( sθ (u⋆, u i)/T w)
+
+P  
+
+> j∈SK(θ)
+
+exp( sθ (u⋆, u j )/T w) .
+
+Thus qtop ,i (θ) = 0 for i / ∈ SK (θ). If the selected support is mostly same regime, then 
+
+δtop (θ) := X
+
+> i∈I off
+
+qtop ,i (θ)
+
+can be small, and it is exactly zero when 
+
+SK (θ) ⊆ I ⋆.
+
+This is a proposal efficiency effect subject to a support constraint. Suppose the ideal local target distribution over calibration indices is ν⋆ and satisfies 
+
+supp( ν⋆) ⊆ I ⋆.
+
+Consider a retrieval proposal q with the usual coverage condition 
+
+qi > 0 whenever ν⋆,i > 0.
+
+Hard truncation must be interpreted under this condition. If top K removes a target relevant point with positive ν⋆,i , then the proposal no longer covers the target. For an importance sampling draw 
+
+I ∼ q, the weight is 
+
+ρI := ν⋆,I 
+
+qI
+
+.
+
+Off regime draws have ν⋆,I = 0 , so they carry no target mass. If 
+
+δq := q(Ioff ),
+
+then the probability of drawing a same regime point is 1 − δq .18 Equivalently, write the proposal conditional on the same regime set as 
+
+eqi := qi
+
+1 − δq
+
+, i ∈ I ⋆.
+
+Then 
+
+EI∼q [ρ2 
+
+> I
+
+] = X
+
+> i∈I ⋆
+
+qi
+
+ ν⋆,i 
+
+qi
+
+2
+
+= 11 − δq
+
+X
+
+> i∈I ⋆
+
+ν2
+
+> ⋆,i
+
+eqi
+
+.
+
+Thus, for a fixed conditional same regime proposal eq, off regime proposal mass multiplies the importance weight second moment by 11 − δq
+
+.
+
+In this sense, retrieval mass placed on off regime points reduces proposal efficiency. Hard top K is therefore a tradeoff. When the learned scores rank locally relevant points highly and the retained support still covers the target relevant calibration points, truncation can reduce off regime mass. When it drops target relevant points, uses too small a support, or distorts the same regime proposal, it can reduce efficiency or invalidate the importance sampler. 
+
+C.2 Normalized learned top Kn retrieval 
+
+The preceding discussion treats top K as a finite sample proposal choice. We now state the corre-sponding asymptotic calibration tradeoff. The condition Kn → ∞ preserves effective sample size and local support, while Kn/n → 0 preserves localization. We give a compact ResCP style argument for learned top Kn retrieval when the learned states are normalized before retrieval. Let At denote the random context vector corresponding to the observed method context at. Let 
+
+eZt := ϕ(At) ∈ Rd, Ut := eZt
+
+∥ eZt∥2
+
+∈ Sd−1,
+
+where ∥ eZt∥2 > 0 almost surely. The representation map ϕ, the forecasting rule by, the retrieval score, and the weighting rule are trained or selected before calibration, or using data disjoint from the calibration residual labels, and are treated as fixed. Let In = {1, . . . , n } be the calibration index set, and let Kn be a deterministic integer sequence with 1 ≤ Kn ≤ n eventually. Define the signed residual 
+
+Et := Yt − byt, byt := by(At).
+
+Let 
+
+U := supp( Ut).
+
+For v ∈ U , let 
+
+Fv (r) := P(E⋆ ≤ r | U⋆ = v)
+
+be a fixed regular conditional version of the conditional signed residual CDF. All statements below are for query points u ∈ U at which this version satisfies the stated assumptions. For p ∈ (0 , 1) ,define 
+
+ξ⋆u,p := F −1 
+
+> u
+
+(p) = inf {r : Fu(r) ≥ p}.
+
+For the query state u, retrieve the Kn calibration states with largest cosine scores 
+
+si(u) := U ⊤ 
+
+> i
+
+u, i ∈ I n.
+
+Ties are broken by a deterministic rule that depends only on the states and not on the residual labels. Because Ui, u ∈ Sd−1,
+
+∥Ui − u∥22 = 2 − 2U ⊤ 
+
+> i
+
+u. 
+
+Thus top Kn retrieval by dot product is exactly nearest neighbor retrieval on the unit sphere. Let 
+
+SKn (u) be the retrieved index set, and define its radius by 
+
+hn(u) := max   
+
+> i∈SKn (u)
+
+∥Ui − u∥2.
+
+19 Let the retrieval weights satisfy 
+
+qi,n (u) ≥ 0, X
+
+> i∈I n
+
+qi,n (u) = 1 , qi,n (u) = 0 for i / ∈ SKn (u).
+
+The weighted empirical CDF and weighted quantile are 
+
+bFn(r | u) := X
+
+> i∈I n
+
+qi,n (u)1{Ei ≤ r},
+
+and 
+
+bξn,p (u) := inf {r : bFn(r | u) ≥ p}.
+
+Assumption 1 (Stochastic admissibility) . The process {(Ut, E t)}t∈Z is strictly stationary. For each fixed query state u, let Gn(u) contain the query state, the normalized calibration states, the retrieved set, and the retrieval weights: 
+
+σ u, U 1, . . . , U n, S Kn (u), q 1,n (u), . . . , q n,n (u) ⊆ G n(u).
+
+The weights are Gn(u) measurable and do not use the residual labels directly. Define 
+
+mi,n (r; u) := E [1{Ei ≤ r} | G n(u)] ,
+
+and the leakage term 
+
+Dn(u) := sup 
+
+> r∈R
+
+X
+
+> i∈I n
+
+qi,n (u){mi,n (r; u) − FUi (r)} .
+
+Assume 
+
+Dn(u) = op(1) .
+
+Also define the centered empirical process term 
+
+Rn(u) := sup 
+
+> r∈R
+
+X
+
+> i∈I n
+
+qi,n (u) [ 1{Ei ≤ r} − mi,n (r; u)] .
+
+Assume 
+
+Rn(u)
+
+ P  
+
+> i∈I n
+
+qi,n (u)21/2 = Op(1) .
+
+Remark 1 (Why no separate strong mixing assumption is needed) . Strong mixing is not used in the proof of the theorem below. The proof only uses the high level stochastic bounds 
+
+Dn(u) = op(1) , Rn(u) = Op
+
+( X
+
+> i∈I n
+
+qi,n (u)2
+
+)1/2 ,
+
+together with localization of the retrieved states. A mixing condition could be one route to verify these bounds in a concrete time series model, but it is not needed as a separate assumption once 
+
+Dn(u) and Rn(u) are imposed directly. Moreover, nearest neighbor retrieval may select temporally clustered or overlapping histories, so strong mixing alone would not by itself verify the required effective sample size bound. 
+
+Assumption 2 (Top Kn localization and weight size) . The retrieved set and weights satisfy 
+
+Kn → ∞ , Kn
+
+n → 0, hn(u) p
+
+−→ 0,
+
+and X
+
+> i∈I n
+
+qi,n (u)2 = Op(K−1 
+
+> n
+
+).
+
+20 Assumption 3 (Local CDF continuity and quantile identification) . Define the local CDF modulus 
+
+ωu(h) := sup 
+
+> v∈U ∥v−u∥2≤h
+
+sup 
+
+> r∈R
+
+|Fv (r) − Fu(r)|.
+
+Assume 
+
+ωu(h) → 0 as h ↓ 0.
+
+For the chosen level p ∈ (0 , 1) , assume ξ⋆u,p is finite, Fu is continuous at ξ⋆u,p ,
+
+Fu(ξ⋆u,p ) = p, 
+
+and, for every ε > 0,
+
+Fu(ξ⋆u,p − ε) < p < F u(ξ⋆u,p + ε).
+
+Remark 2 (Why the assumptions are plausible for time series) . The stochastic assumption is a high level way to express that the selected residual indicators have effective sample size of order 
+
+X
+
+> i∈I n
+
+qi,n (u)2
+
+!−1
+
+,
+
+which is of order Kn under Assumption 2. The leakage term Dn(u) also matters. Even if retrieval does not explicitly use residual labels, the retrieved states may contain indirect residual information through overlapping histories. Temporal gaps, thinning, or blocking are standard ways to verify these high level conditions in dependent data. The localization condition is implied by ergodicity when u ∈ U and Kn/n → 0. Indeed, for every 
+
+ε > 0,
+
+P(∥Ut − u∥2 ≤ ε) > 0,
+
+so the number of calibration states in this ball is asymptotically proportional to n and eventually exceeds Kn with high probability. Hence hn(u) ≤ ε with high probability, and hn(u) →p 0.The weight size condition holds for uniform top Kn weights and for nonnegative score weights whose unnormalized weights are uniformly comparable on SKn (u).
+
+Theorem 1 (Top Kn CDF consistency, quantile consistency, and coverage) . Suppose Assumptions 1, 2, and 3 hold. Then 
+
+∆n(u) := sup 
+
+> r∈R
+
+| bFn(r | u) − Fu(r)|
+
+satisfies 
+
+∆n(u) ≤ Rn(u) + Dn(u) + ωu(hn(u)) .
+
+Moreover, 
+
+Rn(u) = Op(K−1/2 
+
+> n
+
+),
+
+and therefore 
+
+∆n(u) p
+
+−→ 0.
+
+Consequently, 
+
+bξn,p (u) p
+
+−→ ξ⋆u,p ,
+
+and 
+
+Fu(bξn,p (u)) p
+
+−→ p. 
+
+Assume in addition that the same quantile convergence holds under the joint conditional law of the calibration data and target residual given U⋆ = u, that is, 
+
+bξn,p (u) p
+
+−→ ξ⋆u,p under L (Ui, E i)i∈I n , E ⋆ | U⋆ = u.
+
+Then 
+
+P
+
+
+
+E⋆ ≤ bξn,p (u) | U⋆ = u
+
+
+
+−→ p. 
+
+Taking p = 1 − α, the one sided upper prediction set 
+
+bCαn, + := ( −∞ , by⋆ + bξn, 1−α(U⋆)] 
+
+satisfies, for every such u,
+
+P
+
+
+
+Y⋆ ∈ bCαn, + | U⋆ = u
+
+
+
+−→ 1 − α. 
+
+21 Proof. Decompose 
+
+bFn(r | u) − Fu(r) = An(r | u) + Bn(r | u),
+
+where 
+
+An(r | u) := X
+
+> i∈I n
+
+qi,n (u){1{Ei ≤ r} − FUi (r)},
+
+and 
+
+Bn(r | u) := X
+
+> i∈I n
+
+qi,n (u){FUi (r) − Fu(r)}.
+
+For the stochastic term, write 
+
+An(r | u) = X
+
+> i∈I n
+
+qi,n (u) [ 1{Ei ≤ r} − mi,n (r; u)] + X
+
+> i∈I n
+
+qi,n (u) [ mi,n (r; u) − FUi (r)] .
+
+Therefore, by Assumption 1, 
+
+sup 
+
+> r
+
+|An(r | u)| ≤ Rn(u) + Dn(u).
+
+For the localization term, all positive weight indices belong to SKn (u), so ∥Ui − u∥2 ≤ hn(u).Hence 
+
+sup 
+
+> r
+
+|Bn(r | u)| ≤ X
+
+> i∈I n
+
+qi,n (u) sup 
+
+> r
+
+|FUi (r) − Fu(r)|≤ ωu(hn(u)) .
+
+Thus 
+
+∆n(u) ≤ Rn(u) + Dn(u) + ωu(hn(u)) .
+
+By Assumptions 1 and 2, 
+
+Rn(u) = Op
+
+( X
+
+> i∈I n
+
+qi,n (u)2
+
+)1/2 = Op(K−1/2 
+
+> n
+
+).
+
+Since Kn → ∞ , Dn(u) = op(1) , hn(u) →p 0, and ωu(h) → 0 as h ↓ 0, we get 
+
+∆n(u) →p 0.
+
+It remains to transfer CDF consistency to quantile consistency. Fix ε > 0, and set 
+
+ηu(ε) := min p − Fu(ξ⋆u,p − ε), F u(ξ⋆u,p + ε) − p .
+
+By Assumption 3, ηu(ε) > 0. On the event ∆n(u) < η u(ε),
+
+bFn(ξ⋆u,p − ε | u) < p, bFn(ξ⋆u,p + ε | u) > p. 
+
+By monotonicity of bFn(· | u),
+
+ξ⋆u,p − ε < bξn,p (u) ≤ ξ⋆u,p + ε. 
+
+Thus bξn,p (u) →p ξ⋆u,p .
+
+Continuity of Fu at ξ⋆u,p gives 
+
+Fu(bξn,p (u)) →p Fu(ξ⋆u,p ) = p. 
+
+Now suppose the same quantile convergence holds under the joint conditional law given U⋆ = u. Let 
+
+Ξn := bξn,p (u), ξ := ξ⋆u,p .
+
+22 For every ε > 0,
+
+P(E⋆ ≤ Ξn | U⋆ = u) ≥ Fu(ξ − ε) − P(Ξ n < ξ − ε | U⋆ = u),
+
+and 
+
+P(E⋆ ≤ Ξn | U⋆ = u) ≤ Fu(ξ + ε) + P(Ξ n > ξ + ε | U⋆ = u).
+
+The conditional convergence Ξn →p ξ and the continuity of Fu at ξ imply 
+
+P
+
+
+
+E⋆ ≤ bξn,p (u) | U⋆ = u
+
+
+
+→ p. 
+
+For p = 1 − α,
+
+E⋆ ≤ bξn, 1−α(U⋆) ⇐⇒ Y⋆ ≤ by⋆ + bξn, 1−α(U⋆),
+
+which proves the prediction set statement. 
+
+Remark 3 (Finite mixtures of top Kn retrievers) . The same argument applies to a finite mixture once the encoders and the gate are fixed before calibration. Suppose expert m produces a weighted CDF 
+
+bFm,n (· | u) and satisfies 
+
+∆m,n (u) := sup 
+
+> r
+
+| bFm,n (r | u) − Fu(r)|.
+
+Let πm(u) ≥ 0 and PMm=1 πm(u) = 1 . Then the mixed CDF satisfies 
+
+sup 
+
+> r
+> M
+
+X
+
+> m=1
+
+πm(u) bFm,n (r | u) − Fu(r) = sup 
+
+> r
+> M
+
+X
+
+> m=1
+
+πm(u)  bFm,n (r | u) − Fu(r)
+
+≤
+
+> M
+
+X
+
+> m=1
+
+πm(u)∆ m,n (u) ≤ max  
+
+> m≤M
+
+∆m,n (u).
+
+Thus a finite gate mixture preserves the expert wise asymptotic order. 
+
+Remark 4 (Top Kn tradeoff) . The theorem gives the error decomposition 
+
+∆n(u) ≤ Rn(u) + Dn(u) + ωu(hn(u)) .
+
+The first term is stochastic error. The middle term is leakage from conditioning on the retrieved states. The last term is localization bias. For uniform top Kn weights, 
+
+qi,n (u) = 1
+
+Kn
+
+1{i ∈ SKn (u)},
+
+we have X
+
+> i∈I n
+
+qi,n (u)2 = 1
+
+Kn
+
+.
+
+For nonnegative normalized score weights on the retrieved set, for example 
+
+qi,n (u) = κ(U ⊤ 
+
+> i
+
+u)1{i ∈ SKn (u)}
+
+P  
+
+> j∈SKn (u)
+
+κ(U ⊤ 
+
+> j
+
+u) ,
+
+where κ ≥ 0 is continuous and κ(1) > 0, localization implies 
+
+U ⊤ 
+
+> i
+
+u = 1 − 12 ∥Ui − u∥22 = 1 + op(1) uniformly over i ∈ SKn (u).
+
+Thus these weights are asymptotically uniform and have the same first order stochastic rate. If, near u, the normalized learned state distribution satisfies a lower local mass bound 
+
+P(∥Ut − u∥2 ≤ h) ≥ ch dloc 
+
+for small h, and the corresponding ball counts concentrate, then Kn → ∞ and Kn/n → 0 imply 
+
+hn(u) = Op
+
+ Kn
+
+n
+
+1/d loc 
+
+!
+
+.
+
+If the CDFs are locally Hölder, 
+
+ωu(h) ≤ Lh β ,
+
+then 
+
+∆n(u) = Op K−1/2 
+
+> n
+
++
+
+ Kn
+
+n
+
+β/d loc 
+
+!
+
++ Dn(u).
+
+23 Remark 5 (Signed residuals) . Using signed residuals does not change the proof. The argument only uses the indicators 1{Ei ≤ r}, weighted CDF convergence, monotonicity, and continuity of the target CDF at the relevant quantile. With signed residuals and p = 1 − α, the resulting prediction set is a one sided upper set. A central two sided interval can be obtained by estimating both signed residual quantiles: 
+
+bCαn := 
+
+hby⋆ + bξn,α/ 2(U⋆), by⋆ + bξn, 1−α/ 2(U⋆)
+
+i
+
+.
+
+Under the same assumptions applied at both levels, with joint conditional convergence of the two estimated quantiles and continuity at both target quantiles, this interval has asymptotic conditional coverage 1 − α given U⋆ = u.
+
+Remark 6 (Conditioning) . The guarantee is conditional on the normalized retrieval state: 
+
+P
+
+
+
+Y⋆ ∈ bCαn | U⋆ = u
+
+
+
+→ 1 − α. 
+
+This conditioning is understood through the regular conditional distribution of Y⋆ given U⋆ = u. It is not automatically conditional on the unnormalized representation eZ⋆ or on the full context A⋆. To lift the guarantee, one needs an additional sufficiency condition, for example 
+
+L(E⋆ | A⋆) = L(E⋆ | U⋆).
+
+24 D Experiments and evaluation 
+
+This section provides additional experimental details and evaluation results that complement the main paper. 
+
+D.1 Benchmark statistics 
+
+Table 5: Per-dataset benchmark statistics for all configurations used in the paper. n is the chronolog-ically ordered series length fed to the pipeline, capped at 30k / 100k samples or full length. Each series is split 60/15/25 into train/calibration/test, with mean, std, min, max, and Interquantile Range (IQR) reported on the test split. Sections cover the headline Bench10 split (30k cap), the twelve datasets extending Bench10 to Bench22, and the scaled Bench10 variants at 100k and full-series. 
+
+Dataset n mean std min max IQR 
+
+Bench10 (default cap, 30k) 
+
+electricity_H 30,000 1,390.9 1,398.2 152.81 7,000 916.57 electricity_15T 30,000 335.37 333.75 14.81 1,674.1 235.09 solar_H 30,000 23.17 41.99 0.00 223.50 28.45 LOOP_SEATTLE_5T 30,000 62.45 4.357 30.46 72.19 4.467 SZ_TAXI_15T 30,000 10.94 13.21 0.00 61.73 15.11 M_DENSE_H 28,770 863.80 849.91 0.00 4,725 1,260 temperature_rain 30,000 11.31 18.00 2.10 862.60 14.20 m4_hourly 19,458 95.45 138.39 11.00 1,744.0 85.10 m4_daily 30,000 8,640.8 6,250.2 256.10 24,361.3 12,347.7 m4_weekly 3,024 5,116.6 5,327.1 317.84 28,522.0 5,945.2 
+
+Bench22 extension (additional 12 datasets beyond Bench10) 
+
+solar_10T 30,000 2.932 6.016 0.00 35.35 2.600 LOOP_SEATTLE_H 30,000 61.31 4.964 16.63 70.73 4.083 m4_monthly 25,959 7,135.9 6,537.2 240.00 52,410.6 8,603 electricity_D 23,542 33,448.7 34,480.9 0.00 198,887.3 34,982.8 SZ_TAXI_H 14,820 11.07 11.54 0.00 57.01 15.56 m4_quarterly 308 9,247.4 4,353.4 150.10 19,220 489.63 saugeenday_D 599 27.17 26.05 7.6 187 20.20 M_DENSE_D 2,670 895.11 559.24 0.00 1,951 1,166.3 us_births_D 599 10,924.3 1,306.4 7,835 12,851 2,154 saugeenday_W 159 40.72 47.45 7.97 223.26 31.51 us_births_W 111 77,022.2 3,195.4 69,577 82,962 5,014 saugeenday_M 83 32.49 31.35 9.577 116.75 23.88 
+
+Bench10 (100k cap) 
+
+electricity_H 100,000 1,362.3 1,586.6 0.00 11,617.8 1,274.8 electricity_15T 100,000 333.10 405.66 0.00 2,938 313.31 solar_H 100,000 25.14 46.12 0.00 272.15 32.15 LOOP_SEATTLE_5T 100,000 61.23 7.995 1.39 76.64 5.242 SZ_TAXI_15T 52,260 11.04 11.94 0.00 61.73 15.73 M_DENSE_H 28,770 863.80 849.91 0.00 4,725 1,260 temperature_rain 100,000 12.60 13.70 -2.10 862.60 16.43 m4_hourly 19,458 95.45 138.39 11.00 1,744 85.10 m4_daily 38,740 8,167.8 6,197.9 256.10 24,361.3 12,080.4 m4_weekly 3,024 5,116.6 5,327.1 317.84 28,522 5,945.2 
+
+Bench10 (full-series) 
+
+electricity_H 151,522 1,264.1 1,423.5 0.00 11,617.8 1,258.8 electricity_15T 151,522 312.04 363.12 0.00 2,938 298.84 solar_H 124,807 26.28 48.08 0.00 272.15 34.05 LOOP_SEATTLE_5T 309,757 59.47 8.492 1.393 76.93 7.213 SZ_TAXI_15T 52,260 11.04 11.94 0.00 61.73 15.73 M_DENSE_H 28,770 863.80 849.91 0.00 4,725 1,260 temperature_rain 101,193 12.62 13.67 -2.1 862.60 16.48 m4_hourly 19,458 95.45 138.39 11.00 1,744 85.10 m4_daily 38,740 8,167.8 6,197.9 256.10 24,361.3 12,080.4 m4_weekly 3,024 5,116.6 5,327.1 317.84 28,522 5,945.2 
+
+25 D.2 Full experiment results D.2.1 Full conformal prediction baseline results - Bench10 
+
+Table 6: CP methods at 80% target coverage on Gift-Eval Bench10 (10 datasets, 4 backbones: TiRex, TimesFM-2.5, TabPFN-TS, ARIMA). Cells show nWink (mean Winkler / std (y)) and nW (mean width / std (y)) / Cov, where std (y) is the standard deviation of the target on the eval split. ResCP, HopCPT and RareCP report mean ± std over ten seeds, other methods are deterministic. Bold marks the smallest displayed nWink per row among methods with Cov ≥ 0.70 . Each backbone block ends with an Average row over its 10 datasets. 
+
+Bench10 
+
+Uniform ACI DtACI NexCP KOWCPI HopCPT ResCP RareCP (Ours) 
+
+Dataset nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑
+
+TiRex backbone 
+
+electricity_H 0.26 0.15 / 0.80 0.23 0.13 / 0.80 0.27 0.17 / 0.78 0.22 0.12 / 0.80 0.25 0.11 / 0.78 0.24 ± 0.01 0.12 / 0.78 ± 0.01 0.26 ± 0.01 0.11 / 0.76 ± 0.06 0.20 ± 0.00 0.12 / 0.80 ± 0.00 
+
+electricity_15T 0.33 0.19 / 0.81 0.30 0.16 / 0.80 0.33 0.20 / 0.79 0.29 0.16 / 0.80 0.33 0.14 / 0.70 0.31 ± 0.01 0.17 / 0.79 ± 0.00 0.31 ± 0.01 0.14 / 0.76 ± 0.06 0.25 ± 0.00 0.15 / 0.80 ± 0.00 
+
+solar_H 0.74 0.23 / 0.79 0.74 0.25 / 0.80 0.72 0.27 / 0.79 0.74 0.25 / 0.80 0.75 0.15 / 0.64 0.54 ± 0.01 0.25 / 0.78 ± 0.01 0.52 ± 0.00 0.25 / 0.79 ± 0.00 0.46 ± 0.00 0.27 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_5T 2.24 1.40 / 0.80 2.21 1.43 / 0.80 2.19 1.44 / 0.79 2.22 1.42 / 0.80 2.27 1.46 / 0.81 2.26 ± 0.00 1.41 / 0.80 ± 0.00 2.26 ± 0.01 1.50 / 0.82 ± 0.00 2.11 ± 0.00 1.45 / 0.80 ± 0.00 
+
+SZ_TAXI_15T 1.00 0.52 / 0.78 0.85 0.52 / 0.81 1.00 0.64 / 0.79 0.85 0.50 / 0.81 1.04 0.26 / 0.61 1.03 ± 0.00 0.53 / 0.77 ± 0.00 0.91 ± 0.01 0.50 / 0.81 ± 0.01 0.90 ± 0.00 0.60 / 0.80 ± 0.00 
+
+M_DENSE_H 0.96 0.49 / 0.79 0.92 0.50 / 0.80 0.99 0.58 / 0.79 0.92 0.50 / 0.80 1.02 0.20 / 0.54 0.95 ± 0.03 0.57 / 0.83 ± 0.03 0.90 ± 0.01 0.50 / 0.79 ± 0.01 0.63 ± 0.00 0.44 / 0.80 ± 0.00 
+
+temperature_rain 0.82 0.35 / 0.79 0.85 0.39 / 0.80 0.83 0.37 / 0.79 0.81 0.35 / 0.80 0.82 0.16 / 0.44 0.83 ± 0.00 0.36 / 0.80 ± 0.01 0.74 ± 0.01 0.30 / 0.81 ± 0.00 0.83 ± 0.02 0.34 / 0.80 ± 0.00 
+
+m4_hourly 0.63 0.22 / 0.73 0.59 0.29 / 0.80 0.63 0.36 / 0.76 0.59 0.26 / 0.79 0.70 0.14 / 0.57 0.63 ± 0.00 0.24 / 0.75 ± 0.00 0.64 ± 0.02 0.19 / 0.67 ± 0.01 0.52 ± 0.00 0.31 / 0.80 ± 0.00 
+
+m4_daily 0.06 0.03 / 0.81 0.06 0.03 / 0.80 0.06 0.04 / 0.79 0.06 0.03 / 0.80 0.06 0.02 / 0.66 0.06 ± 0.01 0.03 / 0.77 ± 0.08 0.05 ± 0.00 0.03 / 0.78 ± 0.03 0.04 ± 0.00 0.03 / 0.80 ± 0.00 
+
+m4_weekly 0.14 0.06 / 0.78 0.14 0.06 / 0.79 0.14 0.06 / 0.77 0.14 0.06 / 0.79 0.15 0.06 / 0.74 0.16 ± 0.00 0.09 / 0.78 ± 0.01 0.15 ± 0.00 0.07 / 0.71 ± 0.02 0.14 ± 0.00 0.07 / 0.78 ± 0.00 
+
+Average 0.72 0.36 / 0.79 0.69 0.38 / 0.80 0.72 0.41 / 0.78 0.68 0.36 / 0.80 0.74 0.27 / 0.65 0.70 0.38 / 0.78 0.68 0.36 / 0.77 0.61 0.38 / 0.80 
+
+TimesFM-2.5 backbone 
+
+electricity_H 0.34 0.20 / 0.80 0.28 0.17 / 0.80 0.35 0.22 / 0.79 0.28 0.16 / 0.80 0.31 0.09 / 0.63 0.31 ± 0.00 0.17 / 0.78 ± 0.00 0.33 ± 0.01 0.15 / 0.80 ± 0.01 0.21 ± 0.00 0.13 / 0.80 ± 0.00 
+
+electricity_15T 0.37 0.20 / 0.81 0.34 0.17 / 0.80 0.37 0.21 / 0.79 0.33 0.17 / 0.80 0.35 0.10 / 0.65 0.36 ± 0.00 0.18 / 0.79 ± 0.00 0.35 ± 0.01 0.17 / 0.81 ± 0.02 0.25 ± 0.00 0.16 / 0.80 ± 0.00 
+
+solar_H 1.03 0.36 / 0.79 1.02 0.39 / 0.80 0.98 0.42 / 0.79 1.02 0.38 / 0.80 0.79 0.28 / 0.75 1.04 ± 0.09 0.41 / 0.80 ± 0.02 0.76 ± 0.01 0.32 / 0.78 ± 0.01 0.55 ± 0.00 0.36 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_5T 2.22 1.38 / 0.80 2.19 1.41 / 0.80 2.17 1.41 / 0.79 2.19 1.40 / 0.80 2.21 1.16 / 0.73 2.27 ± 0.14 1.38 / 0.78 ± 0.04 2.16 ± 0.01 1.40 / 0.79 ± 0.00 2.11 ± 0.00 1.47 / 0.80 ± 0.00 
+
+SZ_TAXI_15T 0.99 0.51 / 0.78 0.84 0.51 / 0.81 0.98 0.63 / 0.79 0.83 0.49 / 0.81 0.97 0.30 / 0.66 1.02 ± 0.00 0.51 / 0.76 ± 0.00 0.84 ± 0.00 0.46 / 0.80 ± 0.01 0.90 ± 0.00 0.61 / 0.80 ± 0.00 
+
+M_DENSE_H 0.97 0.49 / 0.79 0.93 0.52 / 0.80 1.00 0.57 / 0.79 0.93 0.51 / 0.80 0.99 0.30 / 0.63 0.96 ± 0.00 0.51 / 0.80 ± 0.00 0.90 ± 0.00 0.46 / 0.76 ± 0.01 0.61 ± 0.00 0.44 / 0.80 ± 0.00 
+
+temperature_rain 0.83 0.35 / 0.79 0.81 0.35 / 0.80 0.83 0.38 / 0.79 0.81 0.35 / 0.80 0.87 0.28 / 0.71 0.83 ± 0.00 0.36 / 0.79 ± 0.00 0.77 ± 0.00 0.33 / 0.81 ± 0.00 0.82 ± 0.03 0.38 / 0.80 ± 0.00 
+
+m4_hourly 0.72 0.24 / 0.72 0.67 0.33 / 0.80 0.71 0.39 / 0.76 0.67 0.29 / 0.79 0.70 0.17 / 0.58 0.72 ± 0.00 0.27 / 0.73 ± 0.00 0.68 ± 0.03 0.21 / 0.67 ± 0.01 0.57 ± 0.00 0.35 / 0.80 ± 0.00 
+
+m4_daily 0.06 0.03 / 0.81 0.06 0.03 / 0.80 0.06 0.04 / 0.79 0.06 0.03 / 0.80 0.06 0.02 / 0.67 0.07 ± 0.01 0.03 / 0.76 ± 0.08 0.06 ± 0.00 0.03 / 0.78 ± 0.01 0.04 ± 0.00 0.03 / 0.80 ± 0.00 
+
+m4_weekly 0.15 0.07 / 0.79 0.15 0.07 / 0.79 0.15 0.06 / 0.78 0.15 0.07 / 0.80 0.16 0.04 / 0.67 0.16 ± 0.02 0.08 / 0.79 ± 0.02 0.16 ± 0.01 0.05 / 0.63 ± 0.07 0.15 ± 0.00 0.09 / 0.78 ± 0.00 
+
+Average 0.77 0.38 / 0.79 0.73 0.40 / 0.80 0.76 0.43 / 0.78 0.73 0.39 / 0.80 0.74 0.28 / 0.67 0.77 0.39 / 0.78 0.70 0.36 / 0.76 0.62 0.40 / 0.80 
+
+TabPFN-TS backbone 
+
+electricity_H 0.32 0.17 / 0.80 0.27 0.15 / 0.80 0.32 0.20 / 0.79 0.27 0.14 / 0.80 0.28 0.10 / 0.68 0.30 ± 0.01 0.16 / 0.77 ± 0.00 0.30 ± 0.01 0.12 / 0.74 ± 0.04 0.23 ± 0.00 0.14 / 0.79 ± 0.00 
+
+electricity_15T 0.35 0.19 / 0.81 0.32 0.17 / 0.80 0.35 0.20 / 0.79 0.32 0.16 / 0.80 0.33 0.12 / 0.69 0.34 ± 0.01 0.17 / 0.79 ± 0.00 0.34 ± 0.00 0.14 / 0.74 ± 0.04 0.25 ± 0.00 0.16 / 0.80 ± 0.00 
+
+solar_H 1.17 0.35 / 0.80 1.16 0.39 / 0.80 1.12 0.39 / 0.79 1.16 0.39 / 0.80 0.68 0.25 / 0.74 1.12 ± 0.03 0.40 / 0.81 ± 0.05 0.66 ± 0.01 0.32 / 0.75 ± 0.02 0.51 ± 0.00 0.32 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_5T 2.27 1.43 / 0.80 2.24 1.45 / 0.80 2.24 1.48 / 0.79 2.25 1.45 / 0.80 2.23 1.27 / 0.76 2.31 ± 0.01 1.46 / 0.80 ± 0.00 2.26 ± 0.01 1.51 / 0.80 ± 0.00 2.14 ± 0.00 1.45 / 0.80 ± 0.00 
+
+SZ_TAXI_15T 1.00 0.52 / 0.79 0.86 0.51 / 0.81 1.01 0.64 / 0.79 0.85 0.50 / 0.81 0.92 0.36 / 0.71 1.01 ± 0.01 0.52 / 0.77 ± 0.01 0.86 ± 0.00 0.46 / 0.74 ± 0.01 0.93 ± 0.00 0.63 / 0.81 ± 0.00 
+
+M_DENSE_H 1.08 0.52 / 0.79 1.04 0.54 / 0.80 1.11 0.60 / 0.79 1.04 0.53 / 0.80 1.06 0.36 / 0.66 1.08 ± 0.00 0.54 / 0.80 ± 0.01 0.97 ± 0.00 0.53 / 0.75 ± 0.01 0.65 ± 0.00 0.47 / 0.80 ± 0.00 
+
+temperature_rain 0.86 0.38 / 0.79 0.84 0.39 / 0.80 0.87 0.41 / 0.79 0.84 0.38 / 0.80 0.82 0.30 / 0.74 0.86 ± 0.00 0.38 / 0.79 ± 0.01 0.77 ± 0.00 0.33 / 0.81 ± 0.00 0.75 ± 0.01 0.28 / 0.79 ± 0.00 
+
+m4_hourly 0.82 0.26 / 0.72 0.76 0.36 / 0.80 0.81 0.45 / 0.76 0.77 0.31 / 0.79 0.74 0.21 / 0.63 0.82 ± 0.00 0.29 / 0.74 ± 0.00 0.80 ± 0.04 0.22 / 0.65 ± 0.04 0.64 ± 0.00 0.38 / 0.80 ± 0.00 
+
+m4_daily 0.06 0.03 / 0.80 0.06 0.03 / 0.80 0.07 0.04 / 0.79 0.06 0.03 / 0.80 0.06 0.02 / 0.71 0.06 ± 0.01 0.03 / 0.80 ± 0.04 0.06 ± 0.00 0.03 / 0.75 ± 0.04 0.04 ± 0.00 0.03 / 0.80 ± 0.00 
+
+m4_weekly 0.16 0.06 / 0.79 0.16 0.06 / 0.79 0.16 0.06 / 0.76 0.16 0.06 / 0.80 0.16 0.05 / 0.68 0.17 ± 0.01 0.07 / 0.79 ± 0.02 0.20 ± 0.01 0.04 / 0.48 ± 0.11 0.15 ± 0.00 0.07 / 0.76 ± 0.00 
+
+Average 0.81 0.39 / 0.79 0.77 0.41 / 0.80 0.81 0.45 / 0.78 0.77 0.40 / 0.80 0.73 0.30 / 0.70 0.81 0.40 / 0.79 0.72 0.37 / 0.72 0.63 0.39 / 0.79 
+
+ARIMA backbone 
+
+electricity_H 0.56 0.34 / 0.80 0.46 0.30 / 0.80 0.57 0.38 / 0.79 0.45 0.27 / 0.80 0.45 0.18 / 0.70 0.48 ± 0.00 0.28 / 0.78 ± 0.00 0.51 ± 0.02 0.19 / 0.70 ± 0.02 0.25 ± 0.00 0.17 / 0.80 ± 0.00 
+
+electricity_15T 0.36 0.20 / 0.81 0.33 0.18 / 0.80 0.37 0.22 / 0.79 0.32 0.17 / 0.81 0.33 0.13 / 0.70 0.34 ± 0.01 0.17 / 0.79 ± 0.00 0.36 ± 0.01 0.14 / 0.74 ± 0.03 0.26 ± 0.00 0.17 / 0.80 ± 0.00 
+
+solar_H 1.25 0.58 / 0.79 1.23 0.63 / 0.80 1.27 0.64 / 0.79 1.23 0.61 / 0.80 1.01 0.38 / 0.74 1.23 ± 0.02 0.63 / 0.79 ± 0.00 0.87 ± 0.01 0.45 / 0.79 ± 0.01 0.59 ± 0.00 0.35 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_5T 2.29 1.46 / 0.80 2.25 1.48 / 0.80 2.25 1.48 / 0.79 2.27 1.48 / 0.80 2.23 1.29 / 0.75 2.34 ± 0.02 1.47 / 0.79 ± 0.00 2.30 ± 0.01 1.54 / 0.80 ± 0.00 2.16 ± 0.00 1.47 / 0.80 ± 0.00 
+
+SZ_TAXI_15T 1.02 0.53 / 0.78 0.87 0.53 / 0.80 1.00 0.65 / 0.79 0.86 0.52 / 0.81 0.94 0.38 / 0.72 1.02 ± 0.01 0.54 / 0.75 ± 0.00 0.88 ± 0.00 0.48 / 0.73 ± 0.02 0.93 ± 0.01 0.64 / 0.80 ± 0.00 
+
+M_DENSE_H 1.34 0.72 / 0.79 1.26 0.73 / 0.80 1.38 0.84 / 0.80 1.27 0.72 / 0.81 1.25 0.53 / 0.69 1.31 ± 0.00 0.72 / 0.79 ± 0.00 1.19 ± 0.01 0.68 / 0.78 ± 0.00 0.67 ± 0.00 0.47 / 0.80 ± 0.00 
+
+temperature_rain 1.01 0.36 / 0.79 0.95 0.46 / 0.80 0.99 0.37 / 0.78 0.94 0.38 / 0.80 1.03 0.29 / 0.73 1.03 ± 0.00 0.36 / 0.76 ± 0.00 0.93 ± 0.01 0.34 / 0.78 ± 0.00 1.04 ± 0.07 0.50 / 0.79 ± 0.00 
+
+m4_hourly 0.95 0.33 / 0.73 0.85 0.43 / 0.80 0.93 0.53 / 0.76 0.88 0.40 / 0.79 0.88 0.26 / 0.61 0.98 ± 0.00 0.39 / 0.75 ± 0.00 0.99 ± 0.01 0.27 / 0.65 ± 0.02 0.69 ± 0.00 0.44 / 0.80 ± 0.00 
+
+m4_daily 0.06 0.03 / 0.81 0.06 0.03 / 0.80 0.06 0.04 / 0.79 0.06 0.03 / 0.80 0.05 0.02 / 0.72 0.07 ± 0.01 0.03 / 0.76 ± 0.06 0.06 ± 0.00 0.03 / 0.75 ± 0.03 0.04 ± 0.00 0.03 / 0.80 ± 0.00 
+
+m4_weekly 0.17 0.06 / 0.77 0.17 0.07 / 0.79 0.17 0.07 / 0.78 0.17 0.07 / 0.79 0.18 0.05 / 0.64 0.17 ± 0.01 0.08 / 0.78 ± 0.02 0.20 ± 0.01 0.05 / 0.48 ± 0.10 0.16 ± 0.00 0.09 / 0.78 ± 0.00 
+
+Average 0.90 0.46 / 0.79 0.84 0.48 / 0.80 0.90 0.52 / 0.79 0.84 0.47 / 0.80 0.84 0.35 / 0.70 0.90 0.47 / 0.77 0.83 0.42 / 0.72 0.68 0.43 / 0.80 26 D.2.2 Full conformal prediction baseline results - Bench22 
+
+Table 7: CP methods at 80% target coverage on Gift-Eval Bench22 (22 datasets, 4 backbones: TiRex, TimesFM-2.5, TabPFN-TS, ARIMA). Cells show nWink (mean Winkler / std (y)) and nW (mean width / std (y)) / Cov, where std (y) is the standard deviation of the target on the eval split. ResCP, HopCPT and RareCP report mean ± std over ten seeds, other methods are deterministic. Bold marks the smallest displayed nWink per row among methods with Cov ≥ 0.70 . Each backbone block ends with an Average row over its 22 datasets. 
+
+Bench22 
+
+Uniform ACI DtACI NexCP KOWCPI HopCPT ResCP RareCP (Ours) 
+
+Dataset nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑
+
+TiRex backbone 
+
+electricity_H 0.26 0.15 / 0.80 0.23 0.13 / 0.80 0.27 0.17 / 0.78 0.22 0.12 / 0.80 0.25 0.11 / 0.78 0.24 ± 0.01 0.12 / 0.78 ± 0.00 0.26 ± 0.01 0.11 / 0.76 ± 0.06 0.21 ± 0.00 0.13 / 0.80 ± 0.00 
+
+electricity_15T 0.33 0.19 / 0.81 0.30 0.16 / 0.80 0.33 0.20 / 0.79 0.29 0.16 / 0.80 0.33 0.14 / 0.70 0.31 ± 0.01 0.16 / 0.79 ± 0.00 0.31 ± 0.01 0.14 / 0.76 ± 0.06 0.25 ± 0.00 0.17 / 0.80 ± 0.00 
+
+solar_H 0.74 0.23 / 0.79 0.74 0.25 / 0.80 0.72 0.27 / 0.79 0.74 0.25 / 0.80 0.75 0.15 / 0.64 0.54 ± 0.01 0.25 / 0.78 ± 0.01 0.52 ± 0.00 0.25 / 0.79 ± 0.00 0.48 ± 0.00 0.29 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_5T 2.24 1.40 / 0.80 2.21 1.43 / 0.80 2.19 1.44 / 0.79 2.22 1.42 / 0.80 2.27 1.46 / 0.81 2.26 ± 0.00 1.41 / 0.80 ± 0.00 2.26 ± 0.01 1.50 / 0.82 ± 0.00 2.16 ± 0.01 1.50 / 0.80 ± 0.00 
+
+SZ_TAXI_15T 1.00 0.52 / 0.78 0.85 0.52 / 0.81 1.00 0.64 / 0.79 0.85 0.50 / 0.81 1.04 0.26 / 0.61 1.03 ± 0.00 0.53 / 0.77 ± 0.00 0.91 ± 0.01 0.50 / 0.81 ± 0.01 0.93 ± 0.00 0.63 / 0.80 ± 0.00 
+
+M_DENSE_H 0.96 0.49 / 0.79 0.92 0.50 / 0.80 0.99 0.58 / 0.79 0.92 0.50 / 0.80 1.02 0.20 / 0.54 0.94 ± 0.04 0.57 / 0.83 ± 0.03 0.90 ± 0.01 0.50 / 0.79 ± 0.01 0.63 ± 0.00 0.46 / 0.80 ± 0.00 
+
+temperature_rain 0.82 0.35 / 0.79 0.85 0.39 / 0.80 0.83 0.37 / 0.79 0.81 0.35 / 0.80 0.82 0.16 / 0.44 0.83 ± 0.00 0.36 / 0.80 ± 0.01 0.74 ± 0.01 0.30 / 0.81 ± 0.00 0.80 ± 0.06 0.36 / 0.79 ± 0.00 
+
+m4_hourly 0.63 0.22 / 0.73 0.59 0.29 / 0.80 0.63 0.36 / 0.76 0.59 0.26 / 0.79 0.70 0.14 / 0.57 0.63 ± 0.00 0.24 / 0.75 ± 0.00 0.64 ± 0.02 0.19 / 0.67 ± 0.01 0.56 ± 0.00 0.35 / 0.79 ± 0.00 
+
+m4_daily 0.06 0.03 / 0.81 0.06 0.03 / 0.80 0.06 0.04 / 0.79 0.06 0.03 / 0.80 0.06 0.02 / 0.66 0.06 ± 0.00 0.03 / 0.80 ± 0.01 0.05 ± 0.00 0.03 / 0.78 ± 0.03 0.04 ± 0.00 0.03 / 0.80 ± 0.00 
+
+m4_weekly 0.14 0.06 / 0.78 0.14 0.06 / 0.79 0.14 0.06 / 0.77 0.14 0.06 / 0.79 0.15 0.06 / 0.74 0.16 ± 0.00 0.09 / 0.78 ± 0.02 0.15 ± 0.00 0.07 / 0.71 ± 0.02 0.14 ± 0.00 0.08 / 0.78 ± 0.00 
+
+solar_10T 0.48 0.11 / 0.80 0.47 0.13 / 0.80 0.48 0.15 / 0.79 0.47 0.14 / 0.81 0.44 0.06 / 0.68 0.48 ± 0.16 0.19 / 0.76 ± 0.06 0.33 ± 0.01 0.11 / 0.76 ± 0.04 0.36 ± 0.00 0.17 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_H 1.62 0.82 / 0.79 1.59 0.85 / 0.80 1.64 0.92 / 0.79 1.59 0.83 / 0.80 1.69 0.72 / 0.70 1.64 ± 0.00 0.85 / 0.80 ± 0.01 1.49 ± 0.01 0.94 / 0.82 ± 0.00 1.25 ± 0.00 0.90 / 0.80 ± 0.00 
+
+m4_monthly 0.18 0.06 / 0.81 0.16 0.06 / 0.80 0.17 0.07 / 0.78 0.16 0.06 / 0.80 0.17 0.04 / 0.65 0.18 ± 0.01 0.06 / 0.77 ± 0.02 0.15 ± 0.01 0.07 / 0.81 ± 0.05 0.13 ± 0.00 0.08 / 0.79 ± 0.00 
+
+electricity_D 0.24 0.08 / 0.77 0.21 0.10 / 0.80 0.25 0.13 / 0.78 0.21 0.09 / 0.80 0.23 0.05 / 0.58 0.26 ± 0.00 0.09 / 0.76 ± 0.00 0.22 ± 0.01 0.06 / 0.70 ± 0.02 0.17 ± 0.00 0.11 / 0.80 ± 0.00 
+
+SZ_TAXI_H 0.84 0.43 / 0.77 0.78 0.48 / 0.80 0.81 0.47 / 0.78 0.78 0.46 / 0.80 0.86 0.37 / 0.68 0.86 ± 0.03 0.51 / 0.78 ± 0.03 0.82 ± 0.00 0.47 / 0.79 ± 0.01 0.83 ± 0.00 0.57 / 0.80 ± 0.00 
+
+m4_quarterly 0.14 0.10 / 0.91 0.13 0.08 / 0.91 0.13 0.08 / 0.91 0.13 0.08 / 0.91 0.12 0.06 / 0.90 0.18 ± 0.09 0.17 / 0.97 ± 0.01 0.14 ± 0.01 0.03 / 0.55 ± 0.15 0.09 ± 0.00 0.05 / 0.71 ± 0.01 
+
+saugeenday_D 0.93 0.20 / 0.71 0.90 0.22 / 0.72 0.93 0.19 / 0.72 0.92 0.19 / 0.70 0.92 0.18 / 0.67 0.95 ± 0.05 0.17 / 0.65 ± 0.04 0.90 ± 0.02 0.13 / 0.43 ± 0.03 1.07 ± 0.02 0.41 / 0.69 ± 0.01 
+
+M_DENSE_D 0.86 0.17 / 0.58 0.78 0.34 / 0.80 0.80 0.22 / 0.67 0.78 0.29 / 0.76 0.73 0.12 / 0.36 0.89 ± 0.00 0.19 / 0.56 ± 0.00 0.64 ± 0.02 0.24 / 0.57 ± 0.02 0.49 ± 0.01 0.33 / 0.80 ± 0.00 
+
+us_births_D 1.35 0.56 / 0.71 1.33 0.63 / 0.74 1.34 0.58 / 0.72 1.34 0.60 / 0.74 1.57 0.55 / 0.64 1.44 ± 0.01 0.55 / 0.65 ± 0.00 1.80 ± 0.02 0.45 / 0.51 ± 0.01 1.61 ± 0.03 0.95 / 0.74 ± 0.00 
+
+saugeenday_W 3.29 0.81 / 0.80 3.34 0.96 / 0.83 3.28 0.92 / 0.83 3.37 0.89 / 0.80 3.84 1.30 / 0.71 3.25 ± 0.01 0.34 / 0.59 ± 0.03 4.31 ± 0.18 0.75 / 0.38 ± 0.06 3.05 ± 0.07 0.91 / 0.59 ± 0.02 
+
+us_births_W 2.51 1.02 / 0.66 2.45 1.16 / 0.69 2.52 1.14 / 0.66 2.51 1.06 / 0.66 2.40 1.33 / 0.72 2.68 ± 0.00 0.76 / 0.55 ± 0.00 4.20 ± 0.31 0.63 / 0.34 ± 0.02 2.98 ± 0.04 1.40 / 0.62 ± 0.02 
+
+saugeenday_M 4.41 2.57 / 0.82 4.28 2.78 / 0.82 4.45 2.95 / 0.82 4.24 2.74 / 0.82 4.03 2.30 / 0.82 4.98 ± 2.84 2.45 / 0.76 ± 0.27 7.14 ± 0.45 0.22 / 0.12 ± 0.05 4.08 ± 0.34 0.70 / 0.42 ± 0.02 
+
+Average 1.09 0.48 / 0.77 1.06 0.53 / 0.80 1.09 0.54 / 0.78 1.06 0.50 / 0.79 1.11 0.44 / 0.66 1.13 0.46 / 0.75 1.31 0.35 / 0.66 1.01 0.48 / 0.75 
+
+TimesFM-2.5 backbone 
+
+electricity_H 0.34 0.20 / 0.80 0.28 0.17 / 0.80 0.35 0.22 / 0.79 0.28 0.16 / 0.80 0.31 0.09 / 0.63 0.31 ± 0.00 0.18 / 0.79 ± 0.00 0.33 ± 0.01 0.15 / 0.80 ± 0.01 0.22 ± 0.00 0.14 / 0.80 ± 0.00 
+
+electricity_15T 0.37 0.20 / 0.81 0.34 0.17 / 0.80 0.37 0.21 / 0.79 0.33 0.17 / 0.80 0.35 0.10 / 0.65 0.36 ± 0.00 0.18 / 0.79 ± 0.00 0.35 ± 0.01 0.17 / 0.81 ± 0.02 0.25 ± 0.00 0.17 / 0.80 ± 0.00 
+
+solar_H 1.03 0.36 / 0.79 1.02 0.39 / 0.80 0.98 0.42 / 0.79 1.02 0.38 / 0.80 0.79 0.28 / 0.75 0.98 ± 0.07 0.41 / 0.81 ± 0.03 0.76 ± 0.01 0.32 / 0.78 ± 0.01 0.57 ± 0.00 0.38 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_5T 2.22 1.38 / 0.80 2.19 1.41 / 0.80 2.17 1.41 / 0.79 2.19 1.40 / 0.80 2.21 1.16 / 0.73 2.25 ± 0.09 1.39 / 0.79 ± 0.03 2.16 ± 0.01 1.40 / 0.79 ± 0.00 2.14 ± 0.01 1.51 / 0.80 ± 0.00 
+
+SZ_TAXI_15T 0.99 0.51 / 0.78 0.84 0.51 / 0.81 0.98 0.63 / 0.79 0.83 0.49 / 0.81 0.97 0.30 / 0.66 1.02 ± 0.00 0.51 / 0.76 ± 0.00 0.84 ± 0.00 0.46 / 0.80 ± 0.01 0.95 ± 0.01 0.65 / 0.80 ± 0.00 
+
+M_DENSE_H 0.97 0.49 / 0.79 0.93 0.52 / 0.80 1.00 0.57 / 0.79 0.93 0.51 / 0.80 0.99 0.30 / 0.63 0.96 ± 0.00 0.51 / 0.80 ± 0.00 0.90 ± 0.00 0.46 / 0.76 ± 0.01 0.62 ± 0.00 0.46 / 0.80 ± 0.00 
+
+temperature_rain 0.83 0.35 / 0.79 0.81 0.35 / 0.80 0.83 0.38 / 0.79 0.81 0.35 / 0.80 0.87 0.28 / 0.71 0.83 ± 0.00 0.36 / 0.79 ± 0.01 0.77 ± 0.00 0.33 / 0.81 ± 0.00 0.90 ± 0.03 0.45 / 0.79 ± 0.00 
+
+m4_hourly 0.72 0.24 / 0.72 0.67 0.33 / 0.80 0.71 0.39 / 0.76 0.67 0.29 / 0.79 0.70 0.17 / 0.58 0.72 ± 0.00 0.27 / 0.73 ± 0.00 0.68 ± 0.03 0.21 / 0.67 ± 0.01 0.59 ± 0.00 0.38 / 0.79 ± 0.00 
+
+m4_daily 0.06 0.03 / 0.81 0.06 0.03 / 0.80 0.06 0.04 / 0.79 0.06 0.03 / 0.80 0.06 0.02 / 0.67 0.06 ± 0.01 0.03 / 0.79 ± 0.02 0.06 ± 0.00 0.03 / 0.78 ± 0.01 0.04 ± 0.00 0.03 / 0.80 ± 0.00 
+
+m4_weekly 0.15 0.07 / 0.79 0.15 0.07 / 0.79 0.15 0.06 / 0.78 0.15 0.07 / 0.80 0.16 0.04 / 0.67 0.15 ± 0.00 0.07 / 0.79 ± 0.01 0.16 ± 0.01 0.05 / 0.63 ± 0.07 0.15 ± 0.00 0.09 / 0.77 ± 0.00 
+
+solar_10T 0.50 0.13 / 0.80 0.49 0.15 / 0.80 0.47 0.14 / 0.79 0.49 0.16 / 0.81 0.36 0.09 / 0.64 0.50 ± 0.02 0.15 / 0.80 ± 0.02 0.38 ± 0.02 0.11 / 0.80 ± 0.02 0.36 ± 0.00 0.17 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_H 1.59 0.83 / 0.80 1.56 0.86 / 0.80 1.64 0.95 / 0.79 1.56 0.85 / 0.80 1.51 0.72 / 0.75 1.60 ± 0.00 0.85 / 0.80 ± 0.00 1.46 ± 0.01 0.82 / 0.79 ± 0.01 1.22 ± 0.00 0.88 / 0.80 ± 0.00 
+
+m4_monthly 0.18 0.06 / 0.81 0.16 0.06 / 0.80 0.17 0.07 / 0.78 0.16 0.06 / 0.80 0.15 0.04 / 0.67 0.18 ± 0.01 0.06 / 0.78 ± 0.02 0.14 ± 0.00 0.05 / 0.79 ± 0.01 0.13 ± 0.00 0.08 / 0.79 ± 0.00 
+
+electricity_D 0.24 0.08 / 0.77 0.20 0.10 / 0.80 0.24 0.11 / 0.78 0.21 0.09 / 0.80 0.20 0.05 / 0.59 0.26 ± 0.00 0.09 / 0.76 ± 0.00 0.22 ± 0.01 0.07 / 0.76 ± 0.01 0.18 ± 0.00 0.11 / 0.80 ± 0.00 
+
+SZ_TAXI_H 0.84 0.44 / 0.77 0.78 0.49 / 0.80 0.81 0.47 / 0.77 0.78 0.47 / 0.80 0.89 0.28 / 0.61 0.86 ± 0.06 0.46 / 0.75 ± 0.05 0.79 ± 0.00 0.42 / 0.75 ± 0.01 0.83 ± 0.01 0.56 / 0.80 ± 0.00 
+
+m4_quarterly 0.12 0.07 / 0.90 0.11 0.06 / 0.90 0.12 0.07 / 0.88 0.11 0.06 / 0.90 0.13 0.03 / 0.62 0.17 ± 0.02 0.16 / 0.97 ± 0.01 0.10 ± 0.01 0.03 / 0.51 ± 0.07 0.08 ± 0.00 0.03 / 0.68 ± 0.01 
+
+saugeenday_D 1.03 0.19 / 0.70 0.99 0.23 / 0.73 1.02 0.19 / 0.70 1.01 0.19 / 0.70 0.85 0.17 / 0.51 1.10 ± 0.01 0.17 / 0.63 ± 0.01 0.91 ± 0.04 0.19 / 0.50 ± 0.05 1.06 ± 0.02 0.40 / 0.69 ± 0.00 
+
+M_DENSE_D 0.82 0.16 / 0.58 0.73 0.31 / 0.80 0.75 0.22 / 0.66 0.73 0.28 / 0.78 0.70 0.19 / 0.61 0.86 ± 0.01 0.17 / 0.55 ± 0.01 0.72 ± 0.02 0.24 / 0.64 ± 0.05 0.49 ± 0.01 0.34 / 0.79 ± 0.00 
+
+us_births_D 1.17 0.53 / 0.76 1.18 0.53 / 0.77 1.18 0.52 / 0.77 1.17 0.54 / 0.77 1.37 0.38 / 0.58 1.20 ± 0.00 0.46 / 0.71 ± 0.00 1.33 ± 0.03 0.36 / 0.55 ± 0.02 1.61 ± 0.05 0.85 / 0.70 ± 0.01 
+
+saugeenday_W 2.87 0.60 / 0.76 2.87 0.91 / 0.76 2.79 0.82 / 0.76 2.89 0.73 / 0.76 4.90 0.75 / 0.32 2.79 ± 0.00 0.32 / 0.63 ± 0.00 4.40 ± 0.10 0.63 / 0.34 ± 0.01 3.22 ± 0.10 0.75 / 0.54 ± 0.02 
+
+us_births_W 2.60 0.98 / 0.59 2.59 1.18 / 0.66 2.64 1.10 / 0.66 2.58 1.04 / 0.62 6.24 0.28 / 0.10 2.83 ± 0.00 0.72 / 0.52 ± 0.00 3.85 ± 0.12 0.72 / 0.41 ± 0.00 3.07 ± 0.06 1.27 / 0.68 ± 0.01 
+
+saugeenday_M 4.04 2.12 / 0.82 3.93 2.38 / 0.82 4.12 2.58 / 0.82 3.89 2.34 / 0.82 5.40 0.59 / 0.14 3.33 ± 0.00 1.41 / 0.82 ± 0.00 6.13 ± 0.23 0.52 / 0.23 ± 0.00 3.37 ± 0.08 0.74 / 0.41 ± 0.04 
+
+Average 1.08 0.46 / 0.77 1.04 0.51 / 0.79 1.07 0.53 / 0.77 1.04 0.48 / 0.79 1.37 0.29 / 0.58 1.06 0.41 / 0.75 1.25 0.35 / 0.67 1.00 0.47 / 0.75 
+
+TabPFN-TS backbone 
+
+electricity_H 0.32 0.17 / 0.80 0.27 0.15 / 0.80 0.32 0.20 / 0.79 0.27 0.14 / 0.80 0.28 0.10 / 0.68 0.30 ± 0.01 0.16 / 0.77 ± 0.00 0.30 ± 0.01 0.12 / 0.74 ± 0.04 0.23 ± 0.00 0.15 / 0.80 ± 0.00 
+
+electricity_15T 0.35 0.19 / 0.81 0.32 0.17 / 0.80 0.35 0.20 / 0.79 0.32 0.16 / 0.80 0.33 0.12 / 0.69 0.34 ± 0.00 0.17 / 0.79 ± 0.00 0.34 ± 0.00 0.14 / 0.74 ± 0.04 0.25 ± 0.00 0.17 / 0.80 ± 0.00 
+
+solar_H 1.17 0.35 / 0.80 1.16 0.39 / 0.80 1.12 0.39 / 0.79 1.16 0.39 / 0.80 0.68 0.25 / 0.74 1.13 ± 0.04 0.24 / 0.76 ± 0.05 0.66 ± 0.01 0.32 / 0.75 ± 0.02 0.52 ± 0.00 0.33 / 0.79 ± 0.00 
+
+LOOP_SEATTLE_5T 2.27 1.43 / 0.80 2.24 1.45 / 0.80 2.24 1.48 / 0.79 2.25 1.45 / 0.80 2.23 1.27 / 0.76 2.31 ± 0.00 1.46 / 0.80 ± 0.00 2.26 ± 0.01 1.51 / 0.80 ± 0.00 2.16 ± 0.01 1.49 / 0.80 ± 0.00 
+
+SZ_TAXI_15T 1.00 0.52 / 0.79 0.86 0.51 / 0.81 1.01 0.64 / 0.79 0.85 0.50 / 0.81 0.92 0.36 / 0.71 1.01 ± 0.02 0.52 / 0.77 ± 0.01 0.86 ± 0.00 0.46 / 0.74 ± 0.01 0.95 ± 0.00 0.65 / 0.80 ± 0.00 
+
+M_DENSE_H 1.08 0.52 / 0.79 1.04 0.54 / 0.80 1.11 0.60 / 0.79 1.04 0.53 / 0.80 1.06 0.36 / 0.66 1.08 ± 0.00 0.54 / 0.80 ± 0.00 0.97 ± 0.00 0.53 / 0.75 ± 0.01 0.67 ± 0.00 0.48 / 0.80 ± 0.00 
+
+temperature_rain 0.86 0.38 / 0.79 0.84 0.39 / 0.80 0.87 0.41 / 0.79 0.84 0.38 / 0.80 0.82 0.30 / 0.74 0.86 ± 0.00 0.38 / 0.78 ± 0.01 0.77 ± 0.00 0.33 / 0.81 ± 0.00 0.77 ± 0.03 0.33 / 0.79 ± 0.00 
+
+m4_hourly 0.82 0.26 / 0.72 0.76 0.36 / 0.80 0.81 0.45 / 0.76 0.77 0.31 / 0.79 0.74 0.21 / 0.63 0.82 ± 0.00 0.29 / 0.74 ± 0.00 0.80 ± 0.04 0.22 / 0.65 ± 0.04 0.64 ± 0.00 0.42 / 0.79 ± 0.00 
+
+m4_daily 0.06 0.03 / 0.80 0.06 0.03 / 0.80 0.07 0.04 / 0.79 0.06 0.03 / 0.80 0.06 0.02 / 0.71 0.06 ± 0.00 0.03 / 0.80 ± 0.06 0.06 ± 0.00 0.03 / 0.75 ± 0.04 0.04 ± 0.00 0.03 / 0.80 ± 0.00 
+
+m4_weekly 0.16 0.06 / 0.79 0.16 0.06 / 0.79 0.16 0.06 / 0.76 0.16 0.06 / 0.80 0.16 0.05 / 0.68 0.17 ± 0.02 0.08 / 0.79 ± 0.03 0.20 ± 0.01 0.04 / 0.48 ± 0.11 0.15 ± 0.00 0.08 / 0.77 ± 0.00 
+
+solar_10T 0.87 0.15 / 0.80 0.85 0.14 / 0.80 0.84 0.14 / 0.80 0.85 0.19 / 0.83 0.36 0.15 / 0.71 0.93 ± 0.10 0.44 / 0.82 ± 0.09 0.40 ± 0.01 0.15 / 0.76 ± 0.02 0.36 ± 0.00 0.17 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_H 1.68 0.87 / 0.80 1.64 0.92 / 0.80 1.70 0.99 / 0.79 1.64 0.90 / 0.80 1.57 0.77 / 0.75 1.72 ± 0.00 0.89 / 0.79 ± 0.00 1.52 ± 0.01 0.90 / 0.78 ± 0.00 1.29 ± 0.00 0.93 / 0.80 ± 0.00 
+
+m4_monthly 0.18 0.06 / 0.81 0.16 0.06 / 0.80 0.17 0.07 / 0.78 0.16 0.06 / 0.79 0.14 0.04 / 0.70 0.19 ± 0.00 0.06 / 0.77 ± 0.01 0.14 ± 0.00 0.05 / 0.71 ± 0.04 0.13 ± 0.00 0.08 / 0.80 ± 0.00 
+
+electricity_D 0.25 0.08 / 0.77 0.21 0.11 / 0.80 0.26 0.13 / 0.78 0.22 0.10 / 0.80 0.21 0.06 / 0.65 0.27 ± 0.00 0.10 / 0.77 ± 0.00 0.24 ± 0.01 0.07 / 0.71 ± 0.04 0.18 ± 0.00 0.11 / 0.80 ± 0.00 
+
+SZ_TAXI_H 0.86 0.45 / 0.77 0.80 0.50 / 0.80 0.84 0.49 / 0.77 0.80 0.49 / 0.80 0.85 0.35 / 0.68 0.85 ± 0.00 0.45 / 0.75 ± 0.01 0.82 ± 0.00 0.45 / 0.74 ± 0.01 0.84 ± 0.00 0.56 / 0.79 ± 0.00 
+
+m4_quarterly 0.14 0.11 / 0.90 0.14 0.09 / 0.90 0.14 0.08 / 0.90 0.14 0.10 / 0.90 0.15 0.04 / 0.62 0.15 ± 0.00 0.13 / 0.93 ± 0.01 0.15 ± 0.02 0.02 / 0.26 ± 0.18 0.08 ± 0.00 0.04 / 0.70 ± 0.01 
+
+saugeenday_D 1.21 0.21 / 0.66 1.15 0.25 / 0.72 1.20 0.22 / 0.68 1.19 0.21 / 0.66 1.00 0.17 / 0.50 1.27 ± 0.01 0.20 / 0.62 ± 0.05 1.23 ± 0.06 0.13 / 0.28 ± 0.14 1.23 ± 0.01 0.41 / 0.64 ± 0.01 
+
+M_DENSE_D 0.90 0.15 / 0.56 0.82 0.33 / 0.80 0.84 0.23 / 0.65 0.83 0.28 / 0.76 0.75 0.21 / 0.61 0.93 ± 0.00 0.18 / 0.56 ± 0.00 0.77 ± 0.02 0.20 / 0.47 ± 0.06 0.50 ± 0.01 0.35 / 0.79 ± 0.00 
+
+us_births_D 1.30 0.54 / 0.74 1.29 0.55 / 0.75 1.30 0.54 / 0.75 1.29 0.55 / 0.75 1.42 0.37 / 0.50 1.48 ± 0.00 0.44 / 0.58 ± 0.00 1.39 ± 0.04 0.37 / 0.49 ± 0.01 1.79 ± 0.03 0.69 / 0.58 ± 0.01 
+
+saugeenday_W 3.16 0.72 / 0.78 3.23 0.86 / 0.78 3.08 0.85 / 0.78 3.17 0.80 / 0.78 4.17 0.50 / 0.34 3.13 ± 0.03 0.56 / 0.77 ± 0.05 5.02 ± 0.04 0.36 / 0.20 ± 0.03 4.05 ± 0.03 0.62 / 0.50 ± 0.01 
+
+us_births_W 2.86 1.05 / 0.62 2.75 1.19 / 0.66 2.77 1.17 / 0.66 2.84 1.11 / 0.66 5.01 0.61 / 0.34 3.21 ± 0.00 0.79 / 0.52 ± 0.00 4.60 ± 0.22 0.51 / 0.29 ± 0.03 3.38 ± 0.10 1.45 / 0.49 ± 0.03 
+
+saugeenday_M 3.37 2.16 / 0.82 3.20 2.32 / 0.82 3.23 2.35 / 0.82 3.19 2.31 / 0.82 5.87 0.88 / 0.50 2.99 ± 0.08 2.19 / 0.87 ± 0.05 6.06 ± 0.42 0.35 / 0.18 ± 0.02 4.69 ± 0.60 0.47 / 0.25 ± 0.05 
+
+Average 1.13 0.48 / 0.77 1.09 0.52 / 0.79 1.11 0.53 / 0.77 1.09 0.50 / 0.79 1.31 0.33 / 0.63 1.15 0.47 / 0.75 1.34 0.33 / 0.60 1.13 0.45 / 0.72 
+
+ARIMA backbone 
+
+electricity_H 0.56 0.34 / 0.80 0.46 0.30 / 0.80 0.57 0.38 / 0.79 0.45 0.27 / 0.80 0.45 0.18 / 0.70 0.48 ± 0.01 0.28 / 0.78 ± 0.00 0.51 ± 0.02 0.19 / 0.70 ± 0.02 0.23 ± 0.00 0.16 / 0.80 ± 0.00 
+
+electricity_15T 0.36 0.20 / 0.81 0.33 0.18 / 0.80 0.37 0.22 / 0.79 0.32 0.17 / 0.81 0.33 0.13 / 0.70 0.34 ± 0.01 0.18 / 0.79 ± 0.00 0.36 ± 0.01 0.14 / 0.74 ± 0.03 0.26 ± 0.00 0.17 / 0.80 ± 0.00 
+
+solar_H 1.25 0.58 / 0.79 1.23 0.63 / 0.80 1.27 0.64 / 0.79 1.23 0.61 / 0.80 1.01 0.38 / 0.74 1.22 ± 0.02 0.65 / 0.79 ± 0.00 0.87 ± 0.01 0.45 / 0.79 ± 0.01 0.62 ± 0.00 0.40 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_5T 2.29 1.46 / 0.80 2.25 1.48 / 0.80 2.25 1.48 / 0.79 2.27 1.48 / 0.80 2.23 1.29 / 0.75 2.34 ± 0.01 1.47 / 0.79 ± 0.00 2.30 ± 0.01 1.54 / 0.80 ± 0.00 2.18 ± 0.01 1.52 / 0.80 ± 0.00 
+
+SZ_TAXI_15T 1.02 0.53 / 0.78 0.87 0.53 / 0.80 1.00 0.65 / 0.79 0.86 0.52 / 0.81 0.94 0.38 / 0.72 1.02 ± 0.00 0.54 / 0.75 ± 0.00 0.88 ± 0.00 0.48 / 0.73 ± 0.02 0.94 ± 0.01 0.66 / 0.80 ± 0.00 
+
+M_DENSE_H 1.34 0.72 / 0.79 1.26 0.73 / 0.80 1.38 0.84 / 0.80 1.27 0.72 / 0.81 1.25 0.53 / 0.69 1.31 ± 0.01 0.72 / 0.78 ± 0.00 1.19 ± 0.01 0.68 / 0.78 ± 0.00 0.68 ± 0.00 0.49 / 0.80 ± 0.00 
+
+temperature_rain 1.01 0.36 / 0.79 0.95 0.46 / 0.80 0.99 0.37 / 0.78 0.94 0.38 / 0.80 1.03 0.29 / 0.73 1.03 ± 0.00 0.35 / 0.75 ± 0.01 0.93 ± 0.01 0.34 / 0.78 ± 0.00 1.07 ± 0.05 0.48 / 0.79 ± 0.00 
+
+m4_hourly 0.95 0.33 / 0.73 0.85 0.43 / 0.80 0.93 0.53 / 0.76 0.88 0.40 / 0.79 0.88 0.26 / 0.61 0.98 ± 0.00 0.39 / 0.75 ± 0.00 0.99 ± 0.01 0.27 / 0.65 ± 0.02 0.67 ± 0.01 0.44 / 0.80 ± 0.00 
+
+m4_daily 0.06 0.03 / 0.81 0.06 0.03 / 0.80 0.06 0.04 / 0.79 0.06 0.03 / 0.80 0.05 0.02 / 0.72 0.06 ± 0.01 0.03 / 0.76 ± 0.06 0.06 ± 0.00 0.03 / 0.75 ± 0.03 0.04 ± 0.00 0.03 / 0.80 ± 0.00 
+
+m4_weekly 0.17 0.06 / 0.77 0.17 0.07 / 0.79 0.17 0.07 / 0.78 0.17 0.07 / 0.79 0.18 0.05 / 0.64 0.17 ± 0.01 0.08 / 0.79 ± 0.02 0.20 ± 0.01 0.05 / 0.48 ± 0.10 0.15 ± 0.00 0.09 / 0.78 ± 0.00 
+
+solar_10T 0.52 0.13 / 0.79 0.50 0.15 / 0.80 0.43 0.14 / 0.79 0.51 0.17 / 0.81 0.36 0.11 / 0.72 0.55 ± 0.00 0.16 / 0.78 ± 0.02 0.38 ± 0.01 0.12 / 0.73 ± 0.02 0.38 ± 0.00 0.15 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_H 1.95 0.98 / 0.79 1.90 1.00 / 0.80 1.94 1.09 / 0.79 1.90 1.00 / 0.80 1.74 0.88 / 0.75 1.98 ± 0.00 0.97 / 0.78 ± 0.00 1.77 ± 0.01 1.07 / 0.80 ± 0.00 1.33 ± 0.00 0.94 / 0.80 ± 0.00 
+
+m4_monthly 0.21 0.06 / 0.81 0.19 0.07 / 0.80 0.20 0.08 / 0.78 0.19 0.07 / 0.79 0.17 0.05 / 0.70 0.22 ± 0.02 0.07 / 0.76 ± 0.02 0.17 ± 0.00 0.06 / 0.67 ± 0.04 0.14 ± 0.00 0.09 / 0.80 ± 0.00 
+
+electricity_D 0.26 0.09 / 0.77 0.22 0.11 / 0.80 0.27 0.14 / 0.78 0.23 0.10 / 0.80 0.21 0.07 / 0.66 0.28 ± 0.00 0.10 / 0.76 ± 0.00 0.26 ± 0.00 0.07 / 0.72 ± 0.02 0.20 ± 0.00 0.12 / 0.80 ± 0.00 
+
+SZ_TAXI_H 0.88 0.46 / 0.77 0.81 0.52 / 0.80 0.85 0.51 / 0.77 0.82 0.50 / 0.80 0.85 0.37 / 0.68 0.89 ± 0.01 0.52 / 0.78 ± 0.00 0.85 ± 0.00 0.47 / 0.73 ± 0.01 0.81 ± 0.00 0.54 / 0.80 ± 0.00 
+
+m4_quarterly 0.15 0.09 / 0.90 0.14 0.07 / 0.90 0.14 0.06 / 0.88 0.14 0.07 / 0.90 0.18 0.03 / 0.49 0.21 ± 0.02 0.20 / 0.97 ± 0.01 0.16 ± 0.02 0.02 / 0.21 ± 0.17 0.09 ± 0.00 0.04 / 0.61 ± 0.01 
+
+saugeenday_D 1.17 0.26 / 0.77 1.12 0.25 / 0.74 1.12 0.23 / 0.72 1.14 0.23 / 0.72 1.26 0.15 / 0.42 1.21 ± 0.05 0.41 / 0.76 ± 0.03 1.38 ± 0.13 0.17 / 0.27 ± 0.16 1.15 ± 0.03 0.43 / 0.63 ± 0.01 
+
+M_DENSE_D 1.41 0.34 / 0.54 1.08 0.72 / 0.81 1.19 0.47 / 0.64 1.10 0.65 / 0.76 1.04 0.41 / 0.69 1.39 ± 0.04 0.48 / 0.58 ± 0.02 0.97 ± 0.03 0.44 / 0.59 ± 0.05 0.58 ± 0.01 0.40 / 0.80 ± 0.00 
+
+us_births_D 2.92 2.01 / 0.79 2.93 1.99 / 0.79 2.93 2.00 / 0.78 2.91 2.05 / 0.79 2.93 1.07 / 0.49 3.33 ± 0.04 1.72 / 0.68 ± 0.01 3.61 ± 0.05 1.53 / 0.58 ± 0.01 2.16 ± 0.07 1.38 / 0.72 ± 0.01 
+
+saugeenday_W 3.56 1.02 / 0.78 3.57 1.13 / 0.83 3.53 1.05 / 0.80 3.56 1.11 / 0.80 5.10 0.39 / 0.29 3.70 ± 0.00 0.35 / 0.51 ± 0.00 4.40 ± 0.03 0.58 / 0.16 ± 0.01 3.79 ± 0.16 0.74 / 0.45 ± 0.02 
+
+us_births_W 3.01 1.09 / 0.62 2.88 1.22 / 0.62 2.86 1.20 / 0.62 2.89 1.15 / 0.62 6.28 0.51 / 0.10 3.44 ± 0.00 0.72 / 0.48 ± 0.00 5.46 ± 0.09 0.61 / 0.32 ± 0.02 3.24 ± 0.08 1.26 / 0.52 ± 0.02 
+
+saugeenday_M 3.41 1.24 / 0.82 3.41 1.25 / 0.82 3.57 1.41 / 0.82 3.42 1.26 / 0.82 5.82 1.00 / 0.32 3.39 ± 0.22 1.15 / 0.73 ± 0.01 5.92 ± 0.06 0.80 / 0.34 ± 0.03 3.49 ± 0.50 0.59 / 0.30 ± 0.02 
+
+Average 1.29 0.56 / 0.77 1.24 0.61 / 0.80 1.27 0.62 / 0.77 1.24 0.59 / 0.79 1.56 0.39 / 0.61 1.34 0.52 / 0.74 1.53 0.46 / 0.61 1.10 0.51 / 0.73 27 D.2.3 Full conformal prediction baseline results - Bench10_100k 
+
+Table 8: CP methods at 80% target coverage on Gift-Eval Bench10 with the 100k test set (10 datasets, 2 backbones: TiRex and ARIMA). Cells show nWink (mean Winkler / std (y)) and nW (mean width 
+
+/ std (y)) / Cov, where std (y) is the standard deviation of the target on the eval split. ResCP and HopCPT report mean ± std over ten seeds, RareCP over three seeds, other methods are deterministic. 
+
+Bold marks the smallest displayed nWink per row among methods with Cov ≥ 0.70 . Each backbone block ends with an Average row over its 10 datasets. 
+
+Bench10_100k 
+
+Uniform ACI DtACI NexCP KOWCPI HopCPT ResCP RareCP (Ours) 
+
+Dataset nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑
+
+TiRex backbone 
+
+electricity_H 0.25 0.11 / 0.77 0.21 0.12 / 0.80 0.26 0.17 / 0.79 0.21 0.11 / 0.80 0.26 0.06 / 0.66 0.24 ± 0.00 0.11 / 0.77 ± 0.00 0.25 ± 0.01 0.07 / 0.74 ± 0.04 0.19 ± 0.00 0.12 / 0.80 ± 0.00 
+
+electricity_15T 0.29 0.13 / 0.78 0.25 0.14 / 0.80 0.31 0.20 / 0.79 0.25 0.13 / 0.80 0.30 0.08 / 0.64 0.28 ± 0.00 0.13 / 0.77 ± 0.00 0.29 ± 0.01 0.09 / 0.72 ± 0.06 0.22 ± 0.00 0.14 / 0.80 ± 0.00 
+
+solar_H 0.71 0.23 / 0.80 0.70 0.25 / 0.80 0.68 0.28 / 0.79 0.70 0.25 / 0.80 0.70 0.13 / 0.61 0.54 ± 0.00 0.24 / 0.78 ± 0.01 0.49 ± 0.00 0.27 / 0.84 ± 0.00 0.39 ± 0.00 0.24 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_5T 1.52 0.86 / 0.80 1.49 0.88 / 0.80 1.51 0.97 / 0.79 1.50 0.87 / 0.80 1.57 0.84 / 0.77 1.53 ± 0.00 0.87 / 0.80 ± 0.00 1.48 ± 0.01 1.00 / 0.85 ± 0.00 1.30 ± 0.00 0.88 / 0.80 ± 0.00 
+
+SZ_TAXI_15T 1.14 0.61 / 0.78 1.01 0.62 / 0.80 1.15 0.75 / 0.79 1.00 0.59 / 0.80 1.18 0.34 / 0.61 1.08 ± 0.01 0.60 / 0.76 ± 0.00 1.05 ± 0.01 0.63 / 0.82 ± 0.01 1.04 ± 0.00 0.70 / 0.80 ± 0.00 
+
+M_DENSE_H 0.96 0.49 / 0.79 0.92 0.50 / 0.80 0.99 0.58 / 0.79 0.92 0.50 / 0.80 1.02 0.20 / 0.54 0.95 ± 0.03 0.57 / 0.83 ± 0.03 0.90 ± 0.01 0.50 / 0.79 ± 0.01 0.62 ± 0.00 0.43 / 0.80 ± 0.00 
+
+temperature_rain 1.03 0.48 / 0.80 1.04 0.48 / 0.80 1.06 0.53 / 0.80 1.02 0.48 / 0.81 0.88 0.18 / 0.45 1.03 ± 0.00 0.49 / 0.80 ± 0.00 0.90 ± 0.01 0.46 / 0.84 ± 0.00 0.71 ± 0.00 0.37 / 0.80 ± 0.00 
+
+m4_hourly 0.63 0.22 / 0.73 0.59 0.29 / 0.80 0.63 0.36 / 0.76 0.59 0.26 / 0.79 0.70 0.14 / 0.57 0.63 ± 0.00 0.24 / 0.75 ± 0.00 0.64 ± 0.02 0.19 / 0.67 ± 0.01 0.53 ± 0.00 0.32 / 0.80 ± 0.00 
+
+m4_daily 0.06 0.03 / 0.81 0.06 0.03 / 0.80 0.06 0.03 / 0.79 0.06 0.03 / 0.80 0.06 0.02 / 0.67 0.06 ± 0.00 0.03 / 0.79 ± 0.01 0.05 ± 0.00 0.03 / 0.78 ± 0.04 0.04 ± 0.00 0.03 / 0.80 ± 0.00 
+
+m4_weekly 0.14 0.06 / 0.78 0.14 0.06 / 0.79 0.14 0.06 / 0.77 0.14 0.06 / 0.79 0.15 0.06 / 0.74 0.16 ± 0.00 0.09 / 0.78 ± 0.01 0.15 ± 0.00 0.07 / 0.71 ± 0.02 0.14 ± 0.00 0.08 / 0.78 ± 0.00 
+
+Average 0.67 0.32 / 0.78 0.64 0.34 / 0.80 0.68 0.39 / 0.79 0.64 0.33 / 0.80 0.68 0.21 / 0.63 0.65 0.34 / 0.78 0.62 0.33 / 0.78 0.52 0.33 / 0.80 
+
+ARIMA backbone 
+
+electricity_H 0.53 0.26 / 0.77 0.44 0.28 / 0.80 0.55 0.36 / 0.79 0.43 0.26 / 0.80 0.43 0.17 / 0.72 0.48 ± 0.00 0.25 / 0.77 ± 0.00 0.48 ± 0.03 0.17 / 0.73 ± 0.01 0.22 ± 0.00 0.15 / 0.80 ± 0.00 
+
+electricity_15T 0.33 0.14 / 0.78 0.28 0.16 / 0.80 0.34 0.21 / 0.79 0.28 0.15 / 0.80 0.28 0.10 / 0.70 0.31 ± 0.00 0.15 / 0.77 ± 0.00 0.33 ± 0.01 0.10 / 0.73 ± 0.02 0.23 ± 0.00 0.15 / 0.80 ± 0.00 
+
+solar_H 1.21 0.60 / 0.80 1.19 0.63 / 0.80 1.23 0.65 / 0.80 1.19 0.62 / 0.80 0.98 0.39 / 0.76 1.19 ± 0.01 0.63 / 0.79 ± 0.00 0.85 ± 0.01 0.51 / 0.84 ± 0.00 0.46 ± 0.00 0.25 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_5T 1.56 0.90 / 0.80 1.53 0.91 / 0.80 1.54 0.99 / 0.79 1.54 0.91 / 0.80 1.47 0.79 / 0.75 1.60 ± 0.04 0.94 / 0.80 ± 0.01 1.51 ± 0.01 1.04 / 0.84 ± 0.00 1.31 ± 0.00 0.89 / 0.80 ± 0.00 
+
+SZ_TAXI_15T 1.16 0.64 / 0.78 1.03 0.63 / 0.80 1.15 0.75 / 0.80 1.02 0.62 / 0.80 1.07 0.45 / 0.69 1.15 ± 0.01 0.62 / 0.77 ± 0.00 1.04 ± 0.00 0.64 / 0.78 ± 0.01 1.06 ± 0.00 0.74 / 0.80 ± 0.00 
+
+M_DENSE_H 1.34 0.72 / 0.79 1.26 0.73 / 0.80 1.38 0.84 / 0.80 1.27 0.72 / 0.81 1.25 0.53 / 0.69 1.31 ± 0.00 0.72 / 0.79 ± 0.00 1.19 ± 0.01 0.68 / 0.78 ± 0.00 0.66 ± 0.00 0.46 / 0.80 ± 0.00 
+
+temperature_rain 1.15 0.52 / 0.80 1.11 0.55 / 0.80 1.12 0.56 / 0.79 1.10 0.53 / 0.81 1.09 0.43 / 0.76 1.17 ± 0.00 0.52 / 0.77 ± 0.01 1.09 ± 0.00 0.53 / 0.83 ± 0.00 0.81 ± 0.02 0.45 / 0.80 ± 0.00 
+
+m4_hourly 0.95 0.33 / 0.73 0.85 0.43 / 0.80 0.93 0.53 / 0.76 0.88 0.40 / 0.79 0.88 0.26 / 0.61 0.98 ± 0.00 0.39 / 0.75 ± 0.00 0.99 ± 0.01 0.27 / 0.65 ± 0.02 0.67 ± 0.00 0.43 / 0.80 ± 0.00 
+
+m4_daily 0.06 0.03 / 0.81 0.06 0.03 / 0.80 0.06 0.03 / 0.79 0.06 0.03 / 0.80 0.05 0.02 / 0.72 0.06 ± 0.01 0.03 / 0.74 ± 0.06 0.06 ± 0.00 0.03 / 0.76 ± 0.02 0.04 ± 0.00 0.03 / 0.80 ± 0.00 
+
+m4_weekly 0.17 0.06 / 0.77 0.17 0.07 / 0.79 0.17 0.07 / 0.78 0.17 0.07 / 0.79 0.18 0.05 / 0.64 0.17 ± 0.00 0.08 / 0.79 ± 0.02 0.20 ± 0.01 0.05 / 0.48 ± 0.10 0.15 ± 0.00 0.09 / 0.78 ± 0.00 
+
+Average 0.85 0.42 / 0.78 0.79 0.44 / 0.80 0.85 0.50 / 0.79 0.79 0.43 / 0.80 0.77 0.32 / 0.70 0.84 0.43 / 0.77 0.77 0.40 / 0.74 0.56 0.36 / 0.80 
+
+D.2.4 Full conformal prediction baseline results - Bench10_full 
+
+Table 9: CP methods at 80% target coverage on Gift-Eval Bench10 with the full test set (10 datasets, 2 backbones: TiRex and ARIMA). Cells show nWink (mean Winkler / std (y)) and nW (mean width 
+
+/ std (y)) / Cov, where std (y) is the standard deviation of the target on the eval split. ResCP and HopCPT report mean ± std over ten seeds, RareCP over three seeds, other methods are deterministic. 
+
+Bold marks the smallest displayed nWink per row among methods with Cov ≥ 0.70 . Each backbone block ends with an Average row over its 10 datasets. 
+
+Bench10_full 
+
+Uniform ACI DtACI NexCP KOWCPI HopCPT ResCP RareCP (Ours) 
+
+Dataset nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑
+
+TiRex backbone 
+
+electricity_H 0.26 0.12 / 0.77 0.22 0.13 / 0.80 0.27 0.17 / 0.79 0.22 0.12 / 0.80 0.27 0.07 / 0.65 0.25 ± 0.00 0.12 / 0.77 ± 0.00 0.27 ± 0.01 0.08 / 0.72 ± 0.05 0.20 ± 0.00 0.12 / 0.80 ± 0.00 
+
+electricity_15T 0.31 0.14 / 0.78 0.27 0.15 / 0.80 0.33 0.22 / 0.79 0.27 0.15 / 0.80 0.33 0.09 / 0.66 0.30 ± 0.00 0.15 / 0.77 ± 0.00 0.33 ± 0.01 0.10 / 0.70 ± 0.06 0.24 ± 0.00 0.15 / 0.80 ± 0.00 
+
+solar_H 0.70 0.23 / 0.80 0.69 0.25 / 0.80 0.67 0.28 / 0.79 0.69 0.24 / 0.80 0.69 0.13 / 0.60 0.50 ± 0.01 0.25 / 0.79 ± 0.01 0.48 ± 0.00 0.26 / 0.84 ± 0.00 0.37 ± 0.00 0.24 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_5T 1.54 0.88 / 0.80 1.51 0.89 / 0.80 1.56 1.01 / 0.79 1.52 0.89 / 0.80 1.65 0.77 / 0.70 1.58 ± 0.03 0.91 / 0.80 ± 0.01 1.51 ± 0.01 1.00 / 0.84 ± 0.00 1.31 ± 0.00 0.90 / 0.80 ± 0.00 
+
+SZ_TAXI_15T 1.14 0.61 / 0.78 1.01 0.62 / 0.80 1.15 0.75 / 0.79 1.00 0.59 / 0.80 1.18 0.34 / 0.61 1.08 ± 0.01 0.60 / 0.76 ± 0.00 1.05 ± 0.01 0.63 / 0.82 ± 0.01 1.03 ± 0.00 0.69 / 0.80 ± 0.00 
+
+M_DENSE_H 0.96 0.49 / 0.79 0.92 0.50 / 0.80 0.99 0.58 / 0.79 0.92 0.50 / 0.80 1.02 0.20 / 0.54 0.95 ± 0.03 0.57 / 0.83 ± 0.03 0.90 ± 0.01 0.50 / 0.79 ± 0.01 0.61 ± 0.00 0.43 / 0.80 ± 0.00 
+
+temperature_rain 1.03 0.48 / 0.80 1.04 0.48 / 0.80 1.06 0.53 / 0.80 1.02 0.48 / 0.81 0.88 0.18 / 0.45 1.04 ± 0.00 0.50 / 0.80 ± 0.01 0.90 ± 0.01 0.46 / 0.84 ± 0.00 0.71 ± 0.01 0.37 / 0.80 ± 0.00 
+
+m4_hourly 0.63 0.22 / 0.73 0.59 0.29 / 0.80 0.63 0.36 / 0.76 0.59 0.26 / 0.79 0.70 0.14 / 0.57 0.63 ± 0.00 0.24 / 0.75 ± 0.00 0.64 ± 0.02 0.19 / 0.67 ± 0.01 0.53 ± 0.00 0.32 / 0.80 ± 0.00 
+
+m4_daily 0.06 0.03 / 0.81 0.06 0.03 / 0.80 0.06 0.03 / 0.79 0.06 0.03 / 0.80 0.06 0.02 / 0.67 0.06 ± 0.00 0.03 / 0.79 ± 0.01 0.05 ± 0.00 0.03 / 0.78 ± 0.04 0.04 ± 0.00 0.03 / 0.80 ± 0.00 
+
+m4_weekly 0.14 0.06 / 0.78 0.14 0.06 / 0.79 0.14 0.06 / 0.77 0.14 0.06 / 0.79 0.15 0.06 / 0.74 0.16 ± 0.00 0.09 / 0.78 ± 0.01 0.15 ± 0.00 0.07 / 0.71 ± 0.02 0.13 ± 0.00 0.07 / 0.78 ± 0.00 
+
+Average 0.68 0.33 / 0.78 0.64 0.34 / 0.80 0.69 0.40 / 0.79 0.64 0.33 / 0.80 0.69 0.20 / 0.62 0.66 0.35 / 0.78 0.63 0.33 / 0.77 0.52 0.33 / 0.80 
+
+ARIMA backbone 
+
+electricity_H 0.51 0.26 / 0.78 0.43 0.27 / 0.80 0.53 0.36 / 0.79 0.42 0.26 / 0.80 0.43 0.17 / 0.70 0.47 ± 0.00 0.26 / 0.77 ± 0.00 0.49 ± 0.02 0.16 / 0.70 ± 0.02 0.23 ± 0.00 0.16 / 0.80 ± 0.00 
+
+electricity_15T 0.35 0.16 / 0.78 0.30 0.17 / 0.80 0.36 0.23 / 0.79 0.30 0.16 / 0.80 0.30 0.11 / 0.69 0.33 ± 0.00 0.16 / 0.77 ± 0.00 0.36 ± 0.01 0.10 / 0.70 ± 0.01 0.24 ± 0.00 0.16 / 0.80 ± 0.00 
+
+solar_H 1.20 0.60 / 0.80 1.19 0.63 / 0.80 1.22 0.64 / 0.80 1.18 0.62 / 0.80 0.97 0.38 / 0.75 1.18 ± 0.01 0.63 / 0.79 ± 0.01 0.85 ± 0.01 0.50 / 0.84 ± 0.00 0.45 ± 0.00 0.24 / 0.80 ± 0.00 
+
+LOOP_SEATTLE_5T 1.58 0.92 / 0.80 1.55 0.93 / 0.80 1.59 1.04 / 0.79 1.56 0.93 / 0.80 1.51 0.78 / 0.73 1.66 ± 0.04 0.97 / 0.79 ± 0.01 1.54 ± 0.01 1.04 / 0.84 ± 0.00 1.33 ± 0.00 0.92 / 0.80 ± 0.00 
+
+SZ_TAXI_15T 1.16 0.64 / 0.78 1.03 0.63 / 0.80 1.15 0.75 / 0.80 1.02 0.62 / 0.80 1.07 0.45 / 0.69 1.15 ± 0.01 0.62 / 0.77 ± 0.00 1.04 ± 0.00 0.64 / 0.78 ± 0.01 1.07 ± 0.01 0.74 / 0.80 ± 0.00 
+
+M_DENSE_H 1.34 0.72 / 0.79 1.26 0.73 / 0.80 1.38 0.84 / 0.80 1.27 0.72 / 0.81 1.25 0.53 / 0.69 1.31 ± 0.01 0.72 / 0.79 ± 0.00 1.19 ± 0.01 0.68 / 0.78 ± 0.00 0.66 ± 0.00 0.46 / 0.80 ± 0.00 
+
+temperature_rain 1.15 0.52 / 0.80 1.11 0.55 / 0.80 1.12 0.56 / 0.79 1.10 0.53 / 0.81 1.09 0.43 / 0.76 1.17 ± 0.01 0.53 / 0.78 ± 0.01 1.09 ± 0.00 0.53 / 0.83 ± 0.00 0.82 ± 0.02 0.43 / 0.80 ± 0.00 
+
+m4_hourly 0.95 0.33 / 0.73 0.85 0.43 / 0.80 0.93 0.53 / 0.76 0.88 0.40 / 0.79 0.88 0.26 / 0.61 0.98 ± 0.00 0.39 / 0.75 ± 0.00 0.99 ± 0.01 0.27 / 0.65 ± 0.02 0.69 ± 0.00 0.44 / 0.80 ± 0.00 
+
+m4_daily 0.06 0.03 / 0.81 0.06 0.03 / 0.80 0.06 0.03 / 0.79 0.06 0.03 / 0.80 0.05 0.02 / 0.72 0.06 ± 0.01 0.03 / 0.74 ± 0.07 0.06 ± 0.00 0.03 / 0.76 ± 0.02 0.04 ± 0.00 0.03 / 0.80 ± 0.00 
+
+m4_weekly 0.17 0.06 / 0.77 0.17 0.07 / 0.79 0.17 0.07 / 0.78 0.17 0.07 / 0.79 0.18 0.05 / 0.64 0.17 ± 0.00 0.08 / 0.79 ± 0.01 0.20 ± 0.01 0.05 / 0.48 ± 0.10 0.16 ± 0.00 0.09 / 0.78 ± 0.00 
+
+Average 0.85 0.42 / 0.78 0.79 0.44 / 0.80 0.85 0.51 / 0.79 0.80 0.43 / 0.80 0.77 0.32 / 0.70 0.85 0.44 / 0.77 0.78 0.40 / 0.74 0.57 0.37 / 0.80 28 D.2.5 Full foundation model results - Bench10 & Bench22 
+
+Table 10: Native UQ of foundation model forecasters at 80% target coverage on Gift-Eval Bench10 (top, 10 datasets) and Bench22 (bottom, 12 additional datasets). Cells show nWink (mean Winkler /
+
+std (y)) and nW (mean width / std (y)) / Cov, where std (y) is the standard deviation of the target on the eval split. Toto and Lag-Llama report mean ± std over ten seeds, other FMs are deterministic. 
+
+Bold marks the smallest displayed nWink per row among FMs with Cov ≥ 0.70 . Each block ends with an Average row (Bench10 over 10 datasets, Bench22 over the full 22). TiRex Chronos-2 ChronosBolt Moirai-2 TimesFM-2.5 TabPFN-TS Toto Lag-Llama 
+
+Dataset nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑ nWink ↓ nW ↓ / Cov ↑
+
+bench10 (10 datasets) 
+
+electricity_H 0.20 0.13 / 0.81 0.22 0.14 / 0.80 0.22 0.15 / 0.85 0.23 0.15 / 0.81 0.26 0.18 / 0.82 0.24 0.14 / 0.78 0.29 ± 0.00 0.17 / 0.72 ± 0.00 0.51 ± 0.00 0.24 / 0.71 ± 0.00 
+
+electricity_15T 0.27 0.17 / 0.81 0.30 0.16 / 0.74 0.28 0.19 / 0.83 0.29 0.17 / 0.79 0.32 0.21 / 0.85 0.32 0.17 / 0.76 0.33 ± 0.00 0.15 / 0.65 ± 0.00 0.60 ± 0.00 0.29 / 0.62 ± 0.00 
+
+solar_H 0.43 0.30 / 0.82 0.51 0.36 / 0.92 0.51 0.39 / 0.94 0.66 0.44 / 0.90 0.78 0.55 / 0.88 0.65 0.36 / 0.89 0.60 ± 0.00 0.25 / 0.83 ± 0.00 0.88 ± 0.00 0.43 / 0.85 ± 0.00 
+
+LOOP_SEATTLE_5T 2.12 1.45 / 0.79 2.13 1.40 / 0.77 2.17 1.41 / 0.78 2.12 1.40 / 0.78 2.14 1.40 / 0.78 2.19 1.36 / 0.75 2.16 ± 0.00 1.47 / 0.79 ± 0.00 3.05 ± 0.00 0.78 / 0.42 ± 0.00 
+
+SZ_TAXI_15T 0.76 0.51 / 0.82 0.77 0.49 / 0.80 0.78 0.50 / 0.81 0.76 0.49 / 0.81 0.77 0.48 / 0.81 0.78 0.47 / 0.79 0.77 ± 0.00 0.50 / 0.80 ± 0.00 0.92 ± 0.00 0.39 / 0.69 ± 0.00 
+
+M_DENSE_H 0.75 0.51 / 0.79 0.79 0.43 / 0.73 0.77 0.55 / 0.84 0.83 0.50 / 0.78 0.85 0.57 / 0.83 0.91 0.50 / 0.77 0.95 ± 0.00 0.46 / 0.74 ± 0.00 1.11 ± 0.00 0.43 / 0.67 ± 0.00 
+
+temperature_rain 0.75 0.39 / 0.78 0.74 0.38 / 0.78 0.74 0.37 / 0.80 0.74 0.36 / 0.77 0.75 0.35 / 0.81 0.78 0.34 / 0.77 0.76 ± 0.00 0.36 / 0.78 ± 0.00 0.86 ± 0.00 0.24 / 0.56 ± 0.00 
+
+m4_hourly 0.45 0.31 / 0.79 0.72 0.31 / 0.52 0.67 0.36 / 0.61 0.50 0.37 / 0.83 0.51 0.37 / 0.84 0.55 0.32 / 0.76 1.07 ± 0.00 0.86 / 0.90 ± 0.00 2.56 ± 0.01 1.06 / 0.24 ± 0.00 
+
+m4_daily 0.05 0.03 / 0.79 0.05 0.04 / 0.76 0.05 0.04 / 0.79 0.05 0.04 / 0.83 0.05 0.04 / 0.84 0.05 0.03 / 0.77 0.05 ± 0.00 0.03 / 0.71 ± 0.00 0.44 ± 0.00 0.40 / 0.69 ± 0.00 
+
+m4_weekly 0.11 0.07 / 0.77 0.12 0.07 / 0.73 0.12 0.09 / 0.85 0.13 0.08 / 0.75 0.12 0.08 / 0.81 0.13 0.07 / 0.71 0.14 ± 0.00 0.07 / 0.64 ± 0.01 0.34 ± 0.00 0.27 / 0.74 ± 0.00 
+
+Bench10 average 0.59 0.39 / 0.80 0.64 0.38 / 0.76 0.63 0.40 / 0.81 0.63 0.40 / 0.80 0.66 0.42 / 0.83 0.66 0.38 / 0.78 0.71 0.43 / 0.76 1.13 0.45 / 0.62 
+
+bench22 — additional datasets (12) 
+
+solar_10T 0.29 0.18 / 0.87 0.37 0.26 / 0.64 0.36 0.27 / 0.73 0.39 0.23 / 0.87 0.36 0.21 / 0.86 0.38 0.21 / 0.89 0.32 ± 0.00 0.16 / 0.88 ± 0.00 1.73 ± 0.00 0.16 / 0.77 ± 0.00 
+
+LOOP_SEATTLE_H 1.43 0.88 / 0.78 1.43 0.83 / 0.75 1.50 0.98 / 0.82 1.48 0.92 / 0.80 1.44 0.90 / 0.81 1.48 0.89 / 0.75 1.54 ± 0.00 0.81 / 0.71 ± 0.00 1.79 ± 0.00 0.61 / 0.53 ± 0.00 
+
+m4_monthly 0.10 0.07 / 0.80 0.11 0.07 / 0.77 0.12 0.08 / 0.83 0.11 0.07 / 0.79 0.11 0.07 / 0.84 0.11 0.07 / 0.76 0.11 ± 0.00 0.06 / 0.71 ± 0.00 0.38 ± 0.00 0.27 / 0.74 ± 0.00 
+
+electricity_D 0.17 0.10 / 0.79 0.17 0.09 / 0.75 0.18 0.11 / 0.80 0.16 0.10 / 0.81 0.17 0.10 / 0.82 0.18 0.10 / 0.75 0.18 ± 0.00 0.09 / 0.73 ± 0.00 0.28 ± 0.00 0.13 / 0.47 ± 0.00 
+
+SZ_TAXI_H 0.70 0.47 / 0.80 0.70 0.46 / 0.78 0.70 0.47 / 0.80 0.71 0.47 / 0.79 0.72 0.44 / 0.78 0.73 0.44 / 0.75 0.74 ± 0.00 0.46 / 0.76 ± 0.00 0.90 ± 0.00 0.38 / 0.62 ± 0.00 
+
+m4_quarterly 0.07 0.06 / 0.85 0.09 0.07 / 0.76 0.11 0.09 / 0.92 0.10 0.07 / 0.65 0.11 0.09 / 0.79 0.08 0.04 / 0.67 0.08 ± 0.00 0.05 / 0.72 ± 0.02 0.28 ± 0.00 0.24 / 0.73 ± 0.02 
+
+saugeenday_D 0.72 0.44 / 0.81 0.84 0.48 / 0.81 0.93 0.48 / 0.84 0.87 0.50 / 0.85 0.75 0.44 / 0.85 0.85 0.55 / 0.79 0.89 ± 0.02 0.41 / 0.69 ± 0.01 1.14 ± 0.02 0.44 / 0.70 ± 0.01 
+
+M_DENSE_D 0.75 0.40 / 0.83 0.67 0.30 / 0.79 0.73 0.43 / 0.88 0.69 0.33 / 0.82 0.69 0.34 / 0.82 0.75 0.31 / 0.74 0.77 ± 0.01 0.41 / 0.78 ± 0.00 1.32 ± 0.01 0.42 / 0.59 ± 0.01 
+
+us_births_D 1.42 0.75 / 0.72 1.16 0.58 / 0.79 1.36 1.09 / 0.95 1.09 0.72 / 0.87 1.24 0.83 / 0.91 1.34 0.67 / 0.73 1.56 ± 0.01 0.75 / 0.72 ± 0.01 4.35 ± 0.03 1.17 / 0.66 ± 0.01 
+
+saugeenday_W 2.14 0.98 / 0.80 2.53 1.00 / 0.78 2.26 0.90 / 0.88 2.09 0.85 / 0.78 2.17 0.75 / 0.80 2.14 0.94 / 0.63 2.28 ± 0.05 0.89 / 0.65 ± 0.03 2.28 ± 0.04 0.63 / 0.70 ± 0.03 
+
+us_births_W 2.29 1.42 / 0.76 2.14 1.37 / 0.79 2.44 1.48 / 0.72 1.39 0.65 / 0.55 2.41 1.46 / 0.76 2.70 1.36 / 0.66 2.62 ± 0.06 1.39 / 0.67 ± 0.03 3.37 ± 0.06 0.96 / 0.58 ± 0.04 
+
+saugeenday_M 2.39 1.50 / 0.82 1.59 1.33 / 0.77 1.81 1.32 / 0.73 1.67 1.15 / 0.64 2.65 1.13 / 0.82 1.57 1.24 / 0.77 1.84 ± 0.06 1.25 / 0.85 ± 0.03 3.22 ± 0.06 0.84 / 0.66 ± 0.02 
+
+Bench22 average 0.83 0.50 / 0.80 0.83 0.48 / 0.76 0.85 0.53 / 0.82 0.78 0.46 / 0.78 0.88 0.50 / 0.83 0.86 0.48 / 0.76 0.91 0.50 / 0.75 1.47 0.49 / 0.64 29 D.3 Hyperparameter settings D.3.1 ResCP baseline 
+
+Table 11: ResCP hyperparameter configuration used by the CP-methods full-result tables. Top: best values from Optuna TPE (100 trials per backbone, ranked by mean nWink on the Bench10 val cache); the same best values are reused on Bench22 and the 100k/full sets. The Trial-0 column shows the paper midpoint defaults that seed the TPE search. Bottom: parameters held fixed across backbones and benchmarks.                                              
+
+> Hyperparameter Search range Trial-0 TiRex TimesFM-2.5 TabPFN-TS ARIMA
+> Searched (Optuna TPE, 100 trials per backbone, Bench10 val cache)
+> spectral_radius [0 .5,1.5] 0.95 0.99 0.89 1.08 0.99 leak [0 .5,1.0] 0.80 0.97 0.53 0.76 0.77 input_scaling [0 .1,3.0] 0.40 0.86 2.81 2.56 2.55 temperature [0 .01 ,2.0] (log) 0.10 0.090 0.123 0.084 0.069
+> Fixed across backbones and benchmarks
+> nunits (reservoir size) 512 connectivity 0.2 circle (reservoir topology) False (random) similarity cosine time_decay linear_ramp
+> βgrid size 100 horizon 1fifo_match_calib True
+
+Table 11 reports the four searched parameters that tune the echo state reservoir at the core of ResCP, plus the fixed reservoir and pipeline settings below. spectral_radius is the spectral radius of the reservoir recurrent matrix and the main lever on memory length; values above one push the dynamics towards instability. leak is the rate of the leaky integrator and controls how fast the reservoir state blends new inputs with the previous state. input_scaling is a global gain on the inputs that shapes how strongly the reservoir reacts to each step. temperature is the softmax temperature applied to similarity scores when forming the weighted residual quantiles. Small temperatures approach hard nearest neighbour selection; large temperatures average broadly. The fixed block records the methodological identity of ResCP. The reservoir has 512 units, connectivity 0.2, and a random rather than circular topology. Reservoir states are compared with cosine similarity and weighted by a linear ramp time decay. The quantile head uses a 100 point β grid. The pipeline forecasts one step ahead and the calibration buffer is FIFO matched to the test stream. 30 D.3.2 KOWCPI baseline 
+
+Table 12: KOWCPI hyperparameter configuration used by the CP-methods full-result tables. Top: 
+
+best values from Optuna TPE (100 trials per backbone, ranked by mean nWink on the Bench10 val cache); the same best values are reused on Bench22 and the 100k/full sets. The Trial-0 column shows the paper defaults that seed the TPE search. Bottom: parameters held fixed across backbones and benchmarks.                                                     
+
+> Hyperparameter Search range Trial-0 TiRex TimesFM-2.5 TabPFN-TS ARIMA
+> Searched (Optuna TPE, 100 trials per backbone, Bench10 val cache)
+> w(lag-window length) {5,10 ,20 ,50 ,100 }50 50 10 55kernel {epa, gauss }epa epa epa epa epa bandwidth_mode {median, aicc }aicc median median median median bandwidth_scale [0 .25 ,4.0] (log) 1.0 0.464 0.862 0.806 0.697 el_adjust {False, True }True False False False False
+> Fixed across backbones and benchmarks
+> nβ(βgrid size) 21 aicc_grid_points 5aicc_grid_low 0.25 aicc_grid_high 4.0 aicc_refit_every 500 fifo_match_calib True
+
+Table 12 reports the five searched parameters of the KOWCPI kernel CDF estimator and the fixed parameters below. w is the lag window length: the number of recent time steps that define the local context vector the kernel uses to find similar past situations. The kernel switch chooses between the Epanechnikov kernel (compact support, hard cutoff beyond the bandwidth) and the Gaussian kernel (infinite support, exponential decay). bandwidth_mode selects between an AICc tuned bandwidth (data driven, refit periodically over a small grid) and the median rule (a fixed rule of thumb based on the median pairwise distance among recent contexts). bandwidth_scale multiplies the bandwidth that the mode produces, so the effective kernel radius is heff = hrule × bandwidth_scale . Values below one tighten the kernel below the rule’s pick, sharpening the local conditioning at the cost of higher variance; values above one widen it and smooth across more past contexts. el_adjust toggles the empirical likelihood correction from the original KOWCPI paper. When enabled, it reweights the empirical residual distribution so that the implied conditional CDF matches the target coverage exactly under the empirical likelihood constraint. This typically widens intervals to protect coverage when the raw kernel CDF estimate is over confident. The Trial-0 column lists the paper defaults: 
+
+w = 50 , AICc bandwidth, unit scale, EL adjustment enabled. All four backbones diverge from these defaults on three of the five searched knobs. HPO selects 
+
+bandwidth_mode = median over AICc, drives bandwidth_scale below one ( 0.46 to 0.86 across backbones), and turns the empirical likelihood adjustment off on every backbone. The lag window also shrinks below the paper’s w = 50 for three of the four predictors. Only the kernel choice agrees with the paper. The pattern is consistent: the paper defaults oversmooth in our setting. The AICc bandwidth combined with the EL adjustment produces effective neighbourhoods wider than the residual structure of these foundation model forecasters supports, and HPO prefers tighter local kernels (smaller w, smaller bandwidth scale, no EL widening). 31 D.3.3 HopCPT baseline 
+
+Table 13: HopCPT hyperparameter configuration used by the CP-methods full-result tables. Top: best values from Optuna TPE (100 trials per backbone, ranked by mean nWink on the Bench10 val cache); the same best values are reused on Bench22 and the 100k/full sets. Bottom: parameters held fixed across backbones and benchmarks. Operational knobs (batch size, dropout, architectural toggles) are searched but omitted here for compactness.                                                                                  
+
+> Hyperparameter Search range TiRex TimesFM-2.5 TabPFN-TS ARIMA
+> Searched (Optuna TPE, 100 trials per backbone) Hopfield retriever
+> hopfield_beta [0 .5,24 .0] (log) 0.701 6.72 0.717 2.21 eps_mem_size {200 ,400 ,800 ,1500 ,3000 }400 400 400 200
+> Context encoder
+> ctx_mode {uni, uni_pms, uni_pms+ ˆy, ms+ ˆy}uni_pms+ ˆyms+ ˆyuni_pms+ ˆyuni_pms ctx_past_window {1,2,4,8,16 }8821ctx_encode_hiddenL {0,1,2}2100
+> Training
+> lr [2 ·10 −5,5·10 −3](log) 2.11 ·10 −42.45 ·10 −46.38 ·10 −41.83 ·10 −3
+> train_encoder_epochs {0,25 ,50 ,100 ,200 ,500 }500 200 100 100
+> Online calibration
+> calibration_window_size {500 ,1000 ,2000 ,4000 }2000 2000 2000 2000 head_per_alpha {False, True }True False False True pos_encode_mode {none, rel-simple, rel-linear }none none rel-linear none
+> Fixed across backbones and benchmarks
+> predict_abs_eps True online_memory True train_on_calibration False context_window 64
+
+Table 13 groups the searched parameters into four functional blocks. The first block configures the Hopfield retriever that fetches past residual patterns from memory. hopfield_beta sets the sharpness of the soft retrieval. Large β recovers hard nearest neighbour retrieval; small β averages broadly across the memory set. eps_mem_size is the size of that memory set. The second block configures the context encoder that produces the retrieval keys. ctx_mode selects what the encoder consumes: uni uses past residuals only, uni_pms adds past multistep residuals, uni_pms+ ˆy adds the model forecasts on top, and ms+ ˆy uses multistep forecasts only. ctx_past_window fixes how many past time steps the encoder consumes. ctx_encode_hiddenL sets its depth. The third block contains the training settings. lr is the Adam learning rate. train_encoder_epochs is how many epochs the encoder is trained before online calibration begins. The fourth block configures the online calibration loop. calibration_window_size sets the rolling calibration window. head_per_alpha chooses between a shared head and a separate head per target α level. pos_encode_mode selects the relative position encoding style. The fixed block records the methodological identity of HopCPT. The encoder predicts the absolute residual. The Hopfield memory is updated online during inference. Training and calibration data are kept disjoint. The pipeline feeds the encoder a context window of 64 past time steps. 32 D.3.4 RareCP 
+
+Table 14: RareCP hyperparameter configuration used by the CP-methods full-result tables. Top: 
+
+best values from a single 100-trial Optuna TPE search (ranked by mean nWink on the Bench10 val cache); the same best values are reused on Bench22 and the 100k/full sets. Bottom: architectural and training settings held fixed across backbones and benchmarks. Operational knobs (epochs, batch sizes, dropouts, gradient clipping, smooth-Winkler annealing schedule) are searched but omitted here for compactness.                                                                                   
+
+> Hyperparameter Search range TiRex TimesFM-2.5 TabPFN-TS ARIMA
+> Searched (Optuna TPE, 100 trials per stage) Base block
+> student_hidden_dim [32 ,128] step 16 112 96 32 112 student_hidden_layers [1 ,4] 4113student_lr [2 ·10 −4,3·10 −3](log) 9.59 ·10 −44.98 ·10 −42.76 ·10 −32.40 ·10 −3
+> student_target_lambda [1 .0,20 .0] (log) 1.12 5.24 11.76 1.36 topk [8 ,96] step 8 48 32 32 32 hopfield_beta [6 .0,24 .0] 7.60 10.98 13.10 12.85
+> MoE-gate block
+> gate_hidden_dim {1,2,4,8,16 ,32 ,64 }1232 4gate_lr [5 ·10 −4,8·10 −2](log) 4.01 ·10 −30.0307 7.67 ·10 −43.56 ·10 −3
+> gate_entropy_lambda [0 ,0.05] 0.0242 9.71 ·10 −30.0199 0.0341
+> ACI block
+> aci_gamma [10 −3,10 −1](log) 0.0143 0.0155 4.81 ·10 −39.17 ·10 −3
+> Fixed across backbones and benchmarks
+> encoder_type hypernetwork_linear hypernetwork_conditioning sample_plus_dataset hypernetwork_descriptor stats smooth_loss cdf_sigmoid_winkler mixture_space weight train_support_mode loo
+
+Table 14 groups the searched parameters into four functional blocks. The first block sizes and trains the student MLP. student_hidden_dim and student_hidden_layers set its width and depth, 
+
+student_lr its learning rate. student_target_lambda is the weight on the smoothed Winkler term in the student loss. The second block configures the Hopfield retriever that builds the per sample calibration support set. topk fixes how many nearest neighbours are drawn from the training set. 
+
+hopfield_beta sets the sharpness of the soft retrieval. Large β recovers hard nearest neighbour retrieval; small β averages broadly across the set. The third block parameterises the MoE gate that routes between expert calibration heads in weight space. gate_hidden_dim sets the gate width and 
+
+gate_lr its learning rate. gate_entropy_lambda regularises the gate distribution and prevents it from collapsing onto a single expert. The fourth block contains a single online parameter: aci_gamma ,the step size of the post hoc ACI threshold update. Larger values adapt faster to nonstationarity but overreact to short horizon noise. The fixed block records the methodological identity of RareCP. The encoder is a linear hypernetwork conditioned on a sample plus dataset stats descriptor. The smoothed loss is the sigmoid CDF surrogate of the Winkler score. The MoE combines experts in weight space, and the calibration support set during training is constructed with leave one out splits. 33 D.4 Runtime analysis 
+
+Table 15: Wall-clock on Bench10 (10 datasets, 7,500 test samples each). Train (s/run) and Train (s/epoch) are the per-seed offline fit at 100 epochs; non-parametric methods omit the train columns. Predict (s/run) is one full evaluation pass and Predict (s/dataset) displays wall-clock per dataset. 
+
+> †
+
+RareCP additionally needs a one-time teacher bank trained at 100 epochs (46.34 s, 0.46 s/epoch) shared across seeds. Mean and std are reported over ten seeds. 
+
+Method Train (s/run) ↓ Train (s/epoch) ↓ Predict (s/run) ↓ Predict (s/dataset) ↓
+
+Uniform — — 4.26 ± 0.04 0.43 ACI — — 4.62 ± 0.04 0.46 DtACI — — 9.96 ± 0.07 1.00 NexCP — — 4.98 ± 0.02 0.50 KOWCPI — — 15.89 ± 0.06 1.59 HopCPT 5.21 ± 0.21 0.052 1.55 ± 0.02 0.16 
+
+ResCP — — 31.22 ± 0.16 3.12 RareCP (Ours) 175.68 ± 2.01 † 1.76 27.33 ± 0.97 2.73 All wall-clock measurements were collected locally on a single NVIDIA A6000 GPU (48GB VRAM) and a 64-core CPU with 256GB RAM against the shared TiREx prediction cache, so backbone inference is excluded from every entry and only the conformal-prediction layer is timed. The non-parametric baselines (SplitCP Uniform, ACI, DtACI, NexCP, KOWCPI, ResCP) have no offline training step, hence their entire cost is the prediction loop. HopCPT trains one small Hopfield-attention encoder per dataset, while RareCP trains ten hypernetwork-linear students plus a posthoc MoE gate as default. Both methods have the same fixed budget of 100 epochs so per-epoch costs are directly comparable. RareCP runs evaluation as a single batched 10-dataset GPU pass, so its per-dataset entry is the total divided by ten. The 46.34 s teacher bank in the table footnote is a one-time foundation cost shared across all seeds (analogous to using a pretrained backbone) and is therefore not amortised into the per-seed train column. 
+
+D.5 Parameter count 
+
+Table 16: Parameter counts of the foundation models and the RareCP used throughout the evaluation. The rarecp wrapper adds at most ∼5.5M parameters on top of the backbone, two orders of magnitude smaller than the largest FM baseline.            
+
+> Model / wrapper Parameters
+> TiRex 35M TimesFM-2.5 200M TabPFN-TS 11M Chronos-2 120M Chronos-Bolt 205M Moirai-2 11.4M Toto 151M Lag-Llama 2.45M RareCP (10 experts) 1.5–5.5M †
+> †Per backbone: TiRex 5.45M, TimesFM-2.5 4.35M, TabPFN-TS 1.50M, ARIMA 5.33M.
+
+34 D.6 Visualizations 15 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+> Residual
+
+LOOP_SEATTLE_5T M_DENSE_H SZ_TAXI_15T electricity_15T electricity_H 
+
+0 50 100 150 200 250 
+
+400 
+
+200 
+
+0
+
+200 
+
+400 
+
+600 
+
+> Residual
+
+m4_daily 
+
+0 50 100 150 200 250 
+
+m4_hourly 
+
+0 50 100 150 200 250 
+
+m4_weekly 
+
+0 50 100 150 200 250 
+
+solar_H 
+
+0 50 100 150 200 250 
+
+temperature_rain_with_missing 
+
+Mixing learned experts for shifting residual regimes 
+
+test step 
+
+target - prediction mixed experts interval 
+
+Figure 4: Visualization of 80% intervals using the gating mixture on the Bench10 datasets. 35 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.798, Mean Width: 6.099 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+> Value
+
+M_DENSE_H 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.788, Mean Width: 412.819 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.783, Mean Width: 6.843 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+600 
+
+> Value
+
+electricity_15T 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.810, Mean Width: 62.128 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+500 
+
+1000 
+
+1500 
+
+2000 
+
+> Value
+
+electricity_H 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.802, Mean Width: 209.290 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.806, Mean Width: 206.200 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.727, Mean Width: 30.303 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+> Value
+
+m4_weekly 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.775, Mean Width: 326.358 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+120 
+
+140 
+
+> Value
+
+solar_H 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.795, Mean Width: 9.721 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+> Value
+
+temperature_rain_with_missing 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.791, Mean Width: 6.217 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+Uniform CP on TiRex Backbone - Bench10 Figure 5: Visualization of SplitCP Uniform predictions on the first 300 test samples per dataset; Bench10 on TiRex backbone. 36 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.798, Mean Width: 6.361 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+> Value
+
+M_DENSE_H 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.789, Mean Width: 612.118 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.777, Mean Width: 7.063 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+600 
+
+> Value
+
+electricity_15T 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.805, Mean Width: 67.706 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+500 
+
+0
+
+500 
+
+1000 
+
+1500 
+
+2000 
+
+2500 
+
+> Value
+
+electricity_H 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.804, Mean Width: 478.634 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.806, Mean Width: 201.746 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.728, Mean Width: 46.091 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+> Value
+
+m4_weekly 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.770, Mean Width: 341.488 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+50 
+
+0
+
+50 
+
+100 
+
+150 
+
+> Value
+
+solar_H 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.793, Mean Width: 24.474 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+> Value
+
+temperature_rain_with_missing 
+
+uniform: Predictions & Bounds 
+
+Coverage: 0.787, Mean Width: 6.486 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+Uniform CP on ARIMA Backbone - Bench10 Figure 6: Visualization of SplitCP Uniform predictions on the first 300 test samples per dataset; Bench10 on ARIMA backbone. 37 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.799, Mean Width: 6.207 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+> Value
+
+M_DENSE_H 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.804, Mean Width: 424.694 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.809, Mean Width: 6.628 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+150 
+
+200 
+
+250 
+
+300 
+
+350 
+
+400 
+
+450 
+
+500 
+
+> Value
+
+electricity_15T 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.805, Mean Width: 52.219 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+1600 
+
+1800 
+
+> Value
+
+electricity_H 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.797, Mean Width: 168.056 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.800, Mean Width: 201.580 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.790, Mean Width: 35.707 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+30000 
+
+> Value
+
+m4_weekly 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.790, Mean Width: 332.178 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+120 
+
+140 
+
+> Value
+
+solar_H 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.803, Mean Width: 10.380 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+> Value
+
+temperature_rain_with_missing 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.801, Mean Width: 6.249 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+NexCP on TiRex Backbone - Bench10 Figure 7: Visualization of NexCP predictions on the first 300 test samples per dataset; Bench10 on TiRex backbone. 38 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+75 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.802, Mean Width: 6.470 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+> Value
+
+M_DENSE_H 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.806, Mean Width: 615.393 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.807, Mean Width: 6.911 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Value
+
+electricity_15T 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.805, Mean Width: 56.967 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+1600 
+
+1800 
+
+> Value
+
+electricity_H 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.800, Mean Width: 379.235 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.801, Mean Width: 197.426 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.790, Mean Width: 55.205 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+> Value
+
+m4_weekly 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.790, Mean Width: 376.479 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+50 
+
+0
+
+50 
+
+100 
+
+150 
+
+> Value
+
+solar_H 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.798, Mean Width: 25.647 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+> Value
+
+temperature_rain_with_missing 
+
+nexcp: Predictions & Bounds 
+
+Coverage: 0.796, Mean Width: 6.799 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+NexCP on ARIMA Backbone - Bench10 Figure 8: Visualization of NexCP predictions on the first 300 test samples per dataset; Bench10 on ARIMA backbone. 39 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.801, Mean Width: 6.233 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+> Value
+
+M_DENSE_H 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.801, Mean Width: 429.056 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.807, Mean Width: 6.829 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+600 
+
+> Value
+
+electricity_15T 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.799, Mean Width: 54.473 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+1600 
+
+1800 
+
+2000 
+
+> Value
+
+electricity_H 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.799, Mean Width: 180.843 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.801, Mean Width: 205.627 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.801, Mean Width: 39.545 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+30000 
+
+> Value
+
+m4_weekly 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.786, Mean Width: 344.943 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+120 
+
+140 
+
+> Value
+
+solar_H 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.800, Mean Width: 10.519 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+> Value
+
+temperature_rain_with_missing 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.797, Mean Width: 7.067 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+ACI on TiRex Backbone - Bench10 Figure 9: Visualization of ACI predictions on the first 300 test samples per dataset; Bench10 on TiRex backbone. 40 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.801, Mean Width: 6.459 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+> Value
+
+M_DENSE_H 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.802, Mean Width: 622.817 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.804, Mean Width: 6.994 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+600 
+
+> Value
+
+electricity_15T 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.799, Mean Width: 59.648 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+500 
+
+1000 
+
+1500 
+
+2000 
+
+2500 
+
+> Value
+
+electricity_H 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.799, Mean Width: 413.015 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.800, Mean Width: 198.207 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.801, Mean Width: 59.915 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+> Value
+
+m4_weekly 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.790, Mean Width: 382.336 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+50 
+
+0
+
+50 
+
+100 
+
+150 
+
+> Value
+
+solar_H 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.800, Mean Width: 26.282 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+> Value
+
+temperature_rain_with_missing 
+
+aci: Predictions & Bounds 
+
+Coverage: 0.798, Mean Width: 8.238 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+ACI on ARIMA Backbone - Bench10 Figure 10: Visualization of ACI predictions on the first 300 test samples per dataset; Bench10 on ARIMA backbone. 41 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.785, Mean Width: 6.274 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+> Value
+
+M_DENSE_H 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.791, Mean Width: 490.144 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.791, Mean Width: 8.427 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+600 
+
+> Value
+
+electricity_15T 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.787, Mean Width: 66.819 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+> Value
+
+electricity_H 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.785, Mean Width: 230.765 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.788, Mean Width: 222.197 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.760, Mean Width: 50.000 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+30000 
+
+> Value
+
+m4_weekly 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.769, Mean Width: 327.199 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+120 
+
+140 
+
+> Value
+
+solar_H 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.789, Mean Width: 11.327 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+> Value
+
+temperature_rain_with_missing 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.787, Mean Width: 6.668 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+DtACI on TiRex Backbone - Bench10 Figure 11: Visualization of dtACI predictions on the first 300 test samples per dataset; Bench10 on TiRex backbone. 42 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.786, Mean Width: 6.462 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+> Value
+
+M_DENSE_H 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.799, Mean Width: 714.847 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.793, Mean Width: 8.592 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+600 
+
+> Value
+
+electricity_15T 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.789, Mean Width: 72.921 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+500 
+
+1000 
+
+1500 
+
+2000 
+
+2500 
+
+> Value
+
+electricity_H 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.788, Mean Width: 531.243 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.789, Mean Width: 220.545 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.763, Mean Width: 73.493 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+> Value
+
+m4_weekly 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.778, Mean Width: 375.315 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+50 
+
+0
+
+50 
+
+100 
+
+150 
+
+> Value
+
+solar_H 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.790, Mean Width: 26.994 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+> Value
+
+temperature_rain_with_missing 
+
+dtaci: Predictions & Bounds 
+
+Coverage: 0.782, Mean Width: 6.587 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+DtACI on ARIMA Backbone - Bench10 Figure 12: Visualization of dtACI predictions on the first 300 test samples per dataset; Bench10 on ARIMA backbone. 43 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.814, Mean Width: 6.542 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+> Value
+
+M_DENSE_H 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.790, Mean Width: 422.647 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.813, Mean Width: 6.674 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Value
+
+electricity_15T 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.799, Mean Width: 51.067 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+> Value
+
+electricity_H 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.785, Mean Width: 166.266 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.802, Mean Width: 173.968 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.674, Mean Width: 25.900 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+30000 
+
+> Value
+
+m4_weekly 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.683, Mean Width: 352.021 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+25 
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+> Value
+
+solar_H 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.796, Mean Width: 10.179 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+5
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+> Value
+
+temperature_rain_with_missing 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.810, Mean Width: 5.440 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+ResCP on TiRex Backbone - Bench10 Figure 13: Visualization of ResCP predictions on the first 300 test samples per dataset; Bench10 on TiRex backbone. 44 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+75 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.798, Mean Width: 6.658 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+> Value
+
+M_DENSE_H 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.778, Mean Width: 578.523 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.715, Mean Width: 6.259 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+150 
+
+200 
+
+250 
+
+300 
+
+350 
+
+400 
+
+450 
+
+500 
+
+> Value
+
+electricity_15T 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.725, Mean Width: 44.941 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+1600 
+
+1800 
+
+> Value
+
+electricity_H 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.698, Mean Width: 253.462 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.744, Mean Width: 161.627 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.642, Mean Width: 37.422 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+30000 
+
+> Value
+
+m4_weekly 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.367, Mean Width: 229.697 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+50 
+
+0
+
+50 
+
+100 
+
+150 
+
+> Value
+
+solar_H 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.783, Mean Width: 18.715 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+5
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+temperature_rain_with_missing 
+
+rescp_sampling: Predictions & Bounds 
+
+Coverage: 0.784, Mean Width: 6.056 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+ResCP on ARIMA Backbone - Bench10 Figure 14: Visualization of ResCP predictions on the first 300 test samples per dataset; Bench10 on ARIMA backbone. 45 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.813, Mean Width: 6.355 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+> Value
+
+M_DENSE_H 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.535, Mean Width: 169.388 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.607, Mean Width: 3.423 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+150 
+
+200 
+
+250 
+
+300 
+
+350 
+
+400 
+
+450 
+
+500 
+
+> Value
+
+electricity_15T 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.699, Mean Width: 46.885 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+1600 
+
+1800 
+
+> Value
+
+electricity_H 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.780, Mean Width: 158.540 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.663, Mean Width: 145.863 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.572, Mean Width: 19.564 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+> Value
+
+m4_weekly 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.736, Mean Width: 297.445 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+120 
+
+140 
+
+> Value
+
+solar_H 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.644, Mean Width: 6.223 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+> Value
+
+temperature_rain_with_missing 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.436, Mean Width: 2.950 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+KOWCPI on TiRex Backbone - Bench10 Figure 15: Visualization of KOWCPI predictions on the first 300 test samples per dataset; Bench10 on TiRex backbone. 46 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.754, Mean Width: 5.639 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+> Value
+
+M_DENSE_H 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.694, Mean Width: 453.874 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.721, Mean Width: 5.016 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+600 
+
+700 
+
+> Value
+
+electricity_15T 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.699, Mean Width: 43.067 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+1600 
+
+1800 
+
+> Value
+
+electricity_H 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.700, Mean Width: 255.464 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.715, Mean Width: 139.034 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.611, Mean Width: 35.400 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+30000 
+
+> Value
+
+m4_weekly 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.639, Mean Width: 265.020 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+50 
+
+100 
+
+150 
+
+> Value
+
+solar_H 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.742, Mean Width: 15.818 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+> Value
+
+temperature_rain_with_missing 
+
+kowcpi_v2: Predictions & Bounds 
+
+Coverage: 0.732, Mean Width: 5.249 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+KOWCPI on ARIMA Backbone - Bench10 Figure 16: Visualization of KOWCPI predictions on the first 300 test samples per dataset; Bench10 on ARIMA backbone. 47 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.798, Mean Width: 6.162 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+> Value
+
+M_DENSE_H 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.826, Mean Width: 485.374 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.768, Mean Width: 6.976 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Value
+
+electricity_15T 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.793, Mean Width: 55.223 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+1600 
+
+1800 
+
+> Value
+
+electricity_H 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.778, Mean Width: 170.535 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.768, Mean Width: 190.981 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.746, Mean Width: 33.352 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+30000 
+
+> Value
+
+m4_weekly 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.783, Mean Width: 486.551 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+> Value
+
+solar_H 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.780, Mean Width: 10.333 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+> Value
+
+temperature_rain_with_missing 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.803, Mean Width: 6.535 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+HopCPT on TiRex Backbone - Bench10 Figure 17: Visualization of HopCPT predictions on the first 300 test samples per dataset; Bench10 on TiRex backbone. 48 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.790, Mean Width: 6.416 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+> Value
+
+M_DENSE_H 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.786, Mean Width: 610.861 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.751, Mean Width: 7.189 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Value
+
+electricity_15T 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.785, Mean Width: 58.082 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+1600 
+
+1800 
+
+> Value
+
+electricity_H 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.781, Mean Width: 390.699 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.756, Mean Width: 201.980 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.747, Mean Width: 54.325 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+> Value
+
+m4_weekly 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.784, Mean Width: 408.513 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+50 
+
+100 
+
+150 
+
+> Value
+
+solar_H 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.790, Mean Width: 26.508 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+> Value
+
+temperature_rain_with_missing 
+
+hopcpt: Predictions & Bounds 
+
+Coverage: 0.757, Mean Width: 6.437 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+HopCPT on ARIMA Backbone - Bench10 Figure 18: Visualization of HopCPT predictions on the first 300 test samples per dataset; Bench10 on ARIMA backbone. 49 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.800, Mean Width: 6.322 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+> Value
+
+M_DENSE_H 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.800, Mean Width: 391.681 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.800, Mean Width: 7.020 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Value
+
+electricity_15T 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.799, Mean Width: 55.985 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+1600 
+
+1800 
+
+> Value
+
+electricity_H 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.798, Mean Width: 175.891 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.799, Mean Width: 188.616 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.795, Mean Width: 40.818 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+30000 
+
+> Value
+
+m4_weekly 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.786, Mean Width: 381.004 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+> Value
+
+solar_H 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.799, Mean Width: 10.472 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+temperature_rain_with_missing 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.798, Mean Width: 5.405 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+RareCP on TiRex Backbone - Bench10 Figure 19: Visualization of RareCP predictions on the first 300 test samples per dataset; Bench10 on TiRex backbone. 50 0 50 100 150 200 250 300 
+
+Time step 
+
+45 
+
+50 
+
+55 
+
+60 
+
+65 
+
+70 
+
+> Value
+
+LOOP_SEATTLE_5T 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.800, Mean Width: 6.470 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+> Value
+
+M_DENSE_H 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.800, Mean Width: 421.342 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+SZ_TAXI_15T 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.799, Mean Width: 7.522 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+150 
+
+200 
+
+250 
+
+300 
+
+350 
+
+400 
+
+450 
+
+500 
+
+> Value
+
+electricity_15T 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.799, Mean Width: 60.585 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+600 
+
+800 
+
+1000 
+
+1200 
+
+1400 
+
+1600 
+
+1800 
+
+> Value
+
+electricity_H 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.799, Mean Width: 255.508 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+> Value
+
+m4_daily 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.799, Mean Width: 188.284 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+m4_hourly 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.798, Mean Width: 58.094 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+25000 
+
+30000 
+
+> Value
+
+m4_weekly 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.782, Mean Width: 449.680 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+25 
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+> Value
+
+solar_H 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.800, Mean Width: 13.948 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+0 50 100 150 200 250 300 
+
+Time step 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Value
+
+temperature_rain_with_missing 
+
+rarecp: Predictions & Bounds 
+
+Coverage: 0.797, Mean Width: 7.315 
+
+True 
+
+Predicted 
+
+Prediction Interval 
+
+RareCP on ARIMA Backbone - Bench10 Figure 20: Visualization of RareCP predictions on the first 300 test samples per dataset; Bench10 on ARIMA backbone. 51

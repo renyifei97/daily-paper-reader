@@ -1,0 +1,1451 @@
+Title: LeapTS: Rethinking Time Series Forecasting as Adaptive Multi-Horizon Scheduling
+
+URL Source: https://arxiv.org/pdf/2605.10292v1
+
+Published Time: Tue, 12 May 2026 03:12:02 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# LeapTS : Rethinking Time Series Forecasting as Adaptive Multi-Horizon Scheduling 
+
+Sheng Pan 1, Ming Jin 1∗
+
+, Bo Du 1, Shirui Pan 1,∗,
+
+> 1
+
+Griffith University 
+
+sheng.pan@griffith.uni.edu.au, mingjinedu@gmail.com ,
+
+bo.du@griffith.edu.au , s.pan@griffith.edu.au 
+
+## Abstract 
+
+Time series forecasting serves as an essential tool for many real-world applications, supporting tasks such as resource optimization and decision-making. Despite significant architectural advancements, most modern models still treat forecasting task as a fixed mapping from history to target horizons. This induces temporal decoupling across future time points and limits the model’s ability to adapt to the evolving context as forecasting progresses. In this work, we present LeapTS , a novel framework that reformulates time series forecasting as a dynamic scheduling process 
+
+over the prediction horizon. Specifically, LeapTS organizes the forecasting process into multi-level decisions using: (1) the hierarchical controller to dynamically select the optimal prediction scale and advancement length at each step, and (2) 
+
+continuous-time state evolution driven by neural controlled differential equations. Within this process, the controlled update mechanism explicitly couples the irregular temporal dynamics with discrete scheduling feedback. Extensive evaluations on both real-world and synthetic datasets demonstrate that LeapTS improves overall forecasting performance by at least 7.4% while achieving a 2.6× to 5.3× inference speedup over representative Transformer-based models. Furthermore, by explicitly tracing the scheduling trajectories, we reveal how the model autonomously adapts its forecasting behavior to capture non-stationary dynamics. 
+
+## 1 Introduction 
+
+Time series forecasting predicts future values from historical observations and plays an important role in many real-world systems, including energy planning [Hong et al., 2020], demand forecasting [Carbonneau et al., 2008], health monitoring [Gul and Catbas, 2009], resource scheduling [Hipel and McLeod, 1994], and strategic decision-making [Sezer et al., 2020]. In recent years, many advanced deep models have achieved strong performance by learning rich historical representations [Liu et al., 2024, Fei et al., 2025]. However, temporal patterns rarely evolve uniformly across the prediction horizon. Stable trends, abrupt fluctuations, and regime shifts can emerge at different future stages, making a fixed prediction process rigid and potentially brittle when confronting such dynamics. Such issue largely stems from the execution paradigms used in existing multi-horizon forecasting methods. As illustrated in Fig. 1(a-b), current methods mainly follow two paradigms. The recursive paradigm generates future values step by step with a fixed stride, feeding previous predictions back into the model and thereby preserving temporal ordering [Beck et al., 2024]. However, it suffers from severe error accumulation and computational overhead over long horizons [Marcellino et al., 2006]. As a result, recent deep architectures mostly adopt the direct paradigm , which predicts the entire horizon in a single forward pass from historical representations [Taieb et al., 2012]. While efficient, this design reduces forecasting to a fixed horizon-level mapping. This leads to three critical  
+
+> ∗Corresponding authors. Preprint.
+> arXiv:2605.10292v1 [cs.LG] 11 May 2026 Context Window
+> Direct
+> Predictor
+> t+H
+> Future Horizon Projection
+> (a) Direct Paradigm
+> Inflexible
+> Horizon
+> Temporal
+> decoupling
+> tt–L+1
+
+# …… 
+
+# ……   
+
+> (b) Recursive Paradigm
+> Feedback
+> Loop
+> Iterative
+> Overhead
+> Error
+> Accumulation
+> Historical context One -step
+> Forecast
+> Autoregressive Rollout
+> Context Window
+> tt–L+1
+
+# ……  
+
+> Iterative
+> Predictor
+> tt–L+2
+
+# ……  t+1      
+
+> t+1
+> t+1
+> (c) LeapTS (Ours)
+> Flexibility Temporal
+> Coherence
+> Adaptive -step
+> Predictor
+> Adaptive Scheduling
+> Scheduled Forecast
+> Effective -
+> ness
+> t+H
+> Context Window
+> tt–L+1
+
+# …… 
+
+# … …… t+1  t+H.. 
+
+> Adaptive
+> Scheduling
+> Coarse+Fine
+
+# .. Coarse Forecast 
+
+# ……  
+
+> Global
+> Predictor
+> t+Ht
+> Final Forecast
+
+Figure 1: Comparison of multi-horizon forecasting paradigms. (a) The Direct paradigm predicts the full horizon in a single forward pass but is temporally decoupled. (b) The Recursive paradigm forecasts step by step but suffers from error accumulation. (c) Our paradigm formulates multi-horizon forecasting as a closed-loop adaptive scheduling process, enabling flexibility and temporal coherence. problems: Overly complex encoders. Deep models increasingly rely on complex encoder designs to extract stronger historical representations, which may result in overfitting and reduce robustness [Wang et al., 2025c, Bergmeir, 2024]. Lack of contextual adaptability. Although temporal patterns may vary substantially across future stages, models cannot update their internal states based on intermediate feedback. This makes them insensitive to dynamic transitions during the forecasting process [Kim et al., 2021, Liu et al., 2022b]. Decoupled horizon dependencies. Future steps are naturally ordered, but the direct paradigm implicitly treats outputs as conditionally independent given the historical representation. This prevents models from capturing the temporal dependencies among them. Fundamentally, both paradigms suffer from structural rigidity: they enforce pre-defined execution paths that strictly decouple the forecasting process from the evolving temporal context. This raises a key question: 
+
+How to adaptively adjust prediction behavior based on varying contextual dynamics? 
+
+Motivated by these insights, we propose LeapTS , which reformulates forecasting as a coarse-to-fine dynamic scheduling process (Fig. 1(c)). Instead of using complex encoder-based architectures, LeapTS 
+
+couples a global coarse predictor with an adaptive scheduling branch, and organizes the prediction process into multi-level scheduling to dynamically select the optimal prediction scale and step length. Furthermore, to keep the controller state updated as scheduling progresses, LeapTS incorporates two update mechanisms. The intra-step update mechanism compresses immediate forecasting results into feedback signals to guide the controller, while the neural controlled differential equation (NCDE) drives the inter-step state evolution to track continuous-time transitions between scheduling steps. With explicitly recorded scale choices, advancement lengths, and state updates, LeapTS 
+
+provides a traceable scheduling path for analyzing dominant signals and scheduling granularity across volatility regimes. Together, these designs enable LeapTS to integrate adaptive step scheduling with feedback-driven state evolution within a unified framework. Our main contributions are summarized as follows: 
+
+• We rethink the paradigm in time series forecasting and reformulate it as a dynamic scheduling process. This perspective shifts the focus from increasingly complex representation learning designs to adaptive prediction strategies that evolve with contextual information. 
+
+• We propose LeapTS , a forecasting framework that dynamically adjusts prediction behavior according to evolving contextual information. Specifically, it incorporates a H-Controller , a hierarchical module for scale and step selection, together with a controlled state update mechanism to couple temporal dynamics, adaptive scheduling, and state evolution. 
+
+• LeapTS provides valuable insights into prediction process through explicit scheduling mechanisms. We present visualization and analysis of the learned scheduling strategies, revealing how forecasting behaviors evolve during prediction and helping to alleviate the black-box nature of deep learning models. 22 Related Work 
+
+2.1 Deep Forecasting Methods 
+
+With the rapid evolution of deep learning, recent time series forecasting has been largely dominated by Transformer variants such as iTransformer [Liu et al., 2024], PhaseFormer [Niu et al., 2026], and EMAformer [Zhang et al., 2026]. These models rely on self-attention mechanisms to learn representations from historical observations and capture long-range temporal dependencies. However, although self-attention is highly effective in NLP tasks, its permutation-invariant nature makes it less suitable for modeling temporal order in time series forecasting [Zeng et al., 2023, Li et al., 2023]. Beyond Transformers, recent studies improve representation learning through diverse designs, including multi-scale modeling [Wang et al., 2025b, Hu et al., 2025], informative patching strategies [Wu et al., 2026, Liu et al., 2026], and frequency-domain decomposition [Fei et al., 2025, Yi et al., 2024]. Despite achieving strong performance, these approaches remain fundamentally representation-centric. They mainly focus on improving representation learning from historical observations, with forecasting implemented by directly mapping encoded representations to future predictions. 
+
+2.2 Multi-Horizon Forecasting Paradigms 
+
+The implementation of multi-horizon forecasting has evolved across distinct model families. Among them, the recursive paradigm is widely adopted by sequence modeling architectures. Classic autoregressive models like DeepAR [Salinas et al., 2020], as well as recent advanced state-space and recurrent networks such as Mamba [Gu and Dao, 2024] and xLSTM [Beck et al., 2024], fundamentally rely on this step-by-step generation design. However, this autoregressive formulation forces models to prioritize local transitions, often struggling to capture global structures over extended horizons [Zhou et al., 2021, Bergsma et al., 2023]. In contrast, the direct paradigm has become the standard for recent time series forecasting tasks. These methods employ fixed prediction heads to map encoded historical representations to all future horizons in a single forward pass [Wang et al., 2024b, Kim et al., 2025]. While effectively bypassing error accumulation, this projection reduces forecasting to a static multi-output regression and fails to explicitly model transitions between intermediate future states [Wang et al., 2025a, 2026]. Recent combination paradigms attempt to integrate the advantages of both strategies [Green et al., 2025]. Nevertheless, such pre-defined horizon partitioning imposes rigid constraints, which inherently restrict flexibility in adapting to diverse contextual dynamics. Different from all these paradigms, LeapTS is the first to reformulate multi-horizon forecasting as an adaptive scheduling process. This enables a uniquely context-aware dynamic prediction strategy. 
+
+## 3 Methodology 
+
+Problem Definition Given a multivariate time series Xt−L+1: t ∈ RL×N , LeapTS aims to predict the future horizon Yt+1: t+P ∈ RP ×N , with L, P , and N denoting the look-back length, prediction length, and number of variables, respectively. Formally, the forecasting model learns a mapping 
+
+ˆYt+1: t+P = FΘ(Xt−L+1: t), where Θ denotes all learnable parameters of the model. Unless otherwise specified, we omit the batch index for clarity. 
+
+3.1 Overview of LeapTS 
+
+Fig. 2 illustrates the comprehensive pipeline of LeapTS , which primarily comprises two interconnected components. Specifically, Fig. 2(a) depicts the overall forecasting framework and shows the end-to-end flow from historical observations to the final predictions. Fig. 2(b) provides a detailed view of the H-Controller , which serves as the core scheduling unit. Overall, LeapTS achieves strong performance while maintaining efficiency and scheduling traceability. 
+
+Overall Framework. LeapTS first encodes the historical sequence Xt−L+1: t into initial latent states 
+
+Z0 = Ψ enc (Xt−L+1: t) via an MLP encoder Ψenc . A coarse forecast is directly derived from Z0
+
+through a linear projection ˆYcoarse = Hcoarse (Z0). The core forecasting process is then performed by the scheduling branch. At each scheduling step k, the hierarchical controller maintains the multivariate controller state Hk = [ hk, 1, . . . , hk,N ]⊤ ∈ RN ×dh and computes variable-wise high-level scale distributions Πk and low-level advancement lengths ℓk (Section 3.2): 3(a) Overall Framework   
+
+> Variate-specific
+> Linear Head
+> Output
+> Series
+> Short Mid Long
+> Scheduling Process
+> Neural
+> CDE Cell
+> State
+> Predicted Segment
+> Router
+> High-level
+> Network
+> Low-level
+> Network
+> Injection Vector
+> Progress
+
+(b) Hierarchical Controller 
+
+(H-Controller)                    
+
+> 𝑡𝑡 1𝑡𝑡 5𝑡𝑡 20
+> Irregular
+> Dynamics
+> Control Temporal
+> window1
+> window2
+> Mechanistic
+> Decomposition Adaptive
+> Control
+> Scheduling
+> trace
+> Input
+> Temporal-
+> Driven
+> H-
+> Controller
+> Neural
+> CDE Cell
+> Control-
+> Driven
+> State
+> Update
+> Update Context
+> New State
+> Step Length Selection
+> Selected Scale Range
+> Mid
+> 𝑡𝑡 25
+> ℓ𝑡𝑡 Specific Step length
+> 𝑡𝑡 2
+> . . . 67Decide 8
+> Scale Selection
+> Select
+> Short
+> Mid
+> Long
+> 0.15
+> 𝑡𝑡 2
+> 0.65
+> 0.20
+> 𝑡𝑡 1
+> 𝑡𝑡 3
+> Scheduling Process
+> Probabilities Selected
+> Scale
+> Time Axis
+> 𝑑𝑑𝒉𝒉 𝑡𝑡 =𝑓𝑓
+> temp (𝒉𝒉 𝑡𝑡 ,𝒖𝒖 𝑡𝑡
+> )𝑑𝑑 𝑡𝑡
+> Temporal−driven
+> +𝑓𝑓
+> ctrl (𝒉𝒉 𝑡𝑡 ,𝒖𝒖 𝑡𝑡
+> )𝑑𝑑𝒖𝒖 𝑡𝑡 Control−driven
+
+# …… 
+
+# …… 
+
+> H-
+> Controller
+
+Figure 2: Framework of LeapTS . (a) LeapTS reformulates multi-horizon forecasting as an adaptive scheduling problem. The scheduling branch progressively generates fine-grained forecasts and latent states evolve through variate-specific controlled dynamics. (b) The H-Controller performs scale selection then advancement-length selection. The generated segment is written into the target horizon, and the controller state updates based on current scheduling progress for subsequent steps. 
+
+Πk = HighLevel( Hk), ℓk = LowLevel( Hk, Πk). (1) Guided by these decisions, category-specific heads output the current forecast segment and progres-sively write it into the target horizon. Subsequently, the controller state is updated (Section 3.3) driven by the control signal Uk, the control increment ∆Uk, and the temporal increment ∆τ k:
+
+Hk+1 = Φ evo (Hk, Uk, ∆Uk, ∆τ k). (2) Finally, to integrate the coarse forecasts with fine-grained scheduling refinements, the two forecasts are fused by a learned gate with α ∈ (0 , 1) : ˆY = ˆYcoarse + α ˆYsched . For notation simplicity, the remaining sections describe the univariate process. In the multivariate setting, the same formulation is applied to each variate. 
+
+3.2 Hierarchical Controller 
+
+The H-Controller serves as the core module in the scheduling branch. Instead of generating the entire forecasting horizon at once, it decomposes the iterative forecasting process into a sequence of hierarchical scheduling steps. At each scheduling step k, the controller first determines which scale to use and then predicts how far the current step should advance .
+
+High-Level Scheduler. Let hk ∈ Rdh denote the univariate controller state at step k. The high-level scheduler produces a scale-selection distribution over three predefined scheduling categories, corresponding to short-, mid-, and long-range choices: 
+
+πk = Gumbel -Softmax( Wcat hk) ∈ R3, (3) where Wcat is the category projection matrix. To enable end-to-end differentiability: the forward pass uses a hard one-hot selection to execute the discrete routing, while the backward pass propagates gradients through the continuous soft distribution (see Appendix A). 
+
+Low-Level Scheduler. After the high-level scheduler determines the current scale, the low-level scheduler predicts the corresponding advancement length within the valid range of the selected scale. The detailed length ranges for different scales are provided in Appendix D. Specifically, for the selected category c, the advancement length is predicted as 
+
+ℓk,c = Lmin  
+
+> c
+
++  Lmax  
+
+> c
+
+− Lmin 
+
+> c
+
+ · σ f len  
+
+> c
+
+(hk) , c ∈ { short , mid , long }, (4) 4where Lmin  
+
+> c
+
+and Lmax  
+
+> c
+
+denote the minimum and maximum valid scheduling lengths for category c,and f len  
+
+> c
+
+(·) denotes the category-specific length head, and σ(·) is the sigmoid activation function. Since the current scheduling category is one-hot in the forward pass, the executed advancement length is determined by the selected category: 
+
+ℓk = ℓk,c ∗ , c∗ = arg max  
+
+> c
+
+πk,c . (5) 
+
+3.3 State Update and Evolution 
+
+Once the decisions are made, the scheduling branch updates the forecasting state at two levels. The first is an intra-step summary-vector update within the H-Controller , which compresses the immediate scheduling outcomes. The second is the inter-step state evolution between consecutive scheduling steps, which propagates the scheduling state according to the current forecasting progress. 
+
+Intra-Step Summary Update Based on the selected scheduling category c∗ and the corresponding advancement length ℓk, the current forecast segment is generated by the category-specific head: 
+
+sk = f seg  
+
+> c∗
+
+(hk) ∈ RP . (6) Let qk denote the current cursor position on the prediction horizon, which updates via qk+1 =
+
+qk + ℓk. To write the selected segment according to the advancement length ℓk while maintaining differentiability, we introduce a continuous soft mask (see Appendix A). Specifically, for each future time step τ ∈ { 1, . . . , P }, the mask value mk(τ ), the segment ¯sk, and the accumulated forecast 
+
+ˆysched  
+
+> k+1
+
+are formulated as: 
+
+mk(τ ) = I[τ ≥ qk] · σ
+
+ ℓk − (τ − qk) − 0.5
+
+γ
+
+
+
+, (7) 
+
+¯sk = sk ⊙ mk, (8) 
+
+ˆysched  
+
+> k+1
+
+= ˆ ysched  
+
+> k
+
++ ¯ sk, ˆysched 1 = 0, (9) where mk = [ mk(1) , . . . , m k(P )] ⊤, ¯sk denotes the scheduled segment, and γ > 0 is a temperature controlling the mask sharpness. This formulation relaxes non-differentiable hard truncation into a smooth gate: the indicator I[τ ≥ qk] prevents backward overwriting, while the −0.5 offset precisely centers the decision boundary between discrete steps to prevent information leakage. The segment ¯sk
+
+is then compressed into a feedback signal: 
+
+ck = tanh( Wsum ¯sk) , (10) where Wsum is the summary projection matrix. The resulting summary vector compresses the current outcome into a compact representation and is used by the H-Controller at the next step. 
+
+Inter-Step State Evolution. Between steps, the controller state evolves irregularly with scheduling progress. To support this, the current scheduling context is first encoded into a control signal: 
+
+uk = tanh  Wu
+
+ρk ∥ ¯ℓk−1 ∥ πk−1 ∥ ck−1
+
+ , (11) where ρk denotes the remaining-horizon ratio, ¯ℓk−1 denotes the normalized advancement length from the previous step, ∥ denotes vector concatenation, and Wu is the control projection matrix. Based on this signal, the control and temporal increments are defined as: 
+
+∆uk = uk − uk−1, (12) 
+
+∆τk = clip( ¯ℓk−1, τ min , τ max ), (13) where ∆uk captures the variation of the control signal and ∆τk denotes the temporal increment induced by the current scheduling progress. To exploit similar temporal patterns, the variates are grouped into clusters g ∈ { 1, . . . , G } via L2 distance minimization, so that variates within the same cluster share the corresponding evolution dynamics. The controller state is then evolved by the cluster-specific NCDE transition: 
+
+dh(t) = Fg (h(t), u(t)) du(t) + Gg (h(t), u(t)) dt, (14) where Fg (·) and Gg (·) denote the cluster-specific vector fields. During scheduling, the state evolution in Eq. (14) is directly driven by control ( ∆uk) and temporal ( ∆τk) increments. This explicitly couples the irregular scheduling steps with the hidden state update, while preserving parameter sharing within each variable cluster. Through repeated intra-step summary updates and inter-step evolution, the iterative branch progressively refines the forecasting state. 54 Experiments 
+
+We conduct extensive experiments to evaluate LeapTS . Section 4.1 reports results on real-world datasets. Section 4.2 evaluates the model on complex synthetic scenarios. Section 4.3 presents analyses to reveal internal behaviors. Section 4.4 provides efficiency and ablation studies. In summary, LeapTS achieves strong forecasting performance while providing valuable insights into its scheduling dynamics. Detailed experimental configurations and implementations are in Appendix C. 
+
+4.1 Performance on Real-World Datasets 4.1.1 Multivariate Forecasting Setups. We evaluate our model on 13 widely-used real-world datasets across diverse domains: Energy 
+
+(ETTh1/2, ETTm1/2, Electricity), Weather , Traffic (PEMS04/07), Finance (Exchange, SP500), 
+
+Healthcare (ILI, COVID-19), and Web (Wiki). The input length for all models is fixed at 96 (36 for the ILI dataset), and we evaluate performance across multiple horizons P ∈ { 18 , 24 , 36 , 48 , 60 }.Mean Squared Error (MSE) and Mean Absolute Error (MAE) are used to assess forecasting accuracy. Furthermore, we also provide long-term results on several representative datasets with 
+
+P ∈ { 96 , 192 , 336 , 720 }, which are detailed in Table 16. Table 1: Comprehensive evaluation of multivariate forecasting performance across diverse real-world domains. AVG refers to the overall average across all horizons. The best and second-best performances are highlighted. Full results can be found in Table 14.                                                                                                                                      
+
+> Models LeapTS Amplifier AMD TimeMixer PatchTST iTransformer TSMixer DLinear TimesNet (Ours) (2025) (2025) (2024a) (2023) (2024) (2023) (2023) (2023)
+> Domain Dataset MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE
+> Weather Weather 0.113 0.143 0.114 0.151 0.129 0.173 0.115 0.151 0.125 0.164 0.121 0.155 0.130 0.195 0.140 0.197 0.125 0.175
+> Energy
+> Electricity 0.117 0.213 0.122 0.219 0.145 0.240 0.131 0.226 0.158 0.253 0.122 0.215 0.165 0.276 0.196 0.288 0.143 0.250
+> ETTh1 0.316 0.354 0.322 0.362 0.322 0.360 0.323 0.365 0.321 0.366 0.333 0.373 0.397 0.437 0.346 0.382 0.355 0.394
+> ETTh2 0.197 0.275 0.206 0.286 0.197 0.280 0.201 0.283 0.209 0.291 0.213 0.294 0.398 0.475 0.227 0.317 0.224 0.305
+> ETTm1 0.244 0.304 0.247 0.311 0.258 0.319 0.248 0.310 0.251 0.315 0.272 0.329 0.313 0.365 0.281 0.332 0.270 0.328
+> ETTm2 0.118 0.209 0.120 0.212 0.127 0.226 0.118 0.212 0.120 0.214 0.123 0.217 0.162 0.285 0.129 0.235 0.126 0.220
+> Traffic PEMS04 0.129 0.229 0.187 0.298 0.237 0.333 0.138 0.249 0.227 0.331 0.140 0.246 0.114 0.237 0.250 0.358 0.117 0.229
+> PEMS07 0.114 0.207 0.178 0.287 0.202 0.309 0.127 0.235 0.187 0.294 0.109 0.213 0.103 0.221 0.260 0.360 0.109 0.214
+> Health ILI 1.556 0.738 1.686 0.806 2.248 0.937 2.121 0.883 2.166 0.878 1.791 0.855 2.845 1.145 4.735 1.633 1.814 0.850
+> COVID 4.071 1.174 4.302 1.263 5.010 1.304 10.017 2.012 4.317 1.243 4.054 1.230 8.932 1.860 10.160 2.001 9.181 1.872
+> Web Wiki 6.702 0.440 6.854 0.505 6.886 0.472 6.912 0.510 6.727 0.461 6.687 0.448 7.892 0.838 6.905 0.547 7.176 0.569
+> Finance Exchange 0.035 0.125 0.039 0.132 0.036 0.128 0.037 0.129 0.036 0.126 0.040 0.136 0.105 0.248 0.044 0.152 0.047 0.153
+> SP500 0.158 0.278 0.182 0.306 0.181 0.307 0.172 0.299 0.189 0.319 0.224 0.352 0.263 0.387 0.268 0.407 0.179 0.298
+> AVG 1.067 0.361 1.120 0.395 1.229 0.414 1.589 0.451 1.156 0.404 1.095 0.390 1.678 0.536 1.842 0.554 1.528 0.450
+> 1st Count 22 01102201
+
+Results. Table 1 shows LeapTS outperforms other models across most real-world multivariate domains. On average, it surpasses the second-best model by 2.6% in MSE and 7.4% in MAE. Specifically, on the high-dimensional Electricity dataset, LeapTS achieves a 4.1% MSE reduction over the strongest baseline. For challenging datasets with severe fluctuations, it exceeds the second-best alternatives by 7.7% in MSE on Healthcare (ILI) and 8.1% in MSE on Finance (SP500). 
+
+4.1.2 Univariate Forecasting Setups. To conduct a comprehensive evaluation, we assess LeapTS on the M4 Competition dataset 
+
+[Makridakis et al., 2018]. This dataset consists of 100,000 real-world time series covering multiple temporal frequencies, ranging from hourly to yearly. Its large scale and heterogeneous characteristics provide a challenging benchmark for evaluating the robustness and generalization ability of forecasting models. 
+
+Results. As shown in Table 2, LeapTS achieves the best performance across all three metrics on the M4 dataset. It obtains the lowest SMAPE (11.671), MASE (1.546), and OWA (0.834), outperforming all compared baselines. In particular, LeapTS achieves the best OWA, which is the primary metric of the M4 competition. This result confirms strong overall forecasting capability. 6Table 2: Evaluation of univariate forecasting performance on the M4 Competition dataset. The best 
+
+and second-best performances are highlighted. Full results can be found in Table 15. Models LeapTS Amplifier TimeMixer iTrans. TiDE TNet N-HiTS DLinear Patch MICN FiLM LightTS FED Stat. Auto N-BEATS                 
+
+> (Ours) (2025) (2024a) (2024) (2023) (2023) (2023) (2023) (2023) (2023) (2022a) (2023) (2022b) (2022b) (2021) (2020)
+> SMAPE
+
+11.671 12.030 11.723 12.684 13.950 11.829 11.927 13.639 13.152 19.638 14.863 13.525 12.840 12.780 12.909 11.851  
+
+> MASE
+
+1.546 1.617 1.559 1.764 1.940 1.585 1.613 2.095 1.945 5.947 2.207 2.111 1.701 1.756 1.771 1.559  
+
+> OWA
+
+0.834 0.887 0.840 0.929 1.020 0.851 0.861 1.051 0.998 2.279 1.125 1.051 0.918 0.930 0.939 0.855 
+
+4.2 Evaluation on Synthetic Datasets (a)  LeapTS  (b) w/o Scheduling Branch 
+
+(c)  PatchTST  (d)  Timemixer 
+
+Figure 3: t-SNE visualization in Scenario 1. LeapTS successfully distinguishes the variable clusters, whereas baselines fail. 
+
+Setups. We construct three syn-thetic datasets to simulate spe-cific temporal dynamics (details in Appendix E). Scenario 1 sim-ulates structurally clustered high-dimensional correlated vari-ables . Scenario 2 focuses on multivariate sequences driven by explicit causal interactions .
+
+Scenario 3 introduces univariate series influenced by unobserved factors . These three distinct set-tings comprehensively assess the model’s forecasting robustness across highly complex environ-ments. 
+
+Results. Fig. 3 shows the t-SNE embeddings of hidden representa-tions from three distinct variable clusters. The plot indicates that only LeapTS successfully sepa-rates these groups in the latent space. In contrast, the compared baselines fail to distinguish these features and tend to mix variables from cluster 0 and cluster 1. Ta-ble 3 shows that LeapTS outper-forms the advanced baselines by large margins. Specifically, it reduces the average MSE by 50.0% (0.088 →0.044) on Scenario 1, 
+
+80.5% (0.329 →0.064) on Scenario 2, and 90.7% (0.193 →0.018) on Scenario 3. These substantial improvements demonstrate the strong robustness of LeapTS across diverse complex environments. Furthermore, the sharp performance drop in the w/o scheduling branch variant indicates the importance of the proposed scheduling mechanism. Table 3: Full forecasting results on three synthetic datasets: (1) high-dimensional heterogeneous series, (2) causally driven series, and (3) univariate series with latent dynamics. Baselines are optimized over an wider hyperparameter search space (see Appendix C). AVG refers to the average across all prediction lengths. The best and second-best performances are highlighted.                                                                                                                                             
+
+> Models Metric Scenario 1 (Multivariate) Scenario 2 (Multivariate) Scenario 3 (Univariate) 24 36 48 60 AVG 24 36 48 60 AVG 24 36 48 60 AVG
+> LeapTS
+> (Ours)
+> MSE 0.027 0.040 0.051 0.058 0.044 0.033 0.050 0.074 0.099 0.064 0.012 0.016 0.021 0.024 0.018 MAE 0.022 0.028 0.034 0.038 0.030 0.059 0.083 0.102 0.126 0.092 0.058 0.070 0.080 0.090 0.074
+> w/o Scheduling
+> Branch MSE 0.145 0.277 0.421 0.509 0.338 0.390 0.526 0.623 0.692 0.558 0.443 0.511 0.551 0.582 0.522
+> MAE 0.111 0.174 0.257 0.304 0.212 0.257 0.335 0.395 0.443 0.358 0.440 0.491 0.519 0.541 0.498
+> PatchTST MSE 0.059 0.082 0.097 0.114 0.088 0.192 0.294 0.391 0.440 0.329 0.116 0.173 0.217 0.266 0.193
+> MAE 0.093 0.100 0.109 0.113 0.104 0.192 0.253 0.299 0.321 0.266 0.185 0.240 0.277 0.314 0.254
+> TimeMixer MSE 0.104 0.197 0.282 0.371 0.239 0.375 0.496 0.579 0.640 0.523 0.251 0.335 0.418 0.456 0.365
+> MAE 0.117 0.176 0.226 0.276 0.199 0.225 0.289 0.348 0.387 0.312 0.316 0.388 0.449 0.476 0.407
+
+7Scenario 1  Scenario 2  Scenario 3       
+
+> Scenario 1
+> State
+> Evolution
+> Initial State Stage 1 Stage 2
+> Initial State Stage 1 Stage 2
+> Scenario 2
+> State
+> Evolution
+> Scenario 3
+> State
+> Evolution
+> Initial State Stage 1 Stage 2
+
+Figure 4: Visualization of forecasting behavior and latent-state evolution across three synthetic scenarios. Fig. 4 and Fig. 8 provide qualita-tive evidence supporting these re-sults. Around the turning points in Scenario 1 and Scenario 3, LeapTS 
+
+closely follows the real temporal pat-tern, while competing models often 
+
+lag behind these changes . In Sce-nario 2, both baselines simply repro-duce the historical mean-level fluctu-ations , whereas LeapTS successfully captures the emerging upward trend .The visualization also reveals that 
+
+LeapTS exhibits an adaptive schedul-ing behavior . As forecasting pro-gresses, the model dynamically lever-ages information from different con-text segments. 
+
+4.3 Scheduling Analysis 
+
+Table 4: Proportions of control ( Ct. ) and temporal ( Te. )signals across four bins of increasing volatility, ranging from Bin 0 (lowest) to Bin 3 (highest). The dominant Overall per dataset is in blue, and the highest AVG is in orange .                                                                     
+
+> Dataset Bin 0 Bin 1 Bin 2 Bin 3 Overall Ct. Te. Ct. Te. Ct. Te. Ct. Te. Ct. Te.
+> Elec. 0.216 0.784 0.269 0.731 0.277 0.723 0.272 0.728 0.259 0.741
+> ETTh2 0.530 0.471 0.572 0.428 0.585 0.415 0.604 0.396 0.573 0.427
+> ETTm2 0.359 0.641 0.431 0.569 0.467 0.533 0.473 0.527 0.432 0.568
+> Exch. 0.947 0.053 0.945 0.055 0.943 0.057 0.942 0.058 0.944 0.056
+> PEMS. 0.260 0.740 0.241 0.759 0.234 0.766 0.265 0.735 0.250 0.750
+> AVG 0.462 0.538 0.492 0.508 0.501 0.499 0.511 0.489 0.492 0.508
+> Note: Ct. : Control signal; Te. : Temporal signal.
+
+Scheduling Signal Decomposition. 
+
+To analyze the internal scheduling mechanism , we decompose the total signal into control and temporal com-ponents (see Appendix F for specific details). The relative proportions of these signals are then calculated to identify the dominant driver. Specif-ically, we partition all windows into four bins in ascending order of volatil-ity. Table 4 illustrates the shift in sig-nal proportions across different volatil-ity regimes. At the window level , tem-poral signals dominate low-volatility inputs ( 0.538 , Bin 0), while control signals increase in high-volatility ones ( 0.511 , Bin 3). At the dataset level , temporal signals are more prominent in periodic data ( PEMS04 : 0.750 ), whereas control signals dominate more volatile data (Exchange : 0.944 ). These observations lead to the following insight: 
+
+Insight 1: The dominant signal varies with volatility levels and dataset characteristics: temporal signals dominate stable or periodic regimes, while control signals dominate volatile regimes. 23.7    
+
+> 38.9
+> Scenario 2
+> Average Decision Count
+> 1.0
+> 1.5
+> 2.0
+> Scenario 1 Scenario 2 Scenario 3
+> (a) Category Distribution (b) Scheduling Intensity
+
+Figure 5: Scheduling behaviors on synthetic data. (a) Cate-gory Distribution: proportions across volatility levels. (b) Scheduling Intensity: average scheduling count. 
+
+Volatility-Aware Scheduling. We analyze scheduling patterns under three synthetic scenarios. As volatil-ity increases, the category distribu-tion (Fig. 5a) shifts toward Short 
+
+scheduling decisions. For example, in Scenario 2 the proportion rises from 41.1% to 58.3% , and similar trends appear in the other scenarios. This indicates that the model becomes more cautious under higher uncer-tainty. Meanwhile, the scheduling in-tensity (Fig. 5b) also increases across all scenarios. In Scenario 1, the av-erage number of scheduling decisions 8per window rises from 1.32 to 1.45 , indicating more frequent scheduling under higher volatility. These observations lead to the following insight: 
+
+Insight 2: Scheduling adapts to volatility: low-volatility regimes tend toward longer categories and fewer actions, while high-volatility regimes toward shorter categories and more frequent actions. 
+
+4.4 Additional Analysis 50 100 150 200 
+
+> Training Time (ms/iter)
+> 0.23
+> 0.24
+> 0.25
+> 0.26
+> 0.27
+> 0.28
+> 0.29
+> 0.30
+> MSE
+
+ETTh2: Training Phase        
+
+> Memory Size
+> 1.0GB 3.0GB 7.0GB
+> 050 100 150 200 250
+> Inference Time (ms/iter)
+> 0.24
+> 0.26
+> 0.28
+> 0.30
+> MSE
+
+ETTh2: Inference Phase        
+
+> Parameters Size
+> 1.0M 4.0M 9.0M
+> 050 100 150 200 250
+> Training Time (ms/iter)
+> 0.13
+> 0.14
+> 0.15
+> 0.16
+> 0.17
+> 0.18
+> MSE
+
+Weather: Training Phase         
+
+> Memory Size
+> 1.0GB 3.0GB 7.0GB
+> 050 100 150 200 250 300
+> Inference Time (ms/iter)
+> 0.13
+> 0.14
+> 0.15
+> 0.16
+> 0.17
+> 0.18
+> MSE
+
+Weather: Inference Phase   
+
+> Parameters Size
+> 1.0M 4.0M 9.0M
+
+Figure 6: Training and inference efficiency on ETTh2 and Weather. Bubble size indicates memory (training) or parameter size (inference). 
+
+Efficiency Analysis Fig. 6 compares training and infer-ence efficiency on ETTh2 and Weather. Our method achieves lower MSE while maintaining competitive training and inference time. It also requires less memory during training and fewer parameters during inference, demonstrating strong efficiency alongside improved accuracy. 
+
+Ablation Study Table 6summarizes the effects of key components. Remov-ing the scheduling branch causes the largest perfor-mance drop, with average MSE increasing by 22.22% ,which highlights the impor-tance of adaptive scheduling. Replacing the CDE with RNN or LSTM also leads to consistent degradation. This suggests that the continuous-time formulation better captures irregular time evolution. Table 5: Ablation study on the scheduling trace. 
+
+Method Average Improv. 
+
+LeapTS 0.323 -Monte Carlo 0.378 +14.55% 
+
+Fixed Step 0.370 +12.70% 
+
+Furthermore, we evaluate the scheduling trace against Monte Carlo and Fixed Step schemes. Table 5 shows that periodicity-based fixed steps yield marginal gains over Monte Carlo. In con-trast, LeapTS outperforms both baselines and reduces average MAE by 14.55% and 12.70% , respectively. These results verify the effectiveness of the adaptive scheduling trace. Appendix G provides experimental settings and full result descriptions for this analysis. Table 6: Ablation study on model components. We evaluate removing the scheduling branch and replacing the CDE cell with RNN/LSTM. Results report average MSE across prediction lengths. Weather Electricity ETTh1 ETTh2 ETTm1 ETTm2 PEMS04 PEMS07 Average Improv.                                         
+
+> LeapTS 0.113 0.117 0.316 0.197 0.244 0.118 0.129 0.114 0.168 -w/o hierarchical scheduling 0.140 0.167 0.330 0.199 0.278 0.125 0.247 0.242 0.216 +22.22%
+> RNN cell 0.114 0.119 0.320 0.199 0.248 0.119 0.136 0.117 0.172 +2.33%
+> LSTM cell 0.114 0.118 0.319 0.198 0.245 0.118 0.135 0.117 0.171 +1.75%
+
+## 5 Conclusion 
+
+In this paper, we present LeapTS , a novel framework that reformulates time series prediction as a dynamic scheduling process. By integrating a hierarchical controller with continuous-time state evolution, LeapTS facilitates adaptive scheduling and effectively captures temporal dynamics. Extensive experiments on real-world and synthetic datasets demonstrate that LeapTS achieves superior forecasting accuracy and efficiency while exhibiting traceable scheduling behaviors. These results also suggest a promising paradigm for time series modeling. 9References 
+
+Kavosh Asadi, Dipendra Misra, and Michael Littman. Lipschitz continuity in model-based rein-forcement learning. In International conference on machine learning , pages 264–273. PMLR, 2018. Maximilian Beck, Korbinian Pöppel, Markus Spanring, Andreas Auer, Oleksandra Prudnikova, Michael Kopp, Günter Klambauer, Johannes Brandstetter, and Sepp Hochreiter. xlstm: Extended long short-term memory. Advances in Neural Information Processing Systems , 37:107547–107603, 2024. Samy Bengio, Oriol Vinyals, Navdeep Jaitly, and Noam Shazeer. Scheduled sampling for sequence prediction with recurrent neural networks. Advances in neural information processing systems , 28, 2015. Christoph Bergmeir. Fundamental limitations of foundational forecasting models: The need for multimodality and rigorous evaluation. In Proc. NeurIPS Workshop , 2024. Shane Bergsma, Tim Zeyl, and Lei Guo. Sutranets: sub-series autoregressive networks for long-sequence, probabilistic forecasting. Advances in Neural Information Processing Systems , 36: 30518–30533, 2023. David Campos, Miao Zhang, Bin Yang, Tung Kieu, Chenjuan Guo, and Christian S Jensen. Lightts: Lightweight time series classification with adaptive ensemble distillation. Proceedings of the ACM on Management of Data , 1:1–27, 2023. Real Carbonneau, Kevin Laframboise, and Rustam Vahidov. Application of machine learning techniques for supply chain demand forecasting. European journal of operational research , 184(3): 1140–1154, 2008. Cristian Challu, Kin G Olivares, Boris N Oreshkin, Federico Garza Ramirez, Max Mergenthaler Canseco, and Artur Dubrawski. Nhits: Neural hierarchical interpolation for time series forecasting. In Proceedings of the AAAI conference on artificial intelligence , volume 37, pages 6989–6997, 2023. Si-An Chen, Chun-Liang Li, Sercan O Arik, Nathanael Christian Yoder, and Tomas Pfister. TSMixer: An all-MLP architecture for time series forecast-ing. Transactions on Machine Learning Research ,2023. ISSN 2835-8856. Yuzhou Chen, Ignacio Segovia-Dominguez, Baris Coskunuzer, and Yulia Gel. Tamp-s2gcnets: cou-pling time-aware multipersistence knowledge representation with spatio-supra graph convolutional networks for time-series forecasting. In International conference on learning representations , 2022. Junyoung Chung, Sungjin Ahn, and Yoshua Bengio. Hierarchical multiscale recurrent neural networks. In International Conference on Learning Representations , 2017. Abhimanyu Das, Weihao Kong, Andrew Leach, Shaan K Mathur, Rajat Sen, and Rose Yu. Long-term forecasting with tiDE: Time-series dense encoder. Transactions on Machine Learning Research ,2023. ISSN 2835-8856. Jingru Fei, Kun Yi, Wei Fan, Qi Zhang, and Zhendong Niu. Amplifier: Bringing attention to neglected low-energy components in time series forecasting. In Proceedings of the AAAI conference on artificial intelligence , volume 39, pages 11645–11653, 2025. Richard FitzHugh. Impulses and physiological states in theoretical models of nerve membrane. 
+
+Biophysical journal , 1(6):445–466, 1961. Alex Graves. Adaptive computation time for recurrent neural networks. arXiv preprint arXiv:1603.08983 , 2016. Riku Green, Grant Stevens, Zahraa S Abdallah, and Telmo M Silva Filho. Stratify: unifying multi-step forecasting strategies: R. green et al. Data Mining and Knowledge Discovery , 39(5):64, 2025. Albert Gu and Tri Dao. Mamba: Linear-time sequence modeling with selective state spaces. In First Conference on Language Modeling , 2024. 10 Mustafa Gul and F Necati Catbas. Statistical pattern recognition for structural health monitoring using time series modeling: Theory and experimental verifications. Mechanical Systems and Signal Processing , 23(7):2192–2204, 2009. Keith W Hipel and A Ian McLeod. Time series modelling of water resources and environmental systems , volume 45. Elsevier, 1994. Tao Hong, Pierre Pinson, Yi Wang, Rafał Weron, Dazhi Yang, and Hamidreza Zareipour. Energy forecasting: A review and outlook. IEEE Open Access Journal of Power and Energy , 7:376–388, 2020. Yifan Hu, Peiyuan Liu, Peng Zhu, Dawei Cheng, and Tao Dai. Adaptive multi-scale decomposition framework for time series forecasting. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 17359–17367, 2025. Peter J Huber. Robust estimation of a location parameter. In Breakthroughs in statistics: Methodology and distribution , pages 492–518. Springer, 1992. Eric Jang, Shixiang Gu, and Ben Poole. Categorical reparameterization with gumbel-softmax. In 
+
+International Conference on Learning Representations , 2017. Michael Janner, Justin Fu, Marvin Zhang, and Sergey Levine. When to trust your model: Model-based policy optimization. Advances in neural information processing systems , 32, 2019. Jongseon Kim, Hyungjoon Kim, HyunGi Kim, Dongjun Lee, and Sungroh Yoon. A comprehensive survey of deep learning for time series forecasting: architectural diversity and open challenges. 
+
+Artificial Intelligence Review , 58(7):216, 2025. Taesung Kim, Jinhee Kim, Yunwon Tae, Cheonbok Park, Jang-Ho Choi, and Jaegul Choo. Reversible instance normalization for accurate time-series forecasting against distribution shift. In International conference on learning representations , 2021. Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 , 2014. Erwin Kreyszig. Introductory functional analysis with applications . John Wiley & Sons, 1991. J LaSalle. Relaxation oscillations. Quarterly of applied Mathematics , 7(1):1–19, 1949. Zhe Li, Shiyi Qi, Yiduo Li, and Zenglin Xu. Revisiting long-term time series forecasting: An investigation on linear mapping. arXiv preprint arXiv:2305.10721 , 2023. Minhao Liu, Ailing Zeng, Muxi Chen, Zhijian Xu, Qiuxia Lai, Lingna Ma, and Qiang Xu. Scinet: Time series modeling and forecasting with sample convolution and interaction. Advances in neural information processing systems , 35:5816–5828, 2022a. Xvyuan Liu, Xiangfei Qiu, Xingjian Wu, Zhengyu Li, Chenjuan Guo, Jilin Hu, and Bin Yang. Rethinking irregular time series forecasting: A simple yet effective baseline. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 23873–23881, 2026. Yong Liu, Haixu Wu, Jianmin Wang, and Mingsheng Long. Non-stationary transformers: Exploring the stationarity in time series forecasting. Advances in neural information processing systems , 35: 9881–9893, 2022b. Yong Liu, Tengge Hu, Haoran Zhang, Haixu Wu, Shiyu Wang, Lintao Ma, and Mingsheng Long. itransformer: Inverted transformers are effective for time series forecasting. In International conference on learning representations , volume 2024, pages 11116–11140, 2024. Edward N Lorenz. Deterministic nonperiodic flow 1. In Universality in Chaos, 2nd edition , pages 367–378. Routledge, 2017. Chris J Maddison, Andriy Mnih, and Yee Whye Teh. The concrete distribution: A continuous relaxation of discrete random variables. arXiv preprint arXiv:1611.00712 , 2016. 11 Spyros Makridakis, Evangelos Spiliotis, and Vassilios Assimakopoulos. The m4 competition: Results, findings, conclusion and way forward. International Journal of forecasting , 34(4):802–808, 2018. Massimiliano Marcellino, James H Stock, and Mark W Watson. A comparison of direct and iterated multistep ar methods for forecasting macroeconomic time series. Journal of econometrics , 135 (1-2):499–526, 2006. Yuqi Nie, Nam H. Nguyen, Phanwadee Sinthong, and Jayant Kalagnanam. A time series is worth 64 words: Long-term forecasting with transformers. In International Conference on Learning Representations , 2023. Yiming Niu, Jinliang Deng, and Yongxin Tong. Phaseformer: From patches to phases for efficient and effective time series forecasting. In International conference on machine learning , 2026. Boris N. Oreshkin, Dmitri Carpov, Nicolas Chapados, and Yoshua Bengio. N-beats: Neural basis expansion analysis for interpretable time series forecasting. In International Conference on Learning Representations , 2020. Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, et al. Pytorch: An imperative style, high-performance deep learning library. Advances in neural information processing systems , 32, 2019. Ilya Prigogine and René Lefever. Symmetry breaking instabilities in dissipative systems. ii. The Journal of Chemical Physics , 48(4):1695–1700, 1968. Stéphane Ross, Geoffrey Gordon, and Drew Bagnell. A reduction of imitation learning and structured prediction to no-regret online learning. In Proceedings of the fourteenth international conference on artificial intelligence and statistics , pages 627–635. JMLR Workshop and Conference Proceedings, 2011. David Salinas, Valentin Flunkert, Jan Gasthaus, and Tim Januschowski. Deepar: Probabilistic forecasting with autoregressive recurrent networks. International journal of forecasting , 36(3): 1181–1191, 2020. Omer Berat Sezer, Mehmet Ugur Gudelek, and Ahmet Murat Ozbayoglu. Financial time series forecasting with deep learning: A systematic literature review: 2005–2019. Applied soft computing ,90:106181, 2020. Steven H Strogatz. Nonlinear dynamics and chaos: with applications to physics, biology, chemistry, and engineering . Chapman and Hall/CRC, 2024. Souhaib Ben Taieb, Gianluca Bontempi, Amir F Atiya, and Antti Sorjamaa. A review and comparison of strategies for multi-step ahead time series forecasting based on the nn5 forecasting competition. 
+
+Expert systems with applications , 39:7067–7083, 2012. Hao Wang, Lichen Pan, Yuan Shen, Zhichao Chen, Degui Yang, Yifei Yang, Sen Zhang, Xinggao Liu, Haoxuan Li, and Dacheng Tao. Fredf: Learning to forecast in the frequency domain. In 
+
+International Conference on Learning Representations , volume 2025, pages 6893–6922, 2025a. Hao Wang, Licheng Pan, Zhichao Chen, Xu Chen, Qingyang Dai, Lei Wang, Haoxuan Li, and Zhouchen Lin. Time-o1: Time-series forecasting needs transformed label alignment. Advances in Neural Information Processing Systems , 38:8660–8690, 2026. Huiqiang Wang, Jian Peng, Feihu Huang, Jince Wang, Junhui Chen, and Yifei Xiao. Micn: Multi-scale local and global context modeling for long-term series forecasting. In The eleventh international conference on learning representations , 2023. Shiyu Wang, Haixu Wu, Xiaoming Shi, Tengge Hu, Huakun Luo, Lintao Ma, James Zhang, and Jun Zhou. Timemixer: Decomposable multiscale mixing for time series forecasting. In International conference on learning representations , volume 2024, pages 38626–38652, 2024a. 12 Shiyu Wang, Jiawei Li, Xiaoming Shi, Zhou Ye, Baichuan Mo, Wenze Lin, Shengtong Ju, Zhixuan Chu, and Ming Jin. Timemixer++: A general time series pattern machine for universal predictive analysis. In International Conference on Learning Representations , volume 2025, pages 16980–17016, 2025b. Yuxuan Wang, Haixu Wu, Jiaxiang Dong, Yong Liu, Chen Wang, Mingsheng Long, and Jianmin Wang. Deep time series models: A comprehensive survey and benchmark. arXiv preprint arXiv:2407.13278 , 2024b. Yuxuan Wang, Haixu Wu, Yuezhou Ma, Yuchen Fang, Ziyi Zhang, Yong Liu, Shiyu Wang, Zhou Ye, Yang Xiang, Jianmin Wang, et al. Accuracy law for the future of deep time series forecasting. 
+
+arXiv preprint arXiv:2510.02729 , 2025c. Haixu Wu, Jiehui Xu, Jianmin Wang, and Mingsheng Long. Autoformer: Decomposition transformers with auto-correlation for long-term series forecasting. Advances in neural information processing systems , 34:22419–22430, 2021. Haixu Wu, Tengge Hu, Yong Liu, Hang Zhou, Jianmin Wang, and Mingsheng Long. Timesnet: Temporal 2d-variation modeling for general time series analysis. In The Eleventh International Conference on Learning Representations , 2023. Xingjian Wu, Xiangfei Qiu, Hanyin Cheng, Zhengyu Li, Jilin Hu, Chenjuan Guo, and Bin Yang. Enhancing time series forecasting through selective representation spaces: A patch perspective. 
+
+Advances in Neural Information Processing Systems , 38:23328–23354, 2026. Kun Yi, Jingru Fei, Qi Zhang, Hui He, Shufeng Hao, Defu Lian, and Wei Fan. Filternet: Harnessing frequency filters for time series forecasting. Advances in Neural Information Processing Systems ,37:55115–55140, 2024. Penghang Yin, Jiancheng Lyu, Shuai Zhang, Stanley J. Osher, Yingyong Qi, and Jack Xin. Under-standing straight-through estimator in training activation quantized neural nets. In International Conference on Learning Representations , 2019. Ailing Zeng, Muxi Chen, Lei Zhang, and Qiang Xu. Are transformers effective for time series forecasting? In Proceedings of the AAAI conference on artificial intelligence , volume 37, pages 11121–11128, 2023. Zhiwei Zhang, Xinyi Du, Xuanchi Guo, Weihao Wang, and Wenjuan Han. Emaformer: Enhancing transformer through embedding armor for time series forecasting. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 28636–28644, 2026. Haoyi Zhou, Shanghang Zhang, Jieqi Peng, Shuai Zhang, Jianxin Li, Hui Xiong, and Wancai Zhang. Informer: Beyond efficient transformer for long sequence time-series forecasting. In Proceedings of the AAAI conference on artificial intelligence , volume 35, pages 11106–11115, 2021. Tian Zhou, Ziqing Ma, Qingsong Wen, Liang Sun, Tao Yao, Wotao Yin, Rong Jin, et al. Film: Frequency improved legendre memory model for long-term time series forecasting. Advances in neural information processing systems , 35:12677–12690, 2022a. Tian Zhou, Ziqing Ma, Qingsong Wen, Xue Wang, Liang Sun, and Rong Jin. Fedformer: Frequency enhanced decomposed transformer for long-term series forecasting. In International conference on machine learning , pages 27268–27286. PMLR, 2022b. 13 A Differentiability Analysis 
+
+Differentiability of the High-Level Scheduler. To make the discrete category selection end-to-end trainable, we overcome the non-differentiable argmax operation using the Gumbel-Softmax trick with a Straight-Through (ST) estimator [Jang et al., 2017, Maddison et al., 2016]. Given the unnormalized logits ok = Wcat hk ∈ RC and independent noise gi ∼ Gumbel(0 , 1) , we first compute the distribution ˜πk:
+
+˜πk,i = exp  (ok,i + gi)/τ g
+
+PCj=1 exp  (ok,j + gj )/τ g
+
+ , (15) where τg > 0 is the temperature. To ensure strict discrete routing, the forward pass uses the hard one-hot sample πk = one _hot(argmax i ˜πk,i ). To bypass the zero gradients of argmax 
+
+during backpropagation, the ST estimator directly routes the gradient of the loss L through the soft approximation: 
+
+∇ok L ≈ ∇ ˜πk L · ∂ ˜πk
+
+∂ok
+
+. (16) This formulation maintains exact discrete execution forward while providing dense, continuous gradient feedback backward to optimize the decision boundary [Yin et al., 2019]. 
+
+Differentiability of the Low-Level Scheduler. To ensure the advancement length ℓk is trainable, we replace the non-differentiable hard truncation with a continuous soft mask mk(τ ) [Graves, 2016]. For clarity, we present the derivation for one variable and omit the variable index, and the same derivation is applied independently to each variable. Let L denote the overall forecasting loss. The gradient with respect to ℓk is computed via the chain rule over all future steps τ :
+
+∂L
+
+∂ℓ k
+
+=
+
+> P
+
+X 
+
+> τ=1
+
+∂L
+
+∂ ˆysched  
+
+> k+1
+
+(τ )
+
+∂ ˆysched  
+
+> k+1
+
+(τ )
+
+∂¯sk(τ )
+
+∂¯sk(τ )
+
+∂m k(τ )
+
+∂m k(τ )
+
+∂ℓ k
+
+. (17) Based on the iterative update ˆysched  
+
+> k+1
+
+= ˆ ysched  
+
+> k
+
++ ¯ sk and the masking operation ¯sk = sk ⊙ mk, the intermediate derivatives are: 
+
+∂ ˆysched  
+
+> k+1
+
+(τ )
+
+∂¯sk(τ ) = 1 , ∂¯sk(τ )
+
+∂m k(τ ) = sk(τ ). (18) Let σ(·) denote the standard logistic sigmoid function. For the soft mask mk(τ ) = I[τ ≥ qk] · σ(zk,τ ),where zk,τ = ℓk −(τ −qk )−0.5 
+
+> γ
+
+, the indicator term I[τ ≥ qk] depends only on the discrete time indices. Because it acts strictly as a constant binary routing gate during backpropagation, it does not break the computational graph of ℓk [Maddison et al., 2016]. Thus, the derivative with respect to ℓk can be derived as: ∂m k(τ )
+
+∂ℓ k
+
+= I[τ ≥ qk] · 1
+
+γ · σ(zk,τ ) 1 − σ(zk,τ ). (19) Substituting these intermediate terms back into Eq. (17) , the indicator function restricts the summation range to τ ≥ qk, formulating the final gradient flow as: 
+
+∂L
+
+∂ℓ k
+
+=
+
+> P
+
+X 
+
+> τ=qk
+
+∂L
+
+∂ ˆysched  
+
+> k+1
+
+(τ ) sk(τ ) σ(zk,τ ) 1 − σ(zk,τ )
+
+γ . (20) This formulation provides a differentiable path from the forecasting loss to the continuous advancement length through the soft mask. For any finite zk,τ and temperature γ > 0, the derivative σ(zk,τ )(1 −
+
+σ(zk,τ )) is positive, providing smooth feedback around the soft boundary and enabling optimization of the hierarchical scheduling mechanism [Chung et al., 2017]. 
+
+## B Analysis for Multi-Horizon Forecasting Paradigms 
+
+In this section, we provide a mathematical analysis of the upper bounds for three forecasting paradigms: the Direct Paradigm, the Recursive Paradigm [Taieb et al., 2012], and our LeapTS . Let ht ∈ H 
+
+14 denote the underlying hidden state at time t. We define the optimal transition dynamics over a length of ℓ as ht+ℓ = f ∗(ht, ℓ ), and the learned forecasting model as ˆht+ℓ = fθ (ˆht, ℓ ). The forecasting error at step t + ℓ is measured by the distance et+ℓ = ∥ht+ℓ − ˆht+ℓ∥. To establish the theoretical bounds, we first introduce two assumptions: 
+
+Assumption 1 (Lipschitz Continuous Dynamics). We assume the optimal transition function f ∗ is Lipschitz continuous [Asadi et al., 2018] with respect to the initial state. Specifically, there exists a 1-step Lipschitz constant λ ≥ 1 such that for any states h1, h2 ∈ H and length ℓ ≥ 1, the following holds: 
+
+∥f ∗(h1, ℓ ) − f ∗(h2, ℓ )∥ ≤ λℓ∥h1 − h2∥. (21) 
+
+Assumption 2 (Strictly Superadditive Approximation Error). We assume that for any state h ∈ H 
+
+within the latent space, the local approximation error of the learned model fθ relative to the true dynamics [Janner et al., 2019] f ∗ is bounded by a strictly superadditive function ϵ(ℓ). Specifically, for any lengths ℓ1, ℓ 2 ≥ 1:
+
+∀h ∈ H , ∥f ∗(h, ℓ ) − fθ (h, ℓ )∥ ≤ ϵ(ℓ), where ϵ(ℓ1 + ℓ2) > ϵ (ℓ1) + ϵ(ℓ2). (22) 
+
+Naturally, ϵ(ℓ) is strictly superadditive, as predicting a longer horizon in a single forward pass forces the model to capture a significantly more complex joint distribution, causing the error to grow faster than linearly [Bengio et al., 2015]. 
+
+Assumption 3 (Equivalent Residual Bounds). We assume the residual dynamics hres are bounded by the same Lipschitz constant λ and error bound ϵ(·) as the base dynamics. 
+
+B.1 Bound of the Direct Paradigm 
+
+The Direct Paradigm generates all P future steps via a single mapping. The error originates from the approximation difficulty ϵ(P ).
+
+Proposition 1 (Direct Bound). The upper bound for the Direct Paradigm at horizon P is given by the approximation error [Marcellino et al., 2006] of length P :
+
+Bdir = ϵ(P ). (23) 
+
+Proof. In the Direct paradigm, the model predicts the entire horizon P in one forward pass from the ground-truth state ht. By Assumption 2, eP = ∥f ∗(ht, P ) − fθ (ht, P )∥ ≤ ϵ(P ).
+
+B.2 Bound of the Recursive Paradigm 
+
+The Recursive paradigm predicts the horizon iteratively with a fixed step ℓ = 1 . The total horizon P
+
+requires P consecutive forward passes [Ross et al., 2011], leading to error accumulation. 
+
+Proposition 2 (Recursive Bound). The upper bound for the Recursive paradigm after P steps is given by: 
+
+Brec = ϵ(1) λP − 1
+
+λ − 1 (assuming λ > 1) . (24) 
+
+Proof. At each step i, using the triangle inequality [Kreyszig, 1991] and Eq. (21): 
+
+ei = ∥f ∗(ht+i−1, 1) − fθ (ˆht+i−1, 1) ∥ (25) 
+
+≤ ∥ f ∗(ht+i−1, 1) − f ∗(ˆht+i−1, 1) ∥ + ∥f ∗(ˆht+i−1, 1) − fθ (ˆht+i−1, 1) ∥ (26) 
+
+≤ λ · ei−1 + ϵ(1) . (27) Unrolling this recurrence from e0 = 0 yields eP ≤ ϵ(1) PP −1 
+
+> i=0
+
+λi = ϵ(1) λP −1 
+
+> λ−1
+
+.
+
+B.3 Bound of the LeapTS 
+
+LeapTS fuses a global coarse predictor with an adaptive scheduling branch to generate the final prediction: ˆht+P = ˆhcoarse  
+
+> t+P
+
++ αˆhsched  
+
+> t+P
+
+, where α ∈ (0 , 1) is the learned combination gate. The scheduling branch ˆhsched predicts the residual dynamics via K adaptive segments of lengths {ℓk}.15 Theorem 1 ( LeapTS Optimal Upper Bound). Let SP be the set of all valid scheduling partitions such that PKk=1 ℓk = P . The optimal upper bound of LeapTS is defined as the infimum over all combination gates α ∈ (0 , 1) and valid schedules ℓ ∈ S P :
+
+B⋆ 
+
+> LeapTS
+
+= inf 
+
+> α, ℓ
+
+"
+
+(1 − α)ϵ(P ) + α
+
+> K
+
+X
+
+> k=1
+
+λP −τk ϵ(ℓk)
+
+#
+
+, (28) 
+
+where τk = Pki=1 ℓi denotes the accumulated prediction steps. Consequently, the optimal upper bound of LeapTS is no worse than the Direct and Recursive upper bounds: 
+
+B⋆ 
+
+> LeapTS
+
+≤ min( Bdir , B rec ). (29) 
+
+Proof. By definition, the target residual is hres = ht+P − ˆhcoarse  
+
+> t+P
+
+. For a specific schedule ℓ, the total prediction error can be expanded as: 
+
+∥ht+P − (ˆhcoarse  
+
+> t+P
+
++ αˆhsched  
+
+> t+P
+
+)∥ = ∥ht+P − ˆhcoarse  
+
+> t+P
+
+− αhres + αhres − αˆhsched  
+
+> t+P
+
+∥ (30) 
+
+= ∥(1 − α)hres + α(hres − ˆhsched  
+
+> t+P
+
+)∥. (31) By the triangle inequality: 
+
+∥ht+P − (ˆhcoarse  
+
+> t+P
+
++ αˆhsched  
+
+> t+P
+
+)∥ ≤ (1 − α)∥hres ∥ + α∥hres − ˆhsched  
+
+> t+P
+
+∥. (32) From Proposition 1, the coarse prediction error is bounded by ∥hres ∥ ≤ ϵ(P ). The second term, 
+
+∥hres − ˆhsched  
+
+> t+P
+
+∥, represents the error of the scheduling branch when fitting this residual using K
+
+recursive segments. Following the unrolling logic of Proposition 2 with varying segment lengths 
+
+ℓk, this segment-wise error is bounded by PKk=1 λP −τk ϵ(ℓk). Taking the limit as α → 0 recovers the Direct upper bound Bdir , and taking the limit as α → 1 with ℓrec = (1 , 1, . . . , 1) recovers the Recursive upper bound Brec . Since B⋆ 
+
+> LeapTS
+
+is defined as the infimum over all valid (α, ℓ), it follows that B⋆ 
+
+> LeapTS
+
+≤ min( Bdir , B rec ).In summary, Theorem 1 demonstrates that LeapTS achieves an optimal upper bound no worse than the Direct and Recursive paradigms. It mitigates the Recursive paradigm’s exponential drift ( λP ) by using the global coarse branch as an anchor and reducing jump steps ( K ≪ P ). Simultaneously, it overcomes the Direct paradigm’s high approximation bias ( ϵ(P )) by decomposing the mapping into scheduled segments ( P ϵ(ℓk) ≪ ϵ(P )). 
+
+## C Implementation Details 
+
+Datasets Description. To comprehensively evaluate the proposed framework, experiments are conducted on both real-world and synthetic datasets, covering multivariate and univariate forecasting scenarios. As summarized in Table 7, the real-world datasets span multiple domains, including energy (ETTh1, ETTh2, ETTm1, ETTm2, Electricity), weather (Weather), finance (Exchange Rate, SP500), healthcare (ILI, COVID), web traffic (Wiki), and transportation (PEMS04, PEMS07). For univariate forecasting, the M4 dataset is adopted, which consists of large-scale heterogeneous time series across multiple temporal granularities ranging from hourly to yearly. In addition, we construct synthetic datasets to provide controlled evaluation settings, including two multivariate scenarios and one univariate scenario with consistent configurations. 
+
+ETT [Zhou et al., 2021] covers transformer-related multivariate measurements collected from July 2016 to July 2018. The dataset includes variables associated with load conditions and oil temperature. ETTh1 and ETTh2 are organized at the hourly level, while ETTm1 and ETTm2 are recorded every 15 minutes. 
+
+Weather [Wu et al., 2021] corresponds to meteorological observations collected throughout 2020. It contains 21 environmental variables, including temperature, humidity, and other atmospheric indicators. The data are sampled at 10-minute intervals. 
+
+Electricity [Wu et al., 2021] spans the period from July 2016 to July 2019 and records electricity consumption at an hourly frequency. The dataset consists of 321 variables, each corresponding to an 16 individual client. Together, these variables form a high-dimensional multivariate time series reflecting client-level consumption patterns. 
+
+Exchange Rate [Wu et al., 2021] includes daily exchange-rate series over a long historical window from January 1990 to October 2010. Each variable corresponds to one currency-related series. 
+
+ILI 2 records weekly counts of influenza-like illness patients from 2002 to 2021. 
+
+SP500 records daily S&P 500 index data from January 1993 to February 2025. The dataset includes variables such as opening price, closing price, and trading volume. 
+
+COVID [Chen et al., 2022] consists of daily COVID-19 hospitalization records in California during 2020. 
+
+Wiki 3 records daily page-view counts for Wikipedia articles from 2018 to 2019. Each variable corresponds to one Wikipedia page, and the first 99 channels are used in this study. 
+
+PEMS04 and PEMS07 [Liu et al., 2022a] are traffic datasets constructed from road-sensor measure-ments in California. The observations are aggregated at 5-minute intervals, forming high-frequency traffic flow series. Each variable corresponds to a traffic sensor, describing the temporal evolution of traffic conditions across the network. 
+
+M4 [Makridakis et al., 2018] is a large-scale univariate time series collection. It contains 100,000 individual series across multiple temporal frequencies, including yearly, quarterly, monthly, weekly, daily, and hourly data. Table 7: Summary of datasets used in this work. We include both real-world and synthetic datasets across multivariate and univariate forecasting tasks.                                                                                                                         
+
+> Type Task Dataset Dim Length Split (Train/Val/Test, %) Freq. Domain
+> Real-world Multivariate ETTh1 717,420 60.0/20.0/20.0 1 hour Temperature ETTh2 717,420 60.0/20.0/20.0 1 hour Temperature ETTm1 769,680 60.0/20.0/20.0 15 min Temperature ETTm2 769,680 60.0/20.0/20.0 15 min Temperature Electricity 321 26,304 70.0/10.0/20.0 1 hour Electricity Exchange 87,587 70.0/10.0/20.0 Daily Finance Weather 21 52,696 70.0/10.0/20.0 10 min Weather ILI 7966 70.0/10.0/20.0 Weekly Health SP500 58,077 70.0/10.0/20.0 Daily Finance COVID 55 335 70.0/10.0/20.0 Daily Health Wiki 99 730 70.0/10.0/20.0 Daily Web PEMS04 307 16,992 70.0/10.0/20.0 5 min Transportation PEMS07 883 28,224 70.0/10.0/20.0 5 min Transportation Univariate M4-Yearly 1858,458 83.9/0.0/16.1 Yearly Demographic M4-Quarterly 12,406,108 92.0/0.0/8.0 Quarterly Finance M4-Monthly 111,246,411 92.3/0.0/7.7 Monthly Industry M4-Weekly 1371,579 98.7/0.0/1.3 Weekly Macro M4-Daily 110,023,836 99.4/0.0/0.6 Daily Micro M4-Hourly 1373,372 94.7/0.0/5.3 Hourly Other Synthetic Multivariate Scenario 1 30 20,000 60.0/20.0/20.0 –Other Scenario 2 320,000 60.0/20.0/20.0 –Other Univariate Scenario 3 120,000 60.0/20.0/20.0 –Other
+
+Baseline Details To evaluate the effectiveness of LeapTS in forecasting tasks, we compare it with a diverse set of advanced baselines covering multiple modeling paradigms. Specifically, we include the linear forecasting model DLinear [Zeng et al., 2023]; temporal component decomposition methods, including Amplifier [Fei et al., 2025] and TimesNet [Wu et al., 2023]; multi-scale modeling 
+
+> 2https://gis.cdc.gov/grasp/fluview/fluportaldashboard.html
+> 3https://www.kaggle.com/datasets/sandeshbhat/wikipedia-web-traffic-201819
+
+17 methods, including AMD [Hu et al., 2025] and TimeMixer [Wang et al., 2025b]; MLP-based methods, including TSMixer [Chen et al., 2023]; the patch-based model PatchTST [Nie et al., 2023]; and the Transformer-based model iTransformer [Liu et al., 2024]. These baselines cover a wide range of model design paradigms and provide a comprehensive basis for evaluation. 
+
+Metric Details. We evaluate the forecasting performance using Mean Squared Error (MSE) and Mean Absolute Error (MAE) for real-world datasets. For the M4 benchmark [Makridakis et al., 2018], we follow the official evaluation protocol of the M4 competition and adopt Symmetric Mean Absolute Percentage Error (SMAPE), Mean Absolute Scaled Error (MASE), and Overall Weighted Average (OWA), where OWA is the primary metric used in the M4 competition. The metrics are defined as: MSE = 1
+
+P
+
+> P
+
+X
+
+> i=1
+
+(Yi − bYi)2, MAE = 1
+
+P
+
+> P
+
+X
+
+> i=1
+
+|Yi − bYi|, (33) SMAPE = 200 
+
+P
+
+> P
+
+X
+
+> i=1
+
+|Yi − bYi||Yi| + | bYi| , OWA = 12
+
+ SMAPE SMAPE Naïve2 
+
++ MASE MASE Naïve2 
+
+
+
+, (34) MAPE = 100 
+
+P
+
+> P
+
+X
+
+> i=1
+
+|Yi − bYi||Yi| , MASE =
+
+> 1
+> P
+
+PPi=1 |Yi − bYi|
+
+> 1
+> L−s
+
+PLj=s+1 |Xj − Xj−s| . (35) where s is the periodicity of the data. X ∈ RL×N denotes the historical observations with look-back length L. Y, bY ∈ RP ×N denote the ground truth and prediction with P future time points and N
+
+variables. Yi denotes the i-th future time step, and Xj denotes the j-th historical time step. 
+
+Experiment Details. All experiments were implemented in PyTorch [Paszke et al., 2019] and conducted on multiple NVIDIA A100 80GB GPUs, with each experiment repeated five times. The learning rate was set in the range from 2.5 × 10 −4 to 10 −2, and the ADAM optimizer [Kingma and Ba, 2014] was used for optimization. The Huber loss was adopted during training [Huber, 1992]. For model configuration, the number of hidden layers for both the H-Controller and the prediction head was set from 1 to 3, and the hidden dimension was selected from 1 to 256. Specifically, for low-dimensional datasets such as ETTh1, smaller hidden dimensions were used. In contrast, for high-dimensional datasets such as Electricity, larger dimensions were adopted to capture more complex dependencies. For baseline comparisons, results were directly reported from the original papers when the experimental settings were consistent [Wang et al., 2024a]. Otherwise, results were reproduced based on the benchmark framework of the Time-Series Library 4.
+
+Hyperparameter Tuning on Synthetic Datasets. To ensure a fair evaluation, we conduct a grid search to find the optimal configurations. For LeapTS , we search the hidden dimension in 
+
+{10 , 20 , 30 , 40 } and the number of layers in {2, 3, 4}. For TimeMixer and PatchTST, we expand the search space of hidden dimensions to {10 , 20 , 30 , 40 , 128 , 256 } and search the number of encoder/decoder layers in {2, 3, 4}. We report the best performance for all models. 
+
+## D Length Ranges for Different Scales 
+
+As introduced in Section 3.2, the H-Controller decomposes the segment length selection into a two-level hierarchical decision. Given the controller state hk at step k, the model first selects a temporal scale category c ∈ { short , mid , long } via a categorical routing module. Conditioned on the selected scale, a category-specific regression head then predicts a segment length within a predefined interval. This section details the construction of these scale-specific boundaries and their valid ranges. 
+
+D.1 Scale Anchors 
+
+The boundaries of the length intervals dynamically adapt to the look-back length L and the forecasting horizon P . Intuitively, a longer historical context provides richer information, enabling the model to confidently take larger advancement steps. Formally, the three upper-bound anchors are defined as: 
+
+Lshort = max(1 , min( ⌊L/ 4⌋, P − 1)) (36) 
+
+> 4https://github.com/thuml/Time-Series-Library
+
+18 Lmid = max( Lshort + 1 , min( ⌊L/ 2⌋, P − 1)) (37) 
+
+Llong = P (38) By anchoring the short and medium scales to fractions of L, the step size naturally scales with the available historical evidence. Furthermore, setting Llong = P allows the model to predict simple patterns in a single forward pass, thereby avoiding the inference overhead of multi-round scheduling. It is worth noting that if P ≤ ⌊ L/ 4⌋ + 1 , the model skips these anchors and directly uses a single-level decision. 
+
+D.2 Category-Specific Intervals and Length Mapping 
+
+Based on the derived anchors, we construct the valid length interval [Lmin  
+
+> c
+
+, L max  
+
+> c
+
+] for each category 
+
+c. The maximum boundaries are directly set to the anchor values ( Lmax  
+
+> c
+
+= Lc), and the minimum boundary for the short scale is fixed as Lmin  
+
+> short
+
+= 1 . To prevent excessive overlap and ensure progressive scaling, the remaining minimum boundaries are defined as: 
+
+Lmin  
+
+> mid
+
+= max  2, min( Lmax  
+
+> mid
+
+, L max  
+
+> short
+
++ 1) , (39) 
+
+Lmin  
+
+> long
+
+= max  3, min( Lmax  
+
+> long
+
+, max( Lmax  
+
+> mid
+
++ 1 , ⌊Lmax  
+
+> long
+
+/2⌋)) . (40) During the low-level scheduling phase, the raw output from the category-specific length head f len  
+
+> c
+
+(hk) is mapped into this defined interval via a sigmoid activation: ℓk,c = Lmin  
+
+> c
+
++( Lmax  
+
+> c
+
+−Lmin  
+
+> c
+
+)·σ f len  
+
+> c
+
+(hk).The continuous length of the selected category is subsequently clipped by the remaining forecasting horizon and rounded to the nearest integer to yield the final execution length ℓk.
+
+## E Synthetic Dataset Details 
+
+Although real-world benchmarks evaluate overall forecasting accuracy, they often mix various complex factors, making it difficult to clearly assess a model’s specific architectural strengths. To explicitly isolate and test distinct behaviors under specific temporal complexities, we generate three synthetic datasets, each consisting of 20,000 time steps. 
+
+Scenario 1: High-Dimensional Heterogeneous Series. This 30-dimensional dataset ( ∆t = 0 .05 )contains three latent clusters (10 variables each) to evaluate the decoupling of heterogeneous temporal patterns: 
+
+• Cluster A (Continuous Periodic Patterns): Generated via the Van der Pol system [LaSalle, 1949] to simulate stable, non-linear seasonal fluctuations. dy 1/dt = y2 and 
+
+dy 2/dt = μ(1 − y21 )y2 − y1 (μ = 2 .0), with observation noise N (0 , 0.05 2).
+
+• Cluster B (Sudden Sharp Spikes): Generated via the FitzHugh-Nagumo model [FitzHugh, 1961] to simulate event-driven anomalies with sharp, rapid state changes. dv/dt =
+
+v − v3/3 − w + I(t) and dw/dt = 0 .08( v + 0 .7 − 0.8w), where the intermittent pulse 
+
+I(t) = 0 .5 if (t mod 50) < 2.0, and 0 otherwise. 
+
+• Cluster C (Sharp Jumps with Slow Recovery): Generated via a damped harmonic oscillator [Strogatz, 2024] to simulate time series with decaying trends. dy 1/dt = y2 and 
+
+dy 2/dt = −0.15 y2 − 1.0y1. The underlying states are periodically reset every 2,000 steps from U(−2, 2) to simulate repeated external shocks. 
+
+Scenario 2: Causally Driven Multivariate Series. This 3-dimensional system ( X, Y, U , ∆t =0.05 ) simulates a multi-variable time series exhibiting severe non-stationary regime shifts. The core dynamics follow the classic Brusselator equations [Prigogine and Lefever, 1968], which are causally modulated by a slow-moving external driver U acting as an unobserved macro-trend. This exogenous driver smoothly tracks a periodic target: dU/dt = 0 .2( Utarget (t) − U ), where 
+
+Utarget (t) = 1 .0 + 0 .5 sin(0 .1t). This hidden factor continuously drives the interacting variables (X, Y ): dX dt = 1 .0 + X2Y − (B(t) + 1) X, dY dt = B(t)X − X2Y (41) where the time-varying coefficient is dynamically governed by B(t) = 2 .5+2 .0U (t). By continuously modulating B(t), the unobserved driver forces the sequence to alternate unpredictably between flat, low-volatility baseline periods and explosive, high-frequency fluctuations. 19 Scenario 3: Univariate Series Driven by Hidden Variables. This dataset tests whether the model can forecast a 1D sequence when its underlying driving factors are unobserved ( ∆t = 0 .02 ). We generate the data using the classic Lorenz system [Lorenz, 2017], which produces complex, non-repeating patterns: 
+
+dx dt = σ(y − x), dy dt = x(ρ − z) − y, dz dt = xy − βz (42) using standard parameters ( σ = 10 .0, ρ = 28 .0, β = 8 /3). To create a challenging forecasting task, we intentionally hide the interacting variables x and y. By keeping only the z sequence, we force the model to infer the missing hidden states and predict future values purely based on the historical movements of z.
+
+## F Signal Decomposition Mechanism 
+
+This section details the explicit decomposition of the H-Controller ’s internal state update. At each step k, the model builds a control signal uk based on the current context: uk =tanh  Wu[ρk ∥ ¯ℓk−1 ∥ πk−1 ∥ ck−1]. This context vector combines the remaining horizon, previous step length, previous category, and segment summary. We split the controller’s state update into two parts: one driven by control signal changes ( ∆uk) and one driven by temporal progress (∆τk): 
+
+hk+1 = hk + F(hk, uk)∆ uk
+
+| {z }
+
+> ∆hctrl
+> k
+
++ G(hk, uk)∆ τk
+
+| {z }
+
+> ∆htime
+> k
+
+(43) where F and G are the learned networks for the control and temporal components. To prevent positive and negative values from canceling each other out, we sum their absolute values: Ck = P 
+
+> j
+
+|∆hctrl  
+
+> k,j
+
+|
+
+and Tk = P 
+
+> j
+
+|∆htime  
+
+> k,j
+
+|. We then calculate their relative ratios: ηctrl  
+
+> k
+
+= Ck/(Ck + Tk + ε) and 
+
+ηtime  
+
+> k
+
+= Tk/(Ck + Tk + ε). These ratios clearly show whether a step is driven more by the control signal ( ηctrl  
+
+> k
+
+→ 1) or by the temporal signal ( ηtime  
+
+> k
+
+→ 1). 
+
+## G Ablation Analysis 
+
+Ablation on the Scheduling Trace. To verify the effectiveness of the scheduling trace, we compare it against two representative baselines: 1) Monte Carlo Simulation : This approach generates random scheduling traces by arbitrarily partitioning the prediction horizon. The final performance is then calculated by averaging the forecasting errors across all sampled traces. To manage computational costs, we sample N = 10 
+
+random traces per input window for the high-dimensional Electricity and PEMS04 datasets, and 
+
+N = 100 traces for all other datasets. 2) Fixed Period Step : The forecasting process is executed using a fixed step size determined by the dataset’s inherent periodicity (e.g., a step of 24 for hourly data). Table 8: Ablation study on the scheduling trace. We report the MAE metric. The best and second-best performances are highlighted. Average denotes the mean performance across all datasets, and 
+
+Improvement indicates the relative MAE reduction of LeapTS with respect to the strongest baseline .                                      
+
+> Dataset LeapTS Monte Carlo Fixed Step Improvement
+> (Ours) (Baseline 1) (Baseline 2)
+> Electricity 0.2260 0.2773 0.2437 7.26% ETTm1 0.3392 0.3696 0.3652 7.12% ETTm2 0.2354 0.2405 0.2399 1.88% Exchange 0.1591 0.1752 0.1793 9.19% ILI 0.8371 0.9748 0.9527 12.13% PEMS04 0.2872 0.4126 0.4135 30.39% Weather 0.1778 0.1979 0.1959 9.24% Average 0.3231 0.3783 0.3700 11.03%
+
+20 As summarized in Table 8, LeapTS consistently outperforms both the stochastic and fixed-step baselines across all evaluated datasets. Notably, LeapTS achieves substantial performance gains, with relative improvements reaching up to 30.39% on the PEMS04 dataset and 12.13% on the ILI dataset. These results demonstrate the effectiveness of our proposed scheduling method. 
+
+Ablation on Hierarchical Scheduling. To evaluate the effectiveness of hierarchical scheduling, we compare LeapTS with a variant ( w/o High-Level ) that directly regresses the advancement length without high-level scale selection. As shown in Table 9, removing the high-level scale selection leads to a consistent performance drop across all evaluated datasets. Table 9: Ablation study on the hierarchical scheduling mechanism. We compare the full LeapTS with a variant ( w/o High-Level ) that directly predicts the step length without the high-level scale selection. The forecasting horizon is set to P = 36 for ILI and P = 60 for others. Average denotes the mean performance. The best performances are highlighted.                                           
+
+> Dataset LeapTS (Ours) w/o High-Level
+> MSE MAE MSE MAE
+> Weather 0.1396 0.1778 0.1404 0.1796
+> Electricity 0.1314 0.2260 0.1327 0.2279
+> ETTh1 0.3511 0.3736 0.3525 0.3766
+> ETTh2 0.2458 0.3091 0.2462 0.3106
+> ETTm1 0.2978 0.3392 0.2991 0.3412
+> ETTm2 0.1469 0.2354 0.1479 0.2368
+> Exchange 0.0527 0.1591 0.0533 0.1605
+> ILI 1.9480 0.8371 2.1337 0.8833
+> Average 0.4142 0.3322 0.4382 0.3395
+
+## H Hyperparameter Sensitivity 
+
+This section investigates the impact of key hyperparameters on the forecasting performance of LeapTS ,specifically focusing on the number of hidden layers and the input look-back length. All experiments are conducted on the ETTm1 dataset. 
+
+Impact of Hidden Layers. We evaluate the influence of the H-Controller ’s depth by varying the number of hidden layers from 1 to 4 while fixing the input length at L = 96 . As summarized in Table 10, the forecasting performance of LeapTS remains robust across different layer configurations, with only marginal fluctuations in error metrics. Table 10: Sensitivity analysis of the number of hidden layers on ETTm1 dataset ( L = 96 ). Average 
+
+denotes the mean performance across all prediction lengths P .                                                             
+
+> Layers Layer = 1 Layer = 2 Layer = 3 Layer = 4
+> Horizon ( P)MSE MAE MSE MAE MSE MAE MSE MAE
+> 18 0.1811 0.2608 0.1769 0.2571 0.1763 0.2575 0.1765 0.2596 24 0.2152 0.2846 0.2100 0.2812 0.2113 0.2787 0.2102 0.2785 36 0.2645 0.3170 0.2546 0.3112 0.2519 0.3073 0.2535 0.3081 48 0.2900 0.3346 0.2821 0.3303 0.2856 0.3359 0.2818 0.3296 60 0.2978 0.3392 0.2937 0.3336 0.2971 0.3383 0.3062 0.3431
+> Average 0.2497 0.3072 0.2435 0.3027 0.2444 0.3036 0.2456 0.3038
+
+Impact of Input Length. We further evaluate the sensitivity of LeapTS to various look-back windows 
+
+L ∈ { 96 , 192 , 336 , 512 }. As summarized in Table 11, increasing the input length from 96 to 336 generally reduces the forecasting error since the model benefits from a richer historical context. The performance reaches its peak at L = 336 with an average MSE of 0.2214. 21 Table 11: Sensitivity analysis of input look-back lengths ( L) on ETTm1 dataset. Average denotes the mean performance across all prediction lengths P .
+
+Input L L = 96 L = 192 L = 336 L = 512 
+
+Horizon ( P ) MSE MAE MSE MAE MSE MAE MSE MAE 
+
+18 0.1769 0.2571 0.1631 0.2477 0.1605 0.2487 0.1599 0.2476 24 0.2100 0.2812 0.1933 0.2693 0.1919 0.2708 0.2002 0.2743 36 0.2546 0.3112 0.2319 0.2959 0.2300 0.2976 0.2354 0.2984 48 0.2821 0.3303 0.2567 0.3126 0.2547 0.3144 0.2599 0.3155 60 0.2978 0.3392 0.2688 0.3212 0.2701 0.3238 0.2781 0.3293 
+
+Average 0.2443 0.3038 0.2228 0.2893 0.2214 0.2910 0.2267 0.2930 
+
+Impact of Variable Clusters. We evaluate the cluster count G ∈ { 1, 3, 5, 7} on the ETTm1 dataset. As Table 12 shows, performance remains highly stable across all configurations. Notably, a single globally shared controller ( G = 1 ) achieves the lowest average error. This demonstrates that for low-dimensional time series, sharing a single NCDE controller is entirely sufficient to yield optimal forecasting results while maximizing parameter efficiency. Table 12: Sensitivity analysis of the number of variable clusters ( G) on the ETTm1 dataset. Average 
+
+denotes the mean performance across all prediction lengths P .
+
+Clusters G G = 1 G = 3 G = 5 G = 7 
+
+Horizon ( P ) MSE MAE MSE MAE MSE MAE MSE MAE 
+
+18 0.1776 0.2560 0.1768 0.2593 0.1787 0.2589 0.1767 0.2580 24 0.2089 0.2790 0.2106 0.2824 0.2116 0.2814 0.2139 0.2845 36 0.2530 0.3073 0.2535 0.3072 0.2556 0.3112 0.2585 0.3112 48 0.2788 0.3247 0.2801 0.3284 0.2828 0.3292 0.2840 0.3280 60 0.2960 0.3368 0.2989 0.3378 0.2987 0.3396 0.2961 0.3382 
+
+Average 0.2429 0.3008 0.2440 0.3030 0.2455 0.3041 0.2458 0.3040 
+
+## I Forecasting Stability Across Random Seeds 
+
+To validate the robustness of our framework, we repeated all training and evaluation procedures across 5 independent random seeds, which were sampled from the range [1 , 10000] . We report the average performance and the corresponding error bars at the 90%, 95%, and 99% confidence levels on the Weather, Electricity, and ETT datasets, as summarized in Table 13. The results confirm that 
+
+LeapTS remains highly stable across different random initializations. Table 13: Error bars for LeapTS on six real-world datasets across 90%, 95%, and 99% confidence levels.                                                                                                                     
+
+> Dataset 90% Confidence Level 95% Confidence Level 99% Confidence Level MSE MAE MSE MAE MSE MAE
+> Weather 0.113 ±0.001 0.144 ±0.001 0.113 ±0.001 0.144 ±0.002 0.113 ±0.002 0.144 ±0.004
+> Electricity 0.118 ±0.000 0.213 ±0.000 0.118 ±0.000 0.213 ±0.000 0.118 ±0.001 0.213 ±0.001
+> ETTh1 0.316 ±0.000 0.354 ±0.000 0.316 ±0.000 0.354 ±0.000 0.316 ±0.001 0.354 ±0.000
+> ETTh2 0.198 ±0.002 0.277 ±0.002 0.198 ±0.003 0.277 ±0.003 0.198 ±0.004 0.277 ±0.005
+> ETTm1 0.243 ±0.002 0.302 ±0.002 0.243 ±0.003 0.302 ±0.002 0.243 ±0.005 0.302 ±0.004
+> ETTm2 0.118 ±0.000 0.209 ±0.000 0.118 ±0.000 0.209 ±0.001 0.118 ±0.001 0.209 ±0.001
+
+## J Showcases 
+
+In this section, we provide additional visualizations to further illustrate the effectiveness of LeapTS .We begin by comparing our paradigm with the direct mapping baseline. Next, we present the 22 forecasting behavior and corresponding latent state evolution under controlled synthetic scenarios. Subsequently, we showcase extensive real-world prediction cases across diverse domains, including Electricity, ETTh1, PEMS04, and Weather. These visual comparisons explicitly demonstrate how 
+
+LeapTS dynamically adapts its scheduling segments to capture complex temporal patterns. 0 50 100 150   
+
+> Epoch
+> 0.4
+> 0.5
+> Validation Loss  Weather
+> Our Approach
+> Direct Mapping
+> 050 100
+> Epoch
+> 0.4
+> 0.6
+> 0.8
+> Validation Loss  ETTm1
+> Our Approach
+> Direct Mapping
+
+Figure 7: Validation loss on the ETTm1 and Weather datasets. Under the same hyperparameter settings, LeapTS converges faster and reaches a lower final loss. Scenario 1  Scenario 2  Scenario 3 
+
+Scenario 1 
+
+State 
+
+Evolution 
+
+Initial State  Stage 1  Stage 2  Stage 3 
+
+Scenario 2 
+
+State 
+
+Evolution 
+
+Initial State  Stage 1  Stage 2  Stage 3 
+
+Scenario 3 
+
+State 
+
+Evolution 
+
+Initial State  Stage 1  Stage 2  Stage 3 
+
+Figure 8: Visualization of forecasting behavior and latent state evolution. The top row shows the predictions across three synthetic scenarios, where different background colors indicate distinct scheduling segments. The bottom rows display the corresponding evolution of the hidden states across successive scheduling stages. 
+
+## K Full Results 
+
+In this section, we provide the complete experimental results to supplement the main paper. Table 14 presents the full multivariate forecasting performance across all real-world datasets. Furthermore, 23 (a) LeapTS  (b) Dlinear  (c) Itransformer     
+
+> (d) PatchTST (e) TimeMixer (f) TimesNet
+> (g) TSMixer (h) Amplifier (i) AMD
+
+Figure 9: Visualization of forecasting cases from Electricity by different models under the input-96-predict-60 setting. Notably, for LeapTS , both the background regions and the predicted line segments are highlighted with various colors to explicitly illustrate the distinct dynamic scheduling segments. (a) LeapTS  (b) Dlinear  (c) Itransformer     
+
+> (d) PatchTST (e) TimeMixer (f) TimesNet
+> (g) TSMixer (h) Amplifier (i) AMD
+
+Figure 10: Visualization of forecasting cases from ETTh1 by different models under the input-96-predict-60 setting. Notably, for LeapTS , both the background regions and the predicted line segments are highlighted with various colors to explicitly illustrate the distinct dynamic scheduling segments. 24 (a) LeapTS  (b) Dlinear  (c) Itransformer     
+
+> (d) PatchTST (e) TimeMixer (f) TimesNet
+> (g) TSMixer (h) Amplifier (i) AMD
+
+Figure 11: Visualization of forecasting cases from PEMS04 by different models under the input-96-predict-48 setting. Notably, for LeapTS , both the background regions and the predicted line segments are highlighted with various colors to explicitly illustrate the distinct dynamic scheduling segments. (a) LeapTS  (b) Dlinear  (c) Itransformer     
+
+> (d) PatchTST (e) TimeMixer (f) TimesNet
+> (g) TSMixer (h) Amplifier (i) AMD
+
+Figure 12: Visualization of forecasting cases from Weather by different models under the input-96-predict-60 setting. Notably, for LeapTS , both the background regions and the predicted line segments are highlighted with various colors to explicitly illustrate the distinct dynamic scheduling segments. 25 Table 15 details the full univariate forecasting results on the M4 Competition benchmark [Makridakis et al., 2018] across different frequencies. Furthermore, we include long-term forecasting evaluations on several representative datasets, where the baseline results are directly adopted from Phaseformer [Niu et al., 2026] for comparison (Table 16). The extensive experiments on these widely recognized benchmarks consistently demonstrate the superior effectiveness and robust generalization of LeapTS 
+
+across diverse forecasting scenarios. 
+
+## L Limitations and Future Work 
+
+While LeapTS achieves strong performance, it still has certain limitations. Currently, our scheduling method is trained from scratch on individual datasets. Due to its limited model size, it mainly learns patterns within specific domains. To solve this, a promising future direction is to build a large-scale, universal scheduling model. By pre-training on massive and diverse time-series data, we aim to learn general scheduling rules. This would allow the model to perform zero-shot forecasting on various new scenarios without the need for retraining. 
+
+## M Broader Impacts 
+
+The development of LeapTS introduces several positive broader impacts for time series community and real-world applications: 
+
+A Novel Paradigm for Time Series Forecasting. Our work presents a paradigm shift in time series forecasting from static mappings to dynamic scheduling. By continuously adjusting its forecasting strategies in response to the continuously updating context, the model can inherently adapt to evolving data distributions. This adaptive nature provides a robust foundation for achieving higher-precision predictions in highly non-stationary environments. 
+
+Potential in Complex Systems. Beyond standard real-world benchmarks, our framework is particularly well-suited for modeling highly complex systems. In these scientific domains, where the underlying dynamics are often irregular and heavily influenced by unobserved factors, our dynamic scheduling mechanism offers a reliable and powerful tool for high-precision forecasting. 
+
+Scheduling Traceability. LeapTS provides an explicit and traceable forecasting process. By revealing exactly how the model dynamically selects temporal scales and step lengths based on data volatility, it helps practitioners observe the internal scheduling dynamics. Such process traceability is especially critical for industrial forecasting, as it enables practitioners to diagnose model behaviors based on the explicitly generated scheduling traces. 26 Table 14: Full multivariate forecasting results on real-world datasets. The input sequence length is set to 36 for the ILI dataset and 96 for all other datasets. AVG refers to the overall average across all horizons. The best and second-best performances are highlighted. 
+
+Models LeapTS Amplifier AMD TimeMixer PatchTST iTransformer TSMixer DLinear TimesNet         
+
+> (Ours) (2025) (2025) (2024a) (2023) (2024) (2023) (2023) (2023)
+
+Metric MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE 
+
+18 0.088 0.111 0.091 0.124 0.098 0.137 0.087 0.112 0.092 0.122 0.093 0.120 0.097 0.151 0.105 0.154 0.102 0.148 24 0.097 0.120 0.097 0.128 0.110 0.152 0.099 0.130 0.109 0.144 0.105 0.136 0.111 0.171 0.119 0.172 0.114 0.163 36 0.114 0.145 0.119 0.155 0.132 0.176 0.118 0.156 0.127 0.168 0.125 0.160 0.133 0.199 0.143 0.201 0.125 0.175 48 0.127 0.162 0.127 0.167 0.147 0.195 0.131 0.174 0.144 0.186 0.136 0.173 0.149 0.219 0.161 0.224 0.138 0.190 60 0.140 0.178 0.138 0.180 0.157 0.206 0.140 0.184 0.153 0.198 0.147 0.186 0.160 0.233 0.172 0.232 0.145 0.198 
+
+> Weather
+
+AVG 0.113 0.143 0.114 0.151 0.129 0.173 0.115 0.151 0.125 0.164 0.121 0.155 0.130 0.195 0.140 0.197 0.125 0.175 18 0.103 0.199 0.103 0.200 0.126 0.223 0.114 0.209 0.135 0.235 0.103 0.198 0.137 0.253 0.175 0.273 0.132 0.241 24 0.108 0.203 0.106 0.204 0.133 0.228 0.120 0.215 0.144 0.242 0.110 0.204 0.146 0.261 0.181 0.276 0.134 0.242 36 0.119 0.215 0.125 0.222 0.148 0.244 0.133 0.227 0.161 0.256 0.123 0.216 0.162 0.275 0.199 0.290 0.144 0.250 48 0.126 0.222 0.134 0.231 0.156 0.249 0.142 0.236 0.172 0.265 0.133 0.225 0.181 0.288 0.210 0.298 0.149 0.254 60 0.131 0.226 0.142 0.239 0.163 0.255 0.148 0.241 0.178 0.267 0.141 0.232 0.201 0.304 0.215 0.302 0.157 0.261 
+
+> Electricity
+
+AVG 0.117 0.213 0.122 0.219 0.145 0.240 0.131 0.226 0.158 0.253 0.122 0.215 0.165 0.276 0.196 0.288 0.143 0.250 12 1.040 0.609 1.588 0.754 1.865 0.844 1.563 0.763 1.766 0.805 1.702 0.862 2.246 0.994 4.656 1.614 1.341 0.736 18 1.374 0.693 1.661 0.807 2.197 0.932 1.955 0.842 2.464 0.922 1.348 0.729 2.706 1.116 4.807 1.659 1.601 0.811 24 1.861 0.813 1.792 0.831 2.466 0.984 2.661 0.986 2.370 0.912 1.985 0.893 3.045 1.200 5.061 1.710 1.637 0.866 36 1.948 0.837 1.703 0.832 2.465 0.987 2.305 0.941 2.063 0.874 2.130 0.936 3.384 1.270 4.414 1.550 2.678 0.987 
+
+> ILI
+
+AVG 1.556 0.738 1.686 0.806 2.248 0.937 2.121 0.883 2.166 0.878 1.791 0.855 2.845 1.145 4.735 1.633 1.814 0.850 18 0.282 0.334 0.290 0.344 0.294 0.345 0.287 0.343 0.290 0.347 0.304 0.355 0.352 0.405 0.324 0.370 0.336 0.382 24 0.294 0.341 0.297 0.350 0.300 0.348 0.303 0.355 0.298 0.352 0.313 0.361 0.367 0.417 0.328 0.371 0.339 0.387 36 0.319 0.355 0.328 0.366 0.324 0.361 0.323 0.366 0.323 0.368 0.337 0.376 0.403 0.442 0.348 0.383 0.366 0.400 48 0.333 0.364 0.339 0.372 0.334 0.367 0.336 0.376 0.338 0.377 0.349 0.383 0.418 0.452 0.358 0.389 0.364 0.399 60 0.351 0.374 0.355 0.378 0.356 0.379 0.367 0.387 0.355 0.385 0.364 0.392 0.443 0.468 0.371 0.397 0.371 0.403 
+
+> ETTh1
+
+AVG 0.316 0.354 0.322 0.362 0.322 0.360 0.323 0.365 0.321 0.366 0.333 0.373 0.397 0.437 0.346 0.382 0.355 0.394 18 0.151 0.244 0.163 0.256 0.155 0.252 0.155 0.253 0.157 0.268 0.164 0.261 0.222 0.348 0.176 0.279 0.179 0.277 24 0.166 0.254 0.178 0.269 0.170 0.262 0.175 0.267 0.178 0.268 0.183 0.275 0.265 0.385 0.193 0.291 0.199 0.289 36 0.199 0.278 0.206 0.288 0.199 0.281 0.205 0.285 0.213 0.290 0.217 0.297 0.361 0.463 0.228 0.317 0.224 0.304 48 0.223 0.292 0.231 0.302 0.221 0.295 0.223 0.296 0.235 0.303 0.241 0.312 0.495 0.546 0.257 0.339 0.252 0.320 60 0.246 0.309 0.252 0.317 0.240 0.309 0.249 0.314 0.260 0.325 0.260 0.324 0.647 0.633 0.283 0.357 0.267 0.333 
+
+> ETTh2
+
+AVG 0.197 0.275 0.206 0.286 0.197 0.280 0.201 0.283 0.209 0.291 0.213 0.294 0.398 0.475 0.227 0.317 0.224 0.305 18 0.177 0.257 0.180 0.265 0.194 0.278 0.183 0.267 0.181 0.267 0.192 0.274 0.214 0.301 0.215 0.289 0.195 0.278 24 0.210 0.281 0.212 0.285 0.227 0.300 0.207 0.281 0.217 0.291 0.230 0.301 0.253 0.327 0.251 0.313 0.238 0.307 36 0.255 0.311 0.260 0.320 0.269 0.327 0.266 0.321 0.265 0.324 0.278 0.333 0.324 0.372 0.294 0.341 0.285 0.338 48 0.282 0.330 0.286 0.338 0.292 0.341 0.287 0.336 0.288 0.340 0.322 0.363 0.371 0.405 0.317 0.354 0.303 0.350 60 0.298 0.339 0.299 0.345 0.306 0.349 0.295 0.343 0.305 0.351 0.336 0.373 0.401 0.421 0.329 0.362 0.327 0.365 
+
+> ETTm1
+
+AVG 0.244 0.304 0.247 0.311 0.258 0.319 0.248 0.310 0.251 0.315 0.272 0.329 0.313 0.365 0.281 0.332 0.270 0.328 18 0.088 0.180 0.091 0.182 0.098 0.197 0.089 0.183 0.090 0.183 0.092 0.186 0.118 0.238 0.096 0.198 0.098 0.195 24 0.100 0.193 0.102 0.194 0.110 0.210 0.098 0.192 0.101 0.197 0.105 0.201 0.120 0.235 0.109 0.214 0.104 0.201 36 0.119 0.212 0.125 0.220 0.129 0.229 0.119 0.216 0.120 0.216 0.123 0.219 0.160 0.283 0.131 0.239 0.127 0.222 48 0.134 0.225 0.136 0.227 0.144 0.242 0.135 0.228 0.136 0.231 0.139 0.234 0.187 0.316 0.148 0.256 0.142 0.234 60 0.147 0.235 0.148 0.238 0.156 0.250 0.148 0.240 0.153 0.244 0.155 0.247 0.224 0.352 0.161 0.266 0.160 0.246 
+
+> ETTm2
+
+AVG 0.118 0.209 0.120 0.212 0.127 0.226 0.118 0.212 0.120 0.214 0.123 0.217 0.162 0.285 0.129 0.235 0.126 0.220 18 0.020 0.091 0.022 0.096 0.021 0.097 0.020 0.093 0.019 0.091 0.022 0.099 0.070 0.205 0.030 0.126 0.027 0.116 24 0.025 0.105 0.025 0.107 0.026 0.109 0.026 0.108 0.024 0.103 0.028 0.116 0.074 0.212 0.034 0.134 0.032 0.128 36 0.034 0.126 0.042 0.138 0.035 0.128 0.037 0.132 0.036 0.131 0.039 0.137 0.081 0.220 0.043 0.151 0.045 0.153 48 0.044 0.144 0.049 0.152 0.044 0.145 0.047 0.150 0.045 0.145 0.046 0.151 0.087 0.227 0.053 0.169 0.059 0.173 60 0.053 0.159 0.055 0.165 0.053 0.160 0.056 0.164 0.055 0.161 0.065 0.179 0.215 0.376 0.062 0.182 0.073 0.197 
+
+> Exchange
+
+AVG 0.035 0.125 0.039 0.132 0.036 0.128 0.037 0.129 0.036 0.126 0.040 0.136 0.105 0.248 0.044 0.152 0.047 0.153 18 0.096 0.199 0.137 0.255 0.147 0.262 0.099 0.211 0.143 0.265 0.103 0.209 0.095 0.214 0.173 0.295 0.096 0.206 24 0.110 0.213 0.156 0.271 0.187 0.298 0.120 0.234 0.176 0.290 0.120 0.228 0.105 0.226 0.210 0.327 0.105 0.216 36 0.140 0.239 0.216 0.321 0.266 0.357 0.152 0.263 0.254 0.354 0.153 0.259 0.122 0.246 0.281 0.385 0.123 0.235 
+
+48 0.171 0.264 0.240 0.345 0.348 0.414 0.182 0.288 0.337 0.416 0.185 0.288 0.135 0.262 0.337 0.425 0.143 0.257 PEMS04 
+
+AVG 0.129 0.229 0.187 0.298 0.237 0.333 0.138 0.249 0.227 0.331 0.140 0.246 0.114 0.237 0.250 0.358 0.117 0.229 
+
+18 0.079 0.176 0.122 0.223 0.117 0.233 0.086 0.194 0.114 0.234 0.080 0.181 0.083 0.199 0.154 0.277 0.090 0.193 24 0.094 0.191 0.139 0.255 0.161 0.284 0.109 0.224 0.144 0.259 0.093 0.196 0.093 0.211 0.202 0.320 0.099 0.204 36 0.124 0.216 0.207 0.319 0.231 0.338 0.135 0.242 0.211 0.317 0.120 0.225 0.110 0.230 0.299 0.393 0.114 0.220 48 0.157 0.244 0.247 0.350 0.298 0.382 0.178 0.280 0.279 0.366 0.145 0.249 0.127 0.245 0.385 0.449 0.132 0.239 PEMS07 
+
+AVG 0.114 0.207 0.178 0.287 0.202 0.309 0.127 0.235 0.187 0.294 0.109 0.213 0.103 0.221 0.260 0.360 0.109 0.214 12 2.921 0.943 2.876 0.996 3.911 1.099 7.423 1.781 3.245 1.065 2.887 1.004 8.030 1.785 9.809 1.987 7.800 1.743 24 5.221 1.404 5.728 1.530 6.109 1.509 12.612 2.243 5.390 1.420 5.220 1.456 9.833 1.936 10.510 2.015 10.562 2.001 
+
+> COVID
+
+AVG 4.071 1.174 4.302 1.263 5.010 1.304 10.017 2.012 4.317 1.243 4.054 1.230 8.932 1.860 10.160 2.001 9.181 1.872 12 0.094 0.218 0.105 0.234 0.142 0.276 0.113 0.244 0.121 0.258 0.150 0.285 0.182 0.323 0.201 0.353 0.109 0.236 24 0.161 0.285 0.190 0.312 0.176 0.306 0.171 0.297 0.187 0.319 0.234 0.358 0.268 0.396 0.268 0.407 0.180 0.300 36 0.218 0.332 0.252 0.373 0.223 0.341 0.234 0.357 0.260 0.380 0.288 0.414 0.338 0.443 0.336 0.460 0.248 0.357 
+
+> SP500
+
+AVG 0.158 0.278 0.182 0.306 0.181 0.307 0.172 0.299 0.189 0.319 0.224 0.352 0.263 0.387 0.268 0.407 0.179 0.298 12 6.797 0.418 6.879 0.458 7.248 0.464 7.051 0.497 6.811 0.430 6.798 0.428 7.983 0.810 7.013 0.512 7.307 0.545 24 6.887 0.442 6.974 0.492 6.942 0.470 6.974 0.485 6.881 0.459 6.870 0.459 8.049 0.839 7.077 0.550 7.298 0.554 36 6.421 0.458 6.708 0.564 6.467 0.481 6.711 0.548 6.487 0.492 6.391 0.458 7.644 0.865 6.624 0.579 6.923 0.607 
+
+> Wiki
+
+AVG 6.702 0.440 6.854 0.505 6.886 0.472 6.912 0.510 6.727 0.461 6.687 0.448 7.892 0.838 6.905 0.547 7.176 0.569 
+
+Average 1.067 0.361 1.120 0.395 1.229 0.414 1.589 0.451 1.156 0.404 1.095 0.390 1.678 0.536 1.842 0.554 1.528 0.450 
+
+1st Count 31 48 7 1 5 1 5 2 2 2 6 2 7 0 0 0 2 3
+
+27 Table 15: Full univariate forecasting results on the M4 Competition dataset [Makridakis et al., 2018] across different frequencies. Average denotes the weighted average across frequency groups following the standard M4 evaluation. The best and second-best performances are highlighted.                             
+
+> Dataset Metric LeapTS Amplifier TimeMixer iTrans. TiDE TNet N-HiTS DLinear Patch MICN FiLM LightTS FED Stat. Auto N-BEATS
+> (Ours) (2025) (2024a) (2024) (2023) (2023) (2023) (2023) (2023) (2023) (2022a) (2023) (2022b) (2022b) (2021) (2020)
+
+Yearly  
+
+> SMAPE
+
+13.182 13.372 13.206 13.923 15.320 13.387 13.418 16.965 16.463 25.022 17.431 14.247 13.728 13.717 13.974 13.436  
+
+> MASE
+
+2.956 2.977 2.916 3.214 3.540 2.996 3.045 4.283 3.967 7.162 4.043 3.109 3.048 3.078 3.134 3.043  
+
+> OWA
+
+0.775 0.784 0.776 0.830 0.910 0.786 0.793 1.058 1.003 1.667 1.042 0.827 0.803 0.807 0.822 0.794 
+
+Quarterly  
+
+> SMAPE
+
+9.979 10.227 9.996 10.757 11.830 10.100 10.202 12.145 10.644 15.214 12.925 11.364 10.792 10.958 11.338 10.124  
+
+> MASE
+
+1.159 1.191 1.166 1.283 1.410 1.182 1.194 1.520 1.278 1.963 1.664 1.328 1.283 1.325 1.365 1.169  
+
+> OWA
+
+0.876 0.899 0.825 0.956 1.050 0.890 0.899 1.106 0.949 1.407 1.193 1.000 0.958 0.981 1.012 0.886 
+
+Monthly  
+
+> SMAPE
+
+12.540 12.969 12.605 13.796 15.180 12.670 12.791 13.514 13.399 16.943 15.407 14.014 14.260 13.917 13.958 12.677  
+
+> MASE
+
+0.913 0.968 0.919 1.083 1.190 0.933 0.969 1.037 1.031 1.442 1.298 1.053 1.102 1.097 1.103 0.937  
+
+> OWA
+
+0.864 0.905 0.869 0.987 1.090 0.878 0.899 0.956 0.949 1.265 1.144 0.981 1.012 0.998 1.002 0.880 
+
+Others  
+
+> SMAPE
+
+4.490 5.531 4.564 5.569 6.120 4.891 5.061 6.709 6.558 41.985 7.134 15.880 4.954 6.302 5.485 4.925  
+
+> MASE
+
+2.988 3.649 3.115 3.940 4.330 3.302 3.216 4.953 4.511 62.734 5.090 11.434 3.264 4.064 3.865 3.391  
+
+> OWA
+
+0.944 1.135 0.982 1.207 1.330 1.035 1.040 1.487 1.401 14.313 1.553 3.474 1.036 1.304 1.187 1.053  
+
+> SMAPE
+
+11.671 12.030 11.723 12.684 13.950 11.829 11.927 13.639 13.152 19.638 14.863 13.525 12.840 12.780 12.909 11.851  
+
+> MASE
+
+1.546 1.617 1.559 1.764 1.940 1.585 1.613 2.095 1.945 5.947 2.207 2.111 1.701 1.756 1.771 1.559 Average  
+
+> OWA
+
+0.834 0.887 0.840 0.929 1.020 0.851 0.861 1.051 0.998 2.279 1.125 1.051 0.918 0.930 0.939 0.855 
+
+Table 16: Long-term forecasting results on representative datasets. The input sequence length is set to 720 for all models. The best and second-best results are highlighted. 
+
+Models LeapTS Phaseformer PatchTST iTransformer Crossformer FEDformer TimeBase SparseTSF FITS TimeMixer 
+
+Metric MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE 
+
+96 0.292 0.342 0.293 0.344 0.298 0.352 0.315 0.369 0.306 0.353 0.406 0.441 0.311 0.351 0.314 0.359 0.313 0.357 0.332 0.384 192 0.323 0.360 0.323 0.361 0.335 0.373 0.349 0.388 0.341 0.385 0.450 0.477 0.338 0.371 0.348 0.376 0.339 0.369 0.362 0.398 336 0.362 0.381 0.358 0.381 0.366 0.389 0.381 0.409 0.383 0.420 0.436 0.466 0.364 0.386 0.368 0.386 0.367 0.385 0.386 0.413 
+
+> ETTm1
+
+720 0.417 0.419 0.412 0.410 0.420 0.421 0.437 0.439 0.532 0.512 0.462 0.479 0.413 0.414 0.419 0.413 0.417 0.417 0.452 0.457 96 0.159 0.252 0.163 0.256 0.165 0.260 0.179 0.274 0.244 0.338 0.339 0.406 0.162 0.256 0.167 0.259 0.166 0.256 0.192 0.285 192 0.216 0.290 0.219 0.293 0.219 0.298 0.239 0.314 0.350 0.412 0.397 0.452 0.218 0.293 0.219 0.297 0.271 0.328 0.307 0.362 336 0.268 0.326 0.269 0.326 0.268 0.333 0.309 0.356 0.400 0.431 0.418 0.452 0.270 0.328 0.271 0.330 0.352 0.380 0.380 0.412 
+
+> ETTm2
+
+720 0.351 0.383 0.351 0.379 0.352 0.386 0.387 0.407 0.574 0.525 0.451 0.499 0.352 0.380 0.353 0.380 0.352 0.380 0.380 0.412 96 0.146 0.197 0.148 0.195 0.149 0.199 0.159 0.212 0.151 0.210 0.289 0.342 0.146 0.198 0.174 0.231 0.176 0.232 0.163 0.223 192 0.189 0.236 0.193 0.237 0.193 0.243 0.203 0.252 0.220 0.273 0.340 0.403 0.185 0.241 0.216 0.267 0.203 0.256 0.201 0.255 336 0.242 0.278 0.242 0.278 0.240 0.281 0.253 0.291 0.287 0.342 0.370 0.408 0.263 0.281 0.260 0.299 0.261 0.299 0.258 0.300 
+
+> Weather
+
+720 0.311 0.327 0.309 0.332 0.312 0.334 0.317 0.337 0.362 0.393 0.420 0.421 0.314 0.331 0.325 0.345 0.325 0.346 0.329 0.348 96 0.131 0.224 0.129 0.221 0.141 0.240 0.135 0.233 0.140 0.237 0.226 0.341 0.139 0.231 0.139 0.239 0.147 0.253 0.142 0.247 192 0.148 0.237 0.148 0.238 0.156 0.256 0.155 0.253 0.165 0.259 0.220 0.336 0.153 0.245 0.155 0.250 0.159 0.256 0.164 0.273 336 0.164 0.256 0.165 0.257 0.172 0.267 0.169 0.267 0.190 0.286 0.224 0.337 0.169 0.262 0.171 0.265 0.169 0.270 0.171 0.260 
+
+> Electricity
+
+720 0.201 0.291 0.201 0.285 0.208 0.299 0.204 0.301 0.227 0.312 0.271 0.378 0.207 0.294 0.208 0.300 0.214 0.302 0.209 0.313 
+
+28
