@@ -1,0 +1,938 @@
+Title: SHIELD: Scalable Optimal Control with Certification using Duality and Convexity
+
+URL Source: https://arxiv.org/pdf/2605.09171v2
+
+Published Time: Wed, 13 May 2026 00:35:28 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# SHIELD: Scalable Optimal Control with Certification using Duality and Convexity 
+
+Hansung Kim 1, Siddharth H. Nair 2, and Francesco Borrelli 1
+
+Abstract — We present SHIELD, a hierarchical algorithm that reduces both the decision-variable dimension and the constraint set in ℓ1-regularized convex programs. From strong convexity and Lagrangian duality, we derive certificates that safely 
+
+discard constraints and decision variables while guaranteeing that all removed constraints remain satisfied and all removed variables are null. To further accelerate the proposed algorithm, we propose a transformer-based deep neural network to guide the dual certificate inference. We validate SHIELD on stochastic model predictive control (SMPC) in complex, multi-modal traffic scenarios, comparing against a full-dimensional SMPC policy. Numerical simulations demonstrate order-of-magnitude computational speedups while preserving feasibility and closed-loop safety, highlighting the practicality of certifiably safe, lightweight MPC in complex driving scenes. GitHub: https: //github.com/MPC-Berkeley/SHIELD%5Fmpc .
+
+I. I NTRODUCTION 
+
+Deep learning and other data-driven techniques have grown rapidly in modern control, with broad adoption in robotics, power systems, chemical processes, and manufac-turing. Learning is commonly used for model identification, uncertainty quantification, controller performance improve-ment, and accelerating online control computation. This last direction has become particularly active in optimization-based control, especially Model Predictive Control (MPC). At each control step, MPC solves a constrained optimization problem to compute the next input while accounting for dynamics, physical limits, and safety margins. However, this repeated optimization must run at real-time rates—often milliseconds—which becomes challenging as problem com-plexity grows, e.g., longer horizons, richer models, and hundreds of inequality constraints. In dynamic, uncertain en-vironments, such computational latency can directly degrade performance or compromise safety. Recent supervised-learning frameworks address this com-putational bottleneck via the “learning to optimize” paradigm [1], [2], embedding neural priors into solver pipelines to achieve runtime gains, particularly in large-scale or embedded control systems. These methods exploit structure in MPC solutions and have been studied for convex and mixed-integer convex problems. Broadly, they fall into two approaches trading off speed and optimality. The first learns warm-starts, predicting initial guesses to reduce solver iterations [3]–[5]. The second predicts complete or partial solutions, learning mappings from problem parameters to optimizers [6]–[9]. Warm-starting is typically more robust   
+
+> 1HK, FB are with the Model Predictive Control Laboratory, UC Berkeley. E-mails: {hansung, fborrelli }@berkeley.edu
+> 2SHN is with Nextracker Inc.
+> Fig. 1. An illustration of the Safe Hierarchical Inference for Lightweight Duality-Screened MPC (SHIELD). The controlled robot (black) applies the SHIELD algorithm to infer about which constraints and decision variables are safe to ignore for computationally lightweight model predictive control.
+
+to mispredictions and preserves certifiable optimality by solving the full problem; however, in time-varying settings, it is difficult to predict warm-starts that consistently re-duce iterations. Solution-prediction methods can be fast (via direct prediction or reduced online solves after eliminat-ing variables/constraints), and recent work quantifies sub-optimality [6], [7]; nevertheless, mispredictions can cause suboptimality or infeasibility. We therefore target a robust approach for accelerating real-time convex MPC with time-varying constraints, variables, and cost, as in multi-robot coordination, energy-aware fleet control, and autonomous driving. Our work is related to the safe screening literature in static optimization [10]–[12], which exploits feasible dual points—typically from a regularization path over decreasing 
+
+λ—to certify inactive features or constraints before solv-ing. These methods assume a fixed problem instance with a cheaply available high-quality dual. In contrast, MPC requires re-screening at every control step as constraints, cost, and parameters change, with no regularization path to exploit. Our approach differs in that (i) ζ-tightening certifies feasibility of the original untightened constraints, not merely optimality-based inactivity; (ii) a learned classifier predicts the dual support structure so that only a reduced-dimension dual is solved, avoiding the cost of a full dual solve; and (iii) the duality-gap bound provides valid certificates from any feasible dual, including approximate ones, enabling robust screening under distribution shift inherent in time-varying control. Building on previous work [13], we propose a hierarchical 
+
+> arXiv:2605.09171v2 [cs.RO] 12 May 2026
+
+learning-based approach for scalable constrained convex optimal control in dynamic scenarios. Our approach has two components: (i) an attention-based deep neural network (DNN), trained on time-varying data, that predicts marginally important variables and constraints for optimal control at run-time; and (ii) a Lagrange duality and strong convexity-based safety screen that certifies whether inferred variables and constraints can be safely eliminated without violating original constraints. By marginally important, we mean vari-ables and constraints whose presence or absence does not affect the optimal planned trajectory. The result is a lightweight convex optimal control problem with fewer decision variables and constraints, enabling fast run-time solves. Rather than relying on a priori statistical guarantees for the neural network, we use the duality-based certification algorithm online to maintain robustness under train-to-test distribution shift in time-varying scenarios. The resulting algorithm applies to any convex program with Lipschitz constraints and satisfying Slater conditions, inde-pendent of the control-specific structure. Sec. II formulates a generic time-varying convex optimal control problem. Sec. III presents our Safe Hierarchical 
+
+Inferenc E for Lightweight, Duality-screened (SHIELD) MPC algorithm for safe computational acceleration, and Sec. IV demonstrates its effectiveness in multi-modal traffic MPC. II. P ROBLEM STATEMENT 
+
+We consider a convex, finite-horizon optimal control prob-lem that must be solved at a high rate to enable real-time robot control. In a standard MPC setup, at each time step t,the robot solves the following optimization problem:                    
+
+> min
+> xt,ut
+> f0
+> t(xt,ut)(1a) s.t. fit(xt,ut)≤0,∀i∈Im
+> 1(1b)
+> hit(xt,ut) = 0 ,∀i∈Ip
+> 1(1c)
+
+to compute feedback policy πt(xt) = u⋆t|t, where xk|t ∈ Rnx
+
+and uk|t ∈ Rnu are state and input at prediction step k from time t. Let xt and ut stack states and inputs over horizon 
+
+N , and denote k1, . . . , k 2 by Ik2 
+
+> k1
+
+. We assume f 0 
+
+> t
+
+is strongly convex in (x, u). Functions f it in (1b) are convex inequality constraints, and hit in (1c) encode linear dynamics and initial conditions. (1) has m inequality and p equality constraints. Computing πt(·) by solving (1) at high rate becomes chal-lenging at large problem scales, even on modern CPUs. In heterogeneous multi-agent, multi-modal settings, constraints can grow combinatorially with the number of modes and sur-rounding agents, leading to prohibitive solve times [13], [14]. Likewise, centralized (and some distributed) optimization-based multi-robot controllers scale poorly with the number of robots [15]–[17]. When constraints and decision variables grow superlinearly with horizon, agents, or scenario com-plexity, even fast solvers may not deliver low-latency control. Our objective is to accelerate computation of πt(·) in real-time while certifying safety, i.e., satisfaction of the original constraints in (1). Using certifiable screening, we solve a reduced convex program that provides a feasible solution to the original problem by construction. Certifiability is defined as preserving feasibility of the original convex program (1). III. S AFE HIERARCHICAL INFERENCE FOR 
+
+DUALITY -S CREENED LIGHTWEIGHT OPTIMAL CONTROL 
+
+A. ℓ1 Regularized Optimization Problem 
+
+Without loss of generality, we adopt an affine control policy, uk|t = πθt
+
+ xk|t, z t
+
+ , where uk|t is the control at prediction step k given information at time t, xk|t is the predicted state, and zt collects environment parameters (e.g., obstacle states). We optimize over the policy parameters 
+
+θt. Such parameterizations are standard in MPC; in uncer-tain multi-modal settings they combine state feedback with affine disturbance feedback (ADF), improving feasibility and reducing conservatism [14]. For open-loop input-sequence optimization, the feedback parameters are zero and θt is the open-loop sequence. Let the decision variable θt collect the control policy parameters across the prediction horizon. We add N addi-tional equality constraints for uk|t = πθt
+
+ xk|t, z t
+
+ to hit
+
+represented by (2d) and add l1 regularization to the cost function:                              
+
+> min
+> xit,uit,θt
+> f0
+> t(xt,ut) + λ∥Sθt∥1(2a) s.t. ¯fit(xt,ut)≤0,∀i∈Im−c
+> 1(2b)
+> ˜fit(xt,ut)≤0,∀i∈Ic
+> 1(2c)
+> hit(xt,ut) = 0 ,∀i∈Ip+N
+> 1(2d)
+
+where S is a user-defined selection matrix to choose which control policy parameters to sparsify. The l1 penalty pro-motes sparsity in the decision variables and feature selec-tion, which enables optimization over decision variables in control-task importance [18]. We partition (1b) into (i) ¯f it ,
+
+immutable —always enforced (physical limits, non-negotiable safety: actuator/state limits; friction/flight envelopes; traf-fic rules/road bounds) and (ii) ˜f it , screenable —relevant only when near-active (collision avoidance with distant agents/obstacles; keep-out/no-fly regions irrelevant to current path). For instance, constraint ˜f it ≤ 0( xt, ut) can be screened out (i.e. removed from optimization problem solved at time t)if a strict margin ˜f it (xt, ut) < 0 for i at the optimal solution is certified. This provides an opportunity to reduce the c constraints where the number of inequality constraints m ≥ c ≫ 1 limits the fast computation of (2). For a linear system, given the initial condition on xt|t, and the affine control policy parameterization πθ , and composing the functions with the affine map θt 7 → (xt(θt), ut(θt)) , we can rewrite (2) as follows via recursive substitution:                        
+
+> min
+> θt
+> f0
+> t(θt) + λ∥Sθt∥1(3a) s.t. ¯fi(θt)≤0,∀i∈Im−c
+> 1(3b)
+> ˜fit(θt)≤ − ζ, ∀i∈Ic
+> 1(3c)
+> hit(θt) = 0 ,∀i∈Ip
+> 1,(3d)
+
+where ζ > 0 is a safety-margin that we desire on constraint satisfaction. We tighten the screenable constraints to enable a design of screening condition that guarantees at most ζ
+
+violation of the tightened constraint, ensuring ˜f it (θt) ≤ 0.
+
+Assumption 1. f 0 
+
+> t
+
+(θt) ∈ C2(Rn) is σ-strongly convex w.r.t. 
+
+θt and has ¯σ-Lipschitz continuous gradient. 
+
+Problem (3) after the epigraph reformulation is 
+
+min  
+
+> θt,s
+
+f 0 
+
+> t
+
+(θt) + λ1⊤s (4a) s.t. ¯f it (θt) ≤ 0, ∀i ∈ Im−c 
+
+> 1
+
+(4b) 
+
+˜f it (θt) ≤ − ζ, ∀i ∈ Ic 
+
+> 1
+
+(4c) 
+
+hit(θt) = 0 , ∀i ∈ Ip 
+
+> 1
+
+(4d) 
+
+Sθt − s ≤ 0, −Sθt − s ≤ 0, s ≥ 0. (4e) 
+
+Let the dual variables μi, η i, ν i, g 1, g 2, γ correspond to 
+
+˜f it , ¯f it , h it, and (4e), respectively. Let Φ := f 0 
+
+> t
+
++ P μi( ˜f it +
+
+ζ) + P ηi ¯f it + P νihit. The dual problem is given by 
+
+min 
+
+> μ≥0,η ≥0,ν, ∥g∥∞≤λ
+
+− inf 
+
+> θt
+
+{Φ( θt; μ, η, ν ) + ( S⊤g)⊤θt} (5) 
+
+For well-defined convex optimization problems, Φ can be computed explicitly. For example, if f 0 
+
+> t
+
+is quadratic and ˜f it , ¯f it , h it are affine in θt and (5) becomes a quadratic program. The optimal dual solutions (θ⋆t , μ ⋆, η ⋆, ν ⋆, g ⋆) are given by the KKT conditions: 
+
+0 ∈ ∂f 0 
+
+> t
+
+(θ⋆t ) + X
+
+> i
+
+μ⋆i ∂ ˜f it (θ⋆t ) + X
+
+> i
+
+η⋆i ∂ ¯f it (θ⋆t ) (6) 
+
++ X
+
+> i
+
+ν⋆i ∂h it(θ⋆t ) + S⊤g⋆, g ⋆ ∈ λ∂ ∥Sθ⋆t ∥1
+
+˜f it (θ⋆t ) ≤ − ζ, μ ⋆i ≥ 0, ∀i ∈ Ic
+
+> 1
+
+, h it(θ⋆t ) = 0 , ∀i ∈ Ip
+
+> 1
+
+¯f it (θ⋆t ) ≤ 0, η ⋆i ≥ 0, ∀i ∈ Im−c 
+
+> 1
+
+, || g⋆|| ∞ ≤ λμ⋆i ( ˜f it (θ⋆t ) + ζ) = 0 , ∀i ∈ Ic
+
+> 1
+
+, η ⋆i ¯f it (θ⋆t ) = 0 , ∀i ∈ Im−c
+
+> 1
+
+g⋆⊤Sθ⋆t = λ∥Sθ⋆t ∥1
+
+Proof. See Appendix A Observe from the last two equations that 1) If μ⋆i = 0 , then ˜f it (θ⋆t ) < −ζ and this constraint can be removed from (3), 2) If ∥g⋆i ∥∞ < λ , then [Sθ⋆t ]i = 0 and the variables corresponding to it can be removed from (4). where gi is the dual variable corresponding to the i-th components of the ℓ1 regularization term (4a) and [Sθ⋆t ]i
+
+denotes the i-th component of Sθ⋆t . As small nonzeros from tolerances/degeneracy make a hard zero-test brittle, we seek for more robust and useful constraint screening condition. 
+
+B. Constraint Screening Condition 
+
+We utilize perturbation/sensitivity analysis of convex pro-grams to derive constraint-removal conditions. Suppose we obtain solution ¯θt after removing constraint ˜f it . The violation of constraint ˜f it , denoted δi, is analogous to constraint perturbations in [19]. Let pt(δi) be the objective value of (15) at ¯θt, and pt(0) the optimal value of original problem (4). 
+
+Assumption 2. Strong duality holds for (4) under Slater’s condition [19]. 
+
+By the global sensitivity result in [19, Ch. 5], 
+
+pt(0) − pt(δi) ≤ δiμ⋆i , (7) which quantifies how the optimal value changes when relax-ing/removing constraint i.
+
+Assumption 3. Each constraint ˜f it (·) is Li-Lipschitz. 
+
+Even if the reduced convex program (15) obtained by removing ˜f it (·) yields a solution that is infeasible for the tightened problem (4), it remains within the safety margin 
+
+ζ and satisfies the original constraints (2c), as formalized below. 
+
+Proposition 1. Let Assumptions 1–3 hold and the so-lution to (2) θ⋆t be strictly feasible with margin ζ ≥
+
+min i{− ˜f it (θ⋆t )} > 0 for all i. Denote f 0 
+
+> t
+
+= (4a) and define 
+
+εcrit := σ
+
+2 min 
+
+> i
+
+ ζLi
+
+2
+
+.
+
+Then, any θt with |f 0 
+
+> t
+
+(θt) − f 0 
+
+> t
+
+(θ⋆t )| ≤ εcrit is feasible for the original constraints (2c) , i.e., ˜f it (θt) ≤ 0 for all i.Proof. Let |f 0 
+
+> t
+
+(θt)−f 0 
+
+> t
+
+(θ⋆t )| ≤ ϵ and by σ-strong convexity, 
+
+f 0 
+
+> t
+
+(θt) − f 0 
+
+> t
+
+(θ⋆t ) ≥ σ
+
+2 ∥θt − θ⋆t ∥2 ⇒ ∥θt − θ⋆t ∥ ≤ 
+
+q 2 ϵσ .
+
+Since ˜f it is Li-Lipschitz, 
+
+˜f it (θt) ≤ ˜f it (θ⋆t ) + Li∥θt − θ⋆t ∥ ≤ − ζ + Li
+
+q 2 ϵσ ≤ 0.
+
+Thus, ˜f it (θt) ≤ 0 holds whenever ϵ ≤ σ ζ 2
+
+> 2L2
+> i
+
+and enforcing this for all i gives ϵ ≤ ϵcrit , which proves feasibility. 
+
+Corollary 1. From Proposition 1 and (7) , we set δi to ζ
+
+and get |pt(0) − pt(ζ)| ≤ ζ∥μ⋆i ∥2 where the solution to the ζ-perturbed primal is ¯θt. Thus, if ∥μ⋆i ∥2 ≤ ϵ/ζ (i.e., perturbation is ζ and the change in the optimal cost is bounded by ϵ) and ϵ ≤ σζ 2 
+
+> 2
+
+min i 1
+
+> L2
+> i
+
+, then the i-th constraint can be safely removed and the original constraint ˜f it (¯θt) ≤ 0
+
+is satisfied. 
+
+Because the derived screening conditions in Sec. III-A apply to optimal duals, we generalize the inequalities and Cor. 1 to any feasible dual via a dual optimality-gap bound, enabling certifiable safe screening with an approximate dual computed from DNN class predictions and a linear equation solve. 
+
+C. Duality-based Safe Screening Certification 
+
+We derive certifiably safe screening conditions for con-straints and decision variables in (4) by leveraging strong convexity of the primal and strong duality. 
+
+Proposition 2. Under Assumption 1, the dual objective 
+
+d(μ, η, ν, g ) in (5) is ¯ρ-smooth and ρ-strongly convex over the feasible set Y 1.
+
+> 1We use the minimization form of the dual in (5) (i.e., the negative of the standard concave dual), hence convexity.
+
+In the quadratic-program case where the primal cost f 0
+
+> t
+
+has Hessian Qt ≻ 0, the dual Hessian is Q−1 
+
+> t
+
+, and 
+
+¯ρ = λmax (Q−1 
+
+> t
+
+), ρ = λmin (Q−1 
+
+> t
+
+).
+
+For brevity, we stack the dual variables as y := [ μ, η, ν, g ].
+
+Definition 1. The projected gradient for the dual is 
+
+∇†d(y) = y − [y − ∇ d(y)] Y , ∀y ∈ Y 
+
+where Y is the dual feasible set, which is nonempty, closed, and convex from (5) . The [x]Y is a convex projection operator. 
+
+The gradient of the dual cost can be computed explicitly offline and may be a parametric function, which can be quickly evaluated online. Note, at the optimal dual solution 
+
+y⋆, ∇†d(y⋆) = 0 [20]. Then, the following inequality estimates the distance of a feasible dual y from optimality [20]: 
+
+∥y − y⋆∥2 ≤ 1 + ¯ ρρ ||∇ †d(y)|| 2. (8) 
+
+Since ∇†d(y⋆) = 0 , the bound (8) is tight. Define 
+
+gap (μ, η, ν, g ) := 1 + ¯ ρρ ||∇ †d(μ, η, ν, g )|| 2. (9) 
+
+Theorem 1. Given a feasible dual solution (μ, η, ν, g ) to (5) ,
+
+1) If ∥μi∥2 + gap (μ, η, ν, g ) ≤ ϵ/ζ and ϵ ≤ σζ 2 
+
+> 2
+
+min i 1
+
+> L2
+> i
+
+,then ˜f it can be safely removed from (4) .
+
+2) If ∥gi∥∞ + gap (μ, η, ν, g ) < λ, then the variables 
+
+[Sθt]i comprising the policy parameters are zero and thus can be safely removed from (4) .Proof. Statement (1) follows from Corollary 1: 
+
+∥μ⋆i ∥2 ≤ ∥ μi∥2 + ∥μ⋆i − μi∥2
+
+≤ ∥ μi∥2 + gap (μ, η, ν, g ) < ϵ/ζ 
+
+and if σζ 2 
+
+> 2
+
+min i 1
+
+> L2
+> i
+
+, then ˜f it can be safely removed. If ϵ ≤∥gi∥∞ + gap (μ, η, ν, g ) < λ some i ∈ I|Sθt| 
+
+> 1
+
+, then we have 
+
+∥g⋆i ∥∞ ≤ ∥ gi∥∞ + ∥g⋆i − gi∥2
+
+≤ ∥ gi∥∞ + gap (μ, η, ν, g ) < λ 
+
+and consequently, the variables [Sθt]i = 0 from (6) and can be safely removed from (4). 
+
+D. SHIELD Algorithm 
+
+Algorithm 1 outlines the procedure to obtain the reduced problem from (4). 
+
+1) Feasible Dual Solution Estimation: Given any feasible dual solution (ˆ μ, ˆη, ˆν, ˆg), we apply Theorem 1 to safely 
+
+eliminate variables and constraints using the dual optimality-gap upper bound in (9). When (4) is large, directly solving the dual (5) can be expensive; instead, we minimize the 
+
+unconstrained dual objective and project the minimizer onto the convex dual-feasible set of (5) to obtain a feasible dual estimate. We then use (9) together with Theorem 1 to certify when this estimate is reliable enough to prune variables and constraints. Even this unconstrained solve can be costly at scale (Sec. IV-E). To further accelerate, we use a neural-network classifier to preselect a subset of dual variables, yielding a reduced-dimensional dual problem. The dual classifier πclass  
+
+> ζ
+
+(zt), specific to a choice of ζ,predicts the dual class (˜ μ, ˜g) from features zt encoding the environment and parameters of (4). The feature design, archi-tecture, and training procedure are problem-dependent. The resulting class vector categorizes the i-th dual as follows: 
+
+μi =
+
+(
+
+> 0, ˜μi = 1 ,
+
+0, ˜μi = 0 , ∥gi∥∞ =
+
+(
+
+λ, ˜gi = 1 ,< λ, ˜gi = 0 . (10) 
+
+Using the classifier outputs, we reduce the dual by selecting only ˜μi = 1 and ˜gi = 0 entries. Let Srμ and Srg be the corresponding selection matrices; the reduced variables are 
+
+μr = Srμ μ, (11a) 
+
+gr = Srg g. (11b) 
+
+After solving the reduced unconstrained dual for 
+
+(μr , η, ν, g r ), we lift (μr , g r ) to full dimension by inserting zeros at indices i with ˜μi = 0 and λ at indices with ˜gi = 1 ,consistent with (10). Finally, we project the full augmented solution onto the convex, closed dual-feasible set to obtain 
+
+(ˆ μ, ˆη, ˆν, ˆg).
+
+2) Reduced ℓ1 Regularized Convex Optimization: Given the feasible dual estimate (ˆ μ, ˆη, ˆν, ˆg) and dual class predic-tions (˜ μ, ˜g), we apply Theorem 1 to safely prune variables and constraints. Let nθ := dim( θt) and 
+
+I = {i ∈ Inθ 
+
+> 1
+
+| ∥ ˆgi∥∞ + gap (ˆ μ, ˆη, ˆν, ˆg) < λ ∧ ˜gi = 0 }, (12) which is the index set of variables satisfying the screening condition in Theorem 1. Let r := |I| . We write ¯θt = SI θt and θt = EI ¯θt where 
+
+(SI )k,i =
+
+(
+
+1, i = I(k),
+
+0, otherwise , SI ∈ { 0, 1}r×nθ , (13) and the embedding matrix 
+
+EI := S⊤I ∈ { 0, 1}nθ ×r . (14) The reduced optimization over ¯θt ∈ Rr is 
+
+min 
+
+> ¯θt
+
+f 0 
+
+> t
+
+(EI ¯θt) + λ∥SE I ¯θt∥1 (15a) s.t. ¯f it (EI ¯θt) ≤ 0, ∀i ∈ Im−c 
+
+> 1
+
+(15b) 
+
+˜f it (EI ¯θt) ≤ − ζ, ∀i ∈ K (15c) 
+
+hit(EI ¯θt) = 0 , ∀i ∈ Ip 
+
+> 1
+
+, (15d) 
+
+where the reduced optimization problem includes only the relevant decision variables and constraints denoted by I and 
+
+K = {i ∈ Ic 
+
+> 1
+
+| ∥ ˆμi∥2+gap (ˆ μ, ˆη, ˆν, ˆg) ≤ ϵ/ζ ∧˜μi = 0 }. (16) IV. E XAMPLE : S TOCHASTIC MPC WITH MULTI -M ODAL 
+
+PREDICTIONS 
+
+In this section, we implement Algorithm 1 to accelerate a convex SMPC reformulation with multi-modal, uncer-tain predictions of surrounding vehicles. As the numbers of modes ( M ) and vehicles ( V ) increase, constraints and decision variables scale combinatorially [13], [14]. We use Algorithm 1 SHIELD: Safe Hierarchical Inference for Lightweight Duality-screened MPC 
+
+Require: (4), (5), and πclass  
+
+> ζ
+
+, ϵ, ζ . 
+
+> 1
+
+(˜ μ, ˜g) ← πclass  
+
+> ζ
+
+(zt) [Dual Classification]  
+
+> 2
+
+Construct Srμ and Srg using (10) [Selection Matrix]  
+
+> 3
+
+(μr , g r ) ← (Srμμ, S rg g) using (11) [Dual Sparsification]  
+
+> 4
+
+Solve the unconstrained version of (5) in (μr , η, ν, g r )
+
+and lift (μr , g r ) to full dimension via (11) [Linear Eq. Solve]  
+
+> 5
+
+(ˆ μ, ˆη, ˆν, ˆg) ← [( μ, η, ν, g )] μ≥0, η ≥0, ∥g∥∞≤λ [Projec-tion]  
+
+> 6
+
+I ← (12), K ← (16), EI ← (14)  
+
+> 7
+
+Formulate (15) using EI , K, and (4) [Reduced Problem]  
+
+> 8
+
+Output: ¯θ⋆t ← Solve (15) 
+
+N = 14 , M = 2 , V = 3 , and ∆t = 0 .1 s , yielding 312 
+
+collision-avoidance constraints and 234 decision variables, challenging high-frequency computation. In simulation, we compare two policies with the same parameters: (i) Full MPC —solving the original convex program (4); and (ii) 
+
+Reduced MPC —solving the screened/reduced program (15). We implement and evaluate our policies in the nuPlan simulator [21]. 
+
+A. Multi-modal Trajectory Prediction Model 
+
+The open-source implementation of Wayformer [22], an attention-based multi-modal trajectory prediction model pro-posed by Waymo, was trained using the nuPlan Mini v1.2 dataset [21] using the UniTraj framework [23]. 
+
+B. ℓ1 Regularized Convex MPC Formulation 
+
+We add the ℓ1 regularization term to the second-order cone program (SOCP) from [13, Eq. (6)] to promote decision variable sparsity and enable screening. Given the multi-modal prediction of V vehicles, the resulting SOCP over 
+
+θt is 
+
+min 
+
+> θt
+
+12 ||Q tθt|| 22 + C⊤ 
+
+> t
+
+θt + λ X 
+
+> k∈It+Nt+1 , i ∈IV
+> 1
+
+||S ik|tθt|| 1
+
+s.t Atθt + Rt ∈ K := ( 
+
+> nc
+
+O
+
+> s=1
+
+Ks) × Kxu 
+
+(17) 
+
+where At, Rt, Qt, Ct denote the prediction models and con-straints; Sik|t is the selection matrix that collects the affine disturbance feedback gain terms in θt [14]. nc = O(N · V ·
+
+M V ), Qt ≻ 0. The Ks (for all s ∈ Inc 
+
+> 1
+
+) are cones associ-ated with collision-avoidance ( screenable ) constraints, while 
+
+Kxu is the cone for all state–input ( immutable ) constraints. See [13] for further details. The dual SOCP of (17) is  
+
+> 12
+
+Q−1
+
+> t
+
+
+
+A⊤
+
+> t
+
+μt
+
+ηt
+
+
+
+−C t −λ
+
+> t+N
+
+X
+
+> k=t+1
+> V
+
+X
+
+> i=1
+
+Sik|t gik|t
+
+ 22
+
++R⊤
+
+> t
+
+μt
+
+ηt
+
+
+
+(18) 
+
+min 
+
+> μt,ηt,{gik|t}
+
+(18) s.t. μt ∈
+
+> nc
+
+O
+
+> s=1
+
+K∗ 
+
+> s
+
+, ηt ∈ K∗
+
+> xu
+
+,
+
+∥gik|t∥∞ ≤ λ, ∀ k ∈ It+Nt+1 , i ∈ IV 
+
+> 1
+
+.
+
+(19) 
+
+C. Dual Classifier: Training Data Collection 
+
+We use nuPlan [21] to simulate traffic scenarios and collect training data as follows: First, given the scene encoding of road agent history, traffic lights, and a vectorized map, Wayformer [22] forecasts the multi-modal trajectory of sur-rounding agents. Then, we formulate (17) in CasADi [24], replacing Ks with ζ-tightened cones ( ζ = 0 .5) and solve us-ing Gurobi [25]. The feature is zt = o it − xEV t
+
+> Vi=1
+
+,where 
+
+o it denotes the i-th vehicle’s multi-modal predictions (top 
+
+M modes over horizon N ) and xEV t is the ego planned trajectory. At each time t, we log features zt together with the optimal dual variables, and convert them into class labels 
+
+(˜ μ⋆t , ˜g⋆t ). We collect over 33 ,000 (features, labels) pairs across 300 scenarios from the nuPlan Mini v1.2 dataset [21], and split the data 85 / 15% for training and evaluation, respectively. 
+
+D. Dual Classifier: Architecture Design 
+
+The classifier uses a Transformer-style [26], decoder-only architecture without positional encodings to preserve permu-tation equivariance to vehicle ordering. Input features zt are linearly embedded and processed by multi-head attention blocks with layer normalization, residual connections, and feedforward layers capture inter-vehicle interactions. De-coder is unrolled for N steps to produce class-1 probabilities (as in RAID-Net [13]), modeling temporal dependencies via recurrence. Training uses weighted binary cross-entropy with AdamW [27] optimizer and cosine-annealing schedule [13]. 
+
+E. Numerical Results 1) Classifier Evaluation: We evaluate on the evaluation split , comparing normalized BCE of πclass  
+
+> ζ
+
+(1.1M) against an MLP πMLP  
+
+> ζ
+
+(1.4M) and RAID-Net πRAIDN  
+
+> ζ
+
+(4.6M) in Fig. 2. 
+
+πclass  
+
+> ζ
+
+attains lowest normalized BCE. Its confusion matrix (Fig. 2) shows recall 0.99 , precision 0.97 , and accuracy 
+
+0.96 , indicating few false negatives and improved interaction modeling over baselines under multi-modal predictions. 
+
+2) Closed-loop Simulation: In nuPlan [21], we evalu-ate Full MPC (17) (not ζ tightened) and Reduced MPC 
+
+(Alg. 1) with ϵ = 0 .01 , a conservative underestimate of 
+
+ϵcrit in Proposition 1. We run 25,000 solves across 150+ 
+
+traffic scenarios (e.g., lane merges, unprotected left turns). Table I reports feasibility, collision rate, average fraction of constraints enforced (constraint keep-rate in Reduced MPC ), and average fraction of ADF gains kept. We also report solve times and auxiliary runtimes: classifier inference, CasADi parametric calls (dual construction/solve), optimal-dual es-timation, and duality-gap computation in SHIELD. These auxiliaries are not yet optimized and can be reduced further. All MPC formulations evaluated in this work, both the full Fig. 2. Per-sample normalized binary cross-entropy (top) and normalized confusion matrix (bottom) for the (μ, g )-dual classification, evaluated on the evaluation data split. We compare our classifier πclass     
+
+> ζwith an MLP
+> πMLP
+> ζand RAID-Net πRAIDN
+> ζ[13].
+
+and reduced problems, are warm-started using the shifted solution from the previous time step. The computational gains reported, therefore, reflect the benefit of constraint and variable screening beyond what warm-starting alone provides: the full MPC baseline already benefits from warm-starting, yet its solve times remain substantially higher than the screened formulation, confirming that the bottleneck is problem size rather than initialization quality. As summarized in Table I, both policies remained feasible and incurred zero collisions. Under the proposed method, the Reduced MPC enforced 6.80% of collision-avoidance constraints on average while retaining 3.19% of the ADF gains. Average solve time decreased to 0.498 ±3.33 s for the 
+
+Reduced MPC , compared to 19 .53 ±6.24 s for the Full MPC .The large variance is driven by rare outliers ( ∼ 6% ) where the dual estimate prevents screening and the solve reverts to near-full size, which may happen when the πclass  
+
+> ζ
+
+predictions are inaccurate. In a small fraction of time steps, the screening procedure removes few or no constraints, resulting in solve times comparable to the full MPC. These cases arise primar-ily when the ego vehicle is in close proximity to multiple interacting agents simultaneously, such that many scenario-indexed collision avoidance constraints are simultaneously active or near-active. In such configurations, the dual gap bound is insufficiently tight to certify inactivity, because the true optimal dual variables associated with these constraints                                                           
+
+> Fig. 3. Distributions of total computation times for Full MPC (17) and
+> Reduced MPC (Alg. 1) over 25,000 nuPlan steps (SMPC with multi-modal prediction). Shaded bands show ±1σ. The circled region contains outliers for Reduced MPC computation time ( ∼6% of total count). TABLE I CLOSED -LOOP SIMULATION RESULTS
+> Performance Metric Full MPC
+> (17)
+> Reduced MPC Alg. 1
+> Feasibility (%) 100 100 Collision (%) 00Avg. Constraints Enforced (%) 100 6.80 ±16 .44
+> Avg. ADF Gain Kept (%) 100 3.19 ±13 .81
+> Avg. Solve Time (Gurobi) [s] 19 .53 ±6.24 †0.498 ±3.33
+> Avg. CasADi Func. Calls [s] —0.0345 ±0.0159
+> Avg. Classifier Query Time [s] —0.0049 ±0.0031
+> Avg. Dual Approx. Time [s] —0.0083 ±0.0041
+> Avg. Total Computation Time [s] 19 .53 ±6.24 ∗0.554 ±3.33
+> †Total solve time excluding outliers: 0.109 ±0.01 s.
+> *Total computation time excluding outliers: 0.164 ±0.0151 s.
+
+are large. Geometrically, these correspond to states where the ego vehicle’s feasible set is tightly constrained from multiple directions — precisely the situations where constraint reduc-tion is least available regardless of method. Notably, these outlier steps do not compromise safety: when screening is inconclusive, the method defaults to solving the full problem, so the worst-case behavior is equivalent to standard MPC. The computational overhead of the failed screening attempt (dual estimation and screening test) is small relative to the QP solve, so the cost of conservatism in these cases is marginal. Excluding outliers, the Reduced MPC achieves 0.109 ±
+
+0.01 s ; including auxiliary overhead (Fig. 3), it is 35 × faster overall and 119 × faster without outliers. Furthermore, the dual-approximation time (i.e., solving the unconstrained dual problem) using (11) with classifier-selected variables is 0.0083 ±0.0041 s , compared to 0.0182 ±
+
+0.0087 s for the full-dimensional unconstrained dual solve without the classifier. This speedup is critical for real-time control and highlights the benefit of data-driven dimension reduction for high-dimensional dual approximation. Fig. 4 illustrates the constraint screening and ADF gain reduction in two real-world nuPlan scenarios: (a) an unpro-tected left turn and (b) a lane merge. In both cases, the Fig. 4. Two sampled real-world scenarios from nuPlan controlled by the Reduced MPC (left) and the Full MPC (right): (a) unprotected left turn, and (b) lane merge. Colored circles denote multi-modal predictions from a Wayformer model [22], with screening status indicated by color: red (CA: On, ADF: On), yellow (CA: On, ADF: Off), teal (CA: Off, ADF: On), and light blue (CA: Off, ADF: Off). Red dashed outlines mark the target vehicles for which collision avoidance constraints are retained in the Reduced MPC 
+
+left column shows the Reduced MPC solution and the right column shows the Full MPC solution, with colored circles indicating the screening status of each predicted mode for each target vehicle. In scenario (a), the AV must navigate an unprotected left turn in the presence of oncoming traffic. The Reduced MPC retains only the collision avoidance constraints corresponding to the modes that are active in the Full MPC solution, indicated by the red and yellow circles. The light blue circles denote screened-out modes whose constraints and ADF gains are deemed inactive, confirming that the screening criterion correctly identifies the safety-relevant subset of the multi-modal predictions without discarding any constraints that would affect the AV’s planned trajectory. In scenario (b), the AV must merge into an adjacent lane occupied by multiple target vehicles traveling at highway speeds. The conflict zone spans a larger spatial region, and multiple target vehicles contribute active constraints. The 
+
+Reduced MPC retains a subset of the Full MPC active constraint set, including the entry and exit timing constraints that govern when the AV commits to and completes the merge. These boundary constraints largely determine the yield behavior and gap acceptance decision, such that the 
+
+Reduced MPC closely reproduces the Full MPC closed-loop trajectory while operating on a significantly smaller constraint set. In both scenarios, the screening procedure preserves the safety-critical constraints and ADF gains while eliminating redundant decision variables, reducing compu-tational load without degrading closed-loop performance. To further quantify the closed-loop similarity between the 
+
+Reduced MPC and Full MPC , we compute the Average Displacement Error (ADE) and Final Displacement Error (FDE) between their respective planned trajectories. In sce-nario (a), the Reduced MPC achieves an ADE of 0.15 m 
+
+and FDE of 0.88 m , while in scenario (b) the trajectories are nearly identical, with an ADE of 0.006 m and FDE of 
+
+0.018 m . These results confirm that despite retaining only 
+
+6.80% of the collision avoidance constraints and 3.19% 
+
+of the ADF gains on average, the Reduced MPC closely replicates the Full MPC closed-loop behavior at 35 × lower computation time. Code and videos are available at: https: //github.com/MPC-Berkeley/SHIELD_mpc .The screening performance depends on three parameters: the safety margin ζ, the cost tolerance ϵ, and the sparsity weight λ. Increasing ζ enlarges the feasibility buffer in Proposition 1, making screening easier to certify, but tightens the constraints seen by the solver, which may increase conservatism or cause infeasibility when the original problem is already tight. Decreasing ϵ strengthens the certification requirement in Theorem 1, reducing the set of screenable constraints but providing a harder safety guarantee. The sparsity weight λ controls the variable screening threshold: larger λ drives more policy parameters to zero, increasing the number of removable variables but potentially degrad-ing control performance. Table II reports the sensitivity of SHIELD to ϵ and λ over 20 scenarios; ζ is excluded from the sweep because it is a problem-level parameter encoding the required physical safety margin for the application, set from domain knowledge rather than algorithmic tuning. Varying ζ
+
+would change the safety specification itself rather than probe the algorithm’s internal sensitivity, and since ζ directly enters the feasibility buffer in Proposition 1, increasing it may render some scenarios infeasible not due to algorithm failure but due to the tightened constraint set, conflating algorithm performance with problem feasibility. For ϵ, tightening from 
+
+0.1 to 0.001 increases the constraint keep rate from 5.9% 
+
+to 52 .4% , confirming that stricter certification retains more constraints, but feasibility and safety remain intact across all values. For λ, reducing from the nominal 100 to 10 raises the constraint keep rate from 5.6% to 35 .9% , as fewer variables are driven to zero, leaving less opportunity for screening. Across all tested values, feasibility remains at 100% and collision rate at 0% , indicating that the safety guarantees are robust to parameter variation. In our experiments, ζ = 0 .5
+
+and ϵ = 0 .01 were chosen conservatively and held fixed across all 150+ scenarios without tuning. The primary failure mode occurs when the dual-gap bound is too loose to cer-tify screening, typically in dense multi-agent configurations where many constraints are simultaneously near-active. In these cases, the algorithm defaults to the full problem, so safety is preserved, but no computational benefit is realized. V. C ONCLUSION 
+
+We proposed a safe hierarchical inference framework for lightweight duality-based screening that provably reduces the TABLE II PARAMETER SENSITIVITY OF SHIELD AVERAGED OVER 20 SCENARIOS .Param. Constr. (%) ADF (%) Time (s) Feasible (%) Coll. (%)                                                                                                                 
+
+> Sweep ε
+> 0.001 52 .4±10 .91.2±0.60.160 ±0.052 100.0 0.0 0.005 12 .1±9.11.2±0.60.115 ±0.007 100.0 0.0
+> 0.010 12 .2±7.71.1±0.60.113 ±0.004 100.0 0.0 0.050 8.1±5.71.0±0.60.112 ±0.003 100.0 0.0 0.100 5.9±3.61.0±0.60.111 ±0.003 100.0 0.0
+> Sweep λ
+> 10 35 .9±4.41.4±0.90.129 ±0.017 100.0 0.0 50 9.6±7.51.2±0.70.121 ±0.019 100.0 0.0
+> 100 5.6±1.91.4±0.80.125 ±0.021 100.0 0.0 150 4.9±1.01.3±0.70.112 ±0.005 100.0 0.0 200 8.3±0.71.9±1.40.173 ±0.067 100.0 0.0
+> ∗
+
+Bold values indicate nominal parameters used in the main experiments. 
+
+decision dimension and constraint set of an ℓ1-regularized convex program, enabling high-rate computation with ζ-tightening. Leveraging strong convexity and Lagrangian duality, we derived certification conditions to satisfy the 
+
+original constraints while removing irrelevant constraints and variables. We validated the approach on stochastic MPC with multi-modal predictions in complex, interactive traffic scenarios. The safe screening certificates derived in this work rely on strong convexity of the objective, Lipschitz continuity of the gradient, and Slater’s constraint qualification. These assumptions hold for the quadratic-cost, linearly-constrained MPC formulations considered in our experiments and are satisfied by a broad class of practical MPC problems that use linearized dynamics and convex constraint sets. However, they exclude nonconvex formulations arising from nonlin-ear vehicle dynamics, non-convex collision geometry, or mixed-integer decision variables such as pass/stop maneuver selection. Extending the certification framework to these settings is nontrivial: without strong duality, the gap bound in Theorem 1 does not hold, and the screening test may produce false negatives (failing to screen) or, more critically, could not be applied at all without alternative bounding mechanisms. Possible avenues include applying screening af-ter convexification within a sequential convex programming loop, or deriving relaxation-based dual bounds for mixed-integer programs, though both directions require substantial theoretical development and are left to future work. Beyond extending the theoretical framework, two practical directions remain. First, validating SHIELD on diverse large-scale con-vex programs outside MPC—such as network flow, sparse portfolio optimization, and sensor selection—would demon-strate the generality claimed by the problem formulation in Sec. III. Second, a systematic sensitivity analysis of (ζ, ϵ, λ )
+
+across problem classes and conditioning regimes is needed to characterize how screening rates, conservatism, and failure frequency depend on these parameters, and to understand the robustness and generalizability of the algorithm across different problem settings. REFERENCES [1] J. Sacks and B. Boots, “Learning to optimize in model predictive con-trol,” in 2022 International Conference on Robotics and Automation (ICRA) . IEEE, May 2022, p. 10549–10556. [2] C. G. Arango, H. Asadi, M. R. C. Qazani, and C. P. Lim, “Learning-based approximate nonlinear model predictive control motion cueing,” 2025. [Online]. Available: https://arxiv.org/abs/2504.00469 [3] B. Stellato, T. Geyer, and P. J. Goulart, “High-speed finite control set model predictive control for power electronics,” IEEE Transactions on Power Electronics , vol. 32, no. 5, p. 4007–4020, May 2017. [4] A. Chakrabarty, R. Quirynen, D. Romeres, and S. Di Cairano, “Learn-ing disagreement regions with deep neural networks to reduce practical complexity of mixed-integer mpc,” in 2021 IEEE International Confer-ence on Systems, Man, and Cybernetics (SMC) , 2021, pp. 3238–3244. [5] T. Marcucci and R. Tedrake, “Warm start of mixed-integer programs for model predictive control of hybrid systems,” IEEE Transactions on Automatic Control , vol. 66, no. 6, pp. 2433–2448, 2021. [6] X. Zhang, M. Bujarbaruah, and F. Borrelli, “Near-optimal rapid mpc using neural networks: A primal-dual policy learning framework,” 2019. [Online]. Available: https://arxiv.org/abs/1912.04744 [7] L. Russo, S. H. Nair, L. Glielmo, and F. Borrelli, “Learning for online mixed-integer model predictive control with parametric optimality certificates,” IEEE Control Systems Letters , vol. 7, pp. 2215–2220, 2023. [8] A. Cauligi, P. Culbertson, E. Schmerling, M. Schwager, B. Stellato, and M. Pavone, “Coco: Online mixed-integer control via supervised learning,” 2021. [Online]. Available: https://arxiv.org/abs/2107.08143 [9] A. Cauligi, P. Culbertson, B. Stellato, D. Bertsimas, M. Schwager, and M. Pavone, “Learning mixed-integer convex optimization strategies for robot planning and control,” 2022. [Online]. Available: https://arxiv.org/abs/2004.03736 [10] L. El Ghaoui, V. Viallon, and T. Rabbani, “Safe feature elimination in sparse supervised learning,” EECS Dept., University of California at Berkeley, Tech. Rep. UC/EECS-2010-126, September 2010. [11] A. Bonnefoy, V. Emiya, L. Ralaivola, and R. Gribonval, “Dynamic screening: Accelerating first-order algorithms for the lasso and group-lasso,” IEEE Transactions on Signal Processing , vol. 63, no. 19, 2015. [Online]. Available: http://dx.doi.org/10.1109/TSP.2015.2447503 [12] O. Fercoq, A. Gramfort, and J. Salmon, “Mind the duality gap: safer rules for the lasso,” 2015. [Online]. Available: https: //arxiv.org/abs/1505.03410 [13] H. Kim, S. H. Nair, and F. Borrelli, “Scalable multi-modal model predictive control via duality-based interaction predictions,” in 2024 IEEE Intelligent Vehicles Symposium (IV) , 2024, pp. 1499–1504. [14] S. H. Nair, H. Lee, E. Joa, Y. Wang, H. E. Tseng, and F. Borrelli, “Predictive control for autonomous driving with uncertain, multimodal predictions,” IEEE Transactions on Control Systems Technology ,vol. 33, no. 4, pp. 1178–1192, 2025. [15] B. Hernandez and P. Trodden, “Distributed model predictive control using a chain of tubes,” in 2016 UKACC 11th International Conference on Control (CONTROL) , 2016, pp. 1–6. [16] J. Kottinger, S. Almagor, and M. Lahijanian, “Conflict-based search for multi-robot motion planning with kinodynamic constraints,” in 2022 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 2022, pp. 13 494–13 499. [17] B. Li, Y. Ouyang, Y. Zhang, T. Acarman, Q. Kong, and Z. Shao, “Opti-mal cooperative maneuver planning for multiple nonholonomic robots in a tiny environment via adaptive-scaling constrained optimization,” 
+
+IEEE Robotics and Automation Letters , vol. 6, no. 2, pp. 1511–1518, 2021. [18] E. J. Cand` es, M. B. Wakin, and S. P. Boyd, “Enhancing Sparsity by Reweighted ℓ1 Minimization,” Journal of Fourier Analysis and Applications , vol. 14, no. 5, pp. 877–905, Dec. 2008. [19] S. P. Boyd and L. Vandenberghe, Convex optimization . Cambridge University Press, 2004. [20] P.-W. Wang and C.-J. Lin, “Iteration complexity of feasible descent methods for convex optimization,” Journal of Machine Learning Research , vol. 15, no. 45, pp. 1523–1548, 2014. [21] H. Caesar and J. Kabzan, “Nuplan: A closed-loop ml-based planning benchmark for autonomous vehicles,” in CVPR ADP3 workshop , 2021. [22] N. Nayakanti, R. Al-Rfou, A. Zhou, K. Goel, K. S. Refaat, and B. Sapp, “Wayformer: Motion forecasting via simple &efficient attention networks,” 2022. [Online]. Available: https: //arxiv.org/abs/2207.05844 [23] L. Feng, M. Bahari, K. M. B. Amor, ´E. Zablocki, M. Cord, and A. Alahi, “Unitraj: A unified framework for scalable vehicle trajectory prediction,” arXiv preprint arXiv:2403.15098 , 2024. [24] J. A. Andersson, J. Gillis, G. Horn, J. B. Rawlings, and M. Diehl, “Casadi: a software framework for nonlinear optimization and optimal control,” Mathematical Programming Computation , 2019. [25] Gurobi Optimization, LLC, “Gurobi Optimizer Reference Manual,” 2024. [Online]. Available: https://www.gurobi.com [26] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, L. u. Kaiser, and I. Polosukhin, “Attention is all you need,” in 
+
+Advances in Neural Information Processing Systems , vol. 30. Curran Associates, Inc., 2017. [27] I. Loshchilov and F. Hutter, “Decoupled weight decay regularization,” 2019. [Online]. Available: https://arxiv.org/abs/1711.05101 
+
+APPENDIX 
+
+A. KKT Conditions 
+
+At a primal–dual optimal point (θ⋆t , μ ⋆, η ⋆, ν ⋆, g ⋆ 
+
+> 1
+
+, g ⋆ 
+
+> 2
+
+, γ ⋆)
+
+of the epigraphic form (4): The primal feasibility requires 
+
+˜f it (θ⋆t ) ≤ − ζ ∀i ∈ Ic 
+
+> 1
+
+¯f it (θ⋆t ) ≤ 0, ∀i ∈ Im−c
+
+> 1
+
+hit(θ⋆t ) = 0 , ∀i ∈ Ip 
+
+> 1
+
+Sθ⋆t − s⋆ ≤ 0, − Sθ⋆t − s⋆ ≤ 0, s ⋆ ≥ 0.
+
+The dual feasibility requires 
+
+μ⋆i ≥ 0, ∀i ∈ Ic 
+
+> 1
+
+η⋆i ≥ 0, ∀i ∈ Im−c 
+
+> 1
+
+g⋆ 
+
+> 1
+
+≥ 0, g ⋆ 
+
+> 2
+
+≥ 0, γ ⋆ ≥ 0,λ1 − g⋆ 
+
+> 1
+
+− g⋆ 
+
+> 2
+
+− γ⋆ = 0 .
+
+Complementary slackness conditions are 
+
+μ⋆i ( ˜f it (θ⋆t ) + ζ) = 0 , ∀i ∈ Ic
+
+> 1
+
+, η ⋆i ¯f i(θ⋆t ) = 0 , ∀i ∈ Im−c 
+
+> 1
+
+,
+
+(g⋆ 
+
+> 1
+
+)⊤(Sθ⋆t − s⋆) = 0 , (g⋆ 
+
+> 2
+
+)⊤(−Sθ⋆t − s⋆) = 0 , (γ⋆)⊤s⋆ = 0 .
+
+Lagrangian stationarity condition is 
+
+0 ∈ ∂f 0 
+
+> t
+
+(θ⋆t ) + X
+
+> i
+
+μ⋆i ∂ ˜f it (θ⋆t ) + X
+
+> i
+
+η⋆i ∂ ¯f it (θ⋆t )+ X
+
+> i
+
+ν⋆i ∂h it(θ⋆t ) + S⊤(g⋆ 
+
+> 1
+
+− g⋆ 
+
+> 2
+
+).
+
+Let g⋆ := g⋆ 
+
+> 1
+
+− g⋆ 
+
+> 2
+
+, and the ℓ1 subgradient coupling is 
+
+g⋆ ∈ λ ∂ ∥Sθ⋆t ∥1 or (g⋆)j =
+
+(
+
+λ sign([ Sθ⋆t ]j ), [Sθ⋆t ]j̸ = 0 ,
+
+∈ [−λ, λ ], [Sθ⋆t ]j = 0 .
+
+Moreover, complementary slackness on the epigraph con-straints gives s⋆j = |[Sθ⋆t ]j | for all j. Using g⋆ ∈ λ ∂ ∥Sθ⋆t ∥1,
+
+(g⋆)j [Sθ⋆t ]j =
+
+(
+
+λ |[Sθ⋆t ]j |, [Sθ⋆t ]j̸ = 0 ,
+
+0, [Sθ⋆t ]j = 0 .
+
+Summing over j yields the tight support-function identity 
+
+g⋆⊤Sθ⋆t = λ X
+
+> j
+
+|[Sθ⋆t ]j | = λ ∥Sθ⋆t ∥1. □

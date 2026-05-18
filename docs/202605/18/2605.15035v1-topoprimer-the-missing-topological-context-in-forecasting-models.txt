@@ -1,0 +1,1670 @@
+Title: TopoPrimer: The Missing Topological Context in Forecasting Models
+
+URL Source: https://arxiv.org/pdf/2605.15035v1
+
+Published Time: Fri, 15 May 2026 01:37:37 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# TopoPrimer: The Missing Topological Context in Forecasting Models 
+
+Zara Zetlin , Kayhan Moharreri , Maria Safi 
+
+Apple We introduce TopoPrimer , a framework that makes the global topological structure of the series population an explicit input to any forecasting model. TopoPrimer improves accuracy across diverse domains, stabilizes forecasts under seasonal demand spikes, and closes the cold-start gap. Precomputed once per domain via persistent homology and spectral sheaf coordinates, TopoPrimer deploys per token for fully-trained models and as a lightweight adapter for pre-trained backbones. Of these two components, sheaf coordinates are the primary accuracy driver. Across four public benchmarks on Chronos and TimesFM, TopoPrimer consistently improves forecasting accuracy, with gains of up to 7.3% MSE on ECL. The topology advantage persists with near-identical magnitude across zero-shot and fine-tuned backbones, suggesting topology and per-series training capture complementary signals. The gains are most pronounced in difficult regimes. Under peak seasonal demand, classical and zero-shot models degrade by up to 50%, while TopoPrimer stays within 10%. At cold start with no item history, TopoPrimer reduces MAE by 27% over a topology-free baseline. 
+
+Correspondence: Zara Zetlin: zzetlinfishbein@apple.com 
+
+Date: May 15, 2026 
+
+1 Introduction 
+
+Time series foundation models (TSFMs) such as Chronos (Ansari et al., 2025) and TimesFM (Das et al., 2024) have fundamentally shifted the forecasting paradigm. Pre-trained on billions of series from diverse corpora, they generalize across domains without per-dataset fine-tuning. Each series is encoded from its own token history, and cross-series reasoning is learned only implicitly through attention. This architecture is powerful, yet it leaves one source of information unexploited: the global topological structure of the series population. In any real-world forecasting domain, whether energy grids, retail supply chains, or road traffic networks, the full collection of series forms a manifold with coherent, informative geometry. Within this manifold, series can be grouped behaviorally, form loops of co-movement, and be naturally divided into distinct regions. Crucially, this structure cannot be observed from any individual series alone. Yet, across the series population, it constitutes a systematic, recoverable signal which could be used at every forecast step. To capture this signal, we introduce TopoPrimer, a framework that encodes the topological shape and relational population structure as a frozen precomputed input to any forecasting backbone. To create TopoPrimer’s topological context vector, we apply two tools grounded in algebraic topology. The first is topological data analysis (TDA), specifically persistent homology, to capture topological shape across scales. While prior forecasting work applies persistent homology to sliding-window embeddings of individual series (Zeng et al., 2021; Lin et al., 2025a,b), we instead apply it to the cross-series correlation manifold (Figure 5). This produces a 125-dimensional persistence landscape fingerprint encoding global clustering ( H0), cyclic co-movement ( H1), and boundary structure ( H2), computed once per domain and shared across all series. The second tool we use is cellular sheaf theory (Curry, 2014; Hansen and Ghrist, 2021), which describes how each series is situated within the full domain. Prior sheaf work computes this via learned graph convolutions, 1
+
+> arXiv:2605.15035v1 [cs.LG] 14 May 2026
+
+replacing or augmenting the backbone entirely (Li et al., 2018; Wu et al., 2019; Bodnar et al., 2022; Mostafa et al., 2026). We instead derive the sheaf coordinate without learned graph convolutions, keeping the topology signal backbone-agnostic. Rather than training a full sheaf network, we initialize this embedding spectrally via truncated SVD of the entity-time matrix and find the closed-form result superior to the trained alternative. This produces a 256-dimensional spectral representation per series encoding relational position and cross-entity similarity, computed once per domain and unique to each series. Each of these topology components is projected to a common hidden dimension. In the fully-trained setting, these projections are summed into a single context vector that is broadcast-added to every temporal input token. In the pre-trained setting, a lightweight adapter merges the topology projections with the frozen base forecast to apply topology-informed residual corrections. The adapter is less than 0.1% of either Chronos or TimesFM, and trains entirely on cached base forecasts with no gradient through the backbone. TopoPrimer consistently improves accuracy across diverse domains, limits degradation under seasonal demand spikes, and closes the cold-start gap. Across four public datasets, MAE falls by 7.9% on Monash Weather with the fully-trained Transformer. In the pre-trained setting, MSE falls by 7.3% with Chronos and 6.8% with TimesFM on ECL. Notably, the topology advantage persists on a fine-tuned backbone, suggesting population-level topological structure captures a complementary signal. These gains are most pronounced in difficult regimes. Under peak seasonal demand, TopoPrimer degrades by under 10%, while classical models and zero-shot TSFMs such as Chronos degrade by up to 50%. At cold start, where no item history exists at launch, TopoPrimer reduces MAE by 27% over a vanilla topology-free Transformer. These results demonstrate cross-series topology as a useful forecasting signal, injectable into any model at minimal cost.  
+
+> Contributions.
+
+We make the following contributions: 
+
+• Population-level TDA as a forecasting feature. We apply persistent homology to the cross-series correlation manifold rather than to individual series, producing a shared persistence landscape vector that encodes global clustering, cyclic co-movement, and boundary structure across the full domain. To our knowledge, this is the first application of TDA to the population manifold for forecasting. 
+
+• Spectral sheaf coordinates as a per-series relational prior. We derive the spectral form of this coordinate directly from the leading left singular vectors of the entity-time matrix, requiring no training or graph construction. Grounded in cellular sheaf theory, these coordinates capture each series’ position and relational structure within the full population, encoding where a series sits relative to dominant patterns across the domain. 
+
+• A unified framework across training paradigms. The same topology features improve both fully-trained transformers and frozen pre-trained TSFMs under a single architecture, demonstrating how population topology is a broadly useful signal across backbone families. 
+
+2 Related Work  
+
+> Topological deep learning and TDA for time series.
+
+Topological deep learning (TDL) (Papillon et al., 2024) shapes neural network architecture around the topology of the underlying data space. Within forecasting, prior work applies persistent homology (Carlsson, 2009; Edelsbrunner and Harer, 2010) to sliding-window embeddings of individual series (Zeng et al., 2021; Lin et al., 2025a,b; Kim et al., 2025). These methods capture within-series temporal dynamics, such as periodicity and local shape, but each window produces its own descriptor. The geometry of the broader population is never modeled. Instead, TopoPrimer applies persistent homology directly to the cross-series correlation manifold, producing one shared fingerprint for the entire domain. This reframing, from per-series temporal topology to population-level relational topology, is the core methodological departure from prior TDA forecasting work. 2Figure 1 TopoPrimer architecture overview. Two frozen signals are extracted offline from the series population: a 125-dimensional global TDA fingerprint via topological filtration (top), and a 256-dimensional per-series spectral sheaf coordinate via truncated SVD (bottom). After fusion, the combined context is injected into the backbone either by broadcast-addition to every input token (a) fully-trained or via a lightweight adapter with the backbone frozen (b) pre-trained . Backbone weights are never modified; both components require no gradient.  
+
+> Graph and relational forecasting.
+
+Graph-based forecasters such as DCRNN (Li et al., 2018), Graph WaveNet (Wu et al., 2019), and MTGNN (Wu et al., 2020) learn directed or adaptive adjacency over fixed entity graphs, replacing or augmenting the backbone for each domain. Transformer-based models (Zhou et al., 2021; Lim et al., 2021; Nie et al., 2023) sidestep relational structure entirely, encoding each series independently. Most similar to ours, global-factor models (Wang et al., 2019) learn a low-rank factorization jointly with the forecast objective, producing latent per-series coordinates, but as learned embeddings rather than a closed-form frozen prior. Unlike all of these, TopoPrimer does not replace or modify the backbone; it injects population topology as a precomputed context that any existing model can consume without modification.  
+
+> Cellular sheaf methods.
+
+Cellular sheaf theory (Curry, 2014; Hansen and Ghrist, 2021) extends graph convolution by assigning restriction maps to node-edge incidences, enabling relational structure that shared-weight message-passing cannot represent. Bodnar et al. (Bodnar et al., 2022) learn distinct per-incidence restriction maps on heterophilic graphs; ST-Sheaf GNN (Mostafa et al., 2026) applies diagonal maps for spatio-temporal forecasting, using the sheaf network itself as the full model. Both remain locally focused: each node’s representation is shaped by its immediate neighbors with no view of its position within the broader population. TopoPrimer instead derives each series’ coordinate from the leading left singular vectors of the entity-time matrix in closed form, requiring no training. Deriving spectral sheaf coordinates as a frozen, backbone-agnostic prior for time series forecasting is an approach that prior sheaf work has not, to our knowledge, explored.  
+
+> Time series foundation models.
+
+TSFMs such as Chronos (Ansari et al., 2025) and TimesFM (Das et al., 2024) are designed for zero-shot transfer across domains. When adaptation is needed, the model is updated via fine-tuning on individual series histories. Neither regime introduces explicit population-topology signals. TopoPrimer does, by injecting precomputed population-level TDA features and per-series spectral sheaf coordinates as a frozen, backbone-agnostic context vector. 33 Method 
+
+TopoPrimer treats topology as a precomputed prior, not a learned component. Two signals are extracted offline once per domain, a population TDA fingerprint and per-series spectral sheaf coordinates. These are fused into a context vector, and injected into any forecasting backbone without weight modification (Figure 1). We describe each signal in turn, then detail injection for the fully-trained and pre-trained settings. Mathematical definitions appear in Appendix A. 
+
+3.1 Population TDA Fingerprint  
+
+> Correlation manifold.
+
+Given N series, we form an N × T matrix X of normalized historical observations and compute the correlation-distance matrix Dij = 1 − | ρij |, where ρij is the Pearson correlation between series i
+
+and j. For large populations we sparsify via k = 50 nearest neighbors, since it reduces memory from O(N 2)
+
+to O(N k ), sufficient for the population sizes in our domains. We then apply persistent homology to this manifold. The resulting persistence landscape is Lipschitz-continuous with respect to the data distribution (Appendix B), so the fingerprint degrades gracefully under noise.  
+
+> Vietoris-Rips filtration.
+
+We run a Vietoris-Rips filtration (Tralie et al., 2018) up to dimension 2, covering the three fundamental topological primitives. Higher dimensions are computationally expensive and empirically absent in correlation manifolds of typical scale. We extract H0 (clustering), H1 (cyclic co-movement), and 
+
+H2 (structural boundary) features as birth-death pairs across the filtration. Long-lived features represent robust population structure and short-lived ones are noise. Formal definitions appear in Appendix A.  
+
+> Persistence landscape vectorization.
+
+We convert each persistence diagram to a fixed-size vector via the persistence landscape (Bubenik, 2015) (definition in Appendix A). We sample landscape layers λ1 and λ2 at 25 points each for H0 and H1, and λ1 only at 25 points for H2, where voids are sparse and λ2 contributes noise rather than signal. Including λ2 for H0 and H1 captures secondary structure, such as a two-cluster market split, that the top landscape alone misses. This yields a 125-dimensional TDA fingerprint 
+
+(50 + 50 + 25 ), computed once per domain and broadcast identically to all series. 
+
+3.2 Sheaf Encoder  
+
+> Spectral sheaf coordinates.
+
+While the TDA fingerprint captures the global shape of the series population, the sheaf component provides a complementary per-series signal, encoding where each series sits relative to others in the domain. A cellular sheaf (Curry, 2014; Hansen and Ghrist, 2021) assigns a spectral coordinate to each series based on its relational position within the population; the formal derivation appears in Appendix A. Concretely, this coordinate is row i of U , the left factor of a truncated singular value decomposition (SVD) 
+
+X ≈ U ΣV ⊤, where X ∈ RN ×T is the entity-time matrix over the full dataset (Figure 6). When series span unrelated categories, as in M5, where 30,490 item-store series cross category boundaries, we partition into semantically coherent groups and apply SVD within each. The resulting coordinate retains all available singular vectors and is zero-padded to 256 dimensions, giving the spectral relational feature of series i.We evaluate a learned neural sheaf encoder as an alternative in Appendix H. Spectral coordinates uniformly outperform the neural sheaf encoder at a fraction of the cost, and are adopted as default. The TDA fingerprint is global (one shared vector per domain), whereas spectral relational features are per-series (each series’ coordinate in U locates it within the shared demand manifold). 
+
+3.3 Integration into Fully-Trained Transformers 
+
+Our fully-trained backbone is a standard Transformer encoder ( dmodel = 256 , 6 layers, 8 heads, pre-norm), where each time step is embedded from R to R256 via a learned linear projection. Sinusoidal positional encodings are then added to each token before the encoder. Both topology-derived features are injected as a global context vector broadcast-added to every temporal token before the encoder (Figure 2). 4Figure 2 Global context broadcast injection (Path (a)). g ∈ Rd is broadcast-added to every temporal token before the encoder. No gradient flows through g. 
+
+> Figure 3
+
+Topology adapter for frozen pre-trained backbones. Four independent branches each project to a common hidden dimension H=128 : the TDA fingerprint (blue), the per-series spectral sheaf coordinate (green), four z-scored context statistics (orange), and the frozen backbone’s cached median forecast (red). Separate projections ensure no branch dominates by sheer input dimensionality. The concatenated 512-dimensional representation passes through an output MLP that produces a residual correction ∆ˆ y ∈ R9×H , added to the base forecast across all 9 quantiles to yield ˆyfinal .
+
+Global context injection. A context projection Wctx maps the 125-dim TDA fingerprint to Rdmodel . On datasets with an explicit entity hierarchy (e.g., M5 store ×category), learned entity embeddings are concatenated with the fingerprint before projection. The 256-dim spectral coordinate is then mapped into the same space through a dedicated projection Wsheaf and added to the result. The two projections are kept separate intentionally. When Wsheaf is instead shared with Wctx in a single joint linear layer, gradient descent tends to assign near-zero weights to the sheaf columns early in training, suppressing the sheaf signal before it can influence the model. A dedicated projection path prevents this. The resulting vector g ∈ Rdmodel is added to every temporal token zt ∈ Rdmodel across all L input steps: 
+
+zt ← zt + g, t = 1 , . . . , L. 
+
+Training minimizes a Huber quantile loss ( δ = 1 .0, a standard choice robust to outliers) over 9 output quantiles. Calibration results appear in Appendix J. Full architecture and hyperparameter details appear in Appendix C. 53.4 Integration into Pre-Trained Foundation Models 
+
+For pre-trained backbones, we freeze all weights and train a lightweight topology adapter that corrects the frozen base forecast. Since no gradient flows through the backbone, the adapter applies to any model that produces a point forecast.  
+
+> Adapter architecture.
+
+The adapter processes four inputs through dedicated branches (Figure 3). Each branch projects to a common dimension of 128 , preventing any single input from dominating by sheer size. The four branches are: 
+
+• TDA branch: 125-dim population fingerprint, two-layer MLP with LayerNorm. 
+
+• Sheaf branch: 256-dim spectral coordinate, two-layer MLP with LayerNorm. 
+
+• Context branch: four z-scored series statistics (mean, standard deviation, linear trend slope, and last observed value), linear layer with LayerNorm. 
+
+• Forecast branch: cached median forecast ˆybase ∈ RH from the frozen backbone, projected via linear layer with LayerNorm. Z-scoring the context statistics removes cross-series scale variation, so the adapter learns meaningful patterns rather than unit conversions. The adapter predicts a residual correction rather than a forecast from scratch, ensuring the model learns only the topological contribution. The four branch representations are concatenated and passed through an output MLP (512 → 256 → 9H):
+
+ˆyfinal = ˆybase + OutputMLP  [htda , hsheaf , hctx , hfc ],
+
+ˆybase is broadcast across all quantiles as a warm start, with no gradient flowing through the backbone.  
+
+> Ablations.
+
+Across the fully-trained and pre-trained settings, three architecture-matched configurations are evaluated: Vanilla (no topology), +TDA (the population fingerprint), and +TDA + Sheaf (population fingerprint and per-series spectral coordinates). +TDA + Sheaf is the full TopoPrimer model. Across all three variants, the output MLP is identical. Between variants, parameter differences reflect only the topology encoding branches, isolating topology’s contribution from additional prediction capacity. 
+
+4 Results 
+
+4.1 Topology Screening 
+
+From the precomputed TDA features, we derive a simple pre-training screen: H1/N , the number of persistent loops in the domain divided by the number of series. More loops per series means the correlation manifold has richer cyclic co-movement structure, and therefore predicts a larger TDA contribution. The sheaf coordinate is independent: it provides consistent per-series gains on every domain regardless of loop density, and the screening criterion governs only how much TDA will amplify those gains. Table 1 shows how H1/N predicts the magnitude of error reduction. METR-LA and ECL share similar 
+
+H1/N (0.22 and 0.26) and similar modest gains ( −0.005 and −0.012 MAE). Monash Weather (H1/N =0 .61 )stands out: its denser genuine loop structure produces gains 5–14 × larger in MAE and 20 –48 × larger in MSE than ECL. M5 Household has H1/N =4 .12 , but the count is artifact-inflated: shared weekly and annual seasonality creates calendar harmonics, not cross-series relational loops, so TDA contributes near-zero and the observed MAE gain comes from the sheaf alone. UMAP projections (Figure 9) confirm why loop density varies across domains: ECL and Weather display arc and loop structure; METR-LA shows a filament; M5 shows a structureless diffuse cloud consistent with calendar-driven correlations and no exploitable manifold geometry. 6Table 1 H1/N density characterizes domain manifold structure and predicts TDA amplification. H1
+
+generators are persistent loops in the correlation manifold; H1/N normalizes by series count. TDA +Sheaf ∆MAE (Chronos) scales with H1/N : modest on sparse and artifact-inflated domains, strong on genuine-rich domains. Sheaf gains are present on all domains regardless of H1/N . ( H0, H1, H2 landscape curves in Appendix E). 
+
+Dataset Domain N H1 H1/N TDA +Sheaf ∆MAE 
+
+METR-LA Traffic 207 46 0.22 −0.005 
+
+Monash Weather Weather 3,010 1,847 0.61 −0.074 
+
+ECL Electricity 321 83 0.26 −0.012 
+
+M5 Household Retail 9,890 40,780 † 4.12 † −0.015    
+
+> †M5 H1inflated by shared weekly/annual calendar periodicity; genuine cross-series loop count unknown.
+> Table 2
+
+MAE and secondary metric across four public benchmarks. Bold = best per section. ↓ lower is better. In-table naming: “ +TDA + Sheaf” is the full TopoPrimer model. Secondary metrics: METR-LA ( H=15 steps at 5-min intervals, 207 sensors) uses MAPE per traffic forecasting convention. ECL ( H=96 , 321 clients) and Monash Weather ( H=30 , 3,010 variates) use MSE to weight peak-error sensitivity. M5 ( H=4 , Household, 9,890 items) uses WAPE for scale-free cross-item comparison. 
+
+METR-LA ECL Monash Weather M5 Model MAE ↓ MAPE% ↓ MAE ↓ MSE ↓ MAE ↓ MSE ↓ MAE ↓ WAPE ↓
+
+Transformer variants 
+
+Transformer 2.206 3.812 0.193 0.091 2.175 25.935 1.866 0.264 Transformer + TDA 2.206 3.812 0.197 0.102 2.170 26.182 1.865 0.264 Transformer + TDA + Sheaf 2.203 3.809 0.196 0.091 2.004 25.143 1.827 0.259 
+
+Chronos 2.0 variants 
+
+Chronos Zero-Shot 3.348 5.615 0.586 0.610 2.344 29.776 0.918 1.450 
+
+Chronos Vanilla Adapter 2.383 4.087 0.302 0.205 2.015 28.487 1.040 1.643 Chronos + TDA 2.392 4.091 0.302 0.205 2.031 28.381 1.039 1.641 Chronos + TDA + Sheaf 2.378 4.063 0.290 0.190 1.941 27.773 1.025 1.618 
+
+TimesFM 2.5 variants 
+
+TimesFM Zero-Shot 2.441 4.200 0.580 0.602 2.032 28.032 0.914 1.443 
+
+TimesFM Vanilla Adapter 2.355 4.058 0.300 0.204 2.038 28.173 1.037 1.636 TimesFM + TDA 2.356 4.064 0.300 0.204 2.067 28.212 1.034 1.632 TimesFM + TDA + Sheaf 2.336 4.033 0.289 0.190 1.974 27.875 1.025 1.618 
+
+4.2 Main Results 
+
+Table 2 reports MAE and a domain-standard secondary metric across all four benchmarks and three backbone families. Secondary metrics follow the literature convention and were fixed before any topology model was trained. In the discussion below, “ +TDA + Sheaf” refers to the full TopoPrimer model. A consistent pattern emerges: the sheaf is the primary driver of gains across all domains, and TDA alone never improves over vanilla. TDA alone lacks the per-series resolution to differentiate individual series. TDA is a population-level signal, and without sheaf coordinates to anchor it locally, it cannot know where in the population a given series sits. We discuss each dataset in turn.  
+
+> METR-LA.
+
+TDA alone provides no lift and slightly degrades Chronos (MAE 2.383 → 2.392). This is consistent with the sparse H1 pre-screen verdict (Table 1): injecting a near-empty topology fingerprint adds noise without useful structure. The sheaf nonetheless retains a small consistent benefit even on this sparse manifold. The full TopoPrimer model improves over Vanilla for every backbone, with TimesFM reaching the best adapter result (MAE 2.355 → 2.336) and the Transformer the best absolute result (MAE 2.203).  
+
+> ECL.
+
+Topology gains on ECL are driven entirely by the sheaf. The vanilla Transformer achieves the lowest MAE overall (0.193). +TDA + Sheaf improves MSE but slightly degrades MAE (0.193 → 0.196), consistent with a fully-trained model that has already internalized the domain’s relational structure on this compact 7321-series dataset. The frozen foundation model backbones lack this domain-specific exposure, so the sheaf provides a useful complement: +TDA + Sheaf delivers consistent gains for both Chronos (MAE: 0.302 →
+
+0.290) and TimesFM (MAE: 0.300 → 0.289).  
+
+> Monash Weather.
+
+Chronos was pre-trained on the Monash corpus, placing this benchmark in-distribution. Even in-distribution, Chronos + TDA + Sheaf achieves the best MAE across all models (1.941), suggesting that in-distribution pre-training and topology are complementary. For both adapter families, TDA alone degrades relative to Vanilla (Chronos MAE: 2.015 → 2.031; TimesFM MAE: 2.038 → 2.067), introducing conflicting signal without the per-series positional grounding the sheaf provides. Adding the sheaf drives full recovery and further improvement. Under MSE (the primary Monash Weather metric), Transformer + TDA 
+
++ Sheaf is the best overall model (25.143).  
+
+> M5.
+
+On M5, vanilla adapter training degrades from zero-shot performance for both TSFMs (Chronos MAE: 0.918 → 1.040; TimesFM MAE: 0.914 → 1.037), consistent with adapter overfitting on a calendar-dominated domain where the frozen backbone already captures the main periodic structure. +TDA alone changes MAE by at most 0.003 across all backbones, confirming that the artifact-inflated H1/N =4 .12 encodes no useful population-level signal. This is precisely what the screening criterion predicts (Table 1). +TDA + Sheaf recovers consistent gains from the degraded adapter baselines, with both TSFM backbones converging to MAE 1.025. The Transformer, unaffected by adapter overfitting, shows a direct 2.1% MAE improvement (1.866 → 1.827 ).  
+
+> Cross-backbone synthesis.
+
+Across all benchmarks, sheaf coordinates are the primary driver of improvement; TDA alone provides no consistent improvement over vanilla and occasionally degrades. For the Transformer, gains scale with manifold richness, with 7.9% MAE reduction on H1-rich Monash Weather and only marginal gains on H1-sparse METR-LA. For foundation model backbones, +TDA + Sheaf consistently matches or beats the vanilla adapter on every domain. Chronos extracts the largest gain on ECL ( −4.0% MAE, −7.3% MSE), with TimesFM close behind. Full per-horizon ECL results appear in Appendix L. 
+
+4.3 Three Hard Regimes: Fine-Tuning Robustness, Seasonal Spikes, and Cold Start 
+
+Open benchmarks cannot answer three questions that matter in practice: does topology help when the backbone is already fine-tuned? Does it hold up under peak seasonal demand? And does it work at entity launch, when a series has no history? We evaluate on an internal dataset of N =307 ,818 active series across 4,575 entities and 603 items. The domain is large enough to test all three regimes and has a sparse manifold ( H1=617 , H1/N =0 .002 ), placing it in the genuine-sparsity regime of Table 1. Despite the sparse manifold, both sheaf coordinates and TDA contribute meaningful gains, confirming that each component is effective independently of manifold richness. We compute two TDA fingerprints from the internal corpus: an entity-manifold fingerprint (TDA E )and an item-manifold fingerprint (TDA I ). On public benchmarks, +TDA corresponds to TDA E alone, as item-resolution depth is insufficient to compute TDA I . All three internal evaluations use both. Fine-tuning robustness is evaluated using Chronos adapter families atop zero-shot and fine-tuned backbones. Seasonal-spike and cold-start evaluations use the fully-trained Transformer family. Across both families, architecture and training are held fixed so that topology is the sole variable. 
+
+4.4 Fine-Tuning Robustness 
+
+A natural concern is that fine-tuning on in-domain data should subsume any topological signal, making TopoPrimer redundant once the backbone is adapted. This hypothesis does not hold. We evaluate topology adapters atop both a frozen zero-shot Chronos checkpoint and a checkpoint fine-tuned on the internal corpus. Despite the two backbones differing substantially in domain adaptation, the topology gain is nearly identical: (∆MAE = −0.022 ) on zero-shot Chronos and ( ∆MAE = −0.024 ) on fine-tuned Chronos. Fine-tuning moves the baseline, but it does not absorb the topological signal. 8The invariance is expected: the univariate fine-tuning objective has no mechanism to recover cross-series structural information. Topology and fine-tuning address different aspects of the problem and their benefits are additive. Full results appear in Appendix I. 
+
+4.5 Seasonal Spikes 
+
+The sharpest forecasting test in practice is peak seasonal demand, where distribution shift is both large and predictable in timing but not magnitude. We evaluate over the dataset’s sharpest four-week annual demand window. Classical baselines and zero-shot TSFMs degrade substantially: XGBoost (Chen and Guestrin, 2016) MAE rises from 2.272 to 3.368 (+48%), DLinear (Zeng et al., 2023) from 2.089 to 3.060 (+46%), and Chronos zero-shot from 1.853 to 2.780 (+50%). The vanilla Transformer is the strongest non-topology baseline (+12%), as training on full annual cycles gives it implicit seasonal knowledge. Even so, it enters the window already above every topology variant. Where all other models surge, topology variants remain nearly flat (Figure 4(b), Table 10). The best-performing model is Transformer +TDA E +TDA I +Sheaf, finishing with MAE 1.924: 43% below XGBoost, 31% below Chronos, and 15% below vanilla Transformer. The topological prior encodes the global co-movement structure of the item manifold explicitly, giving each model a stable geometric anchor as demand patterns shift.            
+
+> Figure 4 (a) Cold-start performance (new items only, N= 40 ,324 series): MAE vs. weeks of post-launch history available. All models receive a zero context at week 0; the shaded band (MAE 1.38–1.52) marks the accuracy floor TDA Itopology variants maintain from launch, while vanilla Transformer (MAE 1.887 at week 0) never enters it despite training on the full population. (b) Seasonality window (all items): MAE over four weeks of peak demand. Classical baselines and zero-shot TSFMs degrade sharply (+46–50%). Topology variants degrade only marginally, with Transformer +TDA E+TDA I+Sheaf maintaining the lowest MAE from week 1 onward, attributable to explicit cross-item seasonal structure encoded in the population manifold.
+
+4.6 Cold Start 
+
+A new item has no history, but it has a position in the manifold, and with TopoPrimer that position is available from the first forecast step. At launch, every model receives a 52-week all-zero context window. Classical baselines and zero-shot TSFMs are effectively forecasting from zeros, making them null comparisons at week 0. The meaningful comparison is within the Transformer family, where architecture, training procedure, and temporal encoding are identical. Topology is the sole variable (Figure 4(a), Table 11). The advantage is immediate. At week 0, before a single week of post-launch history exists, Transformer +TDA E +TDA I
+
+achieves MAE 1.375, and the Transformer +TDA E +TDA I +Sheaf variant achieves MAE 1.395. Both are 26–27% below the vanilla Transformer (1.887). The vanilla Transformer has no way to locate a new item 9within the manifold, but topology supplies exactly this missing position from the first forecast step. As post-launch history accumulates, the vanilla Transformer improves steadily (1.887 → 1.535 MAE by week 3), converging toward the topology variants. This suggests that topology is filling the gap that history would otherwise fill. The sheaf variant remains the most consistent across all weeks, holding MAE below 1.40 from week 0 through week 2, while Transformer +TDA E achieves the best single result at week 3 (MAE 1.353).  
+
+> Three regimes, one structural limit.
+
+The pattern is consistent across all three regimes: fine-tuning robustness, seasonal spikes, and cold start. Where training signal is sufficient, topology amplifies it. Where it is absent or misleading, topology substitutes for it. In every case, a topological prior precomputed from the full population unlocks a source of signal that training alone does not recover. 
+
+5 Conclusion 
+
+The topology of a series population, both its global shape and the relational position of each series within it, is a recoverable, frozen signal that no backbone-agnostic framework encodes as a topological prior. TopoPrimer shows that injecting this signal as a precomputed context vector is sufficient to close gaps that per-series training signal alone does not resolve: cold-start, peak-demand windows, and robustness under fine-tuning. Critically, the topology gain is backbone-agnostic and survives fine-tuning with near-identical magnitude, which provides evidence that gradient descent on per-series losses and population-level geometry are learning complementary things. Topology screening provides a lightweight pre-deployment diagnostic: the H1/N density criterion identifies domains where the correlation manifold carries genuine cyclic structure and TDA will amplify the sheaf-driven gains, versus domains where improvement will be sheaf-driven alone. The topological features themselves admit two natural extensions: (i) a learned filtration metric that recovers topological structure obscured by Pearson distance; and (ii) multi-parameter persistent homology filtrating along scale and demand volatility jointly, to capture geometry that single-parameter summaries miss.  
+
+> Broader impacts.
+
+Improved forecasting accuracy in energy, retail, and logistics reduces over-production, inventory waste, and resource consumption. Because TopoPrimer’s topology features are precomputed once per domain and reused across all inference, the marginal cost of the topological context is negligible.  
+
+> Limitations.
+
+The fine-tuning robustness, seasonal-spike, and cold-start evaluations in Sections 4.3–4.6 rely on an internal corpus that cannot be released. The topological features and adapter architecture are fully reproducible on public data; we provide the complete evaluation protocol, hyperparameter settings, and statistical tests (Appendices G and K). 
+
+Acknowledgments 
+
+We are deeply grateful to Mohammadreza Armandpour for his honest, thoughtful feedback and review sessions that shaped this work. We also thank Jordan Mittleman for his generous time and care in helping bring this paper to life. 
+
+References      
+
+> A. F. Ansari et al. Chronos-2: From Univariate to Universal Forecasting. arXiv preprint arXiv:2510.15821 , 2025. C. Bodnar, F. Di Giovanni, B. Chamberlain, P. Lió, and M. Bronstein. Neural Sheaf Diffusion. In NeurIPS , 2022. P. Bubenik. Statistical Topological Data Analysis Using Persistence Landscapes. Journal of Machine Learning Research , 16(1):77-102, 2015. G. Carlsson. Topology and Data. Bulletin of the American Mathematical Society , 46(2):255-308, 2009.
+
+10 C. Tralie, N. Saul, and R. Bar-On. Ripser.py: A Lean Persistent Homology Library for Python. Journal of Open Source Software , 3(29):925, 2018. J. Curry. Sheaves, Cosheaves and Applications . PhD thesis, University of Pennsylvania, 2014. A. Das et al. TimesFM: A decoder-only foundation model for time-series forecasting. In ICML , 2024. H. Edelsbrunner and J. Harer. Computational Topology: An Introduction . American Mathematical Society, 2010. J. Hansen and R. Ghrist. Opinion dynamics on discourse sheaves. SIAM Journal on Applied Mathematics ,81(5):2033-2060, 2021. Y. Li et al. Diffusion Convolutional Recurrent Neural Network. In ICLR , 2018. B. Lim, S. Ö. Arık, N. Loeff, and T. Pfister. Temporal Fusion Transformers. International Journal of Forecasting ,37(4):1748-1764, 2021. Z. Lin, N. F. S. Zulkepli, M. S. M. Kasihmuddin, and R. U. Gobithaasan. CrossTopoNet: A Cross-Attention Framework on Topological Latent Feature Space for Time-Series Forecasting. Knowledge-Based Systems , 2025. Z. Lin and N. F. S. Zulkepli. Time-Series Forecasting via Topological Information Supervised Framework with Efficient Topological Feature Learning. arXiv preprint arXiv:2503.23757v1 , 2025. Withdrawn by authors; cited for methodological comparison. 
+
+A. Mostafa, R. Younis, and Z. Ahmadi. Dynamic Sheaf Diffusion Networks with Adaptive Local Structure for Heterogeneous Spatio-Temporal Graph Learning. arXiv preprint arXiv:2604.11275v1 , 2026. Y. Nie et al. A Time Series is Worth 64 Words. In ICLR , 2023. M. Papillon, S. Sanborn, M. Hajij, et al. Position: Topological Deep Learning is the New Frontier for Relational Learning. In ICML , 2024. N. Kim, H. Baik, and Y. Yoon. TopoCL: Topological Contrastive Learning for Time Series. arXiv preprint arXiv:2502.02924 , 2025. Y. Wang, A. Smola, D. Maddix, J. Gasthaus, D. Foster, and T. Januschowski. Deep Factors for Forecasting. In ICML ,2019. T. Chen and C. Guestrin. XGBoost: A Scalable Tree Boosting System. In KDD , 2016. Z. Wu et al. Graph WaveNet for Deep Spatial-Temporal Graph Modeling. In IJCAI , 2019. Z. Wu et al. Connecting the Dots: Multivariate Time Series Forecasting. In KDD , 2020. A. Zeng, M. Chen, L. Zhang, and Q. Xu. Are Transformers Effective for Time Series Forecasting? In AAAI , 2023. S. Zeng, F. Graf, C. Hofer, and R. Kwitt. Topological Attention for Time Series Forecasting. In NeurIPS , volume 34, 2021. H. Wu, J. Xu, J. Wang, and M. Long. Autoformer: Decomposition Transformers with Auto-Correlation for Long-Term Series Forecasting. In NeurIPS , volume 34, 2021. Y. Liu et al. iTransformer: Inverted Transformers Are Effective for Time Series Forecasting. In ICLR , 2024. H. Zhou et al. Informer: Beyond Efficient Transformer for Long Sequence Forecasting. In AAAI , 2021. 
+
+11 A Mathematical Preliminaries 
+
+A.1 Simplicial Complexes and Filtrations 
+
+A simplicial complex K is a collection of simplices (vertices, edges, triangles, and higher-dimensional analogues) closed under taking faces: if σ ∈ K is a simplex and τ ⊆ σ is a face, then τ ∈ K . A filtration is a nested sequence of complexes ∅ ⊆ K ε1 ⊆ K ε2 ⊆ · · · ⊆ K parameterised by a growing threshold ε ≥ 0. The Vietoris-Rips construction below is a canonical way to build such a filtration from pairwise distances. 
+
+A.2 Vietoris-Rips Filtration 
+
+Given a finite set of points P with pairwise distances d, the Vietoris-Rips complex at scale ε admits every subset of P whose pairwise distances all fall within ε:
+
+VR( P, ε ) =  σ ⊆ P max  
+
+> p,q ∈σ
+
+d(p, q ) ≤ ε .
+
+We set P = {x1, . . . , xN } where each point is one series and dij = 1 − | ρij | is the Pearson correlation distance. This yields diagrams over the series population , revealing which series cluster ( H0), which cyclic co-movements exist ( H1), and which structural boundaries separate regimes ( H2). These are population-level descriptors, not per-series properties. 
+
+A.3 Persistent Homology 
+
+Persistent homology tracks how the topology of a Vietoris-Rips filtration changes as ε increases. The k-th homology group Hk(K) counts independent k-dimensional holes. Persistent homology (Carlsson, 2009) tracks how homology classes are born and die as ε increases. Each feature is recorded as a birth-death pair (b, d ),forming the persistence diagram PD k. Features with large persistence d − b represent robust structural properties; short-lived features are noise. 
+
+A.4 Persistence Landscapes 
+
+The persistence landscape (Bubenik, 2015) maps PD k to a fixed-size vector: 
+
+λ(ℓ) 
+
+> k
+
+(t) = ℓ-th largest value of (min( t − b, d − t)) + : ( b, d ) ∈ PD k ,
+
+where (·)+ = max(0 , ·). Evaluating on a fixed grid yields an r-dimensional vector that is Lipschitz-stable with respect to the bottleneck distance dB (Appendix B). 
+
+A.5 Cellular Sheaves 
+
+A cellular sheaf F over a graph G = ( V, E) assigns a stalk Fv ∼= Rd to each node and a linear restriction map Fv⊴e to each node-edge incidence. The sheaf Laplacian LF = δ⊤δ penalizes deviation from global consistency: 
+
+x⊤LF x = X
+
+> (u,v )∈E
+
+wuv Fu⊴e(xu) − F v⊴e(xv ) 2.
+
+For the spectral encoder used in all reported results, the restriction maps are identity and the harmonic section is spanned by the leading left singular vectors of the entity-time matrix, requiring no training. Section 3.2 describes both encoder variants and the integration in full.  
+
+> Derivation: identity maps reduce to leading singular vectors.
+
+Setting all restriction maps to the identity, Fv⊴e = I,the sheaf Laplacian reduces to the standard weighted graph Laplacian LF = D − W, where Wuv = wuv is the edge-weight matrix and D is the degree matrix. We build the graph with weights wuv = |ρuv | (absolute Pearson correlations between entity time series). The Pearson correlation ρuv equals the cosine similarity of L2-normalised rows of the entity-time matrix M ∈
+
+RN ×T , so the weight matrix satisfies W ≈ 1 
+
+> T
+
+|MM ⊤| (element-wise absolute value) up to row-normalisation. 12 The harmonic section minimises the consistency loss over a k-dimensional subspace: 
+
+min    
+
+> X∈RN×k,X⊤X=I
+
+tr  X⊤LF X .
+
+Substituting LF = D−W gives tr( X⊤DX )−tr( X⊤WX ). For a d-regular graph, tr( X⊤DX ) = d tr( X⊤X) = 
+
+dk is constant under the orthonormality constraint, reducing the minimization to 
+
+max 
+
+> X⊤X=I
+
+tr  X⊤WX  .
+
+By the Rayleigh–Ritz theorem, the solution is X = Uk, the matrix of leading eigenvectors of W. Since W ≈ 
+
+> 1
+> T
+
+|MM ⊤| (element-wise), and in domains with predominantly positive cross-series correlations |MM ⊤| ≈ 
+
+MM ⊤, the leading eigenvectors of W are well-approximated by the leading left singular vectors of M (via 
+
+MM ⊤ui = σ2 
+
+> i
+
+ui). The harmonic section of the identity-restriction sheaf is therefore spanned by the truncated SVD of the entity-time matrix, requiring no gradient-based training. 
+
+B Lipschitz Stability of Persistence Landscape Features 
+
+Theorem B.1 (Lipschitz Stability) . Let c and c′ be any two entity populations. Let hc, hc′ ∈ R125 be their respective persistence landscape fingerprints and Dc, Dc′ their persistence diagrams. Then: 
+
+∥hc − hc′ ∥2 ≤ C · dB (Dc, Dc′ )
+
+where ∥ · ∥ 2 denotes the Euclidean norm, dB is the bottleneck distance between persistence diagrams, and C
+
+depends only on the landscape sampling grid. Proof sketch. The persistence landscape λ1 is 1-Lipschitz with respect to the bottleneck distance (Bubenik, 2015). Stacking over H0, H 1, H 2 introduces at most an ℓ2-to-supremum factor of √125 . □
+
+This stability result has three direct consequences for TopoPrimer. 1. Noise robustness. Missing weeks or measurement errors produce proportionally bounded perturbations to hc.2. Cold-start coverage. At launch, a new item has no individual history but receives three topology signals from TopoPrimer: a shared entity-manifold fingerprint (TDA E ), an item-manifold descriptor (TDA I ), and a per-item sheaf coordinate approximated from relational neighbors. All three are precomputed offline and require no per-item history. TDA E provides population-level structural context but does not place a new item within the item manifold; TDA I supplies that item-level positioning from day one (Section 4.6). 3. Backbone agnostic. The TDA fingerprint is precomputed once from the population and frozen—its 
+
+ℓ2 norm is fixed at computation time and never updated during training or inference. A fixed-norm input introduces no gradient-driven drift, so it propagates as a reliable conditioning signal regardless of downstream model architecture. This provides a theoretical basis for consistent topology gains across backbone families. 13 C Transformer Architecture 
+
+On the public benchmarks, three variants are evaluated: Vanilla, +TDA, and +TDA +Sheaf. All three share the same encoder and head and differ only in which topology block is active. On the internal corpus, a fourth variant stacks two topology blocks ( +TDA E +TDA I +Sheaf); Section 4.3 details this extended set.  
+
+> Global context vector.
+
+For the public benchmarks, a context vector is formed by projecting the temporal features and the active topology block to dmodel =256 (Table 3). For the internal corpus, learned node, item, and category embeddings are concatenated with the temporal features before this projection (Table 4). The TDA fingerprint is the primary input to the main projection Wctx . The sheaf block, when active, receives a dedicated Linear(256 →256) projection whose output is summed with the main projection before broadcasting. A dedicated path is necessary because, when the sheaf coordinate shares a single joint projection with the TDA and entity embedding inputs, gradient descent assigns near-zero weights to the sheaf columns early in training, suppressing its contribution. The TDA fingerprint enters Wctx as the primary input and does not face this suppression.                                         
+
+> Table 3 Context vector components: public benchmarks. Exactly one topology block is active per variant, or none for the vanilla baseline.
+> Feature Dim Notes
+> Temporal features 8Time-of-day and day-of-week encodings
+> Topology (one active):
+> TDA block 125 H0+H1+H2persistence landscape Sheaf block 256 Per-series spectral relational feature
+> Table 4 Context vector components: internal corpus. Learned entity embeddings are concatenated with temporal features before the main projection. Topology blocks are stacked across variants; see Section 4.3 for the full variant list.
+> Feature Dim Notes
+> Node embedding 256 Learned lookup, one per graph node Item embedding 256 Learned lookup, one per item type Category embedding 64 Learned lookup, all category levels Temporal features 16 Week-of-year sinusoid + fiscal-quarter one-hot
+> Topology (stackable):
+> TDA Eblock 125 Entity-manifold H0+H1+H2landscape TDA Iblock 125 Item-manifold H0+H1+H2landscape Sheaf block 256 Per-series spectral relational feature
+> Encoder and head.
+
+Each demand scalar is embedded by Linear(1 →256) , added to the broadcast context, and augmented with sinusoidal positional encoding. The encoder comprises six identical pre-norm layers, each with 8-head scaled dot-product attention (head dim 32), a feed-forward network (hidden dimension 1024, GELU), and dropout 0.10. The forecast head decodes the final-position representation: 
+
+Linear(256 →256) → ReLU → Dropout(0 .1) → Linear(256 →H×Q), producing 9 quantile estimates (Q={0.02 , 0.10 , 0.20 , 0.30 , 0.50 , 0.70 , 0.80 , 0.90 , 0.98 }) at each of H forecast steps, where H is the dataset’s horizon (Table 5). Total parameters: ≈8M (internal corpus; smaller for public benchmarks due to reduced entity embedding tables).  
+
+> Optimizer and scheduler.
+
+All Transformer variants are trained with AdamW ( β1=0 .9, β2=0 .999 , ϵ=10 −8,weight decay 10 −3, learning rate 10 −4) and a OneCycleLR scheduler (maximum learning rate 3×10 −4). Topology adapters on frozen backbones use the same AdamW settings with learning rate 3×10 −4 and a 14 CosineAnnealingLR scheduler (period = number of epochs, minimum learning rate = 0 .1× learning rate). Loss is Huber quantile loss ( δ=1 .0) over 9 output quantiles for all variants.  
+
+> Dataset-specific settings.
+
+Table 5 lists the context window and forecast horizon for each dataset. All variants share the encoder architecture above; only the sequence length, horizon, and temporal feature dimensionality differ.  
+
+> Table 5
+
+Context and forecast horizon per dataset. Context windows follow established benchmark protocols: ECL uses 96 hr (4 days), matching the standard long-term forecasting evaluation (Wu et al., 2021); METR-LA uses 12 steps (60 min), the standard traffic forecasting protocol (Li et al., 2018). ECL trains one checkpoint per horizon; all other datasets use a single horizon. METR-LA steps are 5-minute intervals. †Internal temporal features include week-of-year sinusoids and fiscal-quarter one-hot encoding; public datasets use time-of-day and day-of-week encodings (8 dims). 
+
+Dataset Context Horizon Temp. dim 
+
+Internal corpus 52 weeks 4 weeks 16 †
+
+ECL 96 hr 96 / 192 / 336 / 720 hr 8M5 (Walmart) 52 weeks 4 weeks 8METR-LA 12 steps 15 steps 8Weather 300 days 30 days 8
+
+D Architecture Diagrams  
+
+> Figure 5
+
+Per-series vs. population-level TDA. Prior work (left) computes a separate vector per sliding window, yielding one descriptor per window of temporal dynamics within one series. TopoPrimer (right) treats the full population as a point cloud, runs a single Vietoris-Rips filtration on the correlation manifold, and produces one 125-dimensional persistence landscape vector shared across all series. TopoPrimer encodes structure that no individual trajectory contains. 
+
+Figure 5 illustrates the core methodological departure: prior work computes per-series vectors, while TopoPrimer applies a single filtration to the full population manifold. Figure 6 shows the complementary sheaf coordinate pipeline, which produces a 256-dimensional per-series spectral coordinate via truncated SVD of the entity-time matrix. Figure 6 illustrates how the same kNN graph that feeds the TDA filtration yields a complementary per-series output: each series receives a unique spectral coordinate zi ∈ R256 encoding its structural position on the manifold, while the TDA fingerprint t ∈ R125 remains a single shared vector for the entire population. 15 Figure 6 Sheaf spectral coordinate computation (per-series). The kNN graph on the correlation manifold (shared with TDA) defines the edge weights used to form the entity-time matrix X ∈ RN ×T . A truncated SVD 
+
+X ≈ U ΣV ⊤ extracts the top-k left singular vectors; row i of U is the 256-dimensional spectral coordinate zi ∈ R256 
+
+for series i. This yields N per-series coordinates, one per series in the population, encoding each series’ structural position on the correlation manifold. In contrast to the TDA fingerprint t ∈ R125 (one shared vector for the entire population), the sheaf coordinate is per-series and relational. 
+
+16 E TDA Analysis of Public Benchmarks 
+
+The population-level TDA pipeline is illustrated in Figure 5 (Appendix D). Most multi-panel figures in this section use a 2 ×2 layout: ECL (top-left), Monash Weather (top-right), M5 Household (bottom-left), METR-LA (bottom-right). We place the two topology-rich benchmarks alongside the two null or sparse cases for direct comparison. Figure 7 overlays the persistence landscape vectors for all four public benchmarks. H0 (connected components) is broadly similar across all datasets. Each population clusters into a small number of dominant groups at coarse scales, contributing little discriminating signal. The diagnostic information resides in H1. Weather and ECL exhibit irregular, multi-scale peaks, the signature of genuine cyclic co-movement distributed across the filtration range. M5 instead shows evenly-spaced harmonic peaks consistent with calendar repetition (7-day and 52-week periodicities shared by every item), not relational geometry. These loops encode calendar artifact rather than manifold structure, which is why the TDA fingerprint provides no useful grouping signal there. METR-LA falls between these cases: ring roads and interchanges do produce a non-trivial H1 count (39–62 generators), but the network is predominantly tree-like, so those cycles reflect road geometry rather than correlated demand patterns. The H2 panel (structural voids) shows meaningful activity only for Weather and ECL, independently confirming that the fingerprint carries genuine multi-dimensional manifold signal on those benchmarks. Taken together, these landscape signatures are the visual basis for the pre-screening criterion in Section 4.1: the fingerprint distinguishes topology-rich from topology-poor domains before any model is trained. 0.0 0.2 0.4 0.6 0.8 1.0              
+
+> Filtration parameter t
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> Landscape value
+> Connected Components
+> H0 Landscape
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Filtration parameter t
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> Landscape value
+> Cyclic Co-Movement
+> H1 Landscape
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Filtration parameter t
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> Landscape value
+> Structural Voids
+> H2 Landscape
+> Population Manifold TDA Fingerprints Across Benchmarks
+> ECL Weather M5 Traffic
+
+Figure 7 Population manifold TDA fingerprints across benchmarks. Each curve is the 125-dimensional persistence landscape vector ( H0: 50 dims, H1 : 50 dims, H2: 25 dims) for one dataset. H0 (connected components): similar across all datasets; coarse cluster merging dominates the signal. H1 (cyclic co-movement): the diagnostic panel. Weather and ECL exhibit irregular, multi-scale peaks indicative of genuine cyclic manifold structure. M5 shows evenly-spaced harmonics (calendar artifact, not relational geometry). METR-LA is near-flat (tree-like road hierarchy, few genuine cycles). H2 (structural voids): active only for Weather and ECL. 
+
+E.1 Cross-Segment Comparison 
+
+Figure 8 shows how TDA feature vectors differ across temporal or demographic splits within each dataset, alongside H1 Wasserstein-2 distance matrices quantifying topological dissimilarity between segments. ECL and Weather exhibit meaningful topology differences across their primary splits (weekday/weekend and all-days/active-days respectively), confirming that the segments capture structurally distinct regimes. M5 and METR-LA show weaker or noise-driven cross-segment variation, consistent with calendar artifact and sparse topology respectively. 17 0 20 40 60 80 100 120                
+
+> Feature dimension (H0: 0 49 |H1: 50 99 |H2: 100 124)
+> all
+> weekday
+> weekend
+> H0 H1 H2
+> TDA Feature Vectors all / weekday / weekend
+> all
+> weekday
+> weekend
+> all
+> weekday
+> weekend
+> 0.000 0.102 0.136
+> 0.102 0.000 0.136
+> 0.136 0.136 0.000
+> H1 Wasserstein-2 Distance
+> (lower = more similar consumption cycle topology)
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> 0.12
+> Cross-Segment Topology Comparison ECL
+
+(a) ECL. Weekday segments show higher β1 and larger 
+
+H1 landscape norms than weekend, reflecting a genuine structural regime change driven by commercial usage cycles. 0 20 40 60 80 100 120                
+
+> Feature dimension (H0: 0 49 |H1: 50 99 |H2: 100 124)
+> all
+> active
+> quiescent
+> H0 H1 H2
+> TDA Feature Vectors all / active / quiescent
+> all
+> active
+> quiescent
+> all
+> active
+> quiescent
+> 0.000 0.263 0.206
+> 0.263 0.000 0.260
+> 0.206 0.260 0.000
+> H1 Wasserstein-2 Distance
+> (lower = more similar climate zone topology)
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> Cross-Segment Topology Comparison Monash-Weather
+
+(b) Monash Weather. Active-day segments show higher β1 counts and larger H1 landscape norms, confirming that missing observations weaken but do not eliminate the topological signal. 0 20 40 60 80 100 120               
+
+> Feature dimension (H0: 0 49 |H1: 50 99 |H2: 100 124)
+> CA_1_FOODS
+> CA_2_FOODS
+> CA_3_FOODS
+> CA_4_FOODS
+> TX_1_FOODS
+> TX_2_FOODS
+> TX_3_FOODS
+> WI_1_FOODS
+> WI_2_FOODS
+> WI_3_FOODS
+> CA_1_HOBBIES
+> CA_2_HOBBIES
+> CA_3_HOBBIES
+> CA_4_HOBBIES
+> TX_1_HOBBIES
+> TX_2_HOBBIES
+> TX_3_HOBBIES
+> WI_1_HOBBIES
+> WI_2_HOBBIES
+> WI_3_HOBBIES
+> CA_1_HOUSEHOLD
+> CA_2_HOUSEHOLD
+> CA_3_HOUSEHOLD
+> CA_4_HOUSEHOLD
+> TX_1_HOUSEHOLD
+> TX_2_HOUSEHOLD
+> TX_3_HOUSEHOLD
+> WI_1_HOUSEHOLD
+> WI_2_HOUSEHOLD
+> WI_3_HOUSEHOLD
+> H0 H1 H2 TDA Feature Vectors All 30 Combos
+> FOODS
+> HOBBIES
+> HOUSEHOLD
+> FOODS
+> HOBBIES
+> HOUSEHOLD
+> 0.000 0.284 0.340
+> 0.284 0.000 0.219
+> 0.340 0.219 0.000
+> H1 Wasserstein-2 Distance CA_1
+> (lower = more similar demand topology)
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> Cross-Category Topology Comparison
+
+(c) M5 Household. Cross-category TDA variation is modest relative to within-category calendar artifact, with small Wasserstein distances reflecting shared periodicity across all categories. 0 20 40 60 80 100 120                
+
+> Feature dimension (H0: 0 49 |H1: 50 99 |H2: 100 124)
+> all
+> peak
+> offpeak
+> H0 H1 H2
+> TDA Feature Vectors all / peak / offpeak
+> all
+> peak
+> offpeak
+> all
+> peak
+> offpeak
+> 0.000 0.201 0.253
+> 0.201 0.000 0.312
+> 0.253 0.312 0.000
+> H1 Wasserstein-2 Distance
+> (lower = more similar road loop topology)
+> 0.000
+> 0.025
+> 0.050
+> 0.075
+> 0.100
+> 0.125
+> 0.150
+> 0.175
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> Cross-Segment Topology Comparison METR-LA
+
+(d) METR-LA. The off-peak segment shows higher 
+
+β1 counts and the largest Wasserstein-2 distance from peak, confirming that time-of-day fundamentally alters sensor correlation topology. 
+
+Figure 8 Cross-segment TDA comparison across all four public benchmarks. Left panel of each subfigure: 125-dim TDA feature vectors per segment ( H0: dims 0–49, H1: dims 50–99, H2: dims 100–124). Right panel: H1
+
+Wasserstein-2 pairwise distance matrix between segments (lower = more topologically similar). ECL and Weather show structurally meaningful cross-segment differences; M5 cross-category variation is dominated by shared calendar artifact; METR-LA shows the most pronounced peak/off-peak topological divergence. 
+
+E.2 Manifold Structure (UMAP Projection) 
+
+Figure 9 shows UMAP 2D projections of each entity correlation manifold, visualizing the global geometric structure that persistent homology quantifies. The shape of the projection encodes the topological verdict. An arc or loop shape is the 2D signature of β1 > 0, a diffuse cloud indicates low topological structure, and a filament indicates approximately tree-like topology. Color encodes TDA-derived cluster assignment, showing whether the geometric clusters are interpretable as real-world entity groupings. 
+
+E.3 Entity Cluster Profiles 
+
+Figure 10 shows the time-series profiles for each TDA-derived cluster, confirming that the geometric groupings identified in the UMAP projections correspond to interpretable real-world archetypes. For ECL and Weather, cluster separation is sharp and semantically meaningful. For M5 and METR-LA, profiles are more homogeneous, consistent with their calendar-dominated and near-tree manifold verdicts respectively. 
+
+E.4 Mapper Graphs 
+
+Figure 11 shows Mapper graphs that summarize the global shape of each dataset’s population manifold, where nodes are clusters of entities with similar time-series trajectories and edges connect clusters whose covers overlap. β1 (the first Betti number) counts the number of independent loops in the manifold; nonzero 
+
+β1 indicates cyclic co-movement structure that TDA captures as a diagnostic signal. Loop structures in the Mapper graph directly corroborate nonzero β1 from the persistence diagrams. Branching structures reflect diverging sub-populations or regime transitions. 18 Figure 9 Entity correlation manifolds (UMAP) across four benchmarks. Projection shape encodes topology: arc/loop structures indicate H1 > 0 (ECL, Weather); filamentary structure indicates near-tree topology with sparse local loops (METR-LA); diffuse cloud indicates low topological structure (M5 Household). Color encodes TDA-derived cluster assignment. M5 shows no visual clustering or geometric structure: a diffuse cloud with no arcs, loops, or filaments. This is consistent with its null pre-screening verdict (Table 1), where calendar-dominated correlations produce no exploitable manifold geometry and no topology gain is expected or observed. 0 2000 4000 6000 
+
+Time window index 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+> Normalised consumption (correlation feature)
+
+Cluster 1 (n=22 customers) 
+
+0 2000 4000 6000 
+
+Time window index 
+
+0.000 
+
+0.005 
+
+0.010 
+
+0.015 
+
+0.020 
+
+> Normalised consumption (correlation feature)
+
+Cluster 2 (n=164 customers) 
+
+0 2000 4000 6000 
+
+Time window index 
+
+0.000 
+
+0.005 
+
+0.010 
+
+0.015 
+
+0.020 
+
+0.025 
+
+> Normalised consumption (correlation feature)
+
+Cluster 3 (n=69 customers) 
+
+0 2000 4000 6000 
+
+Time window index 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+> Normalised consumption (correlation feature)
+
+Cluster 4 (n=24 customers) 
+
+0 2000 4000 6000 
+
+Time window index 
+
+0.000 
+
+0.005 
+
+0.010 
+
+0.015 
+
+0.020 
+
+0.025 
+
+0.030 
+
+> Normalised consumption (correlation feature)
+
+Cluster 5 (n=30 customers) 
+
+0 2000 4000 6000 
+
+Time window index 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+> Normalised consumption (correlation feature)
+
+Cluster 6 (n=7 customers) 
+
+0 2000 4000 6000 
+
+Time window index 
+
+0.00 
+
+0.02 
+
+0.04 
+
+0.06 
+
+> Normalised consumption (correlation feature)
+
+Cluster 7 (n=1 customers) 
+
+0 2000 4000 6000 
+
+Time window index 
+
+0.01 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+0.04 
+
+> Normalised consumption (correlation feature)
+
+Cluster 8 (n=4 customers) 
+
+ECL Customer Archetypes (k=8, TDA-informed) 
+
+Each cluster = customers with similar hourly consumption correlation profiles 
+
+(a) ECL ( k=8 , TDA-informed). Clusters correspond to distinct usage archetypes (high-daytime commercial, overnight industrial, flat residential, weekend-shifted), with Cluster 7 an outlier of extreme diurnal amplitude. 0 250 500 750 1000 1250 
+
+Day index 
+
+0.01 
+
+0.02 
+
+0.03 
+
+0.04 
+
+0.05 
+
+> Normalised daily observation
+
+Cluster 1 (n=541 stations) 
+
+0 250 500 750 1000 1250 
+
+Day index 
+
+0.05 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+> Normalised daily observation
+
+Cluster 2 (n=273 stations) 
+
+0 250 500 750 1000 1250 
+
+Day index 
+
+0.0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+> Normalised daily observation
+
+Cluster 3 (n=137 stations) 
+
+0 250 500 750 1000 1250 
+
+Day index 
+
+0.1 
+
+0.0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+> Normalised daily observation
+
+Cluster 4 (n=66 stations) 
+
+0 250 500 750 1000 1250 
+
+Day index 
+
+0.00 
+
+0.02 
+
+0.04 
+
+0.06 
+
+> Normalised daily observation
+
+Cluster 5 (n=612 stations) 
+
+0 250 500 750 1000 1250 
+
+Day index 
+
+0.0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+> Normalised daily observation
+
+Cluster 6 (n=150 stations) 
+
+0 250 500 750 1000 1250 
+
+Day index 
+
+0.0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+> Normalised daily observation
+
+Cluster 7 (n=106 stations) 
+
+0 250 500 750 1000 1250 
+
+Day index 
+
+0.01 
+
+0.02 
+
+0.03 
+
+0.04 
+
+> Normalised daily observation
+
+Cluster 8 (n=1,125 stations) 
+
+Monash-Weather Station Climate Archetypes (k=8, TDA-informed) 
+
+Each cluster = stations with similar temporal correlation profiles 
+
+(b) Monash Weather. Station clusters align with Köppen climate classifications, confirming that TDA-derived groupings recover interpretable geographic climate structure. 0 50 100 150 200 250 
+
+Week index 
+
+0.00 
+
+0.02 
+
+0.04 
+
+0.06 
+
+0.08 
+
+0.10 
+
+> Normalised weekly sales
+
+Cluster 1 (n=282 items) 
+
+0 50 100 150 200 250 
+
+Week index 
+
+0.025 
+
+0.000 
+
+0.025 
+
+0.050 
+
+0.075 
+
+0.100 
+
+> Normalised weekly sales
+
+Cluster 2 (n=136 items) 
+
+0 50 100 150 200 250 
+
+Week index 
+
+0.000 
+
+0.025 
+
+0.050 
+
+0.075 
+
+0.100 
+
+0.125 
+
+> Normalised weekly sales
+
+Cluster 3 (n=159 items) 
+
+0 50 100 150 200 250 
+
+Week index 
+
+0.05 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+0.20 
+
+> Normalised weekly sales
+
+Cluster 4 (n=70 items) 
+
+0 50 100 150 200 250 
+
+Week index 
+
+0.00 
+
+0.05 
+
+0.10 
+
+> Normalised weekly sales
+
+Cluster 5 (n=112 items) 
+
+0 50 100 150 200 250 
+
+Week index 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+> Normalised weekly sales
+
+Cluster 6 (n=107 items) 
+
+0 50 100 150 200 250 
+
+Week index 
+
+0.05 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+> Normalised weekly sales
+
+Cluster 7 (n=79 items) 
+
+0 50 100 150 200 250 
+
+Week index 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+> Normalised weekly sales
+
+Cluster 8 (n=64 items) 
+
+CA_1_HOUSEHOLD Item Archetypes (k=8, TDA-informed) 
+
+(c) M5 Household. Item clusters correspond to demand archetypes (stable staple, seasonal, low-velocity, intermittent), with higher within-cluster variance than ECL or Weather consistent with weaker manifold structure. 0 500 1000 1500 2000 
+
+Time window index 
+
+0.005 
+
+0.010 
+
+0.015 
+
+0.020 
+
+0.025 
+
+0.030 
+
+> Normalised speed (correlation feature)
+
+Cluster 1 (n=22 sensors) 
+
+0 500 1000 1500 2000 
+
+Time window index 
+
+0.005 
+
+0.010 
+
+0.015 
+
+0.020 
+
+0.025 
+
+> Normalised speed (correlation feature)
+
+Cluster 2 (n=11 sensors) 
+
+0 500 1000 1500 2000 
+
+Time window index 
+
+0.005 
+
+0.010 
+
+0.015 
+
+0.020 
+
+0.025 
+
+0.030 
+
+> Normalised speed (correlation feature)
+
+Cluster 3 (n=52 sensors) 
+
+0 500 1000 1500 2000 
+
+Time window index 
+
+0.005 
+
+0.010 
+
+0.015 
+
+0.020 
+
+0.025 
+
+0.030 
+
+> Normalised speed (correlation feature)
+
+Cluster 4 (n=24 sensors) 
+
+0 500 1000 1500 2000 
+
+Time window index 
+
+0.0125 
+
+0.0150 
+
+0.0175 
+
+0.0200 
+
+0.0225 
+
+0.0250 
+
+> Normalised speed (correlation feature)
+
+Cluster 5 (n=68 sensors) 
+
+0 500 1000 1500 2000 
+
+Time window index 
+
+0.005 
+
+0.010 
+
+0.015 
+
+0.020 
+
+0.025 
+
+> Normalised speed (correlation feature)
+
+Cluster 6 (n=15 sensors) 
+
+0 500 1000 1500 2000 
+
+Time window index 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+> Normalised speed (correlation feature)
+
+Cluster 7 (n=10 sensors) 
+
+0 500 1000 1500 2000 
+
+Time window index 
+
+0.005 
+
+0.010 
+
+0.015 
+
+0.020 
+
+0.025 
+
+0.030 
+
+> Normalised speed (correlation feature)
+
+Cluster 8 (n=5 sensors) 
+
+METR-LA Sensor Archetypes (k=8, TDA-informed) 
+
+Each cluster = sensors with similar speed correlation profiles 
+
+(d) METR-LA. Sensor clusters correspond to highway archetypes (mainline freeway, interchange, ramp, arterial connector), with low within-cluster variance reflecting strong spatial regularity of freeway traffic patterns. 
+
+Figure 10 Entity cluster profile visualizations across all four public benchmarks. Each subfigure shows normalized time-series profiles per TDA-derived cluster (shaded band = ±1σ; solid line = cluster mean). Cluster count k is TDA-informed. ECL and Weather clusters are semantically sharp (usage/climate archetypes); M5 and METR-LA clusters are interpretable but less distinctive, consistent with their manifold verdicts. 
+
+19 (a) ECL. Pronounced loop structures link customers with similar but phase-shifted usage cycles, directly corroborating the nonzero β1 from the persistence diagrams.  
+
+> (b)
+
+Monash Weather. Branching structures correspond to diverging climate subtypes and loop structures correspond to transitional regions connecting adjacent zones, consistent with the β1 > 0 result.  
+
+> (c)
+
+M5 Household. Loop structures in the graph identify product groups connected through shared demand periodicity (calendar co-movement), not genuine relational structure.  
+
+> (d)
+
+METR-LA. The graph topology mirrors the physical road network, with linear chains for highway segments and loops for interchanges and ring roads, directly validating the β1 > 0 finding.  
+
+> Figure 11
+
+Mapper graphs across all four public benchmarks. Each node is a cluster of entities (customers, stations, items, or sensors) with similar trajectories; edges connect overlapping clusters. ECL and Weather show multi-loop structures consistent with high β1; M5 loops are calendar-driven; METR-LA loops trace physical freeway interchanges. 
+
+20 F TDA Analysis: Internal Corpus 
+
+This section characterizes the population manifold topology of the proprietary corpus used in Sections 4.3–4.6, using the same analytical framework applied to the public benchmarks in Appendix E. The corpus comprises five item categories (A-E) observed across four regions (Regions 1–4), with each node-category pair treated as one population for TDA fingerprinting. The figures below use Category A as the representative example throughout; patterns for other categories are qualitatively consistent except where noted. 
+
+F.1 Persistence Landscapes 
+
+Figure 12 overlays the persistence landscape curves for H0, H1, and H2 across all five categories. H0 activity is broadly similar across categories, reflecting comparable cluster-merging dynamics at coarse scales. The diagnostic signal resides in H1. Categories A and D exhibit substantially higher landscape amplitude than C and E, indicating denser recurring loop-like structure across their item populations. Category C shows the lowest H1 median persistence ( 0.002 ), suggesting a more uniformly connected structural organization with fewer persistent cyclic features. The H2 panel is active across all five categories, with the highest counts in long-tail categories in Regions 1 and 3, where node and category fragmentation creates persistent void structure that H2 captures and that topology gains most exploit. These landscape signatures pass the pre-screening criterion of Section 4.1. The H1 richness reflects genuine manifold structure, not calendar artifact. 0.0 0.2 0.4 0.6 0.8 1.0              
+
+> Filtration scale (normalised)
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> Landscape value
+> H0 Location Clusters
+> Category A
+> Category B
+> Category C
+> Category D
+> Category E
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Filtration scale (normalised)
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> Landscape value
+> H1 Demand Cycles
+> Category A
+> Category B
+> Category C
+> Category D
+> Category E
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Filtration scale (normalised)
+> 0.000
+> 0.025
+> 0.050
+> 0.075
+> 0.100
+> 0.125
+> 0.150
+> 0.175
+> Landscape value
+> H2 Structural Voids
+> Category A
+> Category B
+> Category C
+> Category D
+> Category E
+> Persistence Landscape Curves (all categories)
+
+Figure 12 Persistence landscape curves λ1(t) for H0, H1, and H2 across all five categories (internal corpus). 
+
+Categories A and D have substantially higher H1 amplitude than C and E, indicating far more recurring loop-like structure in their item populations. 
+
+F.2 Cross-Category Comparison 
+
+Figure 13 shows how TDA feature vectors differ across categories, alongside H1 Wasserstein-2 distance matrices quantifying topological dissimilarity between them. Categories A and D show meaningfully distinct topology from C and E, confirming that the segments capture structurally different regimes. Several category pairs exhibit pairwise Wasserstein distances of 0.13 -0.23 across all regions, effectively sharing a single topological layer. These cross-category coupling edges are reflected directly in the relational graph (Ecross ). 
+
+F.3 Manifold Structure (UMAP Projection) 
+
+Figure 14 shows a UMAP 2D projection of Category A item trajectories, colored by TDA-derived cluster assignment. The geometric coherence of cluster regions (compact, well-separated islands rather than diffuse blobs) validates that the 125-dim persistence landscape fingerprints capture genuine structural distinctions. Items in peripheral UMAP regions are structural outliers whose isolation would be collapsed into the majority by any purely volume-weighted representation. This arc-and-island structure is the visual signature of β1 > 0
+
+and confirms that Category A passes the pre-screening criterion (Section 4.1). 21 0 20 40 60 80 100 120                           
+
+> Feature dimension (H0: 0 49 |H1: 50 99 |H2: 100 124)
+> Category A
+> Category B
+> Category C
+> Category D
+> Category E
+> H0 H1 H2 TDA Feature Vectors
+> Cat A
+> Cat B
+> Cat C
+> Cat D
+> Cat E
+> Cat A
+> Cat B
+> Cat C
+> Cat D
+> Cat E
+> 0.000 2.435 2.827 2.058 2.842
+> 2.435 0.000 2.797 2.468 2.818
+> 2.827 2.797 0.000 1.845 0.225
+> 2.058 2.468 1.845 0.000 1.872
+> 2.842 2.818 0.225 1.872 0.000
+> H1 Wasserstein-2 Distance (top-300 pts)
+> (lower = more similar demand topology)
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> Cross-Category Topology Comparison
+
+Figure 13 Cross-category TDA comparison (internal corpus). Left panel: 125-dim TDA feature vectors per category ( H0: dims 0–49, H1: dims 50–99, H2: dims 100–124). Right panel: H1 Wasserstein-2 pairwise distance matrix between categories (lower = more topologically similar). Categories A and D show structurally meaningful differences from C and E. 15.0 12.5 10.0 7.5 5.0 2.5 0.0 2.5 5.0          
+
+> UMAP-1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> UMAP-2
+> Coloured by TDA cluster
+> Cluster 1
+> Cluster 2
+> Cluster 3
+> Cluster 4
+> Cluster 5
+> Cluster 6
+> Cluster 7
+> Cluster 8
+> 15.0 12.5 10.0 7.5 5.0 2.5 0.0 2.5 5.0
+> UMAP-1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> UMAP-2
+> Coloured by aggregate demand volume
+> 2
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> Sum of normalised weekly demand
+> Category A Location Manifold UMAP (correlation distance)
+
+Figure 14 UMAP projection of Category A item trajectories (internal corpus), colored by TDA-derived cluster. Compact, well-separated cluster regions confirm that the persistence landscape fingerprints encode genuine structural distinctions. Peripheral items are structural outliers invisible to volume-weighted representations. 
+
+F.4 Entity Cluster Profiles 
+
+Figure 15 shows item cluster assignments for Category A derived from K-means ( k=8 , TDA-informed) applied to the 125-dim TDA fingerprints. Eight structurally distinct archetypes emerge from topology alone. Two items can share nearly identical mean demand yet occupy different structural clusters, representing fundamentally different temporal trajectory shapes that volume-based assignment would collapse into the same group. The cluster structure directly informs cold-start initialization: a newly introduced item inherits its topology signals from its nearest manifold neighbor within the same cluster, rather than from a volume-rank proxy. 
+
+F.5 Mapper Graph 
+
+Figure 16 shows the Mapper graph for Category A, computed with a 2D UMAP lens, 12 ×12 cover with 40% overlap, and DBSCAN clustering within bins. The graph has 55 nodes and reveals a hub-and-spoke macro-topology. There is a dense core of structurally typical items and several peripheral branches of structural outliers. Loop structures in the graph directly corroborate the nonzero β1 from the persistence diagrams. This macro-structure guides Layer 2 relational graph construction. Hub items generalize well to each other and are strongly connected, while peripheral-branch items connect only within their branch. 22 0 50 100 150 200 
+
+> Week index
+> 0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> Normalised weekly demand
+
+Cluster 1 (n=264 locations)     
+
+> 050 100 150 200
+> Week index
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> Normalised weekly demand
+
+Cluster 2 (n=1,194 locations)     
+
+> 050 100 150 200
+> Week index
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> Normalised weekly demand
+
+Cluster 3 (n=737 locations)     
+
+> 050 100 150 200
+> Week index
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalised weekly demand
+
+Cluster 4 (n=93 locations)     
+
+> 050 100 150 200
+> Week index
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> Normalised weekly demand
+
+Cluster 5 (n=882 locations)     
+
+> 050 100 150 200
+> Week index
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalised weekly demand
+
+Cluster 6 (n=293 locations)     
+
+> 050 100 150 200
+> Week index
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> Normalised weekly demand
+
+Cluster 7 (n=677 locations)     
+
+> 050 100 150 200
+> Week index
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> Normalised weekly demand
+
+Cluster 8 (n=435 locations) 
+
+Category A Location Archetypes (k=8, TDA-informed) Figure 15 Item cluster assignments for Category A (internal corpus), K-means k=8 (TDA-informed) on 125-dim TDA persistence landscape fingerprints. Eight structurally distinct archetypes emerge from topology alone. Two items with nearly identical mean demand can occupy different clusters, representing fundamentally different forecast behaviors that volume-based assignment would collapse. 
+
+Figure 16 Mapper graph for Category A (internal corpus). 55 nodes; node size ∝ item count; edge width 
+
+∝ inter-cluster affinity. The hub-and-spoke topology reveals a dense core of structurally typical items and several peripheral branches of structural outliers, directly corroborating the nonzero β1 (first Betti number: count of independent loops in the manifold) from the persistence diagrams. 
+
+23 G Randomized Control Ablations 
+
+To verify that gains reflect genuine manifold structure rather than the effect of adding any non-zero context, we evaluate two controls. rand_TDA replaces the TDA vector with Gaussian noise of matched dimension. 
+
+shuffle_TDA uses real TDA vectors permuted randomly across series, preserving marginal statistics while breaking the series-to-topology correspondence. Table 6 summarizes results on the two public benchmarks where both controls were evaluated. These two benchmarks represent opposite ends of the topology spectrum: Monash Weather has the highest β1 count among public benchmarks ( H1 = 1 ,847 ), making topology-driven gains most pronounced, while METR-LA has the sparsest topology (near-tree structure, H1 ≈ 0), providing a stringent null test where genuine topology gains are expected to be small.                                  
+
+> Table 6 Randomized control ablations. Monash Weather: MAE at H=30 ; METR-LA: MAE at 30 min (mid-range horizon where control separation is most stable). ∆relative to Fixed [no topo]. ↓lower is better.
+> Model Monash Weather MAE METR-LA MAE
+> Transformer 2.175 1.540 Transformer + rand-TDA (control) 2.182 (+0 .007) 1.574 (+0 .034)
+> Transformer + shuffle-TDA (control) 2.199 (+0 .024) 1.535 (−0.005)
+> Transformer + TDA 2.170 (−0.005) 1.540 (0 .000)
+> Transformer +TDA +Sheaf 2.004 (−0.171) 1.521 (−0.019)
+
+On Monash Weather, the topology-richest benchmark ( 1,847 H1 generators), random injection actively regresses (+0 .007) while real TDA improves (−0.005) and Sheaf achieves the largest gain (−0.171) . Shuffle performance falls between rand and real on both datasets, confirming that both the content of the TDA vector and its correct series-to-topology assignment contribute to observed improvements. 
+
+H Spectral vs. Neural Sheaf Encoder 
+
+As described in Section 3.2, we evaluate two implementations of the sheaf component. Sheaf (Spectral) 
+
+computes per-series coordinates as the leading left singular vectors of the entity-time training matrix, block-wise per store ×category for M5 and globally for ECL, Monash Weather, and METR-LA. Sheaf (Neural) trains per-series learnable embeddings Ei ∈ R256 using a coboundary consistency loss on a k-NN correlation graph, warm-started from the spectral coordinates (Section 3.2). The objective is 
+
+Lsheaf = λc
+
+X
+
+> (i,j )∈E
+
+wij R(Ei) − R(Ej ) 2 + λr dec( E) − xnode  
+
+> 2
+
+− β Var n(R(En)) ,
+
+where R is a shared linear restriction map, the first term is the sheaf coboundary loss, the second is a reconstruction regularizer, and the third is a spread penalty that prevents trivial collapse to the zero section. Table 7 reports the comparison on M5, the only dataset where both variants were fully evaluated across all backbone families. The spectral encoder consistently matches or outperforms the neural variant. The most informative comparison is Chronos 2.0 on Household, where individual item demand is most heterogeneous. There, spectral coordinates achieve MAE 1.0251 versus 1.0343 for the neural encoder, a 0.9% relative gap. Across the full 28,860-series evaluation the ordering is Vanilla (0.7717) < Spectral (0.7742) < Neural (0.7805), reflecting that M5 is a null-TDA dataset and neither sheaf variant can overcome the absent global topology signal. However, the spectral variant consistently degrades less than the neural variant from the vanilla baseline. The neural encoder degrades relative to spectral for three compounding reasons. First, warm-starting from the spectral coordinates and then applying gradient descent toward coboundary consistency moves embeddings away from the spectral position toward graph-agreement, which is less useful for downstream forecasting. Second, the coboundary loss and reconstruction loss work in opposition. Pushing two correlated items toward agreement in restriction-map space reduces their individual reconstruction quality. Third, the spectral encoder extracts the dominant structural axes of entity co-variation via closed-form truncated SVD, requiring 24 no training. The neural encoder approximates a more expressive but empirically inferior objective. We therefore adopt spectral coordinates as the default for all reported results.                                                 
+
+> Table 7 Spectral vs. neural sheaf encoder on M5 (Walmart, 28,860 active series). MAE and WAPE per M5 category. Bold = best per section. ↓lower is better. Household has the most heterogeneous item demand and the most informative comparison point for the two sheaf variants. All rows use a 52-week context window and 4-week forecast horizon.
+> Foods Hobbies Household Model MAE ↓WAPE ↓MAE ↓WAPE ↓MAE ↓WAPE ↓
+> Chronos 2.0 variants
+> Chronos Vanilla Adapter 0.984 1.408 1.054 1.788 1.040 1.643 Chronos +TDA 0.982 1.405 1.052 1.786 1.039 1.641 Chronos +TDA +Sheaf 0.966 1.383 1.038 1.761 1.025 1.618
+> Chronos +TDA +Sheaf (Neural) 0.981 1.403 1.043 1.770 1.034 1.633
+
+Spectral coordinates dominate the neural encoder on every evaluated configuration. The gap is largest where item-level heterogeneity is highest (Household) and smallest where the overall manifold signal is weakest (full M5 evaluation, a null-TDA domain). These results support adopting the spectral sheaf encoder as the appropriate default for TopoPrimer across domains.  
+
+> Why M5 is the right comparison domain.
+
+M5 is a null-TDA domain. Its H1 generators reflect shared seasonal periodicity rather than genuine relational structure, and the pre-screening verdict is null (Table 1). This makes it the cleanest isolated test of the sheaf encoder itself. On ECL and Monash Weather, both TDA and Sheaf are active simultaneously; any difference between sheaf variants is confounded by the concurrent TDA contribution, making it impossible to isolate the sheaf’s effect alone. On M5, TDA contributes nothing, so the sheaf coordinate must stand alone and any quality difference between SVD and the neural encoder is fully unmasked. Chronos 2.0 is the most informative backbone here: unlike TimesFM, which was pre-trained on M5, Chronos had no M5 exposure, so the sheaf coordinate carries genuine signal and the spectral advantage is cleanly observable (Household MAE 1.0251 vs. 1.0343). The fully-trained Transformer, which uses spectral coordinates throughout, is not included as a separate row.  
+
+> Computational overhead.
+
+The performance advantage of spectral coordinates is reinforced by a decisive cost asymmetry. The spectral encoder requires a single truncated SVD of the entity-time training matrix, block-wise per store ×category group. For M5 at 30,490 series this completes in under 90 seconds on a single CPU core and requires no hyperparameter selection. The neural encoder requires a full pre-training run. It needs multiple epochs of gradient descent on a coboundary consistency loss with three hyperparameters ( λc,
+
+λr , β), early stopping on a validation criterion, and warm-start initialization from the spectral coordinates themselves. TimesFM was not evaluated with the neural encoder; given that spectral coordinates outperform neural on Chronos 2.0 on the same domain, the additional pre-training cost is not warranted. When performance is equivalent or spectral coordinates are superior, the zero-training-cost encoder is the unambiguous choice. 25 I Topology Signal Survives Fine-Tuning 
+
+A natural objection to topology augmentation for adapted models is that fine-tuning on in-domain data should subsume any topological signal. The result is inconsistent with that hypothesis.  
+
+> Why open benchmarks do not suffice.
+
+A meaningful test requires two conditions. First, the fine-tuning pass must give the backbone access to relational domain structure, so gradient descent has a mechanism to subsume cross-series topology. Second, the dataset must be topology-rich enough that the topology gain within the Fine-Tuned family is measurable above noise. ECL satisfies the topology-richness condition with 83 H1 cycles from shared grid infrastructure but fails the relational-structure condition. The 321 clients are anonymous meters with no entity graph and no relational labels. Fine-tuning on ECL produces a checkpoint that differs from the zero-shot one in distributional calibration, not in cross-series relational signal. Persistent homology captures structure that the fine-tuning objective never targeted, so comparing fine-tuned adapters with and without topology does not test whether fine-tuning subsumes topology. The backbone never had a mechanism to do so. Monash Weather fails for a complementary reason. Its manifold is topology-rich ( 1,847 H1 generators), but Chronos was pre-trained on Monash. The Zero-Shot-vs.-Fine-Tuned gap is negligible, making the within-Fine-Tuned comparison vacuous for the primary backbone. For any other backbone, the entity-graph-free issue from ECL resurfaces. METR-LA and M5 have fine-tunable structures but near-null topology signal. We therefore evaluate on the internal corpus from Section 4.3, which provides both conditions simultaneously.  
+
+> Setup.
+
+We evaluate two Chronos 2.0 adapter families on the internal corpus. The fine-tuning robustness question requires a pre-trained foundation model with a meaningful zero-shot baseline; the fully-trained Transformer does not have one, so the Transformer family is used for the seasonal-spike and cold-start evaluations instead. Chronos Zero-Shot trains an adapter head on the frozen zero-shot Chronos checkpoint. Chronos Fine-Tuned trains an adapter head on a Chronos checkpoint fine-tuned on domain data. Within each family we evaluate three adapter configurations: vanilla (no topology), +TDA E
+
+(125-dim entity-manifold persistence landscape), and +TDA E +TDA I (entity-manifold plus the additional 125-dim item-manifold fingerprint). Sheaf coordinates are omitted here because the fine-tuning robustness question targets topology fingerprints specifically, which are the components most plausibly subsumed by gradient descent on in-domain data; sheaf results on these backbone families appear in the main results (Table 2). Table 8 reports MAE and WAPE on a single-category slice ( N = 50 ,920 series) with per-family ∆
+
+values.  
+
+> Backbone fine-tuning provides marginal gain over the vanilla adapter.
+
+On the single-category slice, Chronos Zero-Shot achieves MAE 1.168 and Chronos Fine-Tuned achieves MAE 1.142 , a marginal improvement of 
+
+−0.026 MAE from fine-tuning the backbone. This is consistent with the general observation that foundation model adapter performance on sparse discontinuous demand is difficult to improve via standard fine-tuning alone.  
+
+> Topology gain is preserved after fine-tuning.
+
+On the single-category slice (Table 8), the topology gain within the Zero-Shot family is ∆MAE = −0.022 (∆WAPE −0.016 ) and the topology gain within the Fine-Tuned family is ∆MAE = −0.024 (∆WAPE −0.017 ). These deltas are essentially identical across backbone conditions that differ substantially in domain adaptation, consistent with the hypothesis that fine-tuning and topology augmentation capture largely orthogonal signals. Chronos Fine-Tuned + TDA E +TDA I achieves the best result across both families (MAE 1.118 , WAPE 0.861 ). The combined gain from fine-tuned initialization and topology over Chronos Zero-Shot is −0.055 WAPE, and the two contributions are additive. One nuance is visible in Table 8: on the fine-tuned backbone, TDA E alone yields only a marginal MAE improvement (−0.005 ) and a slight WAPE regression ( +0 .009 ) relative to Chronos Fine-Tuned vanilla. The node-manifold fingerprint provides insufficient positional context once the backbone has already been exposed to domain structure via fine-tuning; the item-manifold fingerprint TDA I is required to recover and exceed the vanilla 26 baseline. The topology gain within the Fine-Tuned family of ∆ = −0.028 WAPE reported above refers specifically to Chronos Fine-Tuned + TDA E +TDA I , not to TDA E in isolation.  
+
+> Implication.
+
+These results suggest that fine-tuning and topology augmentation address complementary aspects of the forecasting problem, with largely additive benefits. Fine-tuning improves backbone calibration to the domain distribution; topology supplies cross-series structural information that the univariate fine-tuning objective has no mechanism to recover. This motivates TopoPrimer as a persistent, complementary input representation compatible with any level of backbone adaptation.            
+
+> Table 8 Chronos Zero-Shot vs. Chronos Fine-Tuned adapter families on a single-category internal corpus slice ( N= 50 ,920 series). ∆computed relative to vanilla adapter within each backbone family. Gain magnitude is near-identical across both backbone conditions despite substantial differences in domain adaptation. Bold = best per section. ↓lower is better.
+
+Model MAE ↓ WAPE ↓ ∆MAE ∆WAPE 
+
+Chronos 2.0 Zero-Shot variants 
+
+Chronos Zero-Shot 1.168 0.849 – –Chronos Zero-Shot + TDA E 1.146 0.833 −0.022 −0.016 
+
+Chronos 2.0 Fine-Tuned variants 
+
+Chronos Fine-Tuned 1.142 0.878 – –Chronos Fine-Tuned + TDA E 1.137 0.887 −0.005 +0 .009 
+
+Chronos Fine-Tuned + TDA E +TDA I 1.118 0.861 −0.024 −0.017 
+
+J Quantile Calibration on the Internal Corpus 
+
+The Transformer backbone outputs 9 calibrated quantiles (0.02, 0.1, 0.2, 0.3, 0.5, 0.7, 0.8, 0.9, 0.98) via a Huber quantile loss. Table 9 reports average pinball loss (QLoss) across all quantiles on the internal corpus, alongside the corresponding MAE. On the internal corpus, where H1/N is non-negligible and the TDA fingerprint carries genuine manifold signal (unlike the public benchmarks, where TDA alone was consistently flat or slightly negative), both topology components improve substantially over the vanilla baseline. A meaningful dissociation between the two emerges. Transformer + TDA E +TDA I achieves the best MAE (0.596) : the combined TDA fingerprints inject population-level structural signal that lowers the median forecast. Transformer + Sheaf achieves the best QLoss (0.1675) : the sheaf coordinate smooths the full predictive distribution and improves tail coverage even when it does not push the median lower. On the internal corpus, TDA E +TDA I
+
+improves point accuracy and sheaf improves calibration; the two contributions are complementary. This is consistent with the orthogonal-signal interpretation in Section 4.3.                        
+
+> Table 9 Quantile calibration on the internal corpus (Transformer backbone). QLoss = average pinball loss across 9 quantiles (0.02, 0.1, 0.2, 0.3, 0.5, 0.7, 0.8, 0.9, 0.98), on z-normalized outputs. MAE is on actual-scale outputs.
+> Bold = best per section. ↓lower is better.
+> Model QLoss ↓MAE ↓
+> Transformer 0.2637 0.802 Transformer +TDA E0.2224 0.692 Transformer +TDA E+TDA I0.1687 0.596
+> Transformer +Sheaf 0.1675 0.629
+
+27 K Internal Corpus: Cold-Start and Seasonality MAE Tables 
+
+Sections 4.5 and 4.6 describe the seasonality and cold-start evaluations on the internal corpus. The main text reports summary statistics and figure panels; this appendix provides the complete per-week MAE tables.  
+
+> Table 10 Seasonality spikes MAE over peak-demand window (all items). DLinear and NLinear from Zeng et al. (2023).
+
+Model Week 0 Week 1 Week 2 Week 3 
+
+Transformer variants 
+
+Transformer 2.016 2.176 2.228 2.250 Transformer + TDA E 1.725 1.929 2.023 2.002 Transformer + TDA E + TDA I 2.020 2.121 2.031 2.112 Transformer + TDA E + TDA I + Sheaf 1.781 1.909 1.872 1.924 
+
+Classical baselines 
+
+Rate-based 1.985 2.191 2.387 2.874 
+
+DLinear 2.089 2.339 2.518 3.060 NLinear 1.942 2.136 2.293 2.757 XGBoost 2.272 2.519 2.743 3.368 
+
+Zero-shot TSFMs 
+
+Chronos 1.853 2.049 2.219 2.780 
+
+TimesFM 2.082 2.300 2.504 2.981  
+
+> Table 11 Cold-start MAE vs. weeks of post-launch history (new items only).
+
+Model Week 0 Week 1 Week 2 Week 3 
+
+Transformer variants 
+
+Transformer 1.887 1.690 1.565 1.535 Transformer + TDA E 1.733 1.555 1.412 1.353 
+
+Transformer + TDA E + TDA I 1.375 1.385 1.380 1.458 Transformer + TDA E + TDA I + Sheaf 1.395 1.388 1.385 1.524 
+
+Classical baselines 
+
+Rate-based 1.796 1.716 1.497 1.525 
+
+DLinear 1.788 1.716 1.646 1.583 NLinear 1.700 1.617 1.652 1.599 XGBoost 1.921 1.866 1.779 1.733 
+
+Zero-shot TSFMs 
+
+Chronos 1.557 1.557 1.550 1.538 TimesFM 1.946 1.672 1.500 1.519 
+
+28 L ECL: Full Results 
+
+We benchmark on ECL (321 hourly electricity consumption series, UCI, 2012–2014), the canonical long-term forecasting benchmark used by Autoformer, PatchTST, and iTransformer. 
+
+Protocol. All models use a 96-hour context window (4 days), matching the standard ECL evaluation context. Prediction horizons: H ∈ { 96 , 192 , 336 , 720 } hours. Data is normalized (zero-mean, unit-variance per series) before training and evaluation; this is the canonical “normalized” protocol, producing metrics directly comparable to published LTSF results. In Table 12, TDA alone provides no gain or mild regression at all horizons. The sheaf drives consistent improvements for both adapter families from H96 through H336, with gains attenuating at H720 as the static topological coordinate becomes less marginal over the backbone’s long-range distributional prior.            
+
+> Table 12 ECL (321 electricity customers): MAE / MSE at H∈ { 96 ,192 ,336 ,720 }hours. All trained variants: 96-hour context window. Normalized protocol. Bold = best per section. ↓lower is better.
+
+H96 H192 H336 H720 Model MAE ↓ MSE ↓ MAE ↓ MSE ↓ MAE ↓ MSE ↓ MAE ↓ MSE ↓
+
+Literature: published LTSF benchmarks 
+
+Autoformer (Wu et al., 2021) 0.317 0.201 0.334 0.222 0.338 0.231 0.361 0.254 PatchTST (Nie et al., 2023) 0.285 0.195 0.289 0.199 0.305 0.215 0.337 0.256 iTransformer (Liu et al., 2024) 0.270 0.178 0.274 0.182 0.292 0.200 0.320 0.220 
+
+Transformer variants 
+
+Transformer 0.193 0.091 0.234 0.125 0.243 0.140 0.355 0.289 Transformer + TDA 0.197 0.102 0.227 0.119 0.243 0.141 0.351 0.276 
+
+Transformer + TDA + Sheaf 0.196 0.091 0.231 0.119 0.245 0.136 0.355 0.279 
+
+Chronos 2.0 variants 
+
+Chronos Zero-Shot 0.586 0.610 0.594 0.616 0.612 0.638 0.642 0.688 Chronos Vanilla Adapter 0.302 0.205 0.305 0.207 0.319 0.221 0.348 0.259 Chronos + TDA 0.302 0.205 0.305 0.207 0.318 0.220 0.349 0.259 Chronos + TDA + Sheaf 0.290 0.190 0.298 0.198 0.315 0.217 0.346 0.257 
+
+TimesFM 2.5 variants 
+
+TimesFM Zero-Shot 0.580 0.602 0.581 0.599 0.589 0.605 0.607 0.626 TimesFM Vanilla Adapter 0.300 0.204 0.303 0.206 0.315 0.219 0.342 0.252 
+
+TimesFM + TDA 0.300 0.204 0.303 0.206 0.315 0.219 0.343 0.254 TimesFM + TDA + Sheaf 0.289 0.190 0.296 0.197 0.313 0.217 0.350 0.269 
+
+29

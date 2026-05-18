@@ -1,0 +1,1071 @@
+Title: TimeClaw: A Time-Series AI Agent with Exploratory Execution Learning
+
+URL Source: https://arxiv.org/pdf/2605.10038v1
+
+Published Time: Tue, 12 May 2026 02:42:20 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# TimeClaw: A Time-Series AI Agent with Exploratory Execution Learning 
+
+Hangchen Liu 1, Dongyuan Li 1∗
+
+, Renhe Jiang 1, Jiewen Deng 2, Weiwei Ye 1, Yoshihide Sekimoto 11The University of Tokyo, 2Southern University of Science and Technology 
+
+{liuhc3,lidy,jiangrh,wwye,sekimoto}@csis.u-tokyo.ac.jp , dengjw1@outlook.com 
+
+## Abstract 
+
+Time series analysis underpins forecasting, monitoring, and decision making in domains such as finance and weather, where solving a task often requires both numerical accuracy and contextual reasoning. Recent progress has moved from specialized neural predictors to approaches built on LLMs and foundation models that can reason over time series inputs and use external tools. However, most such systems remain execution-centric: they focus on solving the current instance but learn little from exploratory execution. This is especially limiting in verifiable numeric settings, where multiple candidate executions and tool-use procedures may all be task-valid yet differ sharply in quantitative quality, and where early success can trigger tool-prior collapse that suppresses further exploration. To address this limitation, we present TimeClaw , an exploratory execution learning framework that turns exploratory execution into reusable hierarchical distilled experience through a four-stage loop: Explore, Compare, Distill, and Reinject. TimeClaw combines metric-supervised exploratory execution learning, task-aware tool dropout, and hierarchical distilled experience for inference-time reinjection, while keeping the base model frozen and avoiding online test-time adaptation. In an MTBench-aligned evaluation with 17 tasks that span finance and weather prediction and reasoning tasks, TimeClaw delivers consistent gains over the baselines. These results suggest that, for scientific systems, the bottleneck is not only execution-time capability, but how exploratory experience is compared, distilled, and reused. 
+
+## 1 Introduction 
+
+Large language model (LLM) agents are evolving from one-shot assistants into persistent systems that interact with tools, maintain external state, and support increasingly complex workflows [ 1–7 ]. This trend is promising for scientific domains such as time-series analysis, where solving a task often requires combining statistical computation, contextual reasoning, and structured decision making [ 8 –11 ]. Recent work has made substantial progress on time-series benchmarks and tool-augmented time-series agents [ 12 – 17 ]. However, most existing time-series agent systems still focus on execution-time capability : they improve how an agent solves the current task, but only partially address how experience from exploratory execution should be accumulated and reused across future tasks. We identify two concrete limitations of the current paradigm: (i) Completion-only supervision is insufficient for numeric time-series tasks . In forecasting, indicator prediction, and related numeric tasks, multiple candidate executions can produce task-valid answers, but differ substantially in quantitative quality under metrics such as MAE or RMSE. In such cases, completion-only supervision is insufficient because it provides only a binary signal of whether the task is solved, treating executions with different numerical quality as equally successful. The key question is not merely whether an agent can complete a task, but whether it can identify, preserve, and reuse better execution strategies ,
+
+> ∗Corresponding author. Preprint.
+> arXiv:2605.10038v1 [cs.AI] 11 May 2026
+
+including both stronger tool-use procedures and more effective ways of using the selected tools. This challenge is especially pronounced in agentic settings: unlike deep learning models that optimize differentiable losses directly, agents cannot backpropagate through discrete tool-use executions. This motivates agent learning in time-series domains to move beyond completion-only supervision toward 
+
+execution-quality-aware learning , where the learning signal reflects quantitative differences among valid candidate executions [ 14 – 16 , 18 – 20 ]. (ii) Exploratory learning suffers from tool-prior collapse. During exploration, an agent often prematurely develops a strong bias toward a small set of familiar tools that frequently succeed early, then overcommits to them, and suppresses further exploration. We term this failure mode tool-prior collapse : the premature concentration of tool usage on a narrow subset before sufficient comparative evidence has been gathered. Once this happens, execution diversity shrinks, comparative supervision weakens, and distillation into reusable experience becomes less informative. It is important to distinguish this from inference-time tool preference: after learning, an agent may favor certain tools based on evidence, which is a consequence of learning rather than a failure. Tool-prior collapse is an exploration-phase pathology, where entropy in the tool-usage distribution decreases before the agent has explored enough to justify convergence. To address these limitations, we propose TimeClaw , an exploratory execution learning framework for time-series agents. Rather than treating each task instance as an isolated execution problem, TimeClaw turns exploration-time execution into a reusable source of scientific experience. The agent explores multiple candidate executions, compares them under task-valid supervision, distills the resulting experience into reusable hierarchical distilled experience, and reinjects that experience into future problem solving. Crucially, TimeClaw separates learning from inference: learning happens during a dedicated exploration phase, while downstream inference reuses the distilled experience without further online adaptation. The framework is built around three key ideas: (i) Metric-supervised exploratory execution learning for numeric and verifiable time-series tasks, enabling the agent to learn not only whether a task is solvable, but which candidate execution strategy achieves better quantitative outcomes; (ii) Forced exploration with task-aware tool dropout to mitigate tool-prior collapse by reducing overreliance on dominant tools and increasing execution diversity; (iii) Hierarchical distilled experience that stores reusable experience outside model weights, including execution-level lessons, tool guidance, and higher-level reusable skills, and reinjects them at inference time via prompt construction. In this sense, TimeClaw intersects with tool learning, but goes beyond tool-use correctness by learning from comparative execution quality and reusing distilled experience across tasks [ 21 –28 ]. This positions TimeClaw as a verifiable scientific-domain step from stateless tool use toward persistent, learning-enabled agent systems, where experience accumulation can be measured and interpreted [29–31]. Overall, our main contributions are summarized as follows: • We formulate exploratory execution learning for time-series agents and instantiate it in TimeClaw through metric-supervised exploratory execution learning, enabling agents to compare task-valid candidate executions by quantitative quality rather than completion alone (Section 4.1). • We identify tool-prior collapse as an exploration-time failure mode in exploratory tool learning and propose forced exploration with task-aware tool dropout to preserve candidate diversity and improve supervision quality (Section 4.2). • We design hierarchical distilled experience for inference-time reuse, storing execution lessons, tool guidance, and reusable skills outside model weights to improve downstream reasoning without parameter updates or online adaptation (Section 4.3). 
+
+## 2 Related Work 
+
+Time-series Agent Systems. Recent work has strengthened time-series agents along three main directions. First, tool-augmented reasoning systems such as TimeART [ 14 ] and TS-Agent [ 15 , 32 ]improve how agents reason over raw time-series inputs and use external tools, either through expert tool-use trajectories or iterative evidence gathering. Second, forecasting-oriented systems such as TimeSeriesScientist [ 16 ] automate forecasting workflows and improve end-to-end pipeline quality [ 17 ,19 , 33 , 20 ]. Third, multi-agent and reflection-based systems such as TS-Debate [ 34 ], MAS4TS [ 35 ], and Cast-R1 [ 18 ] improve performance through debate, specialization, decomposition, or reflective tool use within a single task instance [ 36 , 37 ]. Despite these advances, existing systems primarily optimize execution-time capability. TimeClaw differs in objective : it treats exploratory execution as a reusable learning signal, and asks how exploration experience should be accumulated, distilled, and reused across future tasks. By doing so, TimeClaw moves beyond improving one-off execution toward enabling time-series agents to learn reusable strategies from metric-supervised exploration. 2Table 1: Positioning of TimeClaw and related work across four dimensions: tool use, exploratory execution learning, reusable experience distillation, and metric-based execution comparison.                                      
+
+> Dimension TimeART
+> [14]
+> TS-Agent
+> [15]
+> TSci
+> [16]
+> Cast-R1
+> [18]
+> ToolLLM
+> [23]
+> MemSkill
+> [24]
+> ASDA
+> [25]
+> Skill-SD
+> [26]
+> TimeClaw
+> Ours Tool Use ✓✓✓✓✓✗✗✓✓
+> Explore Learn. ✓✗✗✓✗✗✗✓✓
+> Distill Reuse ✗✗✗✗✗✓✓✓✓
+> Metric Compare ✗✗✗✗✗✗✗✗✓
+
+Agent Learning with Tools and External Experience. Recent agent-learning research has in-creasingly explored how agents can improve across interactions by using tools, retaining external experience, and learning from execution traces [ 27 , 28 , 38 , 39 , 7]. Tool-learning methods such as Toolformer [ 21 ], Gorilla [ 22 ], and ToolLLM [ 23 ] improve tool invocation, API selection, and action grounding. Memory- and skill-based methods further store reusable experience outside model weights: MemSkill [ 24 ] studies evolving memory skills, ASDA [ 25 ] distills structured skill files for inference-time use, and Skill-SD [ 26 ] compresses multi-turn trajectories into reusable guid-ance [ 24 –26 , 30 ]. Execution-trace and persistent-runtime methods extend this idea by learning from self-generated traces, reward signals, long-lived memory, plugins, and runtime control layers [ 29 –31 , 40 – 43 ]. Together, these works mark a shift from stateless tool use toward agents that retain and reuse experience across interactions. In Table 1, TimeClaw complements these directions but differs in objective and mechanism. It targets verifiable time-series tasks, where exploratory executions can be compared using task metrics, and turns benchmark execution into reusable learning. To our knowledge, TimeClaw provides the first time-series agent framework that learns from metric-based comparisons among exploratory executions and distills experience for reuse. 
+
+## 3 Problem Definition 
+
+Each task instance is denoted by x = ( z, c, τ, s ), where z is the time-series input, c denotes optional multimodal context, τ specifies the task type, and s defines the task under which reusable experience is stored. Given x, the agent explores a set of candidate executions Π( x) = {π1, . . . , π K }, where each πk is a structured trajectory consisting of tool choices, intermediate observations, and a final output ˆyk = Exec( x, π k). An execution is task-valid if its output satisfies the contract specified by τ .For numeric tasks, task validity alone is insufficient because multiple valid executions may differ substantially in quantitative quality. We define execution quality and preferred execution as: 
+
+q(πk; x) = −L τ (ˆ yk, y ⋆), π⋆(x) = argmax  
+
+> πk∈Πvalid (x)
+
+q(πk; x), (1) where y⋆ is the task target, Lτ is a task-dependent loss such as MAE or RMSE, and Πvalid (x) denotes the set of task-valid executions. If no candidate execution is validated, the episode records failure evidence instead of forcing an artificial winner. This formalization shows why completion-only supervision is insufficient: binary success treats valid executions as equivalent despite different task losses. Since agents cannot backpropagate through tool calls or branching decisions, TimeClaw learns by explicitly comparing candidate executions, which we call execution-quality supervision. 
+
+## 4 Methodology 
+
+TimeClaw implements exploratory execution learning as a four-stage loop, Explore → Compare 
+
+→ Distill → Reinject , that turns exploration into reusable inference-time experience. As shown in Figure 1, it first uses a constrained exploratory executor to generate multiple candidate executions and compare task-valid candidates under metric-supervised feedback, so that learning reflects exe-cution quality rather than completion alone (Section 4.1). It then applies task-aware tool dropout 
+
+to mitigate tool-prior collapse and preserve diverse candidate executions (Section 4.2). Finally, it performs hierarchical distillation and inference-time reuse : it distills execution evidence into hierarchical distilled experience and reinjects relevant experience into future prompts without on-line adaptation or model-parameter updates (Section 4.3). Thus, exploration accumulates reusable task-local experience, while inference reuses that experience with the base agent kept frozen. 3Time-Series                       
+
+> Task Inputs
+> Benchmark Tasks
+> Reasoning Forecasting
+> Multimodal Inputs
+> Data
+> Exploration Context
+> •Task Description
+> •Mode Prompt
+> Exploration-Time Learning
+> Instance
+> Task-aware Tool Dropout
+> Execution of Sub-agent A
+> Tool Chain
+> Reasoning Trace
+> Candidate Result
+> …
+> Execution of Sub-agent B
+> Tool Chain
+> Reasoning Trace
+> Candidate Result
+> …
+> Execution of Sub-agent C
+> Tool Chain
+> Reasoning Trace
+> Candidate Result
+> …
+> Metric-Supervised Execution Comparison
+> Execution Summary
+> Execution Experience
+> Distillation
+> Execution Comparison Results
+> Notes
+> Memory
+> Skills
+> •Path-level Lessons
+> •Failure Signals
+> •Reusable Rules
+> •Tool Preferences
+> •Decision Routines
+> •Tool-use Strategies
+> Distill
+> Rules →
+> Routines
+> Reusable
+> Artifacts
+> Inference-Time
+> Reinjection
+> New Sample
+> Retrieve Artifacts
+> Execution
+> Improved Time-Series Reasoning
+> Execution A Execution B Execution C
+> …
+> Time-series Text
+> Scope
+> Finance Weather
+> Main Agent
+> Execution Summary
+> (Winner) (Loser) (Failure)
+> Execution Quality · Evidence · Avoidance Cues
+> …Available
+> Tool Pool
+> …
+> ………
+> ……Dropped Tool Chain
+> ABC
+> Usage Keep Prob. Underused
+> Overused
+> Usage-Guided Selection
+> …
+> Inference Context
+> …
+> Spawn · Execution Planning
+> Summarize /
+> Generalize
+> Update
+
+Figure 1: Overview of TimeClaw. The framework follows four stages: exploration-time learning, metric-supervised execution comparison, execution experience distill, and inference-time reinject. 
+
+4.1 Exploration-Time Agent Learning 
+
+The exploration phase is implemented by a constrained executor that turns autonomous execution into explicit exploratory execution learning. In exploration mode, the main agent can access exploration-only orchestration tools, including spawn_subagent for branch generation and evaluate_* tools for post-hoc comparison against ground truth. Unlike ordinary inference, exploration must satisfy an exploration contract: the agent should generate at least two task-valid and distinct candidate executions, compare them before termination, and finish only by producing a learning_summary .When prior experience already exists for the task, the first exploration round must include both a prior-guided candidate and an alternative candidate, to prevent reuse suppress exploration (Appendix 1). The learning_summary is not treated as the final task answer. Instead, it records the selected execution strategy, the decisive evidence behind the selection, and reusable lessons for future tasks. For an exploration instance x, TimeClaw first constructs a sample-level learning record: 
+
+nx = Summarize  x, Π( x), {q(πk; x)}Kk=1 , π ⋆(x), (2) where nx captures the strongest validated execution, decisive evidence, and failure signals from weaker candidates. Because raw reflective text may contain task-answer leakage or orchestration-specific wording, TimeClaw rewrites it into reusable execution evidence: 
+
+ex = Clean( nx), (3) where Clean( ·) removes answer leakage, framework-control language, and non-transferable execution details. The cleaned evidence then updates the reusable experience state for task s:
+
+A(m+1) 
+
+s = Distill  A(m)
+
+s , e x
+
+, (4) where As denotes the current reusable experience state for task s. The update target is not a model parameter vector, but a structured experience state containing notes, reusable rules, tool guidance, and operational procedures. To keep candidate executions semantically comparable, TimeClaw tracks intermediate tool outputs as typed artifacts with coordinate provenance, ensuring that downstream operations are conditioned on the current experience state rather than blindly reusing indices from the original series. This is especially important for sliced sequences, derived windows, and forecast artifacts, where index meaning depends on the transformation history. When the executor cannot produce the minimum required number of task-valid candidates, the system does not discard the episode entirely. If exactly one valid candidate exists, the episode records single-execution evidence without comparative signal. If no valid candidate exists, the episode records failure evidence that can still inform future tool guidance. This fallback ensures that even unsuccessful exploration contributes to the learning process, albeit with weaker signal. The full learning and inference protocols are summarized in Algorithm 1 and Algorithm 2 in Appendix F. 44.2 Tool-Prior Collapse and Task-Aware Tool Dropout 
+
+A major obstacle to exploratory tool learning is that the agent prematurely develops strong preferences for a small subset of familiar tools. We term this phenomenon tool-prior collapse , where historically frequent or often-successful tools dominate future branch generation before sufficient comparative evidence has been gathered, thereby reducing execution diversity and weakening subsequent compar-ison and distillation. To our knowledge, prior time-series agent work has not explicitly named and operationalized this exploration-time failure mode. This phenomenon differs from inference-time tool preference: after learning, favoring certain tools based on accumulated evidence is a consequence of learning rather than a failure. By contrast, tool-prior collapse occurs during exploration, where early concentration of tool usage signals premature convergence rather than informed narrowing. Let ni(s) denote the historical usage count of tool i under task s, and let pi(s) be the normalized usage distribution over competing tools in that task: 
+
+pi(s) = ni(s)
+
+P 
+
+> j
+
+nj (s) , H(s) = − X
+
+> i
+
+pi(s) log pi(s). (5) A decreasing H(s) indicates that tool usage is becoming concentrated on a smaller support. In this regime, candidate executions become structurally narrower, and execution comparison becomes less informative because different branches may rely on the same dominant tool family. TimeClaw mitigates this problem with task-aware tool dropout , which operates during exploration-time sub-agent tool exposure . For each task, TimeClaw tracks historical tool usage and assigns each candidate tool a keep probability relative to other competing tools in the same task. Frequently used tools receive lower keep probabilities, while underused tools remain more visible. Task-critical tools and explicitly hinted tools are protected through a never_drop rule. The goal is not generic regularization, but preserving branch diversity so that the agent can generate meaningfully different candidate executions instead of repeatedly collapsing onto the same familiar execution pattern. The keep probability is a frequency-aware rule anchored at the least-explored tool. For each non-protected tool i in task s, TimeClaw compares its usage count ni(s) with the minimum usage count 
+
+nmin (s) among competing non-protected tools, and defines 
+
+pkeep (i | s) = 
+
+ 1 + nmin (s)1 + ni(s)
+
+α
+
+, (6) where α > 0 controls the strength of reweighting. This power-law form gives pkeep (i | s) = 1 to tools at the cold edge of the task, i.e., ni(s) = nmin (s), and increasingly suppresses tools that have been used disproportionately more often. Protected tools bypass dropout altogether: 
+
+pkeep (i | s) = 1 for i ∈ T protected (s). (7) 
+
+Proposition 4.1 (Monotonicity) . For non-protected tools i and j in the same task s, if ni(s) > n j (s),then pkeep (i | s) < p keep (j | s) for α > 0.
+
+By Proposition 4.1, task-aware tool dropout suppresses historically dominant tools more strongly than less-used ones, while tools at the cold edge of the task remain visible by construction. This makes the mechanism a targeted anti-collapse intervention rather than a generic regularizer, preserving candidate diversity and yielding more informative execution-quality supervision. Table 2: Hierarchical distilled experience in TimeClaw.                   
+
+> Layer Injection Content Function
+> Soul System prompt Fixed identity & behavior rules Stable behavioral anchor Notes Not injected Sample-level experience records Distillation source Memory System prompt Structured reusable rules (9-tuple) Primary runtime guidance Tools User prompt Tool-specific usage advice Per-tool best practices Skills User prompt task-local SOPs Reusable task procedures
+
+4.3 Hierarchical Distillation, Conflict-Aware Memory, and Inference-Time Reuse 
+
+TimeClaw externalizes learning into the hierarchical distilled experience described in Table 2, rather than updating model parameters. At the sample level, N OTES preserve raw exploration evidence, but 5they are not the main runtime memory surface. Instead, they serve as distillation sources for more stable task-level experience layers. The key runtime layer is M EMORY , whose entries are structured reusable rules rather than free-form reflections. A memory rule is represented as a 9-tuple: 
+
+r = ( κ, σ, χ, T +, T −, ρ, E, c, ι ), (8) where κ is the rule kind ( e.g., tool preference, condition-action, avoidance), σ is a concise summary, 
+
+χ specifies applicability conditions ( e.g., task subtypes), T + and T − are preferred and avoided tool sets, ρ is the rationale, E is supporting evidence from exploration episodes, c ∈ [0 , 1] is confidence, and ι ∈ { 0, 1} indicates whether the rule is currently safe to inject into the prompt. This structured representation allows TimeClaw to update memory by conflict-aware distillation rather than naive appending. Given cleaned evidence ex, the task-local memory state is updated as: 
+
+M(m+1)  
+
+> s
+
+= Update  M(m) 
+
+> s
+
+, e x
+
+, (9) where Update may append a new rule, merge near-duplicate evidence, strengthen a supported rule, or register a conflict relation between competing rules. If a rule is not yet stable enough for prompt-time reuse, it can remain stored while being marked non-injectable through ι = 0 . This separation between storage and injection lets TimeClaw preserve long-horizon experience without forcing every intermediate belief into the runtime prompt. The same distillation principle extends beyond M EMORY . T OOLS distills tool-specific usage advice from repeated execution evidence, while S KILLS compresses stronger task-local procedures into reusable SOP-like guidance. To make learning auditable over time, TimeClaw also records historical snapshots of N OTES , M EMORY , tool notes, and skill text. These snapshots provide a long-term trace of how reusable experience evolves, rather than reducing learning to the latest prompt state. During inference, TimeClaw reuses these artifacts without online learning. For a new instance x′
+
+under task s, inference is written as: 
+
+ˆy = fagent 
+
+ x′; Retrieve( As), T (x′), (10) where Retrieve( As) returns relevant reusable experience for the task, and T (x′) is the runtime-compatible visible tool set. In the present implementation, retrieval is filtered by task, applicability, and injection status. The prompt-eligible memory subset is: 
+
+Rs(x′) = r ∈ M s : ι(r) = 1 , Match( χ(r), ϕ (x′)) = 1 , (11) where ϕ(x′) denotes the sample fingerprint and profiling view of the current instance. Prompt construction follows a fixed order: it first provides the official task description, task boundary, and output contract; then adds the sample fingerprint and profiling signals; and finally reinjects the learned artifact layers. In the present implementation, S OUL and task-local M EMORY are injected at the system level, while tool notes and S KILLS are injected as reusable support guidance. The visible tool catalog is further filtered by modality and runtime compatibility. The exploration-test difference is crucial. Exploration exposes exploration-only tools such as spawn_subagent and evaluate_* 
+
+because the goal is to compare candidate executions. Inference removes these exploration-only tools and retains only the tools needed to solve the task itself. Thus, the runtime agent is not continuing to learn; it is solving the task under a prompt enriched by previously distilled experience. The primary reuse mechanism is best understood as task-local experience reinjection .
+
+## 5 Experiments 
+
+5.1 Experimental Setup Datasets. We evaluate on a fixed 17-task MTBench evaluation suite [ 12 , 13 ], using official prompts, task contracts, and task-specific label spaces. The suite covers finance and weather forecasting, indicator prediction, trend classification, correlation reasoning, and MCQA. We report 30 paper metrics aggregated over these 17 tasks, following the evaluation task defined in this paper. In addition to the official evaluation suite, TimeClaw performs exploration and experience distillation on a separately generated MTBench-style corpus whose task schemas and contracts are aligned with MTBench while keeping the samples disjoint from the evaluation set. Further details regarding both the evaluation suite and the exploration corpus are provided in appendix B.1. 
+
+Baselines. We evaluate against two groups of baselines: closed or general-purpose LLMs, including GPT-4o, Gemini, Claude, DeepSeek, and GPT-5.4, and open models, including Qwen-3, Qwen-3M, 6Llama-3, and Llama-3M where available. We emphasize GPT-5.4 as the strongest direct baseline while reporting all baselines in our experiments. 
+
+Metrics. We report task-specific metrics as follows: (i) core numeric prediction use MAE/MAPE for finance prediction, MSE for MACD prediction, and MSE/MAE for weather forecasting; (ii) weather-indicator prediction is evaluated separately on max, min, and diff values under both MSE and MAE; and (iii) reasoning tasks, including trend classification, correlation reasoning, and MCQA, use accuracy, with finance trend and correlation further reported under both 5-way and 3-way settings. 
+
+Implementation. All methods use the same LLM backbones whenever possible. We keep MTBench prompts and parsing contracts fixed, so the comparison focuses on learning protocol and agent design rather than prompt engineering. For TimeClaw, exploration uses a disjoint MTBench corpus to build hierarchical distilled experience with exploration-only branch generation and ground-truth comparison, while test-time evaluation allows experience reuse without online adaptation [44–52]. Table 3: Finance prediction results under the 30-metric paper-table setting. 
+
+Model Stock Forecast (7D) Stock Forecast (30D) MACD (7D) MACD (30D) MAE MAPE MAE MAPE MSE MSE GPT-4o 1.596 2.544 2.338 3.520 0.365 0.897 Gemini 1.628 3.513 2.432 3.268 0.384 0.975 DeepSeek 1.720 2.135 2.134 3.305 0.352 1.072 Qwen-3 2.528 4.607 3.943 14.101 1.088 1.621 Qwen-3M 2.607 4.610 4.125 16.364 1.072 1.527 Llama-3 2.653 4.618 3.780 11.209 0.448 0.812 
+
+Llama-3M 2.683 4.666 3.777 11.010 0.586 0.835 GPT-5.4 1.660 1.843 3.570 3.021 0.411 5.336 TimeClaw 1.341 1.835 2.032 2.977 0.201 1.111 
+
+Table 4: Weather prediction results under the 30-metric paper-table setting.                                                                                                       
+
+> Model Forecast (7D) Forecast (14D) Weather Indicator MSE MAE MSE MAE Max MSE Max MAE Min MSE Min MAE Diff MSE Diff MAE GPT-4o 17.550 3.110 40.430 4.490 26.030 3.020 15.390 2.760 18.840 3.200 Gemini 24.310 3.670 29.470 4.030 15.790 2.940 16.270 2.930 23.210 3.630 DeepSeek 29.380 4.040 101.28 6.610 32.820 4.380 17.250 3.050 44.990 5.240 Qwen-3 22.640 3.630 24.810 3.850 15.790 2.940 13.910 2.750 19.430 3.340 Qwen-3M 22.210 3.610 24.810 3.840 13.530 2.710 15.710 2.960 18.340 3.270 Llama-3 20.470 3.540 35.430 4.670 12.540 2.570 12.680 2.630 15.100 2.900 Llama-3M 21.610 3.560 33.910 4.530 12.100 2.590 13.000 2.710 15.700 2.930 GPT-5.4 14.197 2.774 20.984 3.470 13.669 2.858 10.530 2.386 15.415 2.957 TimeClaw 10.719 2.442 13.525 2.744 10.898 2.371 10.507 2.292 13.131 2.623
+
+5.2 Main Results Overall comparison. Tables 3–6 summarize the main results under the unified 17-task / 30-metric evaluation definition used throughout this paper. Under this setting, TimeClaw achieves the best overall result on 27 of the 30 reported metrics. Broken down by task type, TimeClaw is best on 9/10 core numeric prediction and forecasting metrics, 6/6 indicator metrics, and 12/14 reasoning metrics. 
+
+Numeric prediction. We first focus on the core numeric tasks, namely finance prediction and weather forecasting. On finance prediction (Table 3), TimeClaw improves over GPT-5.4 on all six reported metrics; the only exception is 30-day MACD MSE, where Llama-3 remains the strongest. On weather forecasting (Table 4), TimeClaw achieves the best result on both forecast horizons: the 14-day/7-day weather forecast MSE drops from 20.984/14.197 to 13.525/10.719. This pattern supports our main motivation: when multiple executions are task-valid but quantitatively unequal, explicit metric-based comparison during exploratory learning can produce better downstream execution strategies. 
+
+Indicator prediction. As shown in Table 4, TimeClaw achieves the best result on all six reported metrics, covering max, min, and diff under both MSE and MAE. The gains are especially notable on the short setting, where TimeClaw improves all six cells over GPT-5.4. 7Table 5: Finance results on trend classification, MCQA, and news-stock correlation.                                                                            
+
+> Model Trend (7D) Trend (30D) MCQA (7D) MCQA (30D) Corr. (7D) Corr. (30D) Acc.-5 Acc.-3 Acc.-5 Acc.-3 Acc. Acc. Acc.-5 Acc.-3 Acc.-5 Acc.-3 GPT-4o 0.365 0.428 0.306 0.474 0.651 0.528 0.310 0.536 0.346 0.576 Gemini 0.415 0.473 0.297 0.449 0.636 0.503 0.264 0.518 0.348 0.596
+> Claude 0.334 0.449 0.317 0.521 0.756 0.611 0.290 0.504 0.343 0.579 DeepSeek 0.356 0.451 0.296 0.483 0.776 0.693 0.271 0.500 0.350 0.575 GPT-5.4 0.569 0.601 0.410 0.526 0.821 0.791 0.259 0.448 0.250 0.448 TimeClaw 0.696 0.704 0.514 0.602 0.868 0.795 0.348 0.580 0.331 0.554
+
+Table 6: Weather reasoning results.                                    
+
+> Model Past Trend Future Trend MCQA-S MCQA-L Acc. Acc. Acc. Acc. GPT-4o 0.664 0.435 0.417 0.448 Gemini 0.600 0.518 0.434 0.540 DeepSeek 0.568 0.252 0.467 0.573 Qwen-3 0.375 0.447 0.578 0.562 Llama-3 0.473 0.197 0.605 0.626 GPT-5.4 0.980 0.521 0.567 0.580 TimeClaw 0.994 0.525 0.616 0.664
+
+Reasoning tasks. On reasoning-oriented tasks, TimeClaw is best on 12/14 reported metrics. In finance reasoning (Table 5), it substantially improves 7-day/30-day trend classification, both granularities of short-horizon correlation reasoning, and finance MCQA short; finance MCQA long re-mains very close to GPT-5.4. In weather reasoning (Table 6), it achieves the best re-sults on past-trend prediction, future-trend prediction, and both MCQA settings. The main remaining weakness is long-horizon finance correlation, where the strongest baseline still outperforms TimeClaw on 5-way/3-way label spaces. Overall, the results show that hierarchical distilled experience improves numeric prediction and multi-step decision procedures requiring temporal evidence, textual context, and tool outputs. 
+
+5.3 Ablation Study 
+
+Table 7: Component analysis on four tasks. w/o Exp. dis-ables hierarchical distilled experience injection.                         
+
+> Task Metric GPT-5.4 w/o Exp. TimeClaw Weather Forecast Short MSE ↓14.197 13.058 10.719
+> Finance Correlation Short Acc.-3 ↑0.448 0.564 0.580
+> Weather MCQA Long Acc. ↑0.580 0.596 0.664
+> Finance Trend Short Acc. ↑0.569 0.663 0.696
+
+Table 7 shows a consistent ordering: GPT-5.4 < noexp < TIME CLAW . This pattern separates two confounded ef-fects. First, moving from GPT-5.4 to 
+
+noexp shows the value of agent runtime and tool access. Second, moving from 
+
+noexp to T IME CLAW isolates learned hierarchical distilled experience. These results support the claim that TimeClaw’s advantage comes not only from tool exposure, but from learning reusable execution strategies and reinjecting them at inference time. Table 8: Paired comparison on the same samples.               
+
+> Task Metric GPT-5.4 w/o Mem. TimeClaw weather_forecast_long RMSE ↓4.581 3.973 3.753 weather_trend_future_short Accuracy ↑0.423 0.437 0.479
+
+To isolate hierarchical distilled experi-ence, we compare the full model with a 
+
+w/o Mem. ablation that removes higher-level distilled layers while retaining tool-use routines. Table 8 shows that Time-Claw outperforms w/o Mem. on two weather tasks. This suggests that TimeClaw’s gains come not only from retaining experience, but from organizing it into layers that improve retrieval and guidance. 
+
+5.4 Tool-use Learning Analysis 
+
+Figure 2 shows how exploration changes the agent’s strategy on a finance forecasting task. The unexplored agent maps bearish news and a crash to a negative MACD forecast. In contrast, the explored agent uses hierarchical distilled experience to decompose the task: it treats news as bias, detects an abnormal crash block, forecasts stabilization, and derives the MACD trajectory. This case shows that TimeClaw improves prediction quality and multi-step execution. 8Task : Predict the next 56 MACD values from a 5-minute stock series and a news article. 
+
+Input Focus : Price tail: 17.94, 17.82, 13.97, 12.95, 12.69, 12.52, 12.26, 12.06 .News: BioCryst pauses three BCX9930 studies after elevated creatinine / possible kidney-safety concerns. 
+
+True Future Pattern : The ground-truth MACD does not continue the crash monotonically. It stays mildly negative and gradually recovers toward near-zero (tail around -0.09 ). 
+
+TimeClaw Unexplored Shortcut 
+
+Negative news + sharp crash ⇒
+
+MACD remain strongly negative. 
+
+Reasoning 
+
+It directly maps the bearish headline and recent drop into a persistently over-negative momentum forecast, without checking whether the crash is already an exhausted shock. 
+
+Tools 
+
+llm_reasoning_indicator 
+
+Prediction 
+
+[-1.024, ..., -0.351] 
+
+It extends crash monotonically, while the true future MACD rebounds toward near-zero. 
+
+macd_mse = 0.486 
+
+TimeClaw Explored Learned Rule 
+
+Use news only for directional bias ; let post-shock price structure determine the MACD path. After an event-driven crash block, momentum stabilizes or fades. 
+
+Reasoning Steps 
+
+1. sentiment confirms that the article is a strong bearish catalyst. 2. detect_anomaly finds that the last 21 points form a single abnormal crash block rather than an ordinary smooth trend. 3. chronos2_forecast predicts stabilization around 12.25–12.56 , indicating that the immediate shock is being absorbed instead of continuing as free fall. 4. llm_reasoning_indicator converts this stabilized post-shock path into a MACD trajectory that starts negative but recovers toward near-zero. 
+
+Tools 
+
+sentiment -> detect_anomaly -> chronos2_forecast -> llm_reasoning_ind. 
+
+Prediction 
+
+[-0.849, -0.785, ..., 0.024] 
+
+Prediction matches the true negative-to-recovery shape, reducing error by 5.5 ×.
+
+macd_mse = 0.088 
+
+Figure 2: Case study of post-shock MACD forecasting. The figure compares TimeClaw Unexplored and TimeClaw Explored on a finance task involving a stock-price crash and related news. w/o. Tool -Dropout 
+
+Start 
+
+sentiment slice  window_stats 
+
+window_stats 
+
+timesfm2  chronos2  ets  prophet  aurora 
+
+chronos2  arima llm_reasoning 
+
+W. Tool -Dropout 
+
+Start 
+
+sentiment slice  window_stats 
+
+window_stats 
+
+timesfm2  chronos2  ets  prophet  aurora 
+
+chronos2  arima llm_reasoning           
+
+> count: 47
+> P_keep :2.1%
+> count: 27
+> P_keep :3.6 %
+> count: 0
+> P_keep :100 %
+> count: 2
+> P_keep :33.3 %
+> count: 47
+> P_keep :10 0%
+> count: 27
+> P_keep :10 0%
+> count: 0
+> P_keep :10 0%
+> count: 1
+> P_keep :10 0%
+> Execution
+> Dropped Tools
+> Un -dropped Tools
+> P_keep computed from the tool -dropout formula with alpha=1 and n_min =0
+
+Figure 3: Tool-dropout mechanism. Frequently used tools are temporarily masked according to their historical usage counts to encourage broader exploration over candidate tools. 
+
+5.5 Tool Dropout Analysis 50 100 150 200 250 300     
+
+> Completed Samples
+> 0%
+> 20%
+> 40%
+> 60%
+> 80%
+> 100%
+> Top-5 Tool Share
+> forecast, w. dropout
+> forecast, w/o. dropout
+> indicator_macd, w. dropout
+> indicator_macd, w/o. dropout forecast indicator_macd correlation trend_past
+> 0%
+> 20%
+> 40%
+> 60%
+> 80%
+> 100%
+> Tool Coverage Rate
+> 72.7%
+> 65.2%
+> 33.9%
+> 25.8%
+> 22.7%
+> 15.2% 17.7%
+> 4.8%
+> Tool Coverage Rate in First 100 Samples
+> w. dropout
+> w/o. dropout
+
+Figure 4: Tool exploration analysis. We evaluate whether tool dropout mitigates tool-prior collapse during exploratory execution learning on four tasks: forecast , indicator_macd , correlation ,and trend_past . We use two behavioral metrics: tool coverage rate , measuring how many visible tools are invoked within an exploration prefix, and Top-5 tool share , measuring concentration on the five most-used tools. Figure 3 illustrates how dropout masks his-torically dominant tools to encourage alternative tool chains. Figure 4 shows that this intervention reduces tool-use concentration and increases early coverage, indicating broader exploration. Overall, tool dropout reduces reliance on dominant tools and increases early tool coverage, indicating that it preserves exploration diversity and mitigates premature tool-prior collapse. 
+
+## 6 Conclusion 
+
+We presented TimeClaw, a time-series agent framework that learns from exploratory execution . It compares task-valid executions under verifiable metrics, distills evidence into hierarchical external experience, and reuses it at inference time without online adaptation or parameter updates. Across the MTBench setting, TimeClaw improves both numeric prediction and reasoning, showing that verifiable time-series agents should learn to compare, organize, and reuse exploratory experience. 9References 
+
+[1] P. He, Z. Dai, B. He, H. Liu, X. Tang, H. Lu, J. Li, J. Ding, S. Mukherjee, S. Wang, Y. Xing, J. Tang, and B. Dumoulin, “TRAJECT-bench: A trajectory-aware benchmark for evaluating agentic tool use,” in The Fourteenth International Conference on Learning Representations ,2026. [Online]. Available: https://openreview.net/forum?id=TZWnWvsQ0X [2] X. Wang, L. Zhang, H. Pu, A. H. Qureshi, and H. Li, “Continuous-time value iteration for multi-agent reinforcement learning,” in The Fourteenth International Conference on Learning Representations , 2026. [Online]. Available: https://openreview.net/forum?id=7N0ugLE17t [3] B. Liu, S. Yu, Z. Liu, L. Guertler, P. Qi, D. Balcells, M. Liu, C. Tan, W. Shi, M. Lin, W. S. Lee, and N. Jaques, “SPIRAL: Self-play on zero-sum games incentivizes reasoning via multi-agent multi-turn reinforcement learning,” in The Fourteenth International Conference on Learning Representations , 2026. [Online]. Available: https://openreview.net/forum?id=7Yayy5fNLg [4] S. Li, W. Sun, S. Li, A. Talwalkar, and Y. Yang, “CoMind: Towards community-driven agents for machine learning engineering,” in The Fourteenth International Conference on Learning Representations , 2026. [Online]. Available: https://openreview.net/forum?id=P479BoN8BD [5] X. Liu, H. Yu, H. Zhang, X. Li, X. Dai, Y. Dong, A. Zeng et al. , “AgentBench: Evaluating LLMs as agents,” in The Twelfth International Conference on Learning Representations , 2024. [6] S. Zhou, F. F. Xu, H. Zhu, X. Zhou, G. Neubig et al. , “WebArena: A realistic web environ-ment for building autonomous agents,” in The Twelfth International Conference on Learning Representations , 2024. [7] Q. Wu, G. Bansal, J. Zhang, Y. Wu, B. Li, E. Zhu, L. Jiang et al. , “AutoGen: Enabling next-gen LLM applications via multi-agent conversation,” arXiv preprint arXiv:2308.08155 , 2023. [8] S. Varambally, M. Fisher, J. Thakker, Y. Chen, Z. Xia, R. Niu, Y. Jafari, V. V. Manivannan, Z. Novack, L. Han, S. Eranky, S. Rühling Cachay, T. Berg-Kirkpatrick, D. Watson-Parris, Y. Ma, and R. Yu, “Zephyrus: An agentic framework for weather science,” in NeurIPS 2025 AI for Science Workshop , 2025. [Online]. Available: https://openreview.net/forum?id=FRAETJsEke [9] S. Lai, Y. Ning, Z. Yuan, Z. Chen, and H. Liu, “USTBench: Benchmarking and dissecting spatiotemporal reasoning capabilities of LLMs as urban agents,” in The Fourteenth International Conference on Learning Representations , 2026. [Online]. Available: https://openreview.net/forum?id=ETzBStUFJy [10] J. Jeon, M. Cho, and Y. Sung, “STAIRS-former: Spatio-temporal attention with interleaved recursive structure transformer for offline mulit-task multi-agent reinforcement learning,” in The Fourteenth International Conference on Learning Representations , 2026. [Online]. Available: https://openreview.net/forum?id=Biz1vpQeLI [11] Y. Zhou, J. Ruan, E. S. Wang, S. Fouladi, F. Y. Yan, K. Hsieh, and Z. Liu, “NetArena: Dynamic benchmarks for AI agents in network automation,” in The Fourteenth International Conference on Learning Representations , 2026. [Online]. Available: https://openreview.net/forum?id=BPVPOtzoOz [12] J. Chen, A. Feng, Z. Zhao, J. Garza, G. Nurbek, C. Qin, A. Maatouk, L. Tassiulas, Y. Gao, and R. Ying, “MTBench: A multimodal time series benchmark for temporal reasoning and question answering,” arXiv preprint arXiv:2503.16858 , 2025. [13] M. Weng, D. Cao, W. Yang, Y. Sharma, and Y. Liu, “TemporalBench: A benchmark for evaluating LLM-based agents on contextual and event-informed time series tasks,” arXiv preprint arXiv:2602.13272 , 2026. [14] X. Wu, J. Lu, Z. Li, X. Qiu, J. Hu, C. Guo, C. S. Jensen, and B. Yang, “TimeART: Towards agentic time series reasoning via tool-augmentation,” arXiv preprint arXiv:2601.13653 , 2026. [15] P. Liu, E. Fons, A. Vapsi, M. Ghassemi, S. Vyetrenko, D. Borrajo, V. K. Potluru, and M. Veloso, “TS-Agent: Understanding and reasoning over raw time series via iterative insight gathering,” 
+
+arXiv preprint arXiv:2510.07432 , 2025. 10 [16] H. Zhao, X. Zhang, J. Wei, Y. Xu, Y. He, S. Sun, and C. You, “TimeSeriesScientist: A general-purpose AI agent for time series analysis,” arXiv preprint arXiv:2510.01538 , 2025. [17] G. Lee, W. Yu, K. Shin, W. Cheng, and H. Chen, “TimeCAP: Learning to contextualize, augment, and predict time series events with large language model agents,” in Proceedings of the AAAI Conference on Artificial Intelligence , 2025. [18] X. Tao, M. Cheng, C. Jiang, T. Gao, H. Zhang, and Y. Liu, “Cast-R1: Learning tool-augmented sequential decision policies for time series forecasting,” arXiv preprint arXiv:2602.13802 , 2026. [19] Y. Jiang, W. Yu, G. Lee, D. Song, K. Shin, W. Cheng, Y. Liu, and H. Chen, “TimeXL: Explainable multi-modal time series prediction with LLM-in-the-loop,” arXiv preprint arXiv:2503.01013 , 2025. [20] C.-C. M. Yeh, V. Lai, U. S. Saini, X. Fan, Y. Fan, J. Wang, X. Dai, and Y. Zheng, “Empowering time series forecasting with LLM-agents,” arXiv preprint arXiv:2508.04231 , 2025. [21] T. Schick, J. Dwivedi-Yu, R. Dessì, R. Raileanu, M. Lomeli, L. Zettlemoyer, N. Cancedda, and T. Scialom, “Toolformer: Language models can teach themselves to use tools,” in Advances in Neural Information Processing Systems , vol. 36, 2023. [22] S. G. Patil, T. Zhang, X. Wang, and J. E. Gonzalez, “Gorilla: Large language model connected with massive APIs,” in Advances in Neural Information Processing Systems , vol. 37, 2024. [23] Y. Qin, S. Liang, Y. Ye, K. Zhu, L. Yan, Y. Lu, Y. Lin, X. Cong, X. Tang, B. Qian, S. Zhao, L. Hong, R. Tian, R. Xie, J. Zhou, M. Gerstein, D. Li, Z. Liu, and M. Sun, “ToolLLM: Facili-tating large language models to master 16000+ real-world APIs,” in The Twelfth International Conference on Learning Representations , 2024. [24] H. Zhang, Q. Long, J. Bao, T. Feng, W. Zhang, H. Yue, and W. Wang, “MemSkill: Learning and evolving memory skills for self-evolving agents,” arXiv preprint arXiv:2602.02474 , 2026. [25] T. Y. Yim, W. Tan, S. Y. Chan, T.-W. Lam, and S. M. Yiu, “ASDA: Automated skill distillation and adaptation for financial reasoning,” arXiv preprint arXiv:2603.16112 , 2026. [26] H. Wang, G. Wang, H. Xiao, Y. Zhou, Y. Pan, J. Wang, K. Xu, Y. Wen, X. Ruan, X. Chen, and H. Qi, “Skill-SD: Skill-conditioned self-distillation for multi-turn LLM agents,” arXiv preprint arXiv:2604.10674 , 2026. [27] S. Yao, J. Zhao, D. Yu, N. Du, I. Shafran, K. Narasimhan, and Y. Cao, “ReAct: Synergizing reasoning and acting in language models,” in The Eleventh International Conference on Learning Representations , 2023. [28] N. Shinn, F. Cassano, A. Gopinath, K. Narasimhan, and S. Yao, “Reflexion: Language agents with verbal reinforcement learning,” in Advances in Neural Information Processing Systems ,vol. 36, 2023. [29] Y. Wang, X. Chen, X. Jin, M. Wang, and L. Yang, “OpenClaw-RL: Train any agent simply by talking,” arXiv preprint arXiv:2603.10165 , 2026. [30] T. Chen, Y. Li, M. Solodko, S. Wang, N. Jiang, T. Cui, J. Hao, J. Ko, S. Abdali, L. Xu, S. Zheng, H. Fan, P. Cameron, J. Wagle, and K. Koishida, “CUA-Skill: Develop skills for computer using agent,” arXiv preprint arXiv:2601.21123 , 2026. [31] S. Liu, C. Li, C. Wang, J. Hou, Z. Chen, L. Zhang, Z. Liu, Q. Ye, Y. Hei, X. Zhang, and Z. Wang, “ClawKeeper: Comprehensive safety protection for OpenClaw agents through skills, plugins, and watchers,” arXiv preprint arXiv:2603.24414 , 2026. [32] W. Ye, W. Yang, D. Cao, Y. Zhang, L. Tang, J. Cai, and Y. Liu, “Domain-oriented time series inference agents for reasoning and automated analysis,” arXiv preprint arXiv:2410.04047 , 2024. [33] G. Jalori, P. Verma, and S. O. Arık, “FLAIRR-TS: Forecasting LLM-agents with iterative refinement and retrieval for time series,” in Findings of the Association for Computational Linguistics: EMNLP 2025 , 2025. 11 [34] P. Trirat, J. M. Kwak, J. Heo, H. Lee, and S. J. Hwang, “TS-Debate: Multimodal collaborative debate for zero-shot time series reasoning,” arXiv preprint arXiv:2601.19151 , 2026. [35] W. Ruan and Y. Liang, “Visual reasoning over time series via multi-agent system,” arXiv preprint arXiv:2602.03026 , 2026. [36] W. Ye, J. Liu, D. Cao, W. Yang, and Y. Liu, “When LLM meets time series: Can LLMs perform multi-step time series reasoning and inference,” arXiv preprint arXiv:2509.01822 , 2025. [37] Y. Zhang, Y. Feng, D. Li, K. Zhang, J. Chen, and B. Deng, “Can competition enhance the proficiency of agents powered by large language models in the realm of news-driven time series forecasting?” arXiv preprint arXiv:2504.10210 , 2025. [38] G. Wang, Y. Xie, Y. Jiang, A. Mandlekar, C. Xiao, Y. Zhu, L. Fan, and A. Anandkumar, “Voyager: An open-ended embodied agent with large language models,” arXiv preprint arXiv:2305.16291 ,2023. [39] C. Packer, S. Wooders, K. Lin, V. Fang, S. G. Patil, I. Stoica, and J. E. Gonzalez, “MemGPT: Towards LLMs as operating systems,” arXiv preprint arXiv:2310.08560 , 2023. [40] E. Zelikman, Y. Wu, J. Mu, and N. D. Goodman, “STaR: Bootstrapping reasoning with reason-ing,” in Advances in Neural Information Processing Systems , vol. 35, 2022. [41] C. Gulcehre, T. Le Paine, S. Srinivasan, K. Konyushkova, L. Weerts, A. Sharma, A. Siddhant, A. Ahern, M. Wang, C. Gu, W. Macherey, A. Doucet, O. Firat, and N. de Freitas, “Reinforced self-training (ReST) for language modeling,” arXiv preprint arXiv:2308.08998 , 2023. [42] B. Wei, Y. Zhang, J. Pan, K. Mei, X. Wang, J. Hamm, Z. Zhu, and Y. Ge, “ClawSafety: “safe” LLMs, unsafe agents,” arXiv preprint arXiv:2604.01438 , 2026. [43] H. Wang, Z. Xiao, Y. Zhang, C. M. Poskitt, and J. Sun, “SafeClaw-R: Towards safe and secure multi-agent personal assistants,” arXiv preprint arXiv:2603.28807 , 2026. [44] A. F. Ansari, L. Stella, C. Turkmen, X. Zhang, P. Mercado, H. Shen, O. Shchur et al. , “Chronos: Learning the language of time series,” arXiv preprint arXiv:2403.07815 , 2024. [45] G. Woo, C. Liu, A. Kumar, C. Xiong, S. Savarese, and D. Sahoo, “Moirai: Unified training of universal time series forecasting transformers,” arXiv preprint arXiv:2402.02592 , 2024. [46] A. Das, W. Kong, R. Sen, and Y. Zhou, “A decoder-only foundation model for time-series forecasting,” arXiv preprint arXiv:2310.10688 , 2024. [47] M. Jin, S. Wang, L. Ma, Z. Chu, J. Y. Zhang, X. Shi, P.-Y. Chen, Y. Liang, Y.-F. Li, S. Pan, and Q. Wen, “Time-LLM: Time series forecasting by reprogramming large language models,” in 
+
+The Twelfth International Conference on Learning Representations , 2024. [48] M. Goswami, K. Szafer, A. Choudhry, Y. Cai, S. Li, and A. Dubrawski, “MOMENT: A family of open time-series foundation models,” arXiv preprint arXiv:2402.03885 , 2024. [49] K. Rasul, A. Ashok, A. R. Williams, H. Ghonia, R. Bhagwatkar, A. Khorasani, M. J. Darvishi Bayazi et al. , “Lag-Llama: Towards foundation models for probabilistic time se-ries forecasting,” arXiv preprint arXiv:2310.08278 , 2023. [50] Y. Liu, G. Qin, Z. Shi, Z. Chen, C. Yang, X. Huang, J. Wang, and M. Long, “Sundial: A family of highly capable time series foundation models,” arXiv preprint arXiv:2502.00816 , 2025. [51] Y. Liu, H. Zhang, C. Li, X. Huang, J. Wang, and M. Long, “Timer: Transformers for time series analysis at scale,” arXiv preprint arXiv:2402.02368 , 2024. [52] X. Wu, J. Jin, W. Qiu, P. Chen, Y. Shu, B. Yang, and C. Guo, “Aurora: Towards universal generative multimodal time series forecasting,” arXiv preprint arXiv:2509.22295 , 2025. 12 A Implementation Details 
+
+This section records implementation-specific details that are not central to the main text. Exploratory learning and downstream inference share the same core execution pipeline and tool stack, but differ in permissions: exploration can access supervision tools and update external artifacts such as notes, memory, and skills, whereas inference reuses the distilled artifacts in read-only form. Our results focus on the procedural shifts in agent reasoning, which we validate through detailed component analysis (noexp vs. TimeClaw) and qualitative trace evidence that confirms the reliability of the learned strategies. We observe that the performance gains are tied to these structural improvements in the execution policy rather than random variance. In our experiments, language-model calls are served through an OpenAI-compatible external API interface, while the local time-series components, including the forecasting and indicator backbones used by the agent tools, are deployed on two NVIDIA RTX 3090 GPUs. We explore 300 samples per task, and a full exploration run takes about one day in the current setup. In the current setup, a full exploration run takes a substantial number of tokens due to the generation of multiple candidate paths for each sample. 
+
+## B Dataset Details 
+
+This section provides appendix-only details on corpus construction, with emphasis on source inde-pendence and task coverage. 
+
+B.1 Learning Corpus 
+
+The learning corpus is constructed to be MTBench-compatible rather than benchmark-identical. Concretely, we align the corpus to the MTBench task contracts, task families, horizon structure, label spaces, and input-output formats, so that exploratory execution is performed under the same problem interface that will later appear at evaluation time. At the same time, the underlying samples are generated from an independent data pipeline rather than copied from the official benchmark. The independent construction follows the two domains used in the paper. On the weather side, we build aligned forecasting, trend, indicator, and MCQA-style instances from separate weather and event sources. On the finance side, we build aligned forecasting and reasoning instances from separately collected price and news data, and match the benchmark at the level of sequence-length schedules, answer schemas, and task-specific output structure. For label-based tasks, the generated pool is further rebalanced so that the marginal task distribution remains comparable to the benchmark setting. To ensure that transfer is measured rather than memorization, the learning corpus is explicitly isolated from the benchmark evaluation samples. In particular, the construction enforces source-level disjointness checks, such as non-overlap of finance URLs and weather station identifiers, while preserving schema compatibility with the MTBench evaluation interface. This design allows TimeClaw to learn reusable execution experience on aligned but independent samples, and then test whether that experience improves performance on unseen benchmark instances. 
+
+B.2 Evaluation Corpus 
+
+The evaluation corpus covers both weather and finance. In weather, we evaluate forecasting, future-trend classification, past-trend classification, indicator prediction, and multiple-choice question answering. In finance, we evaluate forecasting, trend classification, indicator prediction, multiple-choice question answering, and news–price correlation reasoning. Each domain includes short-horizon and long-horizon settings so that both near-term and extended-window reasoning can be tested under the same benchmark framework. 
+
+B.3 Task Inventory 
+
+For reference, the paper reports a fixed 17-task evaluation suite: four finance prediction tasks, three weather prediction tasks, six finance reasoning tasks, and four weather reasoning tasks. This paper-level inventory should be distinguished from internal execution tasks. Some tasks may involve 13 multiple output fields or metric views, but are still counted as one paper task; for example, weather-indicator prediction is one task, even though it is reported with multiple numeric metrics. For clarity, we summarize the task requirements in plain language below. • Finance forecast (7D / 30D). The agent receives a historical stock-price window together with related text context and must predict the future price sequence over the target horizon. In simple terms, the question is: given the recent market history, what will the next period of the price curve look like? • Finance MACD prediction (7D / 30D). The agent receives the same kind of stock-history input, but the target is not the raw future price curve. Instead, it must predict the future MACD indicator trajectory. In simple terms, the task asks whether the agent can reason about a derived technical indicator rather than only the original series. • Weather forecast (7D / 14D). The agent observes past weather measurements and must predict the future temperature sequence for the required horizon. In simple terms, the task is to continue the weather curve into the future. • Weather-indicator prediction. The agent observes the historical weather window and predicts summary values of the future window, namely the future maximum, minimum, and temperature difference. In simple terms, the agent does not need to output the full future curve, but must summarize the important future extremes correctly. • Finance trend classification (7D / 30D). Instead of predicting exact future values, the agent must decide which discrete trend label best describes the future stock movement. In simple terms, the task asks whether the future movement is strongly down, mildly down, neutral, mildly up, or strongly up. • Finance correlation reasoning (7D / 30D). The agent is given market data together with finance news and must judge how the news and the future price movement are related. In simple terms, it must decide whether the relation is strongly positive, moderately positive, neutral, moderately negative, or strongly negative. • Finance MCQA (7D / 30D). The agent is given a finance question with four candidate answers, together with the associated time-series and text context, and must choose the correct option. In simple terms, this is a benchmark multiple-choice reasoning task grounded in financial time-series evidence. • Weather future-trend classification. The agent receives a past weather window and must decide the overall direction of the coming weather period. In simple terms, the question is whether the future weather is generally going up, going down, or staying stable. • Weather past-trend classification. The agent receives a past weather window and must classify the trend already present inside that historical window. In simple terms, instead of forecasting the future, it must summarize whether the recent history itself was increasing, decreasing, or stable. • Weather MCQA (short / long). The agent is given a weather question with four answer choices and must select the correct one using the time-series context. In simple terms, this tests weather-grounded multiple-choice reasoning rather than direct numeric prediction. 
+
+## C Evaluation Protocol 
+
+This section records the appendix-level scoring details behind the main-text results. All reported results follow the same 17-task MTBench evaluation suite, with official task prompts, output contracts, label spaces, and MTBench-compatible scoring conventions kept fixed. 
+
+C.1 Metric Mapping 
+
+The paper reports 30 metrics induced by the 17-task suite. For numeric prediction tasks, we report the official task metrics associated with each task family: finance forecasting uses MAE and MAPE; finance MACD prediction uses MSE; weather forecasting uses MSE and MAE; and weather-indicator prediction uses max/min/diff under both MSE and MAE. For reasoning tasks, we report accuracy-based metrics. Finance trend and finance correlation are evaluated under both the original 5-way label space and the coarser 3-way grouping, while MCQA and weather trend tasks are reported with 14 Table 9: Plain-language summary of the 17 paper tasks.                       
+
+> Task Input Required output Finance forecast (7D / 30D) Historical stock-price window with re-lated text context Future price sequence Finance MACD prediction (7D / 30D) Historical stock-price window with re-lated text context Future MACD indicator se-quence Weather forecast (7D / 14D) Historical weather window Future temperature sequence Weather indicator Historical weather window Future max / min / diff sum-mary values Finance trend (7D / 30D) Historical stock-price window with re-lated text context One future trend label Finance correlation (7D /30D) Market series together with finance news One correlation label Finance MCQA (7D / 30D) Finance question, options, and time-series/text context One answer option Weather future trend Historical weather window One future trend label Weather past trend Historical weather window One historical trend label Weather MCQA (short /long) Weather question, options, and time-series context One answer option
+
+standard accuracy. When model outputs do not exactly match the target sequence length for numeric tasks, predictions are aligned to ground-truth length using the same MTBench-style interpolation rule before metric computation. 
+
+C.2 Included and Filtered Samples 
+
+We distinguish raw recorded rows from rows that contribute to the final benchmark summary. A sample is excluded from summary aggregation if it is unscorable under the benchmark contract, for example, because the ground truth is invalid, the prediction cannot be parsed into the required output type, or execution terminates abnormally. For cumulative numeric summaries, we further apply the same official-style threshold filtering policy used in the MTBench-compatible evaluation path: rows may still be kept in the raw log for auditing, but extreme-error rows above the task-specific official threshold do not contribute to the final averaged metric. Therefore, the effective sample count used by a reported metric may be smaller than the number of raw inference rows, and this behavior reflects the benchmark’s official summary policy rather than an additional TimeClaw-specific reporting rule. 
+
+## D Details of Tools 
+
+TimeClaw exposes a relatively large tool library, so we organize the tools by functional role rather than enumerate every tool in a flat list. At a high level, the tool library contains forecasting tools, series-analysis tools, text-analysis tools, and exploration-only supervision tools. Different tasks activate different subsets of these tools, but the grouping below captures the main functional structure used by the agent. 
+
+D.1 Forecasting and Indicator Tools 
+
+The first group contains forecasting-oriented tools that directly produce future trajectories or indicator predictions. These tools are most important for numeric prediction tasks such as stock forecasting, weather forecasting, and MACD prediction. Representative examples include chronos_forecast ,
+
+moirai_forecast , timesfm_forecast , aurora_forecast , timer_forecast , prophet , ets ,and arima . In simple terms, these tools answer questions such as “what does the future curve look like?” or “what will the future technical indicator trajectory be?” They are often used together with lightweight preprocessing and evidence tools rather than in isolation. 
+
+D.2 Reasoning and Analysis Tools 
+
+The second group contains analysis tools that help the agent interpret observed data before producing a final answer. Profiling tools summarize statistical properties, detection tools identify temporal 15 patterns, and relation-oriented tools measure dependencies among signals. Together, they help the agent assess trends, co-movement, abrupt changes, and whether candidate explanations are supported by the data. For text-grounded tasks, TimeClaw further uses text-analysis tools such as summarize ,
+
+keyword_extract , sentiment , ner , text_similarity , and temporal_align_text to connect news or question text with time-series evidence, especially in finance correlation and MCQA tasks. 
+
+D.3 Exploration-Only Supervision and Orchestration Tools 
+
+The final group contains tools that are available only during exploratory learning and are not exposed at test time. The most important examples are evaluate_against_gt and its batch form, which compare a candidate prediction against ground truth and return task metrics for learning-time analysis. These tools are used to support candidate comparison and experience distillation, not to solve benchmark tasks directly. In addition, exploratory learning may expose branch-generation or orchestration capabilities that help produce multiple candidate paths during exploration. These exploration-only tools are removed at inference time, so the deployed agent solves benchmark tasks using only task-facing evidence tools and previously distilled experience. 
+
+> ## Objective ### Task Prompt {task_prompt} {task_boundary_section} {execution_context_section} {control_context_section} {output_contract_section} ## Observation ### Sample Fingerprint {fingerprint} {profiling_section} {support_section} ## Decision {decision_section} ### Available Tools {tool_names}
+
+D.4 Exploration-Time Context 
+
+> Exploration-Time Prompt Fragment
+> ## Spawn Guidance - If you think this step would benefit from exploring multiple follow-up branches for comparison, prefer using spawn_subagent. - In exploration mode, the first spawn round should create at least 2 distinct candidate branches. ## Evaluate Guidance - evaluate_* is for post-hoc validation and retrospective review, not for solving the task itself. - Before finishing this learning run, evaluate at least one task-valid candidate. - If multiple reasonable candidates exist, compare at least 2 candidate paths before finishing unless tool availability makes that impossible. - If you finish the learning run itself, answer_type must be "learning_summary". ## Control Context - state = need_evidence - required_final_type = learning_summary - subagent slots / branch hints if branch exploration is enabled ## Support - official task description - sample fingerprint and profiling block - optional raw-text access note: call read_raw_text if needed
+
+16 D.5 Inference-Time Context 
+
+Inference-Time Prompt Fragment 
+
+## Control Context - state = need_evidence - required_final_type = {task_type} ## Support - sample-level selected experience packet - selected skills - selected decision skills - selected memory rules - focused tool notes for selected tools only ### Available Tools - task-facing tools only - no spawn_subagent - no evaluate_against_gt / evaluate_batch_against_gt ## Completion - ordinary benchmark answer contract - no learning_summary 
+
+D.6 Representative Prompt Fragments 
+
+Representative Runtime Content 
+
+Task Prompt: official MTBench system/user prompt pair merged into one description block Sample Fingerprint: compact numeric fingerprint of the current sample Profiling Section: basic_stats, autocorrelation, stationarity_test, detect_trend, detect_anomaly (when available) Support Section: reusable guidance + focused tool notes; in inference this is a filtered sample-level packet rather than the full stored memory Sub-Agent Variant: same prompt frame, but branch-local goal and slot-local tool hint are added so different branches explore different candidate paths 
+
+## E External Learning and Distillation 
+
+This section records the implementation details that are useful for reproducing the current exploration pipeline. 
+
+E.1 From Exploratory Execution to Notes 
+
+One exploratory exploration episode is first committed into the append-only Notes layer. In the current implementation, the pipeline writes a note only after the run has produced usable evaluation evidence. Concretely, the execution trace must contain at least one evaluate_against_gt or batch-evaluation result from which the system can extract task metrics. Before the note is written, the pipeline normalizes the final learning_summary against the traced candidate results so that the stored winner, tool chain, and summary text remain aligned with the 17 actually evaluated path. It then constructs a structured single-sample learning analysis from the candidate traces, selected metrics, and task context, and renders that analysis into the note text. The stored note includes the task key, task prompt, compact numeric time-series block, selected text signals, winner tools, recorded prediction, recorded metrics, sample fingerprint, pipeline summary, candidate traces, and source metadata. Notes are written in append-only form and sharded by exact task under notes/<task>.md .
+
+E.2 From Notes to Memory, Tool Notes, and Skills 
+
+After a note is committed, a task-local distillation worker is triggered. The first stage is Notes →
+
+Memory . In the current implementation, this stage is triggered every 10 newly accumulated notes for the same exact task, although explicit finalization can also flush shorter tails. During this step, the system gathers the pending note slice, resolves note-level conflicts, computes summary statistics, and asks the distillation model to update a bounded set of structured memory rules. The resulting rules are stored in the task-local Memory layer, with a hard cap of 30 rules per task. The next stages are derived from the latest full Memory view rather than directly from raw notes. 
+
+Memory → Tool Notes rebuilds per-tool boundary cards. Memory → Skills writes compact operational SOP-style guidance. Memory → Skills Decision writes compact decision-oriented guidance. These three stages are refreshed when the task-local memory fingerprint changes, so they are rebuilt only when the upstream memory content has actually changed. An implementation detail that matters for reproducibility is that writing an artifact and injecting an artifact are two different steps. The exploration pipeline refreshes Memory , Tool Notes , Skills ,and Skills Decision as persistent stores; later inference may retrieve them, but still performs an additional sample-level selection step before prompt injection. 
+
+E.3 Task-Aware Tool Dropout 
+
+Task-aware tool dropout acts only during exploratory learning. After each exploration run, the system parses the execution trace, collects the actually used substantive tools, and updates per-task usage counts. When a later exploration run spawns sub-agents for the same task, these counts are used to precompute slot-local visible tool subsets. Frequently used tools are more likely to be suppressed, while underused tools remain visible. The resulting slot specification is then passed into the exploratory prompt as branch-local tool availability. 
+
+## F Learning and Inference Algorithms G Qualitative Examples 
+
+This section provides artifact-grounded qualitative examples from both exploratory learning and downstream inference. We keep these examples intentionally concrete: every training case is reconstructed from a real training trace, and every inference case is reconstructed from a real row-level inference artifact. We do not add post-hoc interpretations that are absent from the stored artifacts. Instead, we show exactly what the system executed, what evidence each branch or tool produced, and what final record was written back into the trace or row artifact. 
+
+G.1 Training Examples 
+
+These training examples are reconstructed directly from real exploratory traces. We keep the presentation intentionally concrete: each case shows the task setup, the two realized branches, the recorded ground-truth comparison, and the final learning summary written back into the trace. To keep the figures readable, every displayed training case contains exactly two sub-agents. The purpose here is not to retell the task abstractly, but to let the reader inspect how TimeClaw compares alternative execution paths, identifies which path actually matches the task target, and records a reusable preference for future runs. 18 Algorithm 1: TimeClaw Exploratory Execution Learning Loop 
+
+Input: Exploration corpus D = {x1, . . . , x N }; initial reusable experience state A0
+
+> s
+
+;task-dependent evaluation rule for τ
+
+Output: Learned reusable experience states {A s}
+
+foreach Exploration instance x = ( z, c, τ, s ) ∈ D do 
+
+Retrieve current reusable experience state As;Run executor in exploration mode with exploration tools; Generate K ≥ 2 candidate executions Π( x) = {π1, . . . , π K };Filter to task-valid subset: Πvalid (x) ← { πk : ˆ yk satisfies contract of τ };
+
+if |Πvalid (x)| ≥ 2 then 
+
+Compute task-dependent execution quality q(πk; x);Select π⋆(x) = argmax πk ∈Πvalid (x) q(πk; x);
+
+else if |Πvalid (x)| = 1 then 
+
+Record single-execution evidence (no comparative signal); 
+
+else 
+
+Record failure evidence; continue ;
+
+end 
+
+Construct nx = Summarize( x, Π( x), {q(πk; x)}, π ⋆(x)) ;Clean to ex = Clean( nx);Update reusable experience state: As ← Distill( As, e x);
+
+end return {A s}
+
+Algorithm 2: TimeClaw Inference-Time Reuse 
+
+Input: New instance x′ = ( z′, c ′, τ ′, s ′); learned reusable experience states {A s}
+
+Output: Task prediction ˆy
+
+begin 
+
+Retrieve reusable experience for scope s′;Filter to prompt-eligible reusable experience using scope, applicability, and injection status; Assemble prompt with task description, output contract, and sample fingerprint; Add profiling, S OUL , scope-local M EMORY , tool notes, and S KILLS ;Expose only runtime-compatible tools; Run the agent with retrieved experience and runtime tools; 
+
+return ˆy;
+
+end G.2 Inference Examples 
+
+These inference examples are reconstructed from row-level inference artifacts rather than from post-hoc summaries. Each case shows the injected memory rules, the realized tool chain, the stored step records, and the final execution_context . The emphasis is on execution-side evidence reuse at test time: instead of describing the policy at a high level, we show exactly what memory was injected, which tools were called, what intermediate outputs were produced, and how the final prediction was grounded in those stored artifacts. 
+
+## H Limitations and Broader Impacts 
+
+H.1 Limitations 
+
+TimeClaw is evaluated on a fixed 17-task MTBench suite covering finance and weather, so the empirical claims in this paper are limited to benchmarked, verifiable time-series tasks with the tool interfaces considered here. The method also depends on a frozen base LLM, an externally served API stack, and a predefined tool library, so performance may change under different backbones, tool sets, or deployment constraints. 19 Our learning protocol is offline rather than continual: we use a disjoint exploration corpus, fix an exploration budget of 300 samples per task, and then reuse distilled experience at inference time without online adaptation. We do not study sensitivity to exploration budget, domain shift beyond the MTBench-style setting, or real-world deployment under continuously changing data distributions. Exploratory learning also introduces additional compute cost and a high volume of LLM API requests. In the current setup, a full exploration run takes about one day on two NVIDIA RTX 3090 GPUs and consumes a substantial number of tokens due to the generation of multiple candidate paths for each sample. Consequently, scaling to larger tool libraries or broader task suites will linearly increase both compute time and API expenditure. Finally, although we report benchmark metrics across all tasks, we do not include confidence intervals or formal significance tests, so small differences between close baselines should be interpreted cautiously. 
+
+H.2 Broader Impacts 
+
+TimeClaw is intended for scientific and decision-support settings in which an agent must reason over time series, text, and tool outputs in an auditable way. Potential positive impacts include more transparent forecasting and reasoning workflows in domains such as weather analysis and financial monitoring, where reusable execution traces may help users inspect why a prediction was made. Potential negative impacts also exist. In finance, overconfident use of agent forecasts could encourage inappropriate investment decisions; in weather or operational monitoring, incorrect predictions or over-trust in exploratory memories could mislead downstream action. Because TimeClaw improves agentic tool use rather than removing uncertainty, we view it as a decision-support framework rather than a substitute for domain experts, and its outputs should be used with human oversight and task-appropriate safeguards. 
+
+H.3 The Use of Large Language Models (LLMs) 
+
+We acknowledge the use of large language models (LLMs) exclusively for linguistic polishing and manuscript preparation. The application of AI was strictly limited to grammatical refinement, lexical enhancement, and structural editing to ensure clarity and professional presentation. All core scientific components—including the research methodology, experimental framework, data analysis, and technical derivations—represent the authors’ original intellectual contributions. No substantive findings, data interpretations, or scientific insights were generated or influenced by AI tools. 20 Training Example 1 Task / Sample 
+
+weather_aligned_long:USW00003017_11.json:2:forecast 
+
+Task: predict the next 72 hourly temperature values from a 14-day hourly weather series and aligned severe-weather text. 
+
+Task metadata and text excerpts used below 
+
+The trace records a weather long forecast task at station USW00003017 . The text includes hail and thunderstorm-wind reports near the forecast boundary on 2011-07-13 , with heavy rain, strong wind, and storm damage across the Urban Corridor. 
+
+Main Agent Spawn result 
+
+spawn_subagents: n_tasks = 2 sub-agent 0 : forecast the next 72 hourly temperatures with a timesfm2_forecast -anchored path. 
+
+sub-agent 1 : forecast the next 72 hourly temperatures with a chronos2_forecast -anchored path. The main trace later compared both task-valid 72-step forecasts against ground truth. 
+
+Sub-agent 0 Tool chain 
+
+timesfm2_forecast 
+
+Sub-agent result 
+
+answer = [26.578, 25.740, ..., 25.479] 
+
+Reasoning text 
+
+timesfm2_forecast was run on the original 
+
+336 -point hourly temperature series with horizon 
+
+72 and returned a full task-valid forecast array. The recorded explanation says this candidate preserved a realistic day-night cycle across all three forecast days and stayed in a plausible summer temperature range. Its first forecast day cooled into the high teens before reheating the next afternoon, matching the storm-adjacent cooling pattern discussed later in the learning summary. 
+
+Sub-agent 1 Tool chain 
+
+chronos2_forecast 
+
+Sub-agent result 
+
+answer = [27.500, 26.250, ..., 25.875] 
+
+Reasoning text 
+
+chronos2_forecast was run on the same original 
+
+336 -point hourly series and also returned a full task-valid 72 -step forecast. The recorded explanation says this candidate preserved the diurnal cycle but with visibly quantized quarter-step values across much of the horizon. It also stayed warmer than the TimesFM path through the early post-storm cooling segment, which later became part of the failure analysis in the trace. 
+
+Ground truth Comparison and Final Learning Summary Ground truth evaluation 
+
+sub-agent 0 / timesfm2_forecast : MAE = 1.585 , RMSE = 2.277 , MAPE = 7.765 , MSE = 5.183 sub-agent 1 / chronos2_forecast : MAE = 1.821 , RMSE = 2.450 , MAPE = 9.105 , MSE = 6.001 
+
+Final learning summary 
+
+insight : Among the two evaluated 72 -step weather forecasts, the TimesFM branch performed best against ground truth, with lower error than the Chronos-2 branch on every reported metric. Both candidates captured the diurnal cycle, but the TimesFM forecast tracked the realized temperatures more closely overall. 
+
+recommendation : For similar hourly temperature forecasting with strong daily seasonality and storm-related context, prefer the timesfm2_forecast path as the primary baseline and keep chronos2_forecast as a secondary comparison model. 
+
+Figure 5: Execution sample on weather forecast task. 21 Training Example 2 Task / Sample 
+
+finance_aligned_long:00006.parquet_row:6:forecast 
+
+Task: predict the next 33 hourly stock prices from a 30-day hourly price series and an aligned finance article. 
+
+Task metadata and text excerpts used below 
+
+The trace records a finance long forecast task on AAP . The article is mixed-to-neutral: it mentions strong prior earnings and raised guidance, but also says estimates flatlined and gives a Zacks Rank #3 (Hold) 
+
+outlook. 
+
+Main Agent Spawn result 
+
+spawn_subagents: n_tasks = 2 sub-agent 0 : forecast the next 33 hourly prices with a timesfm2_forecast -anchored path. 
+
+sub-agent 1 : forecast the next 33 hourly prices with a chronos2_forecast -anchored path. The main trace later compared both task-valid forecast arrays against ground truth. 
+
+Sub-agent 0 Tool chain 
+
+timesfm2_forecast 
+
+Sub-agent result 
+
+answer = [236.906, 236.682, ..., 230.766] 
+
+Reasoning text 
+
+timesfm2_forecast was run on the original 
+
+134 -point hourly price series with horizon 33 and returned a full task-valid forecast array. The recorded explanation says this candidate was smooth and mildly downward-sloping, which matched the weak-trend, high-autocorrelation series better than an unchanged plateau. The trace also notes that the mixed article should be used only as a light contextual prior rather than the main driver of the forecast shape. 
+
+Sub-agent 1 Tool chain 
+
+chronos2_forecast 
+
+Sub-agent result 
+
+answer = [237.000, 237.000, ..., 237.000] 
+
+Reasoning text 
+
+chronos2_forecast was run on the same original 134 -point hourly series with horizon 33 
+
+and returned a task-valid forecast array. The result was a flat constant path at 237.0 for all 33 steps, which the later learning analysis describes as underfitting the evolving hourly structure. This rigid plateau became the decisive failure signal when the two forecast candidates were evaluated against ground truth. 
+
+Ground truth Comparison and Final Learning Summary Ground truth evaluation 
+
+sub-agent 0 / timesfm2_forecast : MAE = 2.873 , RMSE = 3.743 , MAPE = 1.241 , MSE = 14.012 sub-agent 1 / chronos2_forecast : MAE = 5.336 , RMSE = 6.465 , MAPE = 2.322 , MSE = 41.792 
+
+Final learning summary 
+
+insight : The TimesFM 2.0 candidate was the stronger path for this 33 -step AAP hourly forecast. Its prediction captured a plausible mild downward drift and achieved materially lower error than the Chronos-2 constant-line candidate in post-hoc evaluation. 
+
+recommendation : For similar financial series with weak trend, high autocorrelation, and neutral-to-mild news context, prefer a foundation forecast path like 
+
+timesfm2_forecast and treat the news as a light contextual prior unless it is strongly directional or tightly event-timed. 
+
+Figure 6: Execution sample on finance forecast task. 22 Training Example 3 Task / Sample 
+
+weather_aligned_long:USW00012815_29.json:115:trend 
+
+Task: analyze the past 14 days of hourly temperature readings and predict the next 3-day temperature trend label. 
+
+Task metadata and text excerpts used below 
+
+The trace records a weather long future-trend task from 2010-04-23 00:00:00 to 2010-05-06 23:00:00 . The article is end-aligned severe-weather text with thunderstorm and funnel-cloud context. 
+
+Main Agent Two branch outcomes 
+
+Sub-agent 0 finished with llm_reasoning_classification .Sub-agent 1 finished with chronos2_forecast -> llm_reasoning_classification .The trace later evaluated the two labels against the stored ground truth. 
+
+Sub-agent 0 Tool chain 
+
+llm_reasoning_classification 
+
+Sub-agent result 
+
+answer = decreasing 
+
+Reasoning text 
+
+The trace summary states that 
+
+llm_reasoning_classification 
+
+used the hourly temperature series together with the boundary storm narrative and the task’s exact day-mean comparison rule. That tool returned decreasing .
+
+Sub-agent 1 Tool chain 
+
+chronos2_forecast -> llm_reasoning_classification 
+
+Sub-agent result 
+
+answer = increasing 
+
+Reasoning text 
+
+chronos2_forecast generated a 72-hour forecast. The recorded reasoning then used the exact comparison values 
+
+last observed 24-hour mean = 26.63125 , first predicted 24-hour mean = 29.75 , and difference = 3.11875 .Because that difference exceeded the prompt threshold, the branch returned increasing .
+
+Ground truth Comparison and Final Learning Summary Ground truth evaluation 
+
+sub-agent 0 : decreasing → correct = true sub-agent 1 : increasing → correct = false ground_truth = decreasing 
+
+Final learning summary 
+
+insight : The successful path prioritized the last 24-hour regime and end-aligned thunderstorm/funnel-cloud context over a generic forecast model. The chronos2-based path overpredicted warming and missed the task’s required boundary-sensitive day-mean comparison. 
+
+recommendation : When storm or severe-weather text occurs near the forecast boundary, compare at least one text-aware candidate against one forecast-model candidate, and favor the branch that respects the explicit 24-hour mean rule under regime-break conditions. 
+
+Figure 7: Execution sample on weather future-trend task. 23 Training Example 4 Task / Sample 
+
+finance_aligned_short:00400.parquet_row:281:trend 
+
+Task: predict the future return bucket from an aligned short finance series and article. 
+
+Task metadata and text excerpts used below 
+
+The trace records a finance short trend task. The news is an earnings-preview article with strong year-over-year growth expectations but an inconclusive earnings-beat signal. 
+
+Main Agent Two branch outcomes 
+
+Sub-agent 0 finished with ets_forecast -> value_at -> value_at -> llm_reasoning_classification .Sub-agent 1 finished with moirai1_1_r_base_forecast -> llm_reasoning_classification .The trace later compared these two bucket labels against the stored ground truth. 
+
+Sub-agent 0 Tool chain 
+
+ets_forecast -> value_at -> value_at -> llm_reasoning_classification 
+
+Sub-agent result 
+
+answer = -2% ~+2% 
+
+Reasoning text 
+
+ets_forecast produced a 78-step forecast ending at 
+
+62.544 .
+
+value_at on original_input retrieved the latest observed price as 61.94 .The second value_at computed 
+
+pct_change_vs_reference = +0.976% , which stayed below the +2% cutoff, so the branch returned -2% ~+2% .
+
+Sub-agent 1 Tool chain 
+
+moirai1_1_r_base_forecast -> llm_reasoning_classification 
+
+Sub-agent result 
+
+answer = +2% ~+4% 
+
+Reasoning text 
+
+moirai1_1_r_base_forecast 
+
+produced a rising 96-step path ending at 
+
+64.382 .The recorded reasoning states that this implied an approximate forward return of +3.94% , which mapped to +2% ~+4% .
+
+Ground truth Comparison and Final Learning Summary Ground truth evaluation 
+
+sub-agent 0 : -2% ~+2% → correct = true sub-agent 1 : +2% ~+4% → correct = false ground_truth = -2% ~+2% 
+
+Final learning summary 
+
+insight : The better path was the forecast-to-endpoint workflow from ets_forecast -> value_at -> llm_reasoning_classification . It computed the latest observed price at 61.94 and a forecast endpoint at 62.544 , implying only about 
+
++0.98% . The alternative branch projected about +3.94% and overcalled the move. 
+
+recommendation : When weak or routine earnings-preview news accompanies a highly autocorrelated intraday series, prefer an explicit endpoint-based bucket decision from a concrete forecast path and compare the endpoint directly with the latest observed price. 
+
+Figure 8: Execution sample on finance trend task. 24 Training Example 5 Task / Sample 
+
+weather_aligned_long:USW00003947_17.json:73:trend_past 
+
+Task: classify the temperature trend over the observed past 14 days. 
+
+Task metadata and text excerpts used below 
+
+The trace records a weather long past-trend task on hourly temperatures from 2017-07-09 00:00:00 to 
+
+2017-07-22 23:00:00 . The aligned text is a severe-weather narrative with hail and thunderstorm wind near the end of the window. 
+
+Main Agent Two branch outcomes 
+
+Sub-agent 0 finished with llm_reasoning_classification .Sub-agent 1 finished with temporal_align_text -> llm_reasoning_classification .The trace later evaluated both labels against the stored ground truth. 
+
+Sub-agent 0 Tool chain 
+
+llm_reasoning_classification 
+
+Sub-agent result 
+
+answer = stable 
+
+Reasoning text 
+
+The trace says this branch was instructed to treat every 24 hourly readings as one day, compute 14 daily mean temperatures, fit a linear trend on those daily means, and apply the prompt thresholds. That branch used the storm article only as secondary context and returned stable .
+
+Sub-agent 1 Tool chain 
+
+temporal_align_text -> llm_reasoning_classification 
+
+Sub-agent result 
+
+answer = increasing 
+
+Reasoning text 
+
+temporal_align_text aligned the severe-weather article near the boundary. The same execution trace records that the classifier still used the daily-mean slope rule, but ultimately returned increasing .
+
+Ground truth Comparison and Final Learning Summary Ground truth evaluation 
+
+sub-agent 0 : stable → correct = true sub-agent 1 : increasing → correct = false ground_truth = stable 
+
+Final learning summary 
+
+insight : For 14-day hourly weather trend tasks, the reliable path is to classify from the observed window’s 14 daily mean temperatures using the prompt thresholds. In this run, the candidate that returned stable was correct, while a text-aligned candidate drifted to increasing and failed. 
+
+recommendation : Prefer a day-aligned daily-mean trend workflow over multimodal narrative influence, and treat storm text only as secondary context unless it visibly changes the whole-window daily-mean trend. 
+
+Figure 9: Execution sample on weather past-trend task. 25 Inference Example 1 Task / Sample 
+
+weather_aligned_long:USW00003017_11.json:3:forecast 
+
+Task: predict the next 72 hourly temperature values from a 14-day hourly weather series and aligned severe-weather text. 
+
+Task metadata and text excerpts used below 
+
+The row artifact records a weather long forecast task at station USW00003017 . The history shows a strong repeated 24 -hour rhythm, and the aligned text describes hail and thunderstorm-wind events near the forecast boundary. 
+
+Inference Flow Injected skills text 
+
+When the daily cycle is strong but the latest endpoint looks unusually warm or storm-distorted, compare it against the recent repeating temperature band, soften the start back toward that band, and prefer sundial_base_128m_forecast .
+
+Injected memory text 
+
+1. Forecasts should preserve a believable 24 -hour temperature rhythm across all 72 
+
+hourly steps. 2. Treat storm text as a short-lived modifier unless it clearly signals a real regime break such as a cold front or snow. 3. Start the forecast close to the last observed temperature before continuing the next diurnal cycle. 
+
+Tool chain 
+
+sundial_base_128m_forecast -> timesfm2_forecast 
+
+Step records 
+
+1. sundial_base_128m_forecast : produced a smooth 72 -step temperature path that preserved overnight cooling and daytime warming. 2. timesfm2_forecast : produced a second real 72 -step forecast candidate for the same horizon. 3. Final prediction metrics in the row artifact: MAE = 1.687 , RMSE = 2.323 , MAPE = 8.090 , MSE = 5.398 .
+
+execution_context field 
+
+The historical series shows a strong repeated 24 -hour temperature rhythm with only a brief storm event near the boundary. 
+
+sundial_base_128m_forecast preserved smooth overnight cooling and daytime warming while softening the warm endpoint back toward the recent band. 
+
+timesfm2_forecast was plausible, but sundial_base_128m_forecast aligned better with the sample guidance for a storm-distorted boundary. 
+
+Observed outcome 
+
+Prediction: [27.142, 25.426, ..., 31.569] 
+
+Ground truth: [26.100, 25.000, ..., 24.300] 
+
+Figure 10: Inference sample on weather forecast task. 26 Inference Example 2 Task / Sample 
+
+finance_aligned_long:00112.parquet_row:112:trend 
+
+Task: predict the finance long-horizon future return bucket. 
+
+Task metadata and text excerpts used below 
+
+The row artifact records a finance long trend task. The execution used endpoint evidence plus news-event checking rather than a full-month forecast-first path. 
+
+Inference Flow Injected skills text 
+
+Judge the bucket from the latest regime versus the current endpoint rather than the full-month slope; anchor on the latest level with value_at , use detect_trend only to summarize the recent tail, and keep the older month drift secondary. 
+
+Injected memory text 
+
+1. Weight the last regime and endpoint behavior more than the full-month trend. 2. Match the chosen bucket to the implied percentage move from the latest price. 3. Treat routine bullish commentary as weaker magnitude evidence than a fresh company catalyst. 
+
+Tool chain 
+
+value_at -> text_to_event -> llm_reasoning_classification 
+
+Step records 
+
+1. value_at : latest observed price = 19.375 , with pct_change_vs_reference = 35.55% from the first observed price. 2. text_to_event : events = [] , n_events = 0 .3. llm_reasoning_classification : answer = +2% ~+4% .
+
+execution_context field 
+
+The latest observed price is 19.375 , well above the start of the month, confirming strong upward momentum into the endpoint. The series diagnostics indicate a significant uptrend but also non-stationarity, so the latest regime matters more than the full-month average drift. News is supportive of fundamentals, but text_to_event found no strong discrete catalyst, which argues for a moderate bullish bucket instead of the most extreme one. 
+
+Observed outcome 
+
+Prediction: +2% ~+4% 
+
+Ground truth: +2% ~+4% 
+
+Figure 11: Inference sample on finance trend task. 27 Inference Example 3 Task / Sample 
+
+weather_aligned_long:USW00003017_16.json:8:trend 
+
+Task: predict the next 3-day weather trend label from a 14-day hourly series and aligned weather text. 
+
+Task metadata and text excerpts used below 
+
+The row artifact records a weather long future-trend task. The execution emphasized daily segmentation and last-day mean measurement before final classification. 
+
+Inference Flow Injected skills text 
+
+Compare the mean of the first future 24 hours against the mean of the last observed 24 
+
+hours using the exact ±0.5 rule, and prefer exact daily segmentation plus boundary-aware next-day reasoning over general slope impressions. 
+
+Injected memory text 
+
+1. Classify from the mean of the last observed 24 hours versus the mean of the first predicted 24 hours using the exact ±0.5 thresholds. 2. Prioritize the latest 24-hour regime and any end-aligned storm context over the full 14-day slope. 3. Segment the series into exact daily windows before reasoning when the task is explicitly about comparing daily means. 
+
+Tool chain 
+
+segment -> window_stats -> llm_reasoning_classification 
+
+Step records 
+
+1. segment : the 336 hourly values were divided into 14 exact daily windows. 2. window_stats : on the last observed 24 hours, mean = 16.435416666666665 .3. llm_reasoning_classification : answer = increasing .
+
+execution_context field 
+
+The 336 hourly values divide cleanly into 14 exact 24-hour daily windows, so a like-for-like daily comparison is appropriate. 
+
+window_stats on the last observed 24 hours returned a mean of 16.435 for the reference day. 
+
+llm_reasoning_classification used that reference mean plus the end-aligned severe-weather context and returned increasing .
+
+Observed outcome 
+
+Prediction: increasing 
+
+Ground truth: increasing 
+
+Figure 12: Inference sample on weather future-trend task. 28 Inference Example 4 Task / Sample 
+
+weather_aligned_short:USW00003017_11.json:3:trend 
+
+Task: predict the next-1-day weather trend label from a 7-day hourly series and aligned weather text. 
+
+Task metadata and text excerpts used below 
+
+The row artifact records a weather short future-trend task. This example contains both a primary forecast path and an additional challenger forecast check before the final answer. 
+
+Inference Flow Injected skills text 
+
+Compute the mean of the final observed 24 -hour window, generate an explicit next-day 
+
+24 -step forecast, and classify only from the difference between those two means instead of from the weekly slope or weather narrative alone. 
+
+Injected memory text 
+
+1. Base the label on the difference between the observed last-day mean and the first forecast-day mean rather than on the full-series slope. 2. Treat compressed last-day windows near the ±0.5 cutoff as threshold-sensitive cases. 3. When boundary weather makes the mean shift near the cutoff, compare more than one plausible next-day forecast scenario before classifying. 
+
+Tool chain 
+
+segment -> chronos2_forecast -> window_stats -> window_stats -> aurora_forecast -> llm_reasoning_classification 
+
+Step records 
+
+1. window_stats on the last observed 24-hour window gave mean = 20.239583333333332 .2. window_stats on the chronos2_forecast output gave mean = 24.432291666666668 and mean_delta_vs_reference = 4.192291666666669 .3. aurora_forecast was executed as an additional boundary-aware challenger forecast. 4. llm_reasoning_classification : answer = increasing .
+
+execution_context field 
+
+The last observed 24-hour mean from window_stats on original_input is 20.24 .
+
+window_stats on the chronos2_forecast output gave a first forecast-day mean of 
+
+24.432 , a +4.192 increase versus the last observed day. Both primary and challenger boundary-aware forecast paths indicate the next day’s mean temperature is well above the last observed day’s mean, exceeding the +0.5 
+
+threshold. 
+
+Observed outcome 
+
+Prediction: increasing 
+
+Ground truth: increasing 
+
+Figure 13: Inference sample on weather future-trend task. 29 Inference Example 5 Task / Sample 
+
+finance_aligned_short:00100.parquet_row:100:forecast 
+
+Task: predict the next 78 intraday stock prices from a short-horizon finance series and aligned finance text. 
+
+Task metadata and text excerpts used below 
+
+The row artifact records a finance short forecast task. The aligned text is generic Nasdaq volume reporting, so the execution emphasizes recent price structure rather than extracting a strong textual catalyst. 
+
+Inference Flow Injected skills text 
+
+When recent prices are highly autocorrelated and move through many small continuous changes while the text is weak or generic, preserve dense local drift, downweight the text, and prefer timesfm2_forecast .
+
+Injected memory text 
+
+1. Use aligned news as a light directional calibration unless it contains a clear near-horizon catalyst. 2. Return exactly the prompt-specified number of float prices in the required format. 3. Prefer timesfm2_forecast when a 5-minute financial series needs smooth fine-grained continuation rather than quantized level holding. 
+
+Tool chain 
+
+timesfm2_forecast -> moirai1_1_r_base_forecast 
+
+Step records 
+
+1. timesfm2_forecast : generated a smooth 78 -step path clustered near 51.41 and slowly easing lower. 2. moirai1_1_r_base_forecast : generated a second 78 -step candidate with repeated oscillations and sharper spikes. 3. Final prediction metrics in the row artifact: MAE = 0.190 , RMSE = 0.219 , MAPE = 0.371 , MSE = 0.048 .
+
+execution_context field 
+
+timesfm2_forecast generated a smooth 78 -step path clustered near 51.41 and slowly easing lower. 
+
+moirai1_1_r_base_forecast generated a much choppier 78 -step path with repeated sharp oscillations and spikes. The news text was generic Nasdaq volume reporting, so recent price structure is the main forecast signal. 
+
+Observed outcome 
+
+Prediction: [51.414, 51.423, ..., 51.327] 
+
+Ground truth: [51.367, 51.267, ..., 51.530] 
+
+Figure 14: Inference sample on finance forecast task. 30
